@@ -31,6 +31,14 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 
+#[derive(Debug, Default)]
+pub(crate) struct CommandGroups {
+    pub deletes: Vec<Command>,
+    pub creates: Vec<Command>,
+    pub updates: Vec<Command>,
+    pub post_updates: Vec<Command>,
+}
+
 /// JSON object ? `google.protobuf.Struct` (for experimental config `features`).
 fn json_to_prost_struct(v: &Value) -> Option<Struct> {
     let obj = v.as_object()?;
@@ -320,11 +328,11 @@ fn phrase_refs(function_id: Option<&str>) -> Option<StopKeywordReferences> {
     Some(StopKeywordReferences { global_functions })
 }
 
-pub(crate) fn extended_resource_commands(
+pub(crate) fn extended_resource_command_groups(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,
-) -> Vec<Command> {
+) -> CommandGroups {
     let mut var_del = Vec::new();
     let mut var_create = Vec::new();
     let mut var_update = Vec::new();
@@ -650,21 +658,6 @@ pub(crate) fn extended_resource_commands(
         }
     }
 
-    let mut out: Vec<Command> = Vec::new();
-    out.extend(var_del);
-    out.extend(var_create);
-    out.extend(var_update);
-    out.extend(ho_del);
-    out.extend(ho_create);
-    out.extend(ho_update);
-    out.extend(sms_del);
-    out.extend(sms_create);
-    out.extend(sms_update);
-    out.extend(sk_del);
-    out.extend(sk_create);
-    out.extend(sk_update);
-    out.extend(exp_update);
-
     // `handoff_set_default` is queued after create/update in Python (not part of the three phases).
     let mut defaults: Vec<Command> = Vec::new();
     for resource in resources.values() {
@@ -702,8 +695,22 @@ pub(crate) fn extended_resource_commands(
             );
         }
     }
-    out.extend(defaults);
-    out
+    let mut groups = CommandGroups::default();
+    groups.deletes.extend(var_del);
+    groups.deletes.extend(ho_del);
+    groups.deletes.extend(sms_del);
+    groups.deletes.extend(sk_del);
+    groups.creates.extend(var_create);
+    groups.creates.extend(ho_create);
+    groups.creates.extend(sms_create);
+    groups.creates.extend(sk_create);
+    groups.updates.extend(var_update);
+    groups.updates.extend(ho_update);
+    groups.updates.extend(sms_update);
+    groups.updates.extend(sk_update);
+    groups.updates.extend(exp_update);
+    groups.post_updates = defaults;
+    groups
 }
 
 #[cfg(test)]
@@ -720,6 +727,16 @@ mod tests {
         m
     }
 
+    fn flatten(groups: CommandGroups) -> Vec<Command> {
+        groups
+            .deletes
+            .into_iter()
+            .chain(groups.creates)
+            .chain(groups.updates)
+            .chain(groups.post_updates)
+            .collect()
+    }
+
     #[test]
     fn variable_create_and_delete_roundtrip_types() {
         let mut m = map_with(vec![(
@@ -732,7 +749,7 @@ mod tests {
             },
         )]);
         let projection = serde_json::json!({});
-        let cmds = extended_resource_commands(&m, &projection, &None);
+        let cmds = flatten(extended_resource_command_groups(&m, &projection, &None));
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].r#type, "variable_create");
         assert!(matches!(
@@ -746,7 +763,7 @@ mod tests {
                 "vrbl-x": { "name": "OrderId" }
             }}}
         });
-        let cmds = extended_resource_commands(&m, &projection, &None);
+        let cmds = flatten(extended_resource_command_groups(&m, &projection, &None));
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].r#type, "variable_delete");
     }
@@ -790,7 +807,7 @@ env_phone_numbers:
             ),
         ]);
         let projection = serde_json::json!({});
-        let cmds = extended_resource_commands(&m, &projection, &None);
+        let cmds = flatten(extended_resource_command_groups(&m, &projection, &None));
         let types: Vec<&str> = cmds.iter().map(|c| c.r#type.as_str()).collect();
         assert!(types.contains(&"handoff_create"));
         assert!(types.contains(&"handoff_set_default"));
@@ -832,7 +849,7 @@ language_code: en-US
             ),
         ]);
         let projection = serde_json::json!({});
-        let cmds = extended_resource_commands(&m, &projection, &None);
+        let cmds = flatten(extended_resource_command_groups(&m, &projection, &None));
         let types: Vec<&str> = cmds.iter().map(|c| c.r#type.as_str()).collect();
         assert!(types.contains(&"stop_keywords_create"));
         assert!(types.contains(&"experimental_config_update_config"));

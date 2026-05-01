@@ -188,93 +188,7 @@ impl PlatformClient for HttpPlatformClient {
             .get("projection")
             .cloned()
             .unwrap_or_else(|| response.clone());
-        let mut map = ResourceMap::new();
-
-        for (id, topic) in topic_entries(&projection) {
-            let name = topic
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or(id.as_str())
-                .to_string();
-            let file_name = clean_name(&name).to_lowercase();
-            let file_path = format!("topics/{file_name}.yaml");
-            let content = serde_yaml::to_string(&serde_json::json!({
-                "name": name,
-                "enabled": topic.get("isActive").and_then(Value::as_bool).unwrap_or(true),
-                "actions": topic.get("actions").and_then(Value::as_str).unwrap_or(""),
-                "content": topic.get("content").and_then(Value::as_str).unwrap_or(""),
-                "example_queries": topic.get("exampleQueries").and_then(Value::as_array).map(|arr| {
-                    arr.iter()
-                        .filter_map(|x| x.get("query").and_then(Value::as_str).map(ToString::to_string))
-                        .collect::<Vec<String>>()
-                }).unwrap_or_default(),
-            }))
-            .map_err(|e| ApiError::Http(e.to_string()))?;
-            map.insert(
-                file_path.clone(),
-                Resource {
-                    resource_id: id.clone(),
-                    name: name.clone(),
-                    file_path,
-                    payload: serde_json::json!({"content": content}),
-                },
-            );
-        }
-
-        for (id, function) in function_entries(&projection) {
-            let name = function
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or(id.as_str())
-                .to_string();
-            let file_name = clean_name(&name).to_lowercase();
-            let file_path = format!("functions/{file_name}.py");
-            let content = function
-                .get("code")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            map.insert(
-                file_path.clone(),
-                Resource {
-                    resource_id: id.clone(),
-                    name,
-                    file_path,
-                    payload: serde_json::json!({"content": content}),
-                },
-            );
-        }
-
-        let mut entity_yaml_list = Vec::new();
-        for (id, entity) in entity_entries(&projection) {
-            let name = entity
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or(id.as_str())
-                .to_string();
-            entity_yaml_list.push(serde_json::json!({
-                "name": name,
-                "description": entity.get("description").and_then(Value::as_str).unwrap_or(""),
-                "entity_type": to_snake_case(entity.get("type").and_then(Value::as_str).unwrap_or("")),
-                "config": {},
-            }));
-        }
-        if !entity_yaml_list.is_empty() {
-            let content =
-                serde_yaml::to_string(&serde_json::json!({ "entities": entity_yaml_list }))
-                    .map_err(|e| ApiError::Http(e.to_string()))?;
-            map.insert(
-                "config/entities.yaml".to_string(),
-                Resource {
-                    resource_id: "entities".to_string(),
-                    name: "entities".to_string(),
-                    file_path: "config/entities.yaml".to_string(),
-                    payload: serde_json::json!({"content": content}),
-                },
-            );
-        }
-
-        Ok(map)
+        projection_to_resource_map(&projection)
     }
 
     fn push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
@@ -358,6 +272,218 @@ impl PlatformClient for HttpPlatformClient {
         );
         self.request_json(reqwest::Method::POST, &endpoint, None, Some(payload))
     }
+}
+
+fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, ApiError> {
+    let mut map = ResourceMap::new();
+
+    for (id, topic) in topic_entries(projection) {
+        let name = topic
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(id.as_str())
+            .to_string();
+        let file_name = clean_name(&name).to_lowercase();
+        let file_path = format!("topics/{file_name}.yaml");
+        let content = serde_yaml::to_string(&serde_json::json!({
+            "name": name,
+            "enabled": topic.get("isActive").and_then(Value::as_bool).unwrap_or(true),
+            "actions": topic.get("actions").and_then(Value::as_str).unwrap_or(""),
+            "content": topic.get("content").and_then(Value::as_str).unwrap_or(""),
+            "example_queries": topic.get("exampleQueries").and_then(Value::as_array).map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.get("query").and_then(Value::as_str).map(ToString::to_string))
+                    .collect::<Vec<String>>()
+            }).unwrap_or_default(),
+        }))
+        .map_err(|e| ApiError::Http(e.to_string()))?;
+        map.insert(
+            file_path.clone(),
+            Resource {
+                resource_id: id.clone(),
+                name: name.clone(),
+                file_path,
+                payload: serde_json::json!({"content": content}),
+            },
+        );
+    }
+
+    for (id, function) in function_entries(projection) {
+        let name = function
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(id.as_str())
+            .to_string();
+        let file_name = clean_name(&name).to_lowercase();
+        let file_path = format!("functions/{file_name}.py");
+        let content = function
+            .get("code")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        map.insert(
+            file_path.clone(),
+            Resource {
+                resource_id: id.clone(),
+                name,
+                file_path,
+                payload: serde_json::json!({"content": content}),
+            },
+        );
+    }
+
+    let mut entity_yaml_list = Vec::new();
+    for (id, entity) in entity_entries(projection) {
+        let name = entity
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(id.as_str())
+            .to_string();
+        entity_yaml_list.push(serde_json::json!({
+            "name": name,
+            "description": entity.get("description").and_then(Value::as_str).unwrap_or(""),
+            "entity_type": to_snake_case(entity.get("type").and_then(Value::as_str).unwrap_or("")),
+            "config": {},
+        }));
+    }
+    if !entity_yaml_list.is_empty() {
+        let content = serde_yaml::to_string(&serde_json::json!({ "entities": entity_yaml_list }))
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        map.insert(
+            "config/entities.yaml".to_string(),
+            Resource {
+                resource_id: "entities".to_string(),
+                name: "entities".to_string(),
+                file_path: "config/entities.yaml".to_string(),
+                payload: serde_json::json!({"content": content}),
+            },
+        );
+    }
+
+    // variables/<name> logical resources
+    for (id, variable) in variable_entries(projection) {
+        let name = variable
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(id.as_str())
+            .to_string();
+        let file_path = format!("variables/{name}");
+        map.insert(
+            file_path.clone(),
+            Resource {
+                resource_id: id,
+                name,
+                file_path,
+                payload: serde_json::json!({ "content": "" }),
+            },
+        );
+    }
+
+    // config/handoffs.yaml multi-resource file
+    let mut handoff_yaml_list = Vec::new();
+    for (_id, handoff) in handoff_entries(projection) {
+        if !handoff
+            .get("active")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        handoff_yaml_list.push(serde_json::json!({
+            "name": handoff.get("name").and_then(Value::as_str).unwrap_or(""),
+            "description": handoff.get("description").and_then(Value::as_str).unwrap_or(""),
+            "is_default": handoff.get("isDefault").and_then(Value::as_bool).unwrap_or(false),
+            "sip_config": {
+                "method": "bye"
+            },
+            "sip_headers": []
+        }));
+    }
+    if !handoff_yaml_list.is_empty() {
+        let content = serde_yaml::to_string(&serde_json::json!({ "handoffs": handoff_yaml_list }))
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        map.insert(
+            "config/handoffs.yaml".to_string(),
+            Resource {
+                resource_id: "handoffs".to_string(),
+                name: "handoffs".to_string(),
+                file_path: "config/handoffs.yaml".to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+    }
+
+    // config/sms_templates.yaml multi-resource file
+    let mut sms_yaml_list = Vec::new();
+    for (_id, sms) in sms_entries(projection) {
+        if !sms.get("active").and_then(Value::as_bool).unwrap_or(true) {
+            continue;
+        }
+        sms_yaml_list.push(serde_json::json!({
+                "name": sms.get("name").and_then(Value::as_str).unwrap_or(""),
+                "text": sms.get("text").and_then(Value::as_str).unwrap_or(""),
+                "env_phone_numbers": {
+                    "sandbox": sms.get("envPhoneNumbers").and_then(|v| v.get("sandbox")).and_then(Value::as_str).unwrap_or(""),
+                    "pre_release": sms.get("envPhoneNumbers").and_then(|v| v.get("preRelease")).and_then(Value::as_str).unwrap_or(""),
+                    "live": sms.get("envPhoneNumbers").and_then(|v| v.get("live")).and_then(Value::as_str).unwrap_or(""),
+                }
+            }));
+    }
+    if !sms_yaml_list.is_empty() {
+        let content = serde_yaml::to_string(&serde_json::json!({ "sms_templates": sms_yaml_list }))
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        map.insert(
+            "config/sms_templates.yaml".to_string(),
+            Resource {
+                resource_id: "sms_templates".to_string(),
+                name: "sms_templates".to_string(),
+                file_path: "config/sms_templates.yaml".to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+    }
+
+    // phrase filters
+    let mut phrase_yaml_list = Vec::new();
+    for (_id, pf) in phrase_filter_entries(projection) {
+        phrase_yaml_list.push(serde_json::json!({
+                "name": pf.get("title").and_then(Value::as_str).unwrap_or(""),
+                "description": pf.get("description").and_then(Value::as_str).unwrap_or(""),
+                "regular_expressions": pf.get("regularExpressions").and_then(Value::as_array).cloned().unwrap_or_default(),
+                "say_phrase": pf.get("sayPhrase").and_then(Value::as_bool).unwrap_or(false),
+                "language_code": pf.get("languageCode").and_then(Value::as_str).unwrap_or(""),
+            }));
+    }
+    if !phrase_yaml_list.is_empty() {
+        let content = serde_yaml::to_string(&serde_json::json!({
+            "phrase_filtering": phrase_yaml_list
+        }))
+        .map_err(|e| ApiError::Http(e.to_string()))?;
+        map.insert(
+            "voice/response_control/phrase_filtering.yaml".to_string(),
+            Resource {
+                resource_id: "phrase_filtering".to_string(),
+                name: "phrase_filtering".to_string(),
+                file_path: "voice/response_control/phrase_filtering.yaml".to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+    }
+
+    if let Some(features) = experimental_features(projection) {
+        let content =
+            serde_json::to_string_pretty(&features).map_err(|e| ApiError::Http(e.to_string()))?;
+        map.insert(
+            "agent_settings/experimental_config.json".to_string(),
+            Resource {
+                resource_id: "experimental_config".to_string(),
+                name: "experimental_config".to_string(),
+                file_path: "agent_settings/experimental_config.json".to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+    }
+    Ok(map)
 }
 
 fn base_url_for_region(region: &str) -> Result<&'static str, ApiError> {
@@ -654,20 +780,23 @@ fn build_phase1_commands(resources: &ResourceMap, projection: &Value) -> Vec<Com
         }
     }
 
-    let mut out: Vec<Command> = entity_del
+    let ext_groups =
+        push_extended::extended_resource_command_groups(resources, projection, &metadata);
+    let out: Vec<Command> = entity_del
         .into_iter()
         .chain(function_del)
         .chain(topic_del)
+        .chain(ext_groups.deletes)
         .chain(entity_create)
         .chain(function_create)
         .chain(topic_create)
+        .chain(ext_groups.creates)
         .chain(entity_update)
         .chain(function_update)
         .chain(topic_update)
+        .chain(ext_groups.updates)
+        .chain(ext_groups.post_updates)
         .collect();
-    out.extend(push_extended::extended_resource_commands(
-        resources, projection, &metadata,
-    ));
     out
 }
 
@@ -708,6 +837,34 @@ fn function_entries(projection: &Value) -> HashMap<String, Value> {
 
 fn entity_entries(projection: &Value) -> HashMap<String, Value> {
     extract_entities_map(projection, &["entities", "entities", "entities"])
+}
+
+fn variable_entries(projection: &Value) -> HashMap<String, Value> {
+    extract_entities_map(projection, &["variables", "variables", "entities"])
+}
+
+fn handoff_entries(projection: &Value) -> HashMap<String, Value> {
+    extract_entities_map(projection, &["handoff", "handoffs", "entities"])
+}
+
+fn sms_entries(projection: &Value) -> HashMap<String, Value> {
+    extract_entities_map(projection, &["sms", "templates", "entities"])
+}
+
+fn phrase_filter_entries(projection: &Value) -> HashMap<String, Value> {
+    extract_entities_map(projection, &["stopKeywords", "filters", "entities"])
+}
+
+fn experimental_features(projection: &Value) -> Option<Value> {
+    Some(
+        projection
+            .get("experimentalConfig")?
+            .get("experimentalConfigs")?
+            .get("entities")?
+            .get("default")?
+            .get("features")?
+            .clone(),
+    )
 }
 
 pub(crate) fn extract_entities_map(root: &Value, path: &[&str]) -> HashMap<String, Value> {
@@ -998,5 +1155,72 @@ mod tests {
         let types: Vec<&str> = commands.iter().map(|c| c.r#type.as_str()).collect();
         assert!(types.contains(&"create_topic"));
         assert!(types.contains(&"variable_create"));
+    }
+
+    #[test]
+    fn phase1_and_extended_follow_global_delete_create_update_order() {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            "topics/new.yaml".to_string(),
+            Resource {
+                resource_id: "local".to_string(),
+                name: "new".to_string(),
+                file_path: "topics/new.yaml".to_string(),
+                payload: serde_json::json!({
+                    "content": "name: new\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
+                }),
+            },
+        );
+        resources.insert(
+            "variables/NewVar".to_string(),
+            Resource {
+                resource_id: "local".to_string(),
+                name: "NewVar".to_string(),
+                file_path: "variables/NewVar".to_string(),
+                payload: serde_json::json!({"content": ""}),
+            },
+        );
+        let projection = serde_json::json!({
+            "knowledgeBase": {"topics": {"entities": {"topic-old": {"name": "old"}}}},
+            "variables": {"variables": {"entities": {"vrbl-old": {"name": "OldVar"}}}}
+        });
+        let commands = build_phase1_commands(&resources, &projection);
+        let types: Vec<&str> = commands.iter().map(|c| c.r#type.as_str()).collect();
+        let delete_topic_idx = types
+            .iter()
+            .position(|t| *t == "delete_topic")
+            .expect("delete_topic");
+        let variable_delete_idx = types
+            .iter()
+            .position(|t| *t == "variable_delete")
+            .expect("variable_delete");
+        let create_topic_idx = types
+            .iter()
+            .position(|t| *t == "create_topic")
+            .expect("create_topic");
+        let variable_create_idx = types
+            .iter()
+            .position(|t| *t == "variable_create")
+            .expect("variable_create");
+        assert!(delete_topic_idx < create_topic_idx);
+        assert!(variable_delete_idx < variable_create_idx);
+        assert!(delete_topic_idx < variable_create_idx);
+    }
+
+    #[test]
+    fn projection_to_resource_map_includes_extended_resource_files() {
+        let projection = serde_json::json!({
+            "variables": {"variables": {"entities": {"vrbl-1": {"name": "MyVar"}}}},
+            "handoff": {"handoffs": {"entities": {"ho-1": {"name": "Sales", "description": "to sales", "active": true, "isDefault": true}}}},
+            "sms": {"templates": {"entities": {"twilio_sms-1": {"name": "Welcome", "text": "hi", "active": true, "envPhoneNumbers": {"sandbox": "+1", "preRelease": "+2", "live": "+3"}}}}},
+            "stopKeywords": {"filters": {"entities": {"sk-1": {"title": "HangUp", "description": "end", "regularExpressions": ["^bye$"], "sayPhrase": false, "languageCode": "en-US"}}}},
+            "experimentalConfig": {"experimentalConfigs": {"entities": {"default": {"features": {"foo": true}}}}}
+        });
+        let map = projection_to_resource_map(&projection).expect("map");
+        assert!(map.contains_key("variables/MyVar"));
+        assert!(map.contains_key("config/handoffs.yaml"));
+        assert!(map.contains_key("config/sms_templates.yaml"));
+        assert!(map.contains_key("voice/response_control/phrase_filtering.yaml"));
+        assert!(map.contains_key("agent_settings/experimental_config.json"));
     }
 }
