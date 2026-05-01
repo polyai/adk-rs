@@ -11,6 +11,10 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::{
+    fs,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 fn poly_bin() -> &'static str {
     env!("CARGO_BIN_EXE_poly")
@@ -35,6 +39,31 @@ fn full_fixture_dir() -> PathBuf {
 
 fn empty_fixture_dir() -> PathBuf {
     fixtures_root().join("test_empty_project")
+}
+
+fn make_temp_copy_of_full_fixture() -> PathBuf {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let dst = std::env::temp_dir().join(format!("adk-rs-e2e-format-{ts}"));
+    copy_dir_recursive(&full_fixture_dir(), &dst).expect("copy fixture tree");
+    dst
+}
+
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(src_path, dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 /// Infrastructure: same on-disk trees as `poly/tests/project_test.py` (`TEST_DIR`, `EMPTY_PROJECT_DIR`).
@@ -162,7 +191,7 @@ fn validate_json_succeeds_on_full_fixture() {
 /// Related (CLI): `poly/tests/cli_test.py` - `FormatCommandTest` / `poly format --path <project>`.
 #[test]
 fn format_json_succeeds_on_full_fixture() {
-    let dir = full_fixture_dir();
+    let dir = make_temp_copy_of_full_fixture();
     let output = poly_offline()
         .args(["format", "--json", "--path"])
         .arg(&dir)
@@ -197,5 +226,29 @@ fn diff_json_reports_changes_on_full_fixture() {
         diffs.len() >= 40,
         "expected many file diffs vs empty remote, got {}",
         diffs.len()
+    );
+}
+
+/// Related (CLI): basic `chat` JSON contract against offline in-memory client.
+#[test]
+fn chat_json_succeeds_on_full_fixture() {
+    let dir = full_fixture_dir();
+    let output = poly_offline()
+        .args(["chat", "--json", "--path"])
+        .arg(&dir)
+        .args(["--message", "hello"])
+        .output()
+        .expect("spawn poly chat");
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout must be JSON");
+    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        payload
+            .get("conversation")
+            .and_then(|v| v.get("conversation_id"))
+            .and_then(|v| v.as_str()),
+        Some("local-conversation")
     );
 }

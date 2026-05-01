@@ -4,8 +4,10 @@ use anyhow::Result;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Generator, Shell};
 use serde_json::json;
+use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Parser)]
 #[command(name = "poly", version, about = "Agent Development Kit (Rust)")]
@@ -633,22 +635,49 @@ fn cmd_diff(service: &AdkService, args: DiffArgs) -> ExitCode {
 }
 
 fn cmd_review(args: ReviewArgs) -> ExitCode {
+    let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let service = service_for_path(&bootstrap, &args.path);
+    if !ensure_project_loaded(&service, &args.path, args.json) {
+        return ExitCode::from(1);
+    }
+    let mut reviews = match load_reviews(&args.path) {
+        Ok(v) => v,
+        Err(e) => {
+            emit_error(args.json, &e);
+            return ExitCode::from(1);
+        }
+    };
     let payload = match args.command {
         Some(ReviewCommands::Create(create)) => {
-            json!({"success": true, "action": "create", "hash": create.hash, "before": create.before, "after": create.after, "files": create.files })
+            let review_id = format!("review-{}", unix_nanos());
+            let review = json!({
+                "id": review_id,
+                "hash": create.hash,
+                "before": create.before,
+                "after": create.after,
+                "files": create.files
+            });
+            reviews.push(review.clone());
+            if let Err(e) = save_reviews(&args.path, &reviews) {
+                emit_error(args.json, &e);
+                return ExitCode::from(1);
+            }
+            json!({"success": true, "action": "create", "review": review})
         }
-        Some(ReviewCommands::List) => json!({"success": true, "action": "list", "gists": []}),
+        Some(ReviewCommands::List) => json!({"success": true, "action": "list", "gists": reviews}),
         Some(ReviewCommands::Delete(delete)) => {
-            json!({"success": true, "action": "delete", "id": delete.id})
+            let before = reviews.len();
+            let id = delete.id.unwrap_or_default();
+            reviews.retain(|r| r.get("id").and_then(|v| v.as_str()) != Some(id.as_str()));
+            if let Err(e) = save_reviews(&args.path, &reviews) {
+                emit_error(args.json, &e);
+                return ExitCode::from(1);
+            }
+            json!({"success": true, "action": "delete", "id": id, "deleted": before != reviews.len()})
         }
         None => json!({"success": true, "action": null}),
     };
-    if args.json {
-        println!("{payload}");
-    } else {
-        println!("Review command accepted.");
-    }
-    ExitCode::SUCCESS
+    print_payload(args.json, payload)
 }
 
 fn cmd_branch(args: BranchArgs) -> ExitCode {
@@ -659,7 +688,13 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
-            print_payload(a.json, json!({"success": true, "branches": []}))
+            match service.list_known_branches(PathBuf::from(&a.path).as_path()) {
+                Ok(branches) => print_payload(a.json, json!({"success": true, "branches": branches})),
+                Err(error) => {
+                    emit_error(a.json, &error.to_string());
+                    ExitCode::from(1)
+                }
+            }
         }
         BranchCommands::Create(a) => {
             let service = service_for_path(&bootstrap, &a.path);
@@ -676,17 +711,33 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
-            print_payload(
-                a.json,
-                json!({"success": true, "branch_name": a.branch_name, "force": a.force, "format": a.format}),
-            )
+            let Some(branch_name) = a.branch_name.as_deref() else {
+                emit_error(a.json, "missing required branch name for switch");
+                return ExitCode::from(1);
+            };
+            match service.set_branch(PathBuf::from(&a.path).as_path(), branch_name) {
+                Ok(cfg) => print_payload(
+                    a.json,
+                    json!({"success": true, "branch_name": cfg.branch_id, "force": a.force, "format": a.format}),
+                ),
+                Err(error) => {
+                    emit_error(a.json, &error.to_string());
+                    ExitCode::from(1)
+                }
+            }
         }
         BranchCommands::Current(a) => {
             let service = service_for_path(&bootstrap, &a.path);
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
-            print_payload(a.json, json!({"success": true, "branch": "main"}))
+            match service.current_branch(PathBuf::from(&a.path).as_path()) {
+                Ok(branch) => print_payload(a.json, json!({"success": true, "branch": branch})),
+                Err(error) => {
+                    emit_error(a.json, &error.to_string());
+                    ExitCode::from(1)
+                }
+            }
         }
         BranchCommands::Delete(a) => {
             let service = service_for_path(&bootstrap, &a.path);
@@ -714,15 +765,41 @@ fn cmd_format(args: FormatArgs) -> ExitCode {
     if !ensure_project_loaded(&service, &args.path, args.json) {
         return ExitCode::from(1);
     }
-    print_payload(
-        args.json,
-        json!({
-            "success": true,
-            "check": args.check,
-            "ty": args.ty,
-            "files": args.files
-        }),
-    )
+    match service.format_local_resources(PathBuf::from(&args.path).as_path(), &args.files, args.check)
+    {
+        Ok(changed_files) => {
+            let success = !args.check || changed_files.is_empty();
+            if args.json {
+                println!(
+                    "{}",
+                    json!({
+                        "success": success,
+                        "check": args.check,
+                        "ty": args.ty,
+                        "files": args.files,
+                        "changed_files": changed_files,
+                    })
+                );
+            } else if args.check {
+                if success {
+                    println!("Formatting check passed.");
+                } else {
+                    eprintln!("Formatting check failed.");
+                }
+            } else {
+                println!("Formatting completed.");
+            }
+            if success {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        Err(error) => {
+            emit_error(args.json, &error.to_string());
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn cmd_validate(args: ValidateArgs) -> ExitCode {
@@ -731,7 +808,28 @@ fn cmd_validate(args: ValidateArgs) -> ExitCode {
     if !ensure_project_loaded(&service, &args.path, args.json) {
         return ExitCode::from(1);
     }
-    print_payload(args.json, json!({"success": true}))
+    match service.validate_local_resources(PathBuf::from(args.path).as_path()) {
+        Ok(errors) => {
+            if args.json {
+                println!("{}", json!({"success": errors.is_empty(), "errors": errors}));
+            } else if errors.is_empty() {
+                println!("Validation successful.");
+            } else {
+                for e in &errors {
+                    eprintln!("{e}");
+                }
+            }
+            if errors.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        Err(error) => {
+            emit_error(args.json, &error.to_string());
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn cmd_chat(args: ChatArgs) -> ExitCode {
@@ -740,16 +838,38 @@ fn cmd_chat(args: ChatArgs) -> ExitCode {
     if !ensure_project_loaded(&service, &args.path, args.json) {
         return ExitCode::from(1);
     }
-    print_payload(
-        args.json,
-        json!({
-            "success": true,
-            "conversations": [{
-                "conversation_id": args.conversation_id.unwrap_or_else(|| "new-conversation".to_string()),
-                "turns": args.messages.into_iter().map(|m| json!({"input": m, "response": "stub"})).collect::<Vec<_>>()
-            }]
-        }),
-    )
+    let payload = json!({
+        "environment": args.environment,
+        "variant": args.variant,
+        "lang": args.lang,
+        "input_lang": args.input_lang,
+        "output_lang": args.output_lang,
+        "channel": args.channel,
+        "functions": args.functions,
+        "flows": args.flows,
+        "state": args.state,
+        "metadata": args.metadata,
+        "push_before_chat": args.push_before_chat,
+        "messages": args.messages,
+        "input_file": args.input_file,
+        "conversation_id": args.conversation_id,
+        "debug": args.debug,
+        "verbose": args.verbose,
+    });
+    match service.create_chat_session(payload) {
+        Ok(response) => {
+            if args.json {
+                println!("{}", json!({"success": true, "conversation": response}));
+            } else {
+                println!("{response}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            emit_error(args.json, &error.to_string());
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn cmd_completion(args: CompletionArgs) -> ExitCode {
@@ -850,4 +970,34 @@ fn service_for_path(bootstrap: &AdkService, path: &str) -> AdkService {
         return AdkService::new(Box::new(http_client));
     }
     AdkService::new(Box::new(InMemoryPlatformClient::default()))
+}
+
+fn reviews_file_path(path: &str) -> PathBuf {
+    PathBuf::from(path).join("_gen").join("reviews.json")
+}
+
+fn load_reviews(path: &str) -> Result<Vec<serde_json::Value>, String> {
+    let reviews_path = reviews_file_path(path);
+    if !reviews_path.exists() {
+        return Ok(Vec::new());
+    }
+    let raw = fs::read_to_string(&reviews_path).map_err(|e| e.to_string())?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    Ok(parsed.as_array().cloned().unwrap_or_default())
+}
+
+fn save_reviews(path: &str, reviews: &[serde_json::Value]) -> Result<(), String> {
+    let reviews_path = reviews_file_path(path);
+    if let Some(parent) = reviews_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let serialized = serde_json::to_string_pretty(reviews).map_err(|e| e.to_string())?;
+    fs::write(reviews_path, serialized).map_err(|e| e.to_string())
+}
+
+fn unix_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
 }
