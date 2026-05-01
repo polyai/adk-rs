@@ -5,7 +5,7 @@ members = [
   "adk-domain",
   "adk-io",
   "adk-platform-api",
-  "adk-ffi",
+  "adk-ffi", "adk-protobuf",
 ]
 resolver = "2"
 
@@ -24,6 +24,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 base64 = "0.22"
+prost = "0.14"
+prost-types = "0.14"
+uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -33,5 +36,7 @@ walkdir = "2"
 sha2 = "0.10"
 similar = "2"
 globset = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+regex = "1"
+fancy-regex = "0.14"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 url = "2"

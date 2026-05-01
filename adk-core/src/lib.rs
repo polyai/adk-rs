@@ -2,11 +2,15 @@ use adk_domain::{
     DeploymentList, DiffMap, DomainError, ProjectConfig, PushResult, Resource, ResourceMap,
     StatusSummary,
 };
+
+pub mod discover;
+
 use adk_io::diff_resources;
 use adk_platform_api::{ApiError, PlatformClient};
 use anyhow::Result;
 use base64::Engine;
 use chrono::Utc;
+pub use discover::discover_local_resources;
 use globset::{Glob, GlobSetBuilder};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -140,6 +144,12 @@ impl AdkService {
             );
         }
         Ok(map)
+    }
+
+    /// Typed discovery matching Python `AgentStudioProject.discover_local_resources()`:
+    /// logical paths per resource type, keyed by Python class name (`Topic`, `Entity`, ...).
+    pub fn discover_local_resources(&self, root: &Path) -> indexmap::IndexMap<String, Vec<String>> {
+        discover::discover_local_resources(root)
     }
 
     pub fn status(&self, root: &Path) -> Result<StatusSummary, CoreError> {

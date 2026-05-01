@@ -1,5 +1,5 @@
 use adk_core::AdkService;
-use adk_platform_api::InMemoryPlatformClient;
+use adk_platform_api::{HttpPlatformClient, InMemoryPlatformClient};
 use anyhow::Result;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Generator, Shell};
@@ -404,24 +404,32 @@ fn main() -> ExitCode {
 
 fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
-    let client = InMemoryPlatformClient::default();
-    let service = AdkService::new(Box::new(client));
+    let bootstrap_service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
 
     let result = match cli.command {
         Commands::Docs(args) => cmd_docs(args),
-        Commands::Init(args) => cmd_init(&service, args),
-        Commands::Pull(args) => cmd_pull(&service, args),
-        Commands::Push(args) => cmd_push(&service, args),
-        Commands::Status(args) => cmd_status(&service, args),
-        Commands::Revert(args) => cmd_revert(&service, args),
-        Commands::Diff(args) => cmd_diff(&service, args),
+        Commands::Init(args) => cmd_init(&bootstrap_service, args),
+        Commands::Pull(args) => cmd_pull(&service_for_path(&bootstrap_service, &args.path), args),
+        Commands::Push(args) => cmd_push(&service_for_path(&bootstrap_service, &args.path), args),
+        Commands::Status(args) => {
+            cmd_status(&service_for_path(&bootstrap_service, &args.path), args)
+        }
+        Commands::Revert(args) => {
+            cmd_revert(&service_for_path(&bootstrap_service, &args.path), args)
+        }
+        Commands::Diff(args) => cmd_diff(&service_for_path(&bootstrap_service, &args.path), args),
         Commands::Review(args) => cmd_review(args),
         Commands::Branch(args) => cmd_branch(args),
         Commands::Format(args) => cmd_format(args),
         Commands::Validate(args) => cmd_validate(args),
         Commands::Chat(args) => cmd_chat(args),
         Commands::Completion(args) => cmd_completion(args),
-        Commands::Deployments(args) => cmd_deployments(&service, args),
+        Commands::Deployments(args) => {
+            let path = match &args.command {
+                DeploymentsCommands::List(list) => list.path.as_str(),
+            };
+            cmd_deployments(&service_for_path(&bootstrap_service, path), args)
+        }
     };
     Ok(result)
 }
@@ -644,16 +652,17 @@ fn cmd_review(args: ReviewArgs) -> ExitCode {
 }
 
 fn cmd_branch(args: BranchArgs) -> ExitCode {
+    let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
     match args.command {
         BranchCommands::List(a) => {
-            let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+            let service = service_for_path(&bootstrap, &a.path);
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
             print_payload(a.json, json!({"success": true, "branches": []}))
         }
         BranchCommands::Create(a) => {
-            let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+            let service = service_for_path(&bootstrap, &a.path);
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
@@ -663,7 +672,7 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             )
         }
         BranchCommands::Switch(a) => {
-            let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+            let service = service_for_path(&bootstrap, &a.path);
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
@@ -673,21 +682,21 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             )
         }
         BranchCommands::Current(a) => {
-            let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+            let service = service_for_path(&bootstrap, &a.path);
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
             print_payload(a.json, json!({"success": true, "branch": "main"}))
         }
         BranchCommands::Delete(a) => {
-            let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+            let service = service_for_path(&bootstrap, &a.path);
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
             print_payload(a.json, json!({"success": true, "branch_name": a.branch_name}))
         }
         BranchCommands::Merge(a) => {
-            let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+            let service = service_for_path(&bootstrap, &a.path);
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
@@ -700,7 +709,8 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
 }
 
 fn cmd_format(args: FormatArgs) -> ExitCode {
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let service = service_for_path(&bootstrap, &args.path);
     if !ensure_project_loaded(&service, &args.path, args.json) {
         return ExitCode::from(1);
     }
@@ -716,7 +726,8 @@ fn cmd_format(args: FormatArgs) -> ExitCode {
 }
 
 fn cmd_validate(args: ValidateArgs) -> ExitCode {
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let service = service_for_path(&bootstrap, &args.path);
     if !ensure_project_loaded(&service, &args.path, args.json) {
         return ExitCode::from(1);
     }
@@ -724,7 +735,8 @@ fn cmd_validate(args: ValidateArgs) -> ExitCode {
 }
 
 fn cmd_chat(args: ChatArgs) -> ExitCode {
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let service = service_for_path(&bootstrap, &args.path);
     if !ensure_project_loaded(&service, &args.path, args.json) {
         return ExitCode::from(1);
     }
@@ -822,4 +834,20 @@ fn ensure_project_loaded(service: &AdkService, path: &str, json_mode: bool) -> b
 fn emit_completion<G: Generator>(generator: G, binary_name: &str) {
     let mut command = Cli::command();
     generate(generator, &mut command, binary_name, &mut std::io::stdout());
+}
+
+fn service_for_path(bootstrap: &AdkService, path: &str) -> AdkService {
+    // Prefer real HTTP integration whenever project config + API key are available.
+    // Fallback to in-memory client for tests/local dev without credentials.
+    if let Ok(config) = bootstrap.load_project_config(PathBuf::from(path).as_path())
+        && let Ok(http_client) = HttpPlatformClient::new(
+            &config.region,
+            &config.account_id,
+            &config.project_id,
+            Some(&config.branch_id),
+        )
+    {
+        return AdkService::new(Box::new(http_client));
+    }
+    AdkService::new(Box::new(InMemoryPlatformClient::default()))
 }

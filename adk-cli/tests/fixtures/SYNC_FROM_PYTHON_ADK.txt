@@ -1,0 +1,15 @@
+To refresh the bundled Agent Studio project trees from the Python ADK repo (canonical source),
+from the adk-rs repo root:
+
+  rsync -a ../adk/src/poly/tests/test_projects/ adk-cli/tests/fixtures/test_projects/
+
+Adjust ../adk if your Python ADK checkout lives elsewhere.
+
+Rust CLI expects project.yaml at each project root. After syncing, keep:
+
+  test_projects/test_project/project.yaml
+  test_projects/test_empty_project/project.yaml
+
+These files are not part of the Python tree and must remain.
+
+The `adk-core` crate also reads this tree in unit/integration tests (`tests/project_fixture_test.rs`).
