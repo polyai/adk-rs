@@ -158,10 +158,10 @@ impl AdkService {
             }
         }
         for path in local.keys() {
-            if let (Some(l), Some(r)) = (local.get(path), remote.get(path)) {
-                if l.payload != r.payload {
-                    summary.modified_files.push(path.clone());
-                }
+            if let (Some(l), Some(r)) = (local.get(path), remote.get(path))
+                && l.payload != r.payload
+            {
+                summary.modified_files.push(path.clone());
             }
         }
         Ok(summary)
