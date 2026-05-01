@@ -1,0 +1,25 @@
+[package]
+name = "adk-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autobins = false
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+adk-core = { path = "../adk-core" }
+adk-platform-api = { path = "../adk-platform-api" }
+
+[[bin]]
+name = "poly"
+path = "src/bin/poly.rs"
+
+[[bin]]
+name = "adk"
+path = "src/bin/adk.rs"

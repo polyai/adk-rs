@@ -1,0 +1,37 @@
+[workspace]
+members = [
+  "adk-cli",
+  "adk-core",
+  "adk-domain",
+  "adk-io",
+  "adk-platform-api",
+  "adk-ffi",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+authors = ["PolyAI"]
+repository = "https://github.com/polyai/adk-rs"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+base64 = "0.22"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+indexmap = { version = "2", features = ["serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+walkdir = "2"
+sha2 = "0.10"
+similar = "2"
+globset = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+url = "2"
