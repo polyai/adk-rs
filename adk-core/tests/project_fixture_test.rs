@@ -12,8 +12,13 @@
 //! real files on disk.
 
 use adk_core::AdkService;
+use adk_domain::{Resource, ResourceMap};
+use adk_io::{compute_hash, parse_multi_resource_path};
 use adk_platform_api::InMemoryPlatformClient;
+use base64::Engine;
+use std::fs;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn fixture_full_project() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -34,6 +39,72 @@ fn fixture_empty_project() -> PathBuf {
 
 fn service_offline() -> AdkService {
     AdkService::new(Box::new(InMemoryPlatformClient::default()))
+}
+
+fn discovered_total_count(map: &indexmap::IndexMap<String, Vec<String>>) -> usize {
+    map.values().map(|v| v.len()).sum()
+}
+
+fn make_temp_project_dir() -> PathBuf {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("adk-rs-core-status-{ts}"));
+    fs::create_dir_all(&dir).expect("mkdir");
+    dir
+}
+
+fn write_status_snapshot_from_discovered(
+    project_root: &std::path::Path,
+    discovered: &indexmap::IndexMap<String, Vec<String>>,
+) {
+    let mut resources = serde_json::Map::new();
+    let mut file_paths = std::collections::BTreeSet::new();
+    for (type_name, paths) in discovered {
+        let Some(resource_name) = adk_core::discover::type_name_to_resource_name(type_name) else {
+            continue;
+        };
+        let mut entries = serde_json::Map::new();
+        for (idx, p) in paths.iter().enumerate() {
+            file_paths.insert(parse_multi_resource_path(p).0);
+            entries.insert(
+                format!("{}_{}", resource_name.to_uppercase(), idx),
+                serde_json::json!({
+                    "resource_id": format!("{}_{}", resource_name.to_uppercase(), idx),
+                    "name": p,
+                    "file_path": p,
+                }),
+            );
+        }
+        resources.insert(
+            resource_name.to_string(),
+            serde_json::Value::Object(entries),
+        );
+    }
+    let mut file_structure_info = serde_json::Map::new();
+    for file_path in file_paths {
+        let content = fs::read_to_string(project_root.join(&file_path)).unwrap_or_default();
+        file_structure_info.insert(
+            file_path.clone(),
+            serde_json::json!({
+                "type": "unknown",
+                "resource_id": file_path,
+                "resource_name": file_path,
+                "hash": compute_hash(&content),
+            }),
+        );
+    }
+    let status = serde_json::json!({
+        "resources": resources,
+        "file_structure_info": file_structure_info,
+        "branch_id": "main",
+    });
+    let encoded = base64::engine::general_purpose::STANDARD
+        .encode(serde_json::to_vec(&status).expect("status json"));
+    let gen_dir = project_root.join("_gen");
+    fs::create_dir_all(&gen_dir).expect("mkdir _gen");
+    fs::write(gen_dir.join(".agent_studio_config"), encoded).expect("write status snapshot");
 }
 
 /// Port: `poly/tests/project_test.py` - `InitTest.test_init`
@@ -260,6 +331,339 @@ fn discover_empty_fixture_flat_collect_sees_only_snapshot_json() {
     assert!(map.contains_key("empty_project.json"));
 }
 
+/// Port: `poly/tests/project_test.py` - `FindNewKeptDeletedTest.test_find_new_kept_deleted_nothing_changed`
+#[test]
+fn typed_find_new_kept_deleted_nothing_changed() {
+    let root = fixture_full_project();
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    let changes = service.find_new_kept_deleted(&discovered, &discovered);
+
+    assert!(changes.new_resources.values().all(std::vec::Vec::is_empty));
+    assert!(
+        changes
+            .deleted_resources
+            .values()
+            .all(std::vec::Vec::is_empty)
+    );
+    assert_eq!(
+        discovered_total_count(&changes.kept_resources),
+        discovered_total_count(&discovered)
+    );
+}
+
+/// Port: `poly/tests/project_test.py` - `FindNewKeptDeletedTest.test_find_new_kept_deleted_new_resource`
+#[test]
+fn typed_find_new_kept_deleted_new_resource() {
+    let root = fixture_full_project();
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    let mut existing = discovered.clone();
+
+    let topic_path = "topics/topic_1.yaml".to_string();
+    existing
+        .get_mut("Topic")
+        .expect("Topic list should exist")
+        .retain(|p| p != &topic_path);
+
+    let changes = service.find_new_kept_deleted(&discovered, &existing);
+
+    assert!(
+        changes
+            .deleted_resources
+            .values()
+            .all(std::vec::Vec::is_empty)
+    );
+    assert_eq!(
+        discovered_total_count(&changes.kept_resources),
+        discovered_total_count(&discovered) - 1
+    );
+    assert_eq!(
+        changes
+            .new_resources
+            .get("Topic")
+            .cloned()
+            .unwrap_or_default(),
+        vec![topic_path]
+    );
+}
+
+/// Port: `poly/tests/project_test.py` - `FindNewKeptDeletedTest.test_find_new_kept_deleted_deleted_resource`
+#[test]
+fn typed_find_new_kept_deleted_deleted_resource() {
+    let root = fixture_full_project();
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    let mut existing = discovered.clone();
+
+    let extra = "functions/extra_function.py".to_string();
+    existing
+        .get_mut("Function")
+        .expect("Function list should exist")
+        .push(extra.clone());
+
+    let changes = service.find_new_kept_deleted(&discovered, &existing);
+
+    assert!(changes.new_resources.values().all(std::vec::Vec::is_empty));
+    assert_eq!(
+        discovered_total_count(&changes.kept_resources),
+        discovered_total_count(&discovered)
+    );
+    assert_eq!(
+        changes
+            .deleted_resources
+            .get("Function")
+            .cloned()
+            .unwrap_or_default(),
+        vec![extra]
+    );
+}
+
+/// Port: `poly/tests/project_test.py` - `FindNewKeptDeletedTest.test_find_new_kept_deleted_mixed_changes`
+#[test]
+fn typed_find_new_kept_deleted_mixed_changes() {
+    let root = fixture_full_project();
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    let mut existing = discovered.clone();
+
+    let topic_path = "topics/topic_1.yaml".to_string();
+    existing
+        .get_mut("Topic")
+        .expect("Topic list should exist")
+        .retain(|p| p != &topic_path);
+    let extra = "functions/extra_function.py".to_string();
+    existing
+        .get_mut("Function")
+        .expect("Function list should exist")
+        .push(extra.clone());
+
+    let changes = service.find_new_kept_deleted(&discovered, &existing);
+
+    assert_eq!(
+        changes
+            .new_resources
+            .get("Topic")
+            .cloned()
+            .unwrap_or_default(),
+        vec![topic_path]
+    );
+    assert_eq!(
+        changes
+            .deleted_resources
+            .get("Function")
+            .cloned()
+            .unwrap_or_default(),
+        vec![extra]
+    );
+    assert_eq!(
+        discovered_total_count(&changes.kept_resources),
+        discovered_total_count(&discovered) - 1
+    );
+}
+
+/// Related: Python status path classification uses local snapshot state, not "empty remote = all new".
+#[test]
+fn status_uses_typed_snapshot_for_new_and_deleted_when_status_file_exists() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Topic 1\n").expect("write topic");
+
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    write_status_snapshot_from_discovered(&root, &discovered);
+
+    let summary = service.status(root.as_path()).expect("status");
+    assert!(
+        summary.new_files.is_empty(),
+        "expected no new files when snapshot matches local"
+    );
+    assert!(
+        summary.deleted_files.is_empty(),
+        "expected no deleted files when snapshot matches local"
+    );
+    assert!(summary.modified_files.is_empty());
+}
+
+#[test]
+fn diff_uses_typed_snapshot_for_no_changes() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Topic 1\n").expect("write topic");
+
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    write_status_snapshot_from_discovered(&root, &discovered);
+
+    let diffs = service.diff(root.as_path(), &[], None, None).expect("diff");
+    assert!(
+        diffs.is_empty(),
+        "expected no diffs when snapshot and local discovery match"
+    );
+}
+
+#[test]
+fn diff_uses_typed_snapshot_to_limit_changed_files() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Topic 1\n").expect("write topic 1");
+    fs::write(root.join("topics/topic_2.yaml"), "name: Topic 2\n").expect("write topic 2");
+
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    let mut existing = discovered.clone();
+    existing
+        .get_mut("Topic")
+        .expect("Topic list should exist")
+        .retain(|p| p != "topics/topic_1.yaml");
+    write_status_snapshot_from_discovered(&root, &existing);
+
+    let diffs = service.diff(root.as_path(), &[], None, None).expect("diff");
+    assert_eq!(diffs.len(), 1, "expected single changed file diff");
+    assert!(diffs.contains_key("topics/topic_1.yaml"));
+}
+
+#[test]
+fn status_uses_typed_snapshot_for_modified_files_when_file_changes() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Topic 1\n").expect("write topic");
+
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    write_status_snapshot_from_discovered(&root, &discovered);
+
+    fs::write(root.join("topics/topic_1.yaml"), "name: Topic 1 Updated\n").expect("update topic");
+    let summary = service.status(root.as_path()).expect("status");
+
+    assert_eq!(summary.modified_files, vec!["topics/topic_1.yaml"]);
+    assert!(summary.new_files.is_empty());
+    assert!(summary.deleted_files.is_empty());
+}
+
+#[test]
+fn status_uses_typed_snapshot_for_mixed_changes() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Topic 1\n").expect("write topic 1");
+    fs::write(
+        root.join("functions/old.py"),
+        "def old(conv):\n    return 'old'\n",
+    )
+    .expect("write old function");
+
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    write_status_snapshot_from_discovered(&root, &discovered);
+
+    fs::write(root.join("topics/topic_1.yaml"), "name: Topic 1 modified\n")
+        .expect("modify topic 1");
+    fs::write(root.join("topics/topic_2.yaml"), "name: Topic 2\n").expect("new topic 2");
+    fs::remove_file(root.join("functions/old.py")).expect("delete old function");
+
+    let summary = service.status(root.as_path()).expect("status");
+    assert_eq!(summary.modified_files, vec!["topics/topic_1.yaml"]);
+    assert_eq!(summary.new_files, vec!["topics/topic_2.yaml"]);
+    assert_eq!(summary.deleted_files, vec!["functions/old.py"]);
+}
+
+#[test]
+fn diff_can_filter_specific_changed_files_with_snapshot_classification() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Topic 1\n").expect("write topic 1");
+    fs::write(
+        root.join("functions/old.py"),
+        "def old(conv):\n    return 'old'\n",
+    )
+    .expect("write old function");
+
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    write_status_snapshot_from_discovered(&root, &discovered);
+
+    fs::write(root.join("topics/topic_2.yaml"), "name: Topic 2\n").expect("new topic 2");
+    fs::remove_file(root.join("functions/old.py")).expect("delete old function");
+
+    let diffs = service
+        .diff(
+            root.as_path(),
+            &[String::from("topics/topic_2.yaml")],
+            None,
+            None,
+        )
+        .expect("diff");
+    assert_eq!(diffs.len(), 1);
+    assert!(diffs.contains_key("topics/topic_2.yaml"));
+}
+
+#[test]
+fn typed_resource_lifecycle_preserves_existing_ids_and_generates_new() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Topic 1\n").expect("write topic 1");
+
+    let service = service_offline();
+    let discovered = service.discover_local_resources(&root);
+    write_status_snapshot_from_discovered(&root, &discovered);
+
+    fs::write(root.join("topics/topic_2.yaml"), "name: Topic 2\n").expect("write topic 2");
+    let lifecycle = service
+        .typed_resource_lifecycle(root.as_path())
+        .expect("typed lifecycle");
+
+    let existing = lifecycle
+        .iter()
+        .find(|r| r.file_path == "topics/topic_1.yaml")
+        .expect("topic_1 lifecycle");
+    assert!(existing.is_existing);
+    assert!(existing.resource_id.starts_with("TOPICS_"));
+
+    let generated = lifecycle
+        .iter()
+        .find(|r| r.file_path == "topics/topic_2.yaml")
+        .expect("topic_2 lifecycle");
+    assert!(!generated.is_existing);
+    assert!(generated.resource_id.starts_with("topic-"));
+}
+
 /// Related: `poly/tests/project_test.py` - `ProjectStatusTest.test_project_status_new_resource`
 ///
 /// Python marks **one** path as new (topic) by mutating in-memory `PROJECT_DATA` vs disk. Here the
@@ -297,4 +701,89 @@ fn diff_with_empty_remote_is_non_empty_for_full_fixture() {
         "expected many diffs vs empty remote, got {}",
         diffs.len()
     );
+}
+
+#[test]
+fn diff_named_state_local_vs_remote_reports_changes() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Local Topic\n").expect("write local topic");
+
+    let mut remote: ResourceMap = ResourceMap::new();
+    remote.insert(
+        "topics/topic_1.yaml".to_string(),
+        Resource {
+            resource_id: "TOPIC-topic_1".to_string(),
+            name: "Topic 1".to_string(),
+            file_path: "topics/topic_1.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "name: Remote Topic\n"
+            }),
+        },
+    );
+    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(remote)));
+    let diffs = service
+        .diff(
+            root.as_path(),
+            &[],
+            Some("sandbox".to_string()),
+            Some("local".to_string()),
+        )
+        .expect("diff");
+    assert_eq!(diffs.len(), 1);
+    assert!(diffs.contains_key("topics/topic_1.yaml"));
+}
+
+#[test]
+fn diff_named_state_with_file_filter_applies_glob() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Local Topic\n").expect("write local topic");
+    fs::write(
+        root.join("functions/test.py"),
+        "def test(conv):\n    return 'local'\n",
+    )
+    .expect("write local function");
+
+    let mut remote: ResourceMap = ResourceMap::new();
+    remote.insert(
+        "topics/topic_1.yaml".to_string(),
+        Resource {
+            resource_id: "TOPIC-topic_1".to_string(),
+            name: "Topic 1".to_string(),
+            file_path: "topics/topic_1.yaml".to_string(),
+            payload: serde_json::json!({"content": "name: Remote Topic\n"}),
+        },
+    );
+    remote.insert(
+        "functions/test.py".to_string(),
+        Resource {
+            resource_id: "FUNCTION-test".to_string(),
+            name: "test".to_string(),
+            file_path: "functions/test.py".to_string(),
+            payload: serde_json::json!({"content": "def test(conv):\n    return 'remote'\n"}),
+        },
+    );
+    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(remote)));
+    let diffs = service
+        .diff(
+            root.as_path(),
+            &[String::from("topics/*")],
+            Some("sandbox".to_string()),
+            Some("local".to_string()),
+        )
+        .expect("diff");
+    assert_eq!(diffs.len(), 1);
+    assert!(diffs.contains_key("topics/topic_1.yaml"));
 }
