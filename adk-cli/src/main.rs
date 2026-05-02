@@ -701,10 +701,20 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
-            print_payload(
-                a.json,
-                json!({"success": true, "branch_name": a.branch_name, "environment": a.environment, "force": a.force}),
-            )
+            let Some(branch_name) = a.branch_name.as_deref() else {
+                emit_error(a.json, "missing required branch name for create");
+                return ExitCode::from(1);
+            };
+            match service.create_branch(PathBuf::from(&a.path).as_path(), branch_name) {
+                Ok(cfg) => print_payload(
+                    a.json,
+                    json!({"success": true, "branch_name": branch_name, "new_branch_id": cfg.branch_id, "environment": a.environment, "force": a.force}),
+                ),
+                Err(error) => {
+                    emit_error(a.json, &error.to_string());
+                    ExitCode::from(1)
+                }
+            }
         }
         BranchCommands::Switch(a) => {
             let service = service_for_path(&bootstrap, &a.path);
@@ -744,17 +754,54 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
-            print_payload(a.json, json!({"success": true, "branch_name": a.branch_name}))
+            let Some(branch_name) = a.branch_name.as_deref() else {
+                emit_error(a.json, "missing required branch name for delete");
+                return ExitCode::from(1);
+            };
+            match service.delete_branch(PathBuf::from(&a.path).as_path(), branch_name) {
+                Ok(deleted) => {
+                    let mut payload = json!({"success": deleted, "branch_name": branch_name});
+                    if deleted {
+                        payload["switched_to"] = json!("main");
+                    }
+                    print_payload(a.json, payload)
+                }
+                Err(error) => {
+                    emit_error(a.json, &error.to_string());
+                    ExitCode::from(1)
+                }
+            }
         }
         BranchCommands::Merge(a) => {
             let service = service_for_path(&bootstrap, &a.path);
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
-            print_payload(
-                a.json,
-                json!({"success": true, "message": a.message, "interactive": a.interactive, "resolutions": a.resolutions}),
-            )
+            let message = a.message.unwrap_or_default();
+            let resolutions = match parse_branch_merge_resolutions(a.resolutions.as_deref()) {
+                Ok(value) => value,
+                Err(error) => {
+                    emit_error(a.json, &error);
+                    return ExitCode::from(1);
+                }
+            };
+            match service.merge_branch(PathBuf::from(&a.path).as_path(), &message, resolutions) {
+                Ok(result) => print_payload(
+                    a.json,
+                    json!({
+                        "success": result.success,
+                        "message": message,
+                        "interactive": a.interactive,
+                        "conflicts": result.conflicts,
+                        "errors": result.errors,
+                        "sequence": result.sequence
+                    }),
+                ),
+                Err(error) => {
+                    emit_error(a.json, &error.to_string());
+                    ExitCode::from(1)
+                }
+            }
         }
     }
 }
@@ -949,6 +996,26 @@ fn ensure_project_loaded(service: &AdkService, path: &str, json_mode: bool) -> b
             false
         }
     }
+}
+
+fn parse_branch_merge_resolutions(
+    raw: Option<&str>,
+) -> Result<Option<Vec<serde_json::Value>>, String> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let maybe_path = PathBuf::from(raw);
+    let content = if maybe_path.exists() {
+        fs::read_to_string(&maybe_path).map_err(|e| e.to_string())?
+    } else {
+        raw.to_string()
+    };
+    let parsed: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let array = parsed
+        .as_array()
+        .cloned()
+        .ok_or_else(|| "merge resolutions must be a JSON array".to_string())?;
+    Ok(Some(array))
 }
 
 fn emit_completion<G: Generator>(generator: G, binary_name: &str) {

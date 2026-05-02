@@ -35,3 +35,37 @@ pub fn status_json(project_path: &str) -> String {
     };
     serde_json::to_string(&payload).unwrap_or_else(|_| "{\"success\":false}".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn make_temp_project_dir() -> String {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("adk-rs-ffi-{ts}"));
+        fs::create_dir_all(&dir).expect("mkdir");
+        fs::write(
+            dir.join("project.yaml"),
+            "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+        )
+        .expect("write config");
+        dir.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn ffi_status_json_returns_success_payload_shape() {
+        let project_dir = make_temp_project_dir();
+        let raw = status_json(&project_dir);
+        let payload: serde_json::Value = serde_json::from_str(&raw).expect("json payload");
+        assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+        assert!(payload.get("modified_files").is_some());
+        assert!(payload.get("new_files").is_some());
+        assert!(payload.get("deleted_files").is_some());
+        assert!(payload.get("files_with_conflicts").is_some());
+    }
+}

@@ -65,10 +65,66 @@ pub struct DeploymentList {
     pub active_deployment_hashes: IndexMap<String, String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BranchDescriptor {
+    pub name: String,
+    pub branch_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct BranchMergeResult {
+    pub success: bool,
+    #[serde(default)]
+    pub conflicts: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub errors: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub sequence: Option<String>,
+}
+
 #[derive(Debug, Error)]
 pub enum DomainError {
     #[error("project configuration not found at {0}")]
     ConfigNotFound(String),
     #[error("invalid project data: {0}")]
     InvalidData(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_config_branch_defaults_to_main_on_deserialize() {
+        let raw = serde_json::json!({
+            "region": "eu-west-1",
+            "account_id": "acc",
+            "project_id": "proj"
+        });
+        let cfg: ProjectConfig = serde_json::from_value(raw).expect("deserialize project config");
+        assert_eq!(cfg.branch_id, "main");
+        assert_eq!(cfg.project_name, None);
+    }
+
+    #[test]
+    fn project_status_branch_defaults_to_main_on_deserialize() {
+        let raw = serde_json::json!({
+            "resources": {},
+            "last_updated": null
+        });
+        let status: ProjectStatus =
+            serde_json::from_value(raw).expect("deserialize project status");
+        assert_eq!(status.branch_id, "main");
+        assert!(status.resources.is_empty());
+        assert_eq!(status.project_name, None);
+    }
+
+    #[test]
+    fn status_summary_default_is_empty_lists() {
+        let summary = StatusSummary::default();
+        assert!(summary.files_with_conflicts.is_empty());
+        assert!(summary.modified_files.is_empty());
+        assert!(summary.new_files.is_empty());
+        assert!(summary.deleted_files.is_empty());
+    }
 }

@@ -1,4 +1,6 @@
-use adk_domain::{DeploymentList, PushResult, Resource, ResourceMap};
+use adk_domain::{
+    BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, Resource, ResourceMap,
+};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityUpdate};
 use adk_protobuf::functions::{
@@ -38,20 +40,45 @@ pub trait PlatformClient: Send + Sync {
     fn push_resources(&self, _resources: &ResourceMap) -> Result<PushResult, ApiError>;
     fn list_deployments(&self, _environment: &str) -> Result<DeploymentList, ApiError>;
     fn create_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
+    fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError>;
+    fn create_branch(&self, branch_name: &str) -> Result<String, ApiError>;
+    fn delete_branch(&self, branch_id: &str) -> Result<(), ApiError>;
+    fn merge_branch(
+        &self,
+        deployment_message: &str,
+        conflict_resolutions: Option<Vec<Value>>,
+    ) -> Result<BranchMergeResult, ApiError>;
 }
 
 /// Test-only in-memory client used for deterministic non-network workflows.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct InMemoryPlatformClient {
     resources: Arc<Mutex<ResourceMap>>,
+    branches: Arc<Mutex<indexmap::IndexMap<String, String>>>,
+}
+
+impl Default for InMemoryPlatformClient {
+    fn default() -> Self {
+        Self {
+            resources: Arc::new(Mutex::new(ResourceMap::new())),
+            branches: Arc::new(Mutex::new(default_branches())),
+        }
+    }
 }
 
 impl InMemoryPlatformClient {
     pub fn with_resources(resources: ResourceMap) -> Self {
         Self {
             resources: Arc::new(Mutex::new(resources)),
+            branches: Arc::new(Mutex::new(default_branches())),
         }
     }
+}
+
+fn default_branches() -> indexmap::IndexMap<String, String> {
+    let mut branches = indexmap::IndexMap::new();
+    branches.insert("main".to_string(), "main".to_string());
+    branches
 }
 
 impl PlatformClient for InMemoryPlatformClient {
@@ -88,6 +115,68 @@ impl PlatformClient for InMemoryPlatformClient {
             "response": "Mock chat session created",
             "conversation_ended": false
         }))
+    }
+
+    fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
+        let branches = self
+            .branches
+            .lock()
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        Ok(branches
+            .iter()
+            .map(|(name, branch_id)| BranchDescriptor {
+                name: name.clone(),
+                branch_id: branch_id.clone(),
+            })
+            .collect())
+    }
+
+    fn create_branch(&self, branch_name: &str) -> Result<String, ApiError> {
+        let mut branches = self
+            .branches
+            .lock()
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        if branches.contains_key(branch_name) {
+            return Err(ApiError::Http(format!(
+                "branch '{branch_name}' already exists"
+            )));
+        }
+        let branch_id = branch_name.to_string();
+        branches.insert(branch_name.to_string(), branch_id.clone());
+        Ok(branch_id)
+    }
+
+    fn delete_branch(&self, branch_id: &str) -> Result<(), ApiError> {
+        if branch_id == "main" {
+            return Err(ApiError::Http("cannot delete main branch".to_string()));
+        }
+        let mut branches = self
+            .branches
+            .lock()
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        let Some(key) = branches
+            .iter()
+            .find_map(|(name, id)| (id == branch_id).then_some(name.clone()))
+        else {
+            // Stateless test fallback: deletion is still considered successful even when the
+            // branch inventory wasn't persisted across command invocations.
+            return Ok(());
+        };
+        branches.shift_remove(&key);
+        Ok(())
+    }
+
+    fn merge_branch(
+        &self,
+        _deployment_message: &str,
+        _conflict_resolutions: Option<Vec<Value>>,
+    ) -> Result<BranchMergeResult, ApiError> {
+        Ok(BranchMergeResult {
+            success: true,
+            conflicts: vec![],
+            errors: vec![],
+            sequence: Some("0".to_string()),
+        })
     }
 }
 
@@ -178,6 +267,26 @@ impl HttpPlatformClient {
             self.account_id, self.project_id, self.branch_id
         );
         self.request_json(reqwest::Method::GET, &endpoint, None, None)
+    }
+
+    fn branches_endpoint(&self) -> String {
+        format!(
+            "/accounts/{}/projects/{}/branches",
+            self.account_id, self.project_id
+        )
+    }
+
+    fn fetch_branch_sequence(&self, branch_id: &str) -> Result<u64, ApiError> {
+        let endpoint = format!("{}/{branch_id}/sequence", self.branches_endpoint());
+        let payload = self.request_json(reqwest::Method::GET, &endpoint, None, None)?;
+        Ok(payload
+            .get("lastKnownSequence")
+            .and_then(|v| match v {
+                Value::String(s) => s.parse::<u64>().ok(),
+                Value::Number(n) => n.as_u64(),
+                _ => None,
+            })
+            .unwrap_or(0))
     }
 }
 
@@ -271,6 +380,142 @@ impl PlatformClient for HttpPlatformClient {
             self.account_id, self.project_id
         );
         self.request_json(reqwest::Method::POST, &endpoint, None, Some(payload))
+    }
+
+    fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
+        let payload =
+            self.request_json(reqwest::Method::GET, &self.branches_endpoint(), None, None)?;
+        let branches = payload
+            .get("branches")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let mut out = Vec::with_capacity(branches.len() + 1);
+        out.push(BranchDescriptor {
+            name: "main".to_string(),
+            branch_id: "main".to_string(),
+        });
+        for branch in branches {
+            let Some(branch_id) = branch.get("branchId").and_then(Value::as_str) else {
+                continue;
+            };
+            let name = branch
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(branch_id)
+                .to_string();
+            if !out.iter().any(|existing| existing.branch_id == branch_id) {
+                out.push(BranchDescriptor {
+                    name,
+                    branch_id: branch_id.to_string(),
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    fn create_branch(&self, branch_name: &str) -> Result<String, ApiError> {
+        let expected_main_last_known_sequence = self.fetch_branch_sequence("main")?;
+        let response = self.request_json(
+            reqwest::Method::POST,
+            &self.branches_endpoint(),
+            None,
+            Some(serde_json::json!({
+                "expectedMainLastKnownSequence": expected_main_last_known_sequence,
+                "branchName": branch_name,
+            })),
+        )?;
+        response
+            .get("branchId")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .ok_or_else(|| ApiError::Http("missing branchId in create-branch response".to_string()))
+    }
+
+    fn delete_branch(&self, branch_id: &str) -> Result<(), ApiError> {
+        let sequence = self.fetch_branch_sequence(branch_id)?;
+        let endpoint = format!("{}/{branch_id}", self.branches_endpoint());
+        let _ = self.request_json(
+            reqwest::Method::DELETE,
+            &endpoint,
+            None,
+            Some(serde_json::json!({
+                "expectedBranchLastKnownSequence": sequence,
+            })),
+        )?;
+        Ok(())
+    }
+
+    fn merge_branch(
+        &self,
+        deployment_message: &str,
+        conflict_resolutions: Option<Vec<Value>>,
+    ) -> Result<BranchMergeResult, ApiError> {
+        let expected_branch_last_known_sequence = self.fetch_branch_sequence(&self.branch_id)?;
+        let mut payload = serde_json::json!({
+            "expectedBranchLastKnownSequence": expected_branch_last_known_sequence,
+            "deploymentMessage": deployment_message,
+        });
+        if let Some(resolutions) = conflict_resolutions {
+            payload["conflictResolutions"] = Value::Array(resolutions);
+        }
+        let endpoint = format!(
+            "/accounts/{}/projects/{}/branches/{}/merge",
+            self.account_id, self.project_id, self.branch_id
+        );
+        let url = format!("{}{}", self.base_url, endpoint);
+        let response = self
+            .client
+            .post(url)
+            .header("X-API-KEY", &self.api_key)
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+
+        let status = response.status();
+        let body: Value = response
+            .json()
+            .map_err(|e| ApiError::Http(format!("failed to parse merge response: {e}")))?;
+        if status == reqwest::StatusCode::BAD_REQUEST {
+            if body
+                .get("hasConflicts")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                || body.get("conflicts").is_some()
+            {
+                return Ok(BranchMergeResult {
+                    success: false,
+                    conflicts: body
+                        .get("conflicts")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default(),
+                    errors: body
+                        .get("errors")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default(),
+                    sequence: body
+                        .get("sequence")
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string),
+                });
+            }
+            return Err(ApiError::Http(format!("status={status} body={body}")));
+        }
+        if !status.is_success() {
+            return Err(ApiError::Http(format!("status={status} body={body}")));
+        }
+        Ok(BranchMergeResult {
+            success: true,
+            conflicts: vec![],
+            errors: vec![],
+            sequence: body
+                .get("sequence")
+                .and_then(Value::as_str)
+                .map(ToString::to_string),
+        })
     }
 }
 

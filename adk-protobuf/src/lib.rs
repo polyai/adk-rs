@@ -47,3 +47,54 @@ pub mod artifact {
 }
 
 include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/generated_lib.rs"));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost::Message;
+
+    #[test]
+    fn agent_v2_aliases_match_handoff_types() {
+        let _bye: agent_v2::ByeHandoff = handoff::SipByeHandoffConfig {};
+        let _invite: agent_v2::InviteHandoff = handoff::SipInviteHandoffConfig {
+            phone_number: String::new(),
+            outbound_endpoint: String::new(),
+            outbound_encryption: String::new(),
+        };
+        let _refer: agent_v2::ReferHandoff = handoff::SipReferHandoffConfig {
+            phone_number: String::new(),
+        };
+    }
+
+    #[test]
+    fn command_batch_roundtrip_encode_decode() {
+        let batch = CommandBatch {
+            last_known_sequence: 7,
+            commands: vec![Command {
+                r#type: "variable_create".to_string(),
+                metadata: Some(Metadata {
+                    created_at: None,
+                    created_by: "tester".to_string(),
+                }),
+                command_id: "cmd-1".to_string(),
+                payload: Some(command::Payload::VariableCreate(
+                    variables::VariableCreate {
+                        id: "var-1".to_string(),
+                        name: "my_var".to_string(),
+                        references: None,
+                    },
+                )),
+            }],
+        };
+
+        let bytes = batch.encode_to_vec();
+        let decoded = CommandBatch::decode(bytes.as_slice()).expect("decode command batch");
+        assert_eq!(decoded.last_known_sequence, 7);
+        assert_eq!(decoded.commands.len(), 1);
+        assert_eq!(decoded.commands[0].r#type, "variable_create");
+        assert!(matches!(
+            decoded.commands[0].payload,
+            Some(command::Payload::VariableCreate(_))
+        ));
+    }
+}

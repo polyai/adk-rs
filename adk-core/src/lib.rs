@@ -1,6 +1,6 @@
 use adk_domain::{
-    DeploymentList, DiffMap, DomainError, ProjectConfig, PushResult, Resource, ResourceMap,
-    StatusSummary,
+    BranchMergeResult, DeploymentList, DiffMap, DomainError, ProjectConfig, PushResult, Resource,
+    ResourceMap, StatusSummary,
 };
 
 pub mod discover;
@@ -318,18 +318,71 @@ impl AdkService {
     }
 
     pub fn list_known_branches(&self, root: &Path) -> Result<Vec<String>, CoreError> {
-        Ok(vec![self.current_branch(root)?])
+        let current_branch_id = self.current_branch(root)?;
+        let mut names: Vec<String> = self
+            .client
+            .list_branches()?
+            .into_iter()
+            .map(|branch| branch.name)
+            .collect();
+        if !names.iter().any(|name| name == &current_branch_id) {
+            names.push(current_branch_id);
+        }
+        Ok(names)
+    }
+
+    pub fn create_branch(
+        &self,
+        root: &Path,
+        branch_name: &str,
+    ) -> Result<ProjectConfig, CoreError> {
+        let branch_id = self.client.create_branch(branch_name)?;
+        let mut cfg = self.load_project_config(root)?;
+        cfg.branch_id = branch_id;
+        self.write_project_config(root, &cfg)?;
+        Ok(cfg)
     }
 
     pub fn set_branch(&self, root: &Path, branch_name: &str) -> Result<ProjectConfig, CoreError> {
         let mut cfg = self.load_project_config(root)?;
         cfg.branch_id = branch_name.to_string();
-        let project_root = find_project_root(root)
-            .ok_or_else(|| DomainError::ConfigNotFound(root.to_string_lossy().to_string()))?;
-        let serialized =
-            serde_yaml::to_string(&cfg).map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        fs::write(project_root.join(PROJECT_CONFIG_FILE), serialized)?;
+        self.write_project_config(root, &cfg)?;
         Ok(cfg)
+    }
+
+    pub fn delete_branch(&self, root: &Path, branch_name: &str) -> Result<bool, CoreError> {
+        if branch_name == "main" {
+            return Err(DomainError::InvalidData("cannot delete main branch".to_string()).into());
+        }
+        let cfg = self.load_project_config(root)?;
+        let branches = self.client.list_branches()?;
+        let branch_id = branches
+            .iter()
+            .find(|branch| branch.name == branch_name)
+            .map(|branch| branch.branch_id.clone())
+            .unwrap_or_else(|| branch_name.to_string());
+        self.client.delete_branch(&branch_id)?;
+        if cfg.branch_id == branch_id {
+            let mut updated_cfg = cfg;
+            updated_cfg.branch_id = "main".to_string();
+            self.write_project_config(root, &updated_cfg)?;
+        }
+        Ok(true)
+    }
+
+    pub fn merge_branch(
+        &self,
+        root: &Path,
+        message: &str,
+        conflict_resolutions: Option<Vec<serde_json::Value>>,
+    ) -> Result<BranchMergeResult, CoreError> {
+        let result = self.client.merge_branch(message, conflict_resolutions)?;
+        if result.success {
+            let mut cfg = self.load_project_config(root)?;
+            cfg.branch_id = "main".to_string();
+            self.write_project_config(root, &cfg)?;
+        }
+        Ok(result)
     }
 
     pub fn validate_local_resources(&self, root: &Path) -> Result<Vec<String>, CoreError> {
@@ -454,6 +507,15 @@ impl AdkService {
             return self.collect_local_resources(root);
         }
         Ok(self.client.pull_resources()?)
+    }
+
+    fn write_project_config(&self, root: &Path, cfg: &ProjectConfig) -> Result<(), CoreError> {
+        let project_root = find_project_root(root)
+            .ok_or_else(|| DomainError::ConfigNotFound(root.to_string_lossy().to_string()))?;
+        let serialized =
+            serde_yaml::to_string(cfg).map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        fs::write(project_root.join(PROJECT_CONFIG_FILE), serialized)?;
+        Ok(())
     }
 
     fn load_status_snapshot_file_hashes(
