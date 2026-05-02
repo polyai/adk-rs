@@ -173,58 +173,58 @@ fn branch_switch_updates_project_branch() {
 }
 
 #[test]
-fn review_create_list_delete_roundtrip() {
+fn review_json_is_explicitly_unsupported() {
     let project_dir = make_temp_project_dir();
+    let output = run_poly(&["review", "--json", "--path", &project_dir, "list"]);
+    assert_eq!(output.status.code(), Some(1));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(
+        payload.get("success").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    let error = payload.get("error").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(error.contains("not yet supported"));
+}
 
-    let create = run_poly(&[
-        "review",
-        "--json",
-        "--path",
-        &project_dir,
-        "create",
-        "--before",
-        "main",
-        "--after",
-        "feature",
+#[test]
+fn review_text_is_explicitly_unsupported() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly(&["review", "--path", &project_dir, "list"]);
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not yet supported"));
+}
+
+#[test]
+fn docs_without_arguments_prints_root_docs() {
+    let output = run_poly(&["docs"]);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("# Poly ADK"));
+}
+
+#[test]
+fn docs_output_writes_file_and_reports_path() {
+    let project_dir = make_temp_project_dir();
+    let output_path = std::path::PathBuf::from(&project_dir)
+        .join("nested")
+        .join("docs.md");
+    let output = run_poly(&[
+        "docs",
+        "functions",
+        "--output",
+        output_path.to_string_lossy().as_ref(),
     ]);
-    assert_eq!(create.status.code(), Some(0));
-    let create_payload: serde_json::Value =
-        serde_json::from_slice(&create.stdout).expect("valid JSON output");
-    let review_id = create_payload
-        .get("review")
-        .and_then(|v| v.get("id"))
-        .and_then(|v| v.as_str())
-        .expect("review id")
-        .to_string();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Documentation written to"));
+    let written = fs::read_to_string(output_path).expect("read written docs");
+    assert!(written.contains("Function"));
+}
 
-    let list = run_poly(&["review", "--json", "--path", &project_dir, "list"]);
-    assert_eq!(list.status.code(), Some(0));
-    let list_payload: serde_json::Value =
-        serde_json::from_slice(&list.stdout).expect("valid JSON output");
-    let gists = list_payload
-        .get("gists")
-        .and_then(|v| v.as_array())
-        .expect("gists array");
-    assert_eq!(gists.len(), 1);
-
-    let delete = run_poly(&[
-        "review",
-        "--json",
-        "--path",
-        &project_dir,
-        "delete",
-        "--id",
-        &review_id,
-    ]);
-    assert_eq!(delete.status.code(), Some(0));
-
-    let list_after = run_poly(&["review", "--json", "--path", &project_dir, "list"]);
-    assert_eq!(list_after.status.code(), Some(0));
-    let list_after_payload: serde_json::Value =
-        serde_json::from_slice(&list_after.stdout).expect("valid JSON output");
-    let gists_after = list_after_payload
-        .get("gists")
-        .and_then(|v| v.as_array())
-        .expect("gists array");
-    assert!(gists_after.is_empty());
+#[test]
+fn docs_rejects_unknown_document_topic_with_parser_error() {
+    let output = run_poly(&["docs", "not-a-real-doc"]);
+    assert_eq!(output.status.code(), Some(2));
 }

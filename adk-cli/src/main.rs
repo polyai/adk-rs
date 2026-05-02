@@ -7,7 +7,6 @@ use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Parser)]
 #[command(name = "poly", version, about = "Agent Development Kit (Rust)")]
@@ -42,8 +41,28 @@ struct DocsArgs {
     output: Option<String>,
     #[arg(long, action = ArgAction::SetTrue)]
     verbose: bool,
+    #[arg(value_parser = clap::builder::PossibleValuesParser::new(DOC_CHOICES))]
     documents: Vec<String>,
 }
+
+const DOC_CHOICES: &[&str] = &[
+    "agent_settings",
+    "api_integrations",
+    "chat_settings",
+    "entities",
+    "experimental_config",
+    "flows",
+    "functions",
+    "handoffs",
+    "response_control",
+    "safety_filters",
+    "sms",
+    "speech_recognition",
+    "topics",
+    "variables",
+    "variants",
+    "voice_settings",
+];
 
 #[derive(Debug, clap::Args)]
 struct InitArgs {
@@ -437,14 +456,52 @@ fn run() -> Result<ExitCode> {
 }
 
 fn cmd_docs(args: DocsArgs) -> ExitCode {
-    let payload = json!({
-        "success": true,
-        "all": args.all,
-        "documents": args.documents,
-        "output": args.output
-    });
-    println!("{payload}");
-    ExitCode::SUCCESS
+    let mut doc_names: Vec<&str> = Vec::new();
+    if args.documents.is_empty() && !args.all {
+        doc_names.push("docs");
+    } else if args.all {
+        doc_names.push("docs");
+        doc_names.extend(DOC_CHOICES.iter().copied());
+    } else {
+        doc_names.extend(args.documents.iter().map(String::as_str));
+    }
+
+    let mut parts = Vec::new();
+    for doc_name in doc_names {
+        match load_docs(doc_name) {
+            Ok(content) => parts.push(content),
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::from(1);
+            }
+        }
+    }
+    let content = parts.join("\n\n");
+    if let Some(output) = args.output {
+        let output_arg = PathBuf::from(output);
+        let output_path = if output_arg.is_absolute() {
+            output_arg
+        } else {
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(output_arg)
+        };
+        if let Some(parent) = output_path.parent()
+            && let Err(error) = fs::create_dir_all(parent)
+        {
+            eprintln!("{error}");
+            return ExitCode::from(1);
+        }
+        if let Err(error) = fs::write(&output_path, content) {
+            eprintln!("{error}");
+            return ExitCode::from(1);
+        }
+        println!("Documentation written to {}", output_path.to_string_lossy());
+        ExitCode::SUCCESS
+    } else {
+        println!("{content}");
+        ExitCode::SUCCESS
+    }
 }
 
 fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
@@ -635,49 +692,12 @@ fn cmd_diff(service: &AdkService, args: DiffArgs) -> ExitCode {
 }
 
 fn cmd_review(args: ReviewArgs) -> ExitCode {
-    let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
-    let service = service_for_path(&bootstrap, &args.path);
-    if !ensure_project_loaded(&service, &args.path, args.json) {
-        return ExitCode::from(1);
-    }
-    let mut reviews = match load_reviews(&args.path) {
-        Ok(v) => v,
-        Err(e) => {
-            emit_error(args.json, &e);
-            return ExitCode::from(1);
-        }
-    };
-    let payload = match args.command {
-        Some(ReviewCommands::Create(create)) => {
-            let review_id = format!("review-{}", unix_nanos());
-            let review = json!({
-                "id": review_id,
-                "hash": create.hash,
-                "before": create.before,
-                "after": create.after,
-                "files": create.files
-            });
-            reviews.push(review.clone());
-            if let Err(e) = save_reviews(&args.path, &reviews) {
-                emit_error(args.json, &e);
-                return ExitCode::from(1);
-            }
-            json!({"success": true, "action": "create", "review": review})
-        }
-        Some(ReviewCommands::List) => json!({"success": true, "action": "list", "gists": reviews}),
-        Some(ReviewCommands::Delete(delete)) => {
-            let before = reviews.len();
-            let id = delete.id.unwrap_or_default();
-            reviews.retain(|r| r.get("id").and_then(|v| v.as_str()) != Some(id.as_str()));
-            if let Err(e) = save_reviews(&args.path, &reviews) {
-                emit_error(args.json, &e);
-                return ExitCode::from(1);
-            }
-            json!({"success": true, "action": "delete", "id": id, "deleted": before != reviews.len()})
-        }
-        None => json!({"success": true, "action": null}),
-    };
-    print_payload(args.json, payload)
+    let _ = args.command;
+    emit_error(
+        args.json,
+        "review command is not yet supported in Rust ADK; backend contract not implemented",
+    );
+    ExitCode::from(1)
 }
 
 fn cmd_branch(args: BranchArgs) -> ExitCode {
@@ -1039,32 +1059,12 @@ fn service_for_path(bootstrap: &AdkService, path: &str) -> AdkService {
     AdkService::new(Box::new(InMemoryPlatformClient::default()))
 }
 
-fn reviews_file_path(path: &str) -> PathBuf {
-    PathBuf::from(path).join("_gen").join("reviews.json")
-}
-
-fn load_reviews(path: &str) -> Result<Vec<serde_json::Value>, String> {
-    let reviews_path = reviews_file_path(path);
-    if !reviews_path.exists() {
-        return Ok(Vec::new());
+fn load_docs(document_name: &str) -> Result<String, String> {
+    let docs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("docs")
+        .join(format!("{document_name}.md"));
+    if !docs_path.exists() {
+        return Err(format!("Documentation file {document_name}.md not found."));
     }
-    let raw = fs::read_to_string(&reviews_path).map_err(|e| e.to_string())?;
-    let parsed: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    Ok(parsed.as_array().cloned().unwrap_or_default())
-}
-
-fn save_reviews(path: &str, reviews: &[serde_json::Value]) -> Result<(), String> {
-    let reviews_path = reviews_file_path(path);
-    if let Some(parent) = reviews_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let serialized = serde_json::to_string_pretty(reviews).map_err(|e| e.to_string())?;
-    fs::write(reviews_path, serialized).map_err(|e| e.to_string())
-}
-
-fn unix_nanos() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
+    fs::read_to_string(&docs_path).map_err(|e| e.to_string())
 }
