@@ -26,6 +26,7 @@ fn poly_bin() -> &'static str {
 fn poly_offline() -> Command {
     let mut cmd = Command::new(poly_bin());
     cmd.env_remove("POLY_ADK_KEY");
+    cmd.env("POLY_ADK_ALLOW_INMEMORY_FALLBACK", "1");
     cmd
 }
 

@@ -8,7 +8,7 @@
 //! for these families only; it is appended **after** phase-1 commands in `build_phase1_commands`
 //! and does not yet replicate every Python priority nuance.
 
-use crate::{clean_name, extract_entities_map, push_command};
+use crate::{actor_identity, clean_name, extract_entities_map, push_command};
 use adk_domain::ResourceMap;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::experimental_config::ExperimentalConfigUpdateConfig;
@@ -29,7 +29,6 @@ use prost_types::value::Kind;
 use prost_types::{ListValue, Struct, Value as ProstValue};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::env;
 
 #[derive(Debug, Default)]
 pub(crate) struct CommandGroups {
@@ -81,7 +80,7 @@ fn json_to_prost_value(v: &Value) -> ProstValue {
 }
 
 fn sdk_user() -> String {
-    env::var("POLY_ADK_USER").unwrap_or_else(|_| "sdk-user".to_string())
+    actor_identity()
 }
 
 fn remote_variables(projection: &Value) -> HashMap<String, String> {
@@ -102,7 +101,7 @@ fn remote_handoffs(projection: &Value) -> HashMap<String, String> {
     let entities = extract_entities_map(projection, &["handoff", "handoffs", "entities"]);
     let mut m = HashMap::new();
     for (id, v) in entities {
-        if !v.get("active").and_then(Value::as_bool).unwrap_or(false) {
+        if !v.get("active").and_then(Value::as_bool).unwrap_or(true) {
             continue;
         }
         let name = v
@@ -156,6 +155,16 @@ fn remote_experimental_features(projection: &Value) -> Option<Value> {
             .get("features")?
             .clone(),
     )
+}
+
+fn remote_experimental_config_id(projection: &Value) -> Option<String> {
+    extract_entities_map(
+        projection,
+        &["experimentalConfig", "experimentalConfigs", "entities"],
+    )
+    .keys()
+    .next()
+    .cloned()
 }
 
 fn yaml_str(y: &serde_yaml::Value, key: &str) -> String {
@@ -321,11 +330,124 @@ fn sms_matches_remote(local: &serde_yaml::Value, remote: &Value) -> bool {
     ls == rs && lp == rp && ll == rl
 }
 
+fn yaml_reference_map(y: Option<&serde_yaml::Value>) -> HashMap<String, bool> {
+    let Some(y) = y else {
+        return HashMap::new();
+    };
+    if let Some(arr) = y.as_sequence() {
+        return arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| (s.to_string(), true)))
+            .collect();
+    }
+    if let Some(obj) = y.as_mapping() {
+        let mut out = HashMap::new();
+        for (k, v) in obj {
+            if let Some(key) = k.as_str() {
+                out.insert(key.to_string(), v.as_bool().unwrap_or(true));
+            }
+        }
+        return out;
+    }
+    HashMap::new()
+}
+
+fn json_reference_map(y: Option<&Value>) -> HashMap<String, bool> {
+    let Some(y) = y else {
+        return HashMap::new();
+    };
+    if let Some(obj) = y.as_object() {
+        let mut out = HashMap::new();
+        for (k, v) in obj {
+            out.insert(k.clone(), v.as_bool().unwrap_or(true));
+        }
+        return out;
+    }
+    HashMap::new()
+}
+
+fn sms_references_from_yaml(yaml: &serde_yaml::Value) -> Option<SmsTemplateReferences> {
+    let refs = yaml.get("references").or_else(|| yaml.get("refs"));
+    let topics = yaml_reference_map(refs.and_then(|r| r.get("topics")));
+    let flow_steps = yaml_reference_map(refs.and_then(|r| r.get("flow_steps")));
+    let variables = yaml_reference_map(refs.and_then(|r| r.get("variables")));
+    let translations = yaml_reference_map(refs.and_then(|r| r.get("translations")));
+    if topics.is_empty() && flow_steps.is_empty() && variables.is_empty() && translations.is_empty()
+    {
+        return None;
+    }
+    Some(SmsTemplateReferences {
+        topics,
+        flow_steps,
+        variables,
+        translations,
+    })
+}
+
+fn sms_references_from_remote(remote: Option<&Value>) -> Option<SmsTemplateReferences> {
+    let refs = remote.and_then(|v| v.get("references"))?;
+    let topics = json_reference_map(refs.get("topics"));
+    let flow_steps = json_reference_map(refs.get("flowSteps").or_else(|| refs.get("flow_steps")));
+    let variables = json_reference_map(refs.get("variables"));
+    let translations = json_reference_map(refs.get("translations"));
+    if topics.is_empty() && flow_steps.is_empty() && variables.is_empty() && translations.is_empty()
+    {
+        return None;
+    }
+    Some(SmsTemplateReferences {
+        topics,
+        flow_steps,
+        variables,
+        translations,
+    })
+}
+
 fn phrase_refs(function_id: Option<&str>) -> Option<StopKeywordReferences> {
-    let fid = function_id.filter(|s| !s.is_empty())?;
     let mut global_functions = HashMap::new();
-    global_functions.insert(fid.to_string(), true);
+    if let Some(fid) = function_id.filter(|s| !s.is_empty()) {
+        global_functions.insert(fid.to_string(), true);
+    }
+    if global_functions.is_empty() {
+        return None;
+    }
     Some(StopKeywordReferences { global_functions })
+}
+
+fn phrase_refs_from_yaml(yaml: &serde_yaml::Value) -> Option<StopKeywordReferences> {
+    let mut global_functions = HashMap::new();
+    if let Some(fid) = yaml.get("function").and_then(serde_yaml::Value::as_str)
+        && !fid.trim().is_empty()
+    {
+        global_functions.insert(fid.to_string(), true);
+    }
+    if let Some(refs) = yaml.get("references").or_else(|| yaml.get("refs"))
+        && let Some(gf) = refs
+            .get("global_functions")
+            .or_else(|| refs.get("globalFunctions"))
+    {
+        if let Some(arr) = gf.as_sequence() {
+            for item in arr {
+                if let Some(fid) = item.as_str()
+                    && !fid.trim().is_empty()
+                {
+                    global_functions.insert(fid.to_string(), true);
+                }
+            }
+        } else if let Some(map) = gf.as_mapping() {
+            for (k, v) in map {
+                if let Some(fid) = k.as_str()
+                    && !fid.trim().is_empty()
+                {
+                    global_functions.insert(fid.to_string(), v.as_bool().unwrap_or(true));
+                }
+            }
+        }
+    }
+    if global_functions.is_empty() {
+        None
+    } else {
+        Some(StopKeywordReferences { global_functions })
+    }
 }
 
 pub(crate) fn extended_resource_command_groups(
@@ -374,6 +496,10 @@ pub(crate) fn extended_resource_command_groups(
             let id = rv
                 .get(&name)
                 .cloned()
+                .or_else(|| {
+                    (!resource.resource_id.trim().is_empty() && resource.resource_id != "local")
+                        .then_some(resource.resource_id.clone())
+                })
                 .unwrap_or_else(|| format!("vrbl-{}", clean_name(&name).to_lowercase()));
             if rv.contains_key(&name) {
                 push_command(
@@ -411,6 +537,10 @@ pub(crate) fn extended_resource_command_groups(
                 let id = remote_ho
                     .get(&name)
                     .cloned()
+                    .or_else(|| {
+                        (!resource.resource_id.trim().is_empty() && resource.resource_id != "local")
+                            .then_some(resource.resource_id.clone())
+                    })
                     .unwrap_or_else(|| format!("ho-{}", clean_name(&name).to_lowercase()));
                 let description = yaml_str(&yaml, "description");
                 let sip_config = handoff_sip_config(&yaml);
@@ -460,15 +590,22 @@ pub(crate) fn extended_resource_command_groups(
                 let id = rsms
                     .get(&name)
                     .cloned()
+                    .or_else(|| {
+                        (!resource.resource_id.trim().is_empty() && resource.resource_id != "local")
+                            .then_some(resource.resource_id.clone())
+                    })
                     .unwrap_or_else(|| format!("twilio_sms-{}", clean_name(&name).to_lowercase()));
                 let text = yaml_str(&yaml, "text");
                 let env_create = sms_env_phone_numbers(&yaml);
                 let env_up = sms_env_update(&yaml);
+                let local_refs = sms_references_from_yaml(&yaml);
                 if rsms.contains_key(&name) {
                     let sms_entities =
                         extract_entities_map(projection, &["sms", "templates", "entities"]);
+                    let mut remote_template: Option<&Value> = None;
                     if let Some(rid) = rsms.get(&name) {
                         if let Some(rem) = sms_entities.get(rid.as_str()) {
+                            remote_template = Some(rem);
                             if sms_matches_remote(&yaml, rem) {
                                 continue;
                             }
@@ -483,7 +620,9 @@ pub(crate) fn extended_resource_command_groups(
                             name: Some(name.clone()),
                             text: Some(text),
                             env_phone_numbers: Some(env_up),
-                            references: None,
+                            references: local_refs
+                                .clone()
+                                .or_else(|| sms_references_from_remote(remote_template)),
                             active: Some(true),
                         }),
                     );
@@ -497,12 +636,7 @@ pub(crate) fn extended_resource_command_groups(
                             name: name.clone(),
                             text,
                             env_phone_numbers: Some(env_create),
-                            references: Some(SmsTemplateReferences {
-                                topics: HashMap::new(),
-                                flow_steps: HashMap::new(),
-                                variables: HashMap::new(),
-                                translations: HashMap::new(),
-                            }),
+                            references: local_refs,
                             active: true,
                         }),
                     );
@@ -521,6 +655,10 @@ pub(crate) fn extended_resource_command_groups(
                 let id = rpf
                     .get(&title)
                     .cloned()
+                    .or_else(|| {
+                        (!resource.resource_id.trim().is_empty() && resource.resource_id != "local")
+                            .then_some(resource.resource_id.clone())
+                    })
                     .unwrap_or_else(|| format!("sk-{}", clean_name(&title).to_lowercase()));
                 let description = yaml_str(&yaml, "description");
                 let say_phrase = yaml
@@ -545,10 +683,13 @@ pub(crate) fn extended_resource_command_groups(
                             .collect()
                     })
                     .unwrap_or_default();
-                let function_id = yaml
-                    .get("function")
-                    .and_then(serde_yaml::Value::as_str)
-                    .map(ToString::to_string);
+                let references = phrase_refs_from_yaml(&yaml).or_else(|| {
+                    let function_id = yaml
+                        .get("function")
+                        .and_then(serde_yaml::Value::as_str)
+                        .map(ToString::to_string);
+                    phrase_refs(function_id.as_deref())
+                });
 
                 if rpf.contains_key(&title) {
                     push_command(
@@ -561,7 +702,7 @@ pub(crate) fn extended_resource_command_groups(
                             description: Some(description),
                             regular_expressions,
                             say_phrase: Some(say_phrase),
-                            references: phrase_refs(function_id.as_deref()),
+                            references: references.clone(),
                             language_code: Some(language_code),
                         }),
                     );
@@ -576,7 +717,7 @@ pub(crate) fn extended_resource_command_groups(
                             description,
                             regular_expressions,
                             say_phrase,
-                            references: phrase_refs(function_id.as_deref()),
+                            references,
                             language_code,
                         }),
                     );
@@ -599,6 +740,13 @@ pub(crate) fn extended_resource_command_groups(
                 Some(r) => r != &local_json,
             };
             if needs {
+                let id =
+                    if !resource.resource_id.trim().is_empty() && resource.resource_id != "local" {
+                        resource.resource_id.clone()
+                    } else {
+                        remote_experimental_config_id(projection)
+                            .unwrap_or_else(|| "default".to_string())
+                    };
                 let features = json_to_prost_struct(&local_json);
                 push_command(
                     &mut exp_update,
@@ -606,7 +754,7 @@ pub(crate) fn extended_resource_command_groups(
                     "experimental_config_update_config",
                     CommandPayload::ExperimentalConfigUpdateConfig(
                         ExperimentalConfigUpdateConfig {
-                            id: "default".to_string(),
+                            id,
                             features,
                             updated_at: None,
                             updated_by: sdk_user(),
@@ -686,6 +834,10 @@ pub(crate) fn extended_resource_command_groups(
             let id = remote_ho
                 .get(&name)
                 .cloned()
+                .or_else(|| {
+                    (!resource.resource_id.trim().is_empty() && resource.resource_id != "local")
+                        .then_some(resource.resource_id.clone())
+                })
                 .unwrap_or_else(|| format!("ho-{}", clean_name(&name).to_lowercase()));
             push_command(
                 &mut defaults,
@@ -815,6 +967,129 @@ env_phone_numbers:
     }
 
     #[test]
+    fn remote_handoff_without_active_field_is_treated_as_active() {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            "config/handoffs.yaml/handoffs/Sales".into(),
+            Resource {
+                resource_id: "ho-sales".into(),
+                name: "Sales".into(),
+                file_path: "config/handoffs.yaml/handoffs/Sales".into(),
+                payload: serde_json::json!({
+                    "content": "name: Sales\ndescription: to sales\n"
+                }),
+            },
+        );
+        let projection = serde_json::json!({
+            "handoff": {
+                "handoffs": {
+                    "entities": {
+                        "ho-sales": {
+                            "name": "Sales",
+                            "description": "to sales"
+                        }
+                    }
+                }
+            }
+        });
+        let cmds = flatten(extended_resource_command_groups(
+            &resources,
+            &projection,
+            &None,
+        ));
+        assert!(
+            !cmds.iter().any(|c| c.r#type == "handoff_create"),
+            "existing active-by-default handoff should not be recreated"
+        );
+        assert!(
+            cmds.iter().any(|c| c.r#type == "handoff_update"),
+            "existing active-by-default handoff should be updated if needed"
+        );
+    }
+
+    #[test]
+    fn sms_create_populates_references_from_yaml() {
+        let sms_yaml = r#"
+name: Welcome
+text: hi
+references:
+  topics:
+    topic-1: true
+  flow_steps:
+    flow-1: true
+  variables:
+    var-1: true
+  translations:
+    tr-1: true
+"#;
+        let m = map_with(vec![(
+            "config/sms_templates.yaml/sms_templates/Welcome".into(),
+            Resource {
+                resource_id: "twilio_sms-1".into(),
+                name: "Welcome".into(),
+                file_path: "config/sms_templates.yaml/sms_templates/Welcome".into(),
+                payload: serde_json::json!({ "content": sms_yaml }),
+            },
+        )]);
+        let projection = serde_json::json!({});
+        let cmds = flatten(extended_resource_command_groups(&m, &projection, &None));
+        let create = cmds
+            .iter()
+            .find(|c| c.r#type == "sms_create_template")
+            .expect("sms create command");
+        match &create.payload {
+            Some(CommandPayload::SmsCreateTemplate(msg)) => {
+                let refs = msg.references.as_ref().expect("references");
+                assert!(refs.topics.get("topic-1").copied().unwrap_or(false));
+                assert!(refs.flow_steps.get("flow-1").copied().unwrap_or(false));
+                assert!(refs.variables.get("var-1").copied().unwrap_or(false));
+                assert!(refs.translations.get("tr-1").copied().unwrap_or(false));
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stop_keyword_references_include_global_functions_map() {
+        let pf_yaml = r#"
+name: HangUp
+description: end
+regular_expressions:
+  - "^bye$"
+say_phrase: false
+language_code: en-US
+references:
+  global_functions:
+    fn-one: true
+    fn-two: false
+"#;
+        let m = map_with(vec![(
+            "voice/response_control/phrase_filtering.yaml/phrase_filtering/HangUp".into(),
+            Resource {
+                resource_id: "sk-hangup".into(),
+                name: "HangUp".into(),
+                file_path: "voice/response_control/phrase_filtering.yaml/phrase_filtering/HangUp"
+                    .into(),
+                payload: serde_json::json!({ "content": pf_yaml }),
+            },
+        )]);
+        let projection = serde_json::json!({});
+        let cmds = flatten(extended_resource_command_groups(&m, &projection, &None));
+        let create = cmds
+            .iter()
+            .find(|c| c.r#type == "stop_keywords_create")
+            .expect("stop keyword create command");
+        match &create.payload {
+            Some(CommandPayload::StopKeywordsCreate(msg)) => {
+                let refs = msg.references.as_ref().expect("references");
+                assert_eq!(refs.global_functions.get("fn-one"), Some(&true));
+                assert_eq!(refs.global_functions.get("fn-two"), Some(&false));
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
     fn stop_keywords_create_and_experimental_update() {
         let pf_yaml = r#"
 name: HangUp
@@ -853,5 +1128,15 @@ language_code: en-US
         let types: Vec<&str> = cmds.iter().map(|c| c.r#type.as_str()).collect();
         assert!(types.contains(&"stop_keywords_create"));
         assert!(types.contains(&"experimental_config_update_config"));
+        let exp_cmd = cmds
+            .iter()
+            .find(|c| c.r#type == "experimental_config_update_config")
+            .expect("experimental config update command");
+        match &exp_cmd.payload {
+            Some(CommandPayload::ExperimentalConfigUpdateConfig(msg)) => {
+                assert_eq!(msg.id, "default")
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
     }
 }

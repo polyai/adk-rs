@@ -12,7 +12,7 @@
 //! real files on disk.
 
 use adk_core::AdkService;
-use adk_domain::{Resource, ResourceMap};
+use adk_domain::{DeploymentList, Resource, ResourceMap};
 use adk_io::{compute_hash, parse_multi_resource_path};
 use adk_platform_api::InMemoryPlatformClient;
 use base64::Engine;
@@ -735,7 +735,10 @@ fn diff_named_state_local_vs_remote_reports_changes() {
             Some("local".to_string()),
         )
         .expect("diff");
-    assert_eq!(diffs.len(), 1);
+    assert!(
+        !diffs.is_empty(),
+        "expected at least one local-vs-remote diff entry"
+    );
     assert!(diffs.contains_key("topics/topic_1.yaml"));
 }
 
@@ -786,4 +789,242 @@ fn diff_named_state_with_file_filter_applies_glob() {
         .expect("diff");
     assert_eq!(diffs.len(), 1);
     assert!(diffs.contains_key("topics/topic_1.yaml"));
+}
+
+#[test]
+fn revert_changes_restores_remote_content_for_selected_files() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Local Topic\n").expect("write local topic");
+    fs::write(
+        root.join("functions/test.py"),
+        "def test(conv):\n    return 'local'\n",
+    )
+    .expect("write local function");
+
+    let mut remote: ResourceMap = ResourceMap::new();
+    remote.insert(
+        "topics/topic_1.yaml".to_string(),
+        Resource {
+            resource_id: "TOPIC-topic_1".to_string(),
+            name: "Topic 1".to_string(),
+            file_path: "topics/topic_1.yaml".to_string(),
+            payload: serde_json::json!({"content": "name: Remote Topic\n"}),
+        },
+    );
+    remote.insert(
+        "functions/test.py".to_string(),
+        Resource {
+            resource_id: "FUNCTION-test".to_string(),
+            name: "test".to_string(),
+            file_path: "functions/test.py".to_string(),
+            payload: serde_json::json!({"content": "def test(conv):\n    return 'remote'\n"}),
+        },
+    );
+    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(remote)));
+    let selected = vec![
+        root.join("topics/topic_1.yaml")
+            .to_string_lossy()
+            .to_string(),
+    ];
+
+    let reverted = service
+        .revert_changes(root.as_path(), &selected)
+        .expect("revert");
+
+    assert_eq!(reverted.len(), 1);
+    assert_eq!(
+        fs::read_to_string(root.join("topics/topic_1.yaml")).expect("topic file"),
+        "name: Remote Topic\n"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("functions/test.py")).expect("function file"),
+        "def test(conv):\n    return 'local'\n"
+    );
+}
+
+#[test]
+fn push_dry_run_and_validation_flags_are_respected() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::write(root.join("sample.json"), "{\"b\":2,\"a\":1}").expect("write json");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(
+        root.join("topics/bad.yaml"),
+        "name: bad\ncontent: [unterminated\n",
+    )
+    .expect("write invalid yaml");
+
+    let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let dry_run = service
+        .push(root.as_path(), false, true, true)
+        .expect("dry run push");
+    assert!(dry_run.success);
+    assert!(dry_run.message.contains("Dry run completed"));
+
+    let error = service
+        .push(root.as_path(), false, false, false)
+        .expect_err("validation should fail");
+    assert!(error.to_string().contains("validation failed"));
+}
+
+#[test]
+fn push_force_bypasses_conflict_marker_guard() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(
+        root.join("topics/topic_1.yaml"),
+        "<<<<<<< ours\nname: Ours\n=======\nname: Theirs\n>>>>>>> theirs\n",
+    )
+    .expect("write conflicted file");
+
+    let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let blocked = service
+        .push(root.as_path(), false, true, false)
+        .expect("push result");
+    assert!(!blocked.success);
+    assert!(blocked.message.contains("Merge conflicts detected"));
+
+    let forced = service
+        .push(root.as_path(), true, true, false)
+        .expect("forced push result");
+    assert!(forced.success);
+}
+
+#[test]
+fn pull_force_controls_overwrite_of_conflict_files() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    let target = root.join("topics/topic_1.yaml");
+    fs::write(
+        &target,
+        "<<<<<<< ours\nname: Ours\n=======\nname: Theirs\n>>>>>>> theirs\n",
+    )
+    .expect("write conflicted file");
+
+    let mut remote: ResourceMap = ResourceMap::new();
+    remote.insert(
+        "topics/topic_1.yaml".to_string(),
+        Resource {
+            resource_id: "TOPIC-topic_1".to_string(),
+            name: "Topic 1".to_string(),
+            file_path: "topics/topic_1.yaml".to_string(),
+            payload: serde_json::json!({"content": "name: Remote Topic\n"}),
+        },
+    );
+    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(remote)));
+
+    let conflicts = service
+        .pull(root.as_path(), false)
+        .expect("pull without force");
+    assert_eq!(conflicts.len(), 1);
+    assert!(conflicts[0].contains("topics/topic_1.yaml"));
+    assert!(
+        fs::read_to_string(&target)
+            .expect("target")
+            .contains("<<<<<<<")
+    );
+
+    let conflicts_after_force = service.pull(root.as_path(), true).expect("pull force");
+    assert!(conflicts_after_force.is_empty());
+    assert_eq!(
+        fs::read_to_string(&target).expect("target"),
+        "name: Remote Topic\n"
+    );
+}
+
+#[test]
+fn diff_after_only_uses_previous_deployment_version() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    let current_hash = "abcdef123456";
+    let previous_hash = "fedcba987654";
+    let mut named = indexmap::IndexMap::new();
+    named.insert(
+        current_hash.to_string(),
+        ResourceMap::from([(
+            "topics/topic_1.yaml".to_string(),
+            Resource {
+                resource_id: "TOPIC-topic_1".to_string(),
+                name: "Topic 1".to_string(),
+                file_path: "topics/topic_1.yaml".to_string(),
+                payload: serde_json::json!({"content": "name: Current Topic\n"}),
+            },
+        )]),
+    );
+    named.insert(
+        previous_hash.to_string(),
+        ResourceMap::from([(
+            "topics/topic_1.yaml".to_string(),
+            Resource {
+                resource_id: "TOPIC-topic_1".to_string(),
+                name: "Topic 1".to_string(),
+                file_path: "topics/topic_1.yaml".to_string(),
+                payload: serde_json::json!({"content": "name: Previous Topic\n"}),
+            },
+        )]),
+    );
+    let deployments = DeploymentList {
+        versions: vec![
+            serde_json::json!({"version_hash": current_hash}),
+            serde_json::json!({"version_hash": previous_hash}),
+        ],
+        active_deployment_hashes: indexmap::IndexMap::new(),
+    };
+    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_named_resources(
+        ResourceMap::new(),
+        named,
+        deployments,
+    )));
+    let diffs = service
+        .diff(root.as_path(), &[], None, Some(current_hash.to_string()))
+        .expect("diff");
+    assert!(diffs.contains_key("topics/topic_1.yaml"));
+}
+
+#[test]
+fn diff_after_only_errors_when_previous_version_missing() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    let deployments = DeploymentList {
+        versions: vec![serde_json::json!({"version_hash": "abcdef123456"})],
+        active_deployment_hashes: indexmap::IndexMap::new(),
+    };
+    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_named_resources(
+        ResourceMap::new(),
+        indexmap::IndexMap::new(),
+        deployments,
+    )));
+    let error = service
+        .diff(root.as_path(), &[], None, Some("abcdef123".to_string()))
+        .expect_err("should fail with no previous deployment");
+    assert!(error.to_string().contains("No previous version found."));
 }

@@ -5,6 +5,7 @@ use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Generator, Shell};
 use serde_json::json;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -241,7 +242,11 @@ struct BranchCreateArgs {
     #[arg(long, default_value = ".")]
     path: String,
     branch_name: Option<String>,
-    #[arg(long = "env", visible_alias = "environment")]
+    #[arg(
+        long = "env",
+        visible_alias = "environment",
+        value_parser = clap::builder::PossibleValuesParser::new(["sandbox", "pre-release", "live"])
+    )]
     environment: Option<String>,
     #[arg(long, short = 'f', action = ArgAction::SetTrue)]
     force: bool,
@@ -334,7 +339,12 @@ struct ValidateArgs {
 struct ChatArgs {
     #[arg(long, default_value = ".")]
     path: String,
-    #[arg(long, short = 'e', default_value = "branch")]
+    #[arg(
+        long,
+        short = 'e',
+        default_value = "branch",
+        value_parser = clap::builder::PossibleValuesParser::new(["branch", "sandbox", "pre-release", "live"])
+    )]
     environment: String,
     #[arg(long)]
     variant: Option<String>,
@@ -344,7 +354,11 @@ struct ChatArgs {
     input_lang: Option<String>,
     #[arg(long = "output-lang")]
     output_lang: Option<String>,
-    #[arg(long, default_value = "voice")]
+    #[arg(
+        long,
+        default_value = "voice",
+        value_parser = clap::builder::PossibleValuesParser::new(["voice", "webchat"])
+    )]
     channel: String,
     #[arg(long, action = ArgAction::SetTrue)]
     functions: bool,
@@ -397,7 +411,12 @@ enum DeploymentsCommands {
 struct DeploymentsListArgs {
     #[arg(long, default_value = ".")]
     path: String,
-    #[arg(long, short = 'e', default_value = "sandbox")]
+    #[arg(
+        long,
+        short = 'e',
+        default_value = "sandbox",
+        value_parser = clap::builder::PossibleValuesParser::new(["sandbox", "pre-release", "live"])
+    )]
     env: String,
     #[arg(long, default_value_t = 10)]
     limit: usize,
@@ -430,15 +449,43 @@ fn run() -> Result<ExitCode> {
     let result = match cli.command {
         Commands::Docs(args) => cmd_docs(args),
         Commands::Init(args) => cmd_init(&bootstrap_service, args),
-        Commands::Pull(args) => cmd_pull(&service_for_path(&bootstrap_service, &args.path), args),
-        Commands::Push(args) => cmd_push(&service_for_path(&bootstrap_service, &args.path), args),
-        Commands::Status(args) => {
-            cmd_status(&service_for_path(&bootstrap_service, &args.path), args)
+        Commands::Pull(args) => {
+            let Some(service) = remote_service_for_path(&bootstrap_service, &args.path, args.json)
+            else {
+                return Ok(ExitCode::from(1));
+            };
+            cmd_pull(&service, args)
         }
+        Commands::Push(args) => {
+            let Some(service) =
+                remote_service_for_path(&bootstrap_service, &args.path, args.json)
+            else {
+                return Ok(ExitCode::from(1));
+            };
+            cmd_push(&service, args)
+        }
+        Commands::Status(args) => cmd_status(&local_service(), args),
         Commands::Revert(args) => {
-            cmd_revert(&service_for_path(&bootstrap_service, &args.path), args)
+            let Some(service) =
+                remote_service_for_path(&bootstrap_service, &args.path, args.json)
+            else {
+                return Ok(ExitCode::from(1));
+            };
+            cmd_revert(&service, args)
         }
-        Commands::Diff(args) => cmd_diff(&service_for_path(&bootstrap_service, &args.path), args),
+        Commands::Diff(args) => {
+            let needs_remote = args.hash.is_some() || args.before.is_some() || args.after.is_some();
+            if needs_remote {
+                let Some(service) =
+                    remote_service_for_path(&bootstrap_service, &args.path, args.json)
+                else {
+                    return Ok(ExitCode::from(1));
+                };
+                cmd_diff(&service, args)
+            } else {
+                cmd_diff(&local_service(), args)
+            }
+        }
         Commands::Review(args) => cmd_review(args),
         Commands::Branch(args) => cmd_branch(args),
         Commands::Format(args) => cmd_format(args),
@@ -449,7 +496,11 @@ fn run() -> Result<ExitCode> {
             let path = match &args.command {
                 DeploymentsCommands::List(list) => list.path.as_str(),
             };
-            cmd_deployments(&service_for_path(&bootstrap_service, path), args)
+            let json_mode = matches!(&args.command, DeploymentsCommands::List(list) if list.json);
+            let Some(service) = remote_service_for_path(&bootstrap_service, path, json_mode) else {
+                return Ok(ExitCode::from(1));
+            };
+            cmd_deployments(&service, args)
         }
     };
     Ok(result)
@@ -546,7 +597,7 @@ fn cmd_pull(service: &AdkService, args: PullArgs) -> ExitCode {
     if !ensure_project_loaded(service, &args.path, args.json || args.output_json_projection) {
         return ExitCode::from(1);
     }
-    match service.pull(PathBuf::from(args.path).as_path()) {
+    match service.pull(PathBuf::from(args.path).as_path(), args.force) {
         Ok(conflicts) => {
             if args.json || args.output_json_projection {
                 println!(
@@ -618,6 +669,7 @@ fn cmd_status(service: &AdkService, args: StatusArgs) -> ExitCode {
                 println!(
                     "{}",
                     json!({
+                        "conflict_detection_available": summary.conflict_detection_available,
                         "files_with_conflicts": summary.files_with_conflicts,
                         "modified_files": summary.modified_files,
                         "new_files": summary.new_files,
@@ -626,6 +678,9 @@ fn cmd_status(service: &AdkService, args: StatusArgs) -> ExitCode {
                 );
             } else {
                 println!("{summary:#?}");
+                if !summary.conflict_detection_available {
+                    eprintln!("Warning: conflict detection is currently unavailable.");
+                }
             }
             ExitCode::SUCCESS
         }
@@ -640,12 +695,40 @@ fn cmd_revert(service: &AdkService, args: RevertArgs) -> ExitCode {
     if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
     }
-    if args.json {
-        println!("{}", json!({"success": true, "files_reverted": args.files}));
-    } else {
-        println!("Revert completed.");
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let files: Vec<String> = args
+        .files
+        .iter()
+        .map(|file| {
+            let path = PathBuf::from(file);
+            if path.is_absolute() {
+                path
+            } else {
+                cwd.join(path)
+            }
+            .to_string_lossy()
+            .to_string()
+        })
+        .collect();
+    match service.revert_changes(PathBuf::from(&args.path).as_path(), &files) {
+        Ok(files_reverted) => {
+            if args.json {
+                println!(
+                    "{}",
+                    json!({"success": true, "files_reverted": files_reverted})
+                );
+            } else if files_reverted.is_empty() {
+                println!("No changes to revert.");
+            } else {
+                println!("Changes reverted successfully.");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            emit_error(args.json, &error.to_string());
+            ExitCode::from(1)
+        }
     }
-    ExitCode::SUCCESS
 }
 
 fn cmd_diff(service: &AdkService, args: DiffArgs) -> ExitCode {
@@ -704,7 +787,9 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
     let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
     match args.command {
         BranchCommands::List(a) => {
-            let service = service_for_path(&bootstrap, &a.path);
+            let Some(service) = remote_service_for_path(&bootstrap, &a.path, a.json) else {
+                return ExitCode::from(1);
+            };
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
@@ -717,7 +802,9 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             }
         }
         BranchCommands::Create(a) => {
-            let service = service_for_path(&bootstrap, &a.path);
+            let Some(service) = remote_service_for_path(&bootstrap, &a.path, a.json) else {
+                return ExitCode::from(1);
+            };
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
@@ -770,7 +857,9 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             }
         }
         BranchCommands::Delete(a) => {
-            let service = service_for_path(&bootstrap, &a.path);
+            let Some(service) = remote_service_for_path(&bootstrap, &a.path, a.json) else {
+                return ExitCode::from(1);
+            };
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
@@ -793,7 +882,9 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             }
         }
         BranchCommands::Merge(a) => {
-            let service = service_for_path(&bootstrap, &a.path);
+            let Some(service) = remote_service_for_path(&bootstrap, &a.path, a.json) else {
+                return ExitCode::from(1);
+            };
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
@@ -901,7 +992,9 @@ fn cmd_validate(args: ValidateArgs) -> ExitCode {
 
 fn cmd_chat(args: ChatArgs) -> ExitCode {
     let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
-    let service = service_for_path(&bootstrap, &args.path);
+    let Some(service) = remote_service_for_path(&bootstrap, &args.path, args.json) else {
+        return ExitCode::from(1);
+    };
     if !ensure_project_loaded(&service, &args.path, args.json) {
         return ExitCode::from(1);
     }
@@ -1057,6 +1150,49 @@ fn service_for_path(bootstrap: &AdkService, path: &str) -> AdkService {
         return AdkService::new(Box::new(http_client));
     }
     AdkService::new(Box::new(InMemoryPlatformClient::default()))
+}
+
+fn remote_service_for_path(
+    bootstrap: &AdkService,
+    path: &str,
+    json_mode: bool,
+) -> Option<AdkService> {
+    let cfg = match bootstrap.load_project_config(PathBuf::from(path).as_path()) {
+        Ok(cfg) => cfg,
+        Err(_) => return Some(service_for_path(bootstrap, path)),
+    };
+    match HttpPlatformClient::new(&cfg.region, &cfg.account_id, &cfg.project_id, Some(&cfg.branch_id)) {
+        Ok(client) => Some(AdkService::new(Box::new(client))),
+        Err(error) => {
+            let allow_fallback =
+                std::env::var("POLY_ADK_ALLOW_INMEMORY_FALLBACK").unwrap_or_default() == "1";
+            if allow_fallback {
+                if json_mode {
+                    eprintln!(
+                        "{}",
+                        json!({
+                            "warning": format!(
+                                "remote platform client unavailable, using in-memory fallback: {error}"
+                            )
+                        })
+                    );
+                } else {
+                    eprintln!(
+                        "Warning: remote platform client unavailable, using in-memory fallback: {error}"
+                    );
+                }
+                Some(AdkService::new(Box::new(InMemoryPlatformClient::default())))
+            } else {
+                emit_error(
+                    json_mode,
+                    &format!(
+                        "remote platform client unavailable: {error} (set POLY_ADK_ALLOW_INMEMORY_FALLBACK=1 to opt into local fallback)"
+                    ),
+                );
+                None
+            }
+        }
+    }
 }
 
 fn load_docs(document_name: &str) -> Result<String, String> {

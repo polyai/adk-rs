@@ -21,29 +21,84 @@ pub fn diff_text(before: &str, after: &str) -> String {
 
 pub fn diff_resources(before: &ResourceMap, after: &ResourceMap) -> DiffMap {
     let mut out = DiffMap::new();
-    for (path, resource) in after {
-        let new_payload =
-            serde_json::to_string_pretty(&resource.payload).unwrap_or_else(|_| "{}".to_string());
+    let mut all_paths = std::collections::BTreeSet::new();
+    all_paths.extend(before.keys().cloned());
+    all_paths.extend(after.keys().cloned());
+    for path in all_paths {
+        let resource = after.get(&path);
+        let new_payload = resource
+            .and_then(|r| serde_json::to_string_pretty(&r.payload).ok())
+            .unwrap_or_default();
         let old_payload = before
-            .get(path)
+            .get(&path)
             .and_then(|r| serde_json::to_string_pretty(&r.payload).ok())
             .unwrap_or_default();
         if old_payload != new_payload {
-            out.insert(path.clone(), diff_text(&old_payload, &new_payload));
+            out.insert(path, diff_text(&old_payload, &new_payload));
         }
     }
     out
 }
 
 pub fn parse_multi_resource_path(path: &str) -> (String, Option<String>) {
-    // Python uses logical subpaths after `.yaml/` for multi-resource documents.
-    let marker = ".yaml/";
-    if let Some(idx) = path.find(marker) {
-        let yaml_path = path[..idx + 5].to_string();
-        let sub = path[idx + marker.len()..].to_string();
-        return (yaml_path, Some(sub));
+    match parse_multi_resource_path_strict(path) {
+        Ok((yaml_file_path, segments)) => (yaml_file_path, Some(segments.join("/"))),
+        Err(_) => (path.to_string(), None),
     }
-    (path.to_string(), None)
+}
+
+pub fn parse_multi_resource_path_strict(path: &str) -> Result<(String, Vec<String>), String> {
+    let path = path.replace('\\', "/");
+    let (absolute, mut parts) = normalize_parts(&path);
+    if parts.is_empty() {
+        return Err(format!(
+            "Invalid multi-resource path (expected path to .yaml file): {path}"
+        ));
+    }
+    let yaml_idx = parts
+        .iter()
+        .position(|part| part.ends_with(".yaml") || part.ends_with(".yml"))
+        .ok_or_else(|| {
+            format!("Invalid multi-resource path (expected path to .yaml file): {path}")
+        })?;
+    if yaml_idx >= parts.len() - 1 {
+        return Err(format!(
+            "Invalid multi-resource path (expected segments after .yaml file): {path}"
+        ));
+    }
+    if parts[0].ends_with(':') {
+        parts[0].push('/');
+    }
+    let base_parts = &parts[..=yaml_idx];
+    let yaml_file_path = if absolute {
+        format!("/{}", base_parts.join("/"))
+    } else {
+        base_parts.join("/")
+    };
+    let segments = parts[yaml_idx + 1..].to_vec();
+    Ok((yaml_file_path, segments))
+}
+
+fn normalize_parts(path: &str) -> (bool, Vec<String>) {
+    let absolute = path.starts_with('/');
+    let mut parts: Vec<String> = Vec::new();
+    for raw in path.split('/') {
+        if raw.is_empty() || raw == "." {
+            continue;
+        }
+        if raw == ".." {
+            if let Some(last) = parts.last() {
+                if last != ".." && !last.ends_with(':') {
+                    parts.pop();
+                    continue;
+                }
+            }
+            parts.push("..".to_string());
+            continue;
+        }
+        parts.push(raw.to_string());
+    }
+    (absolute, parts)
 }
 
 pub fn normalize_rel_path(root: &Path, target: &Path) -> String {
@@ -57,11 +112,51 @@ pub fn normalize_rel_path(root: &Path, target: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adk_domain::Resource;
 
     #[test]
     fn parses_multi_resource_paths() {
         let (base, sub) = parse_multi_resource_path("config/entities.yaml/entities/foo");
         assert_eq!(base, "config/entities.yaml");
         assert_eq!(sub.as_deref(), Some("entities/foo"));
+    }
+
+    #[test]
+    fn parses_multi_resource_paths_with_windows_separators() {
+        let (base, sub) = parse_multi_resource_path("config\\entities.yaml\\entities\\foo");
+        assert_eq!(base, "config/entities.yaml");
+        assert_eq!(sub.as_deref(), Some("entities/foo"));
+    }
+
+    #[test]
+    fn strict_parser_supports_yml_extension() {
+        let (base, segments) =
+            parse_multi_resource_path_strict("config/entities.yml/entities/foo").expect("valid");
+        assert_eq!(base, "config/entities.yml");
+        assert_eq!(segments, vec!["entities".to_string(), "foo".to_string()]);
+    }
+
+    #[test]
+    fn strict_parser_rejects_paths_without_subresource_segments() {
+        let err = parse_multi_resource_path_strict("config/entities.yaml").expect_err("invalid");
+        assert!(err.contains("expected segments after .yaml file"));
+    }
+
+    #[test]
+    fn diff_resources_includes_deletions_from_before_map() {
+        let mut before = ResourceMap::new();
+        before.insert(
+            "topics/topic_1.yaml".to_string(),
+            Resource {
+                resource_id: "TOPIC-topic_1".to_string(),
+                name: "topic_1".to_string(),
+                file_path: "topics/topic_1.yaml".to_string(),
+                payload: serde_json::json!({"content": "name: topic 1\n"}),
+            },
+        );
+        let after = ResourceMap::new();
+        let diffs = diff_resources(&before, &after);
+        assert_eq!(diffs.len(), 1);
+        assert!(diffs.contains_key("topics/topic_1.yaml"));
     }
 }

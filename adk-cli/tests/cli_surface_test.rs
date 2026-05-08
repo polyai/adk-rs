@@ -6,6 +6,17 @@ use std::{
 
 fn run_poly(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_poly"))
+        .env_remove("POLY_ADK_KEY")
+        .env("POLY_ADK_ALLOW_INMEMORY_FALLBACK", "1")
+        .args(args)
+        .output()
+        .expect("failed to execute poly")
+}
+
+fn run_poly_without_fallback(args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_poly"))
+        .env_remove("POLY_ADK_KEY")
+        .env_remove("POLY_ADK_ALLOW_INMEMORY_FALLBACK")
         .args(args)
         .output()
         .expect("failed to execute poly")
@@ -73,6 +84,21 @@ fn status_json_missing_project_matches_contract() {
         Some(false)
     );
     assert!(payload.get("error").is_some());
+}
+
+#[test]
+fn status_json_includes_conflict_detection_availability() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly(&["status", "--json", "--path", &project_dir]);
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(
+        payload
+            .get("conflict_detection_available")
+            .and_then(|v| v.as_bool()),
+        Some(false)
+    );
 }
 
 #[test]
@@ -194,6 +220,43 @@ fn review_text_is_explicitly_unsupported() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("not yet supported"));
+}
+
+#[test]
+fn revert_json_returns_files_reverted_payload() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly(&["revert", "--json", "--path", &project_dir]);
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+    assert!(
+        payload
+            .get("files_reverted")
+            .and_then(|v| v.as_array())
+            .is_some()
+    );
+}
+
+#[test]
+fn revert_text_prints_no_changes_when_nothing_reverted() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly(&["revert", "--path", &project_dir]);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("No changes to revert."));
+}
+
+#[test]
+fn pull_requires_remote_or_explicit_fallback_opt_in() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly_without_fallback(&["pull", "--json", "--path", &project_dir]);
+    assert_eq!(output.status.code(), Some(1));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    let error = payload.get("error").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(error.contains("remote platform client unavailable"));
+    assert!(error.contains("POLY_ADK_ALLOW_INMEMORY_FALLBACK"));
 }
 
 #[test]

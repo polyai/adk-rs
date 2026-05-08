@@ -1,10 +1,12 @@
 use adk_core::AdkService;
-use adk_platform_api::InMemoryPlatformClient;
+use adk_platform_api::{HttpPlatformClient, InMemoryPlatformClient};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FfiStatusResponse {
     pub success: bool,
+    pub conflict_detection_available: bool,
     pub modified_files: Vec<String>,
     pub new_files: Vec<String>,
     pub deleted_files: Vec<String>,
@@ -13,11 +15,11 @@ pub struct FfiStatusResponse {
 }
 
 pub fn status_json(project_path: &str) -> String {
-    let client = InMemoryPlatformClient::default();
-    let service = AdkService::new(Box::new(client));
+    let service = service_for_path(project_path);
     let payload = match service.status(project_path.as_ref()) {
         Ok(summary) => FfiStatusResponse {
             success: true,
+            conflict_detection_available: summary.conflict_detection_available,
             modified_files: summary.modified_files,
             new_files: summary.new_files,
             deleted_files: summary.deleted_files,
@@ -26,6 +28,7 @@ pub fn status_json(project_path: &str) -> String {
         },
         Err(err) => FfiStatusResponse {
             success: false,
+            conflict_detection_available: false,
             modified_files: vec![],
             new_files: vec![],
             deleted_files: vec![],
@@ -34,6 +37,21 @@ pub fn status_json(project_path: &str) -> String {
         },
     };
     serde_json::to_string(&payload).unwrap_or_else(|_| "{\"success\":false}".to_string())
+}
+
+fn service_for_path(path: &str) -> AdkService {
+    let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    if let Ok(config) = bootstrap.load_project_config(PathBuf::from(path).as_path())
+        && let Ok(http_client) = HttpPlatformClient::new(
+            &config.region,
+            &config.account_id,
+            &config.project_id,
+            Some(&config.branch_id),
+        )
+    {
+        return AdkService::new(Box::new(http_client));
+    }
+    AdkService::new(Box::new(InMemoryPlatformClient::default()))
 }
 
 #[cfg(test)]
@@ -63,9 +81,34 @@ mod tests {
         let raw = status_json(&project_dir);
         let payload: serde_json::Value = serde_json::from_str(&raw).expect("json payload");
         assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            payload
+                .get("conflict_detection_available")
+                .and_then(|v| v.as_bool()),
+            Some(false)
+        );
         assert!(payload.get("modified_files").is_some());
         assert!(payload.get("new_files").is_some());
         assert!(payload.get("deleted_files").is_some());
         assert!(payload.get("files_with_conflicts").is_some());
+    }
+
+    #[test]
+    fn ffi_status_json_falls_back_to_inmemory_when_project_missing() {
+        let raw = status_json("/tmp/definitely-not-an-adk-project");
+        let payload: serde_json::Value = serde_json::from_str(&raw).expect("json payload");
+        assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            payload
+                .get("conflict_detection_available")
+                .and_then(|v| v.as_bool()),
+            Some(false)
+        );
+        assert!(
+            payload
+                .get("modified_files")
+                .and_then(|v| v.as_array())
+                .is_some()
+        );
     }
 }

@@ -6,6 +6,8 @@ use std::{
 
 fn run_rust(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_poly"))
+        .env_remove("POLY_ADK_KEY")
+        .env("POLY_ADK_ALLOW_INMEMORY_FALLBACK", "1")
         .args(args)
         .output()
         .expect("run rust cli")

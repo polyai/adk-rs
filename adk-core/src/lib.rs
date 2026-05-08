@@ -13,6 +13,7 @@ use chrono::Utc;
 pub use discover::discover_local_resources;
 pub use discover::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 use globset::{Glob, GlobSetBuilder};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -179,6 +180,7 @@ impl AdkService {
         let local = self.collect_local_resources(root)?;
         let remote = self.client.pull_resources()?;
         let mut summary = StatusSummary::default();
+        summary.conflict_detection_available = false;
 
         if let Some(existing_typed) = self.load_status_snapshot_discovered_resources(root)? {
             let discovered_typed = self.discover_local_resources(root);
@@ -231,8 +233,62 @@ impl AdkService {
         after: Option<String>,
     ) -> Result<DiffMap, CoreError> {
         if before.is_some() || after.is_some() {
-            let before_name = before.unwrap_or_else(|| "local".to_string());
-            let after_name = after.unwrap_or_else(|| "local".to_string());
+            let mut before_name = before.unwrap_or_default();
+            let mut after_name = after.unwrap_or_default();
+            if before_name.is_empty() {
+                let client_env = if after_name == "pre-release" || after_name == "live" {
+                    after_name.as_str()
+                } else {
+                    "sandbox"
+                };
+                let deployments = self.client.list_deployments(client_env)?;
+                if let Some(active_hash) = deployments.active_deployment_hashes.get(&after_name) {
+                    after_name = active_hash.clone();
+                }
+                if deployments.versions.is_empty() {
+                    return Err(DomainError::InvalidData("No versions found.".to_string()).into());
+                }
+                let after_prefix = after_name
+                    .chars()
+                    .take(9)
+                    .collect::<String>()
+                    .to_lowercase();
+                let version_idx = deployments.versions.iter().position(|version| {
+                    version
+                        .get("version_hash")
+                        .or_else(|| version.get("versionHash"))
+                        .or_else(|| version.get("hash"))
+                        .and_then(Value::as_str)
+                        .map(|v| {
+                            v.chars().take(9).collect::<String>().to_lowercase() == after_prefix
+                        })
+                        .unwrap_or(false)
+                });
+                let Some(version_idx) = version_idx else {
+                    return Err(DomainError::InvalidData(format!(
+                        "Version hash '{after_name}' not found."
+                    ))
+                    .into());
+                };
+                if version_idx == deployments.versions.len() - 1 {
+                    return Err(
+                        DomainError::InvalidData("No previous version found.".to_string()).into(),
+                    );
+                }
+                let previous = &deployments.versions[version_idx + 1];
+                before_name = previous
+                    .get("version_hash")
+                    .or_else(|| previous.get("versionHash"))
+                    .or_else(|| previous.get("hash"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .chars()
+                    .take(9)
+                    .collect::<String>();
+            }
+            if after_name.is_empty() {
+                after_name = "local".to_string();
+            }
             let before_state = self.resolve_named_state(root, &before_name)?;
             let after_state = self.resolve_named_state(root, &after_name)?;
             let mut diffs = diff_resources(&before_state, &after_state);
@@ -275,19 +331,56 @@ impl AdkService {
     pub fn push(
         &self,
         root: &Path,
-        _force: bool,
-        _skip_validation: bool,
-        _dry_run: bool,
+        force: bool,
+        skip_validation: bool,
+        dry_run: bool,
     ) -> Result<PushResult, CoreError> {
+        if !force {
+            let conflicted = self.detect_conflict_files(root)?;
+            if !conflicted.is_empty() {
+                let conflicts = conflicted.join("\n- ");
+                return Ok(PushResult {
+                    success: false,
+                    message: format!(
+                        "Merge conflicts detected in the following files:\n- {conflicts}\nPlease resolve the conflicts and try again."
+                    ),
+                    commands: vec![],
+                });
+            }
+        }
+        if !skip_validation {
+            let validation_errors = self.validate_local_resources(root)?;
+            if !validation_errors.is_empty() {
+                return Err(DomainError::InvalidData(format!(
+                    "validation failed: {}",
+                    validation_errors.join("; ")
+                ))
+                .into());
+            }
+        }
         let local = self.collect_local_resources(root)?;
+        if dry_run {
+            return Ok(self.client.preview_push_resources(&local)?);
+        }
         let result = self.client.push_resources(&local)?;
         Ok(result)
     }
 
-    pub fn pull(&self, root: &Path) -> Result<Vec<String>, CoreError> {
+    pub fn pull(&self, root: &Path, force: bool) -> Result<Vec<String>, CoreError> {
         let remote = self.client.pull_resources()?;
+        let mut files_with_conflicts = Vec::new();
         for (path, resource) in remote {
             let target = root.join(path);
+            if target.exists() && !force {
+                let existing = fs::read_to_string(&target).unwrap_or_default();
+                if existing.contains("<<<<<<<")
+                    && existing.contains("=======")
+                    && existing.contains(">>>>>>>")
+                {
+                    files_with_conflicts.push(target.to_string_lossy().to_string());
+                    continue;
+                }
+            }
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent)?;
             }
@@ -299,7 +392,40 @@ impl AdkService {
                 .to_string();
             fs::write(target, content)?;
         }
-        Ok(vec![])
+        Ok(files_with_conflicts)
+    }
+
+    pub fn revert_changes(&self, root: &Path, files: &[String]) -> Result<Vec<String>, CoreError> {
+        let remote = self.client.pull_resources()?;
+        let all_files = files.is_empty();
+        let selected: std::collections::HashSet<&str> = files.iter().map(String::as_str).collect();
+        let mut reverted = Vec::new();
+        for (path, resource) in remote {
+            let target = root.join(&path);
+            let target_abs = if target.is_absolute() {
+                target.clone()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(&target)
+            };
+            let target_abs_str = target_abs.to_string_lossy().to_string();
+            if !all_files && !selected.contains(target_abs_str.as_str()) {
+                continue;
+            }
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let content = resource
+                .payload
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            fs::write(&target, content)?;
+            reverted.push(target_abs_str);
+        }
+        Ok(reverted)
     }
 
     pub fn list_deployments(&self, environment: &str) -> Result<DeploymentList, CoreError> {
@@ -506,7 +632,7 @@ impl AdkService {
         if name == "local" {
             return self.collect_local_resources(root);
         }
-        Ok(self.client.pull_resources()?)
+        Ok(self.client.pull_resources_by_name(name)?)
     }
 
     fn write_project_config(&self, root: &Path, cfg: &ProjectConfig) -> Result<(), CoreError> {
@@ -516,6 +642,27 @@ impl AdkService {
             serde_yaml::to_string(cfg).map_err(|e| DomainError::InvalidData(e.to_string()))?;
         fs::write(project_root.join(PROJECT_CONFIG_FILE), serialized)?;
         Ok(())
+    }
+
+    fn detect_conflict_files(&self, root: &Path) -> Result<Vec<String>, CoreError> {
+        let mut conflicts = Vec::new();
+        for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let content = match fs::read_to_string(path) {
+                Ok(content) => content,
+                Err(_) => continue,
+            };
+            if content.contains("<<<<<<<")
+                && content.contains("=======")
+                && content.contains(">>>>>>>")
+            {
+                conflicts.push(path.to_string_lossy().to_string());
+            }
+        }
+        Ok(conflicts)
     }
 
     fn load_status_snapshot_file_hashes(

@@ -43,6 +43,8 @@ pub struct Resource {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct StatusSummary {
+    #[serde(default)]
+    pub conflict_detection_available: bool,
     pub files_with_conflicts: Vec<String>,
     pub modified_files: Vec<String>,
     pub new_files: Vec<String>,
@@ -122,6 +124,7 @@ mod tests {
     #[test]
     fn status_summary_default_is_empty_lists() {
         let summary = StatusSummary::default();
+        assert!(!summary.conflict_detection_available);
         assert!(summary.files_with_conflicts.is_empty());
         assert!(summary.modified_files.is_empty());
         assert!(summary.new_files.is_empty());
