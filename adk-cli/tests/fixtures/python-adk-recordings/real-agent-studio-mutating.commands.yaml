@@ -1,0 +1,268 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: '${PYTHON_ADK_BIN:-poly}'
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- This manifest records a mutating Python ADK workflow against a throwaway branch.
+- The HTTP traffic lives in real-agent-studio-mutating.httpmock.yaml, saved by httpmock record/playback.
+- Authentication headers are redacted after recording.
+- Apply file_edit steps before replaying the following command steps.
+- The branch is deleted at the end of the recorded workflow.
+httpmock_recording: real-agent-studio-mutating.httpmock.yaml
+workflows:
+- name: real_branch_edit_push_and_cleanup
+  description: Create a real Agent Studio branch, edit a local rules file, inspect changes, dry-run push commands, push to the branch, diff against main, then delete the branch.
+  mutates_real_server: true
+  cleanup:
+  - poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM
+  steps:
+  - kind: command
+    name: init real project before mutating branch workflow
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: create throwaway branch
+    argv:
+    - poly
+    - branch
+    - create
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      branch_name: ${BRANCH_NAME}
+      new_branch_id: BRANCH-048U1CHD
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: current branch after create
+    argv:
+    - poly
+    - branch
+    - current
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      current_branch: ${BRANCH_NAME}
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: append branch edit to rules.txt
+    operation: append_text
+    path: agent_settings/rules.txt
+    content: |2
+
+
+      # ADK recording branch edit
+      This line was added by the Python ADK httpmock mutating workflow.
+    success: true
+    error: null
+  - kind: command
+    name: status after branch file edit
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/rules.txt
+      new_files: []
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: diff all local changes after branch file edit
+    argv:
+    - poly
+    - diff
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      diffs:
+        agent_settings/rules.txt: |-
+          --- original
+          +++ updated
+          @@ -68,3 +68,7 @@
+           ASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”
+           USER: “Bye” / [silence]
+           → TOOL CALL: Call the {{fn:default-function}} without saying anything else.
+          +
+          +
+          +# ADK recording branch edit
+          +This line was added by the Python ADK httpmock mutating workflow.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: diff filtered rules file before push
+    argv:
+    - poly
+    - diff
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --files
+    - agent_settings/rules.txt
+    exit_code: 0
+    stdout_json:
+      message: No changes detected
+      success: false
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push dry-run with command payload
+    argv:
+    - poly
+    - push
+    - --output-json-commands
+    - --dry-run
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      commands:
+      - command_id: c50874a0-dee1-4f76-8cc4-672481c31221
+        metadata:
+          created_at: 2026-05-08T16:52:22.400085Z
+          created_by: adk-recorder@example.com
+        type: update_rules
+        update_rules:
+          behaviour: "\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn't match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason='OUT_OF_SCOPE'.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user's input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn't catch that. Could you say that again?\"  \n3. \"I'm sorry, but I still didn't catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason='USER_INCOMPREHENSIBLE'.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you're not designed to do:\n\"I don't have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I'm doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you're a live person: \"I'm a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason='SPEAK_TO'.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason='SPEAK_TO'.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That's it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch edit\nThis line was added by the Python ADK httpmock mutating workflow.\n"
+          references:
+            globalFunctions:
+              default-function: true
+            handoff:
+              default-handoff: true
+      dry_run: true
+      message: Dry run completed. No changes were pushed.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push branch edit
+    argv:
+    - poly
+    - push
+    - --json
+    - --force
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      dry_run: false
+      message: Resources pushed successfully.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: status after branch push
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files: []
+      new_files: []
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: diff pushed branch against main
+    argv:
+    - poly
+    - diff
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --before
+    - main
+    exit_code: 0
+    stdout_json:
+      diffs:
+        agent_settings/rules.txt: |-
+          --- original
+          +++ updated
+          @@ -68,3 +68,7 @@
+           ASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”
+           USER: “Bye” / [silence]
+           → TOOL CALL: Call the {{fn:goodbye_and_hang_up}} without saying anything else.
+          +
+          +
+          +# ADK recording branch edit
+          +This line was added by the Python ADK httpmock mutating workflow.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: delete throwaway branch
+    argv:
+    - poly
+    - branch
+    - delete
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      success: true
+      switched_to: main
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: current branch after deleting throwaway branch
+    argv:
+    - poly
+    - branch
+    - current
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      current_branch: main
+    stdout: null
+    stderr: ''

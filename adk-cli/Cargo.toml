@@ -11,10 +11,15 @@ clap.workspace = true
 clap_complete.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+reqwest.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 adk-core = { path = "../adk-core" }
 adk-platform-api = { path = "../adk-platform-api" }
+
+[dev-dependencies]
+httpmock = { version = "0.8.3", features = ["record"] }
+serde_yaml.workspace = true
 
 [[bin]]
 name = "poly"

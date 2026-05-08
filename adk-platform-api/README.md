@@ -9,8 +9,8 @@ API boundary crate between core workflows and remote platform operations.
   - `HttpPlatformClient`: real Platform API integration (region/account/project scoped).
   - `InMemoryPlatformClient`: deterministic test double for unit/local tests.
 
-## Current Caveat
+## Push Support
 
-The HTTP client implements real calls for projection/deployments/chat endpoints.
-The push path currently uses a simplified command-batch payload and is marked in
-code with a TODO for full protobuf command parity.
+The HTTP client implements real calls for projection, deployments, chat, branch,
+and protobuf command-batch push endpoints. The push command builder covers the
+phase-1 resources plus extended settings handled in `push_extended.rs`.

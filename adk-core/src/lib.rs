@@ -180,7 +180,8 @@ impl AdkService {
         let local = self.collect_local_resources(root)?;
         let remote = self.client.pull_resources()?;
         let mut summary = StatusSummary::default();
-        summary.conflict_detection_available = false;
+        summary.conflict_detection_available = true;
+        summary.files_with_conflicts = self.detect_conflict_files(root)?;
 
         if let Some(existing_typed) = self.load_status_snapshot_discovered_resources(root)? {
             let discovered_typed = self.discover_local_resources(root);
@@ -335,6 +336,18 @@ impl AdkService {
         skip_validation: bool,
         dry_run: bool,
     ) -> Result<PushResult, CoreError> {
+        self.push_with_options(root, force, skip_validation, dry_run, None, None)
+    }
+
+    pub fn push_with_options(
+        &self,
+        root: &Path,
+        force: bool,
+        skip_validation: bool,
+        dry_run: bool,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, CoreError> {
         if !force {
             let conflicted = self.detect_conflict_files(root)?;
             if !conflicted.is_empty() {
@@ -360,14 +373,37 @@ impl AdkService {
         }
         let local = self.collect_local_resources(root)?;
         if dry_run {
-            return Ok(self.client.preview_push_resources(&local)?);
+            return Ok(self
+                .client
+                .preview_push_resources_with_options(&local, projection, actor)?);
         }
-        let result = self.client.push_resources(&local)?;
+        let result = self
+            .client
+            .push_resources_with_options(&local, projection, actor)?;
         Ok(result)
     }
 
     pub fn pull(&self, root: &Path, force: bool) -> Result<Vec<String>, CoreError> {
         let remote = self.client.pull_resources()?;
+        self.write_pulled_resources(root, remote, force)
+    }
+
+    pub fn pull_named(
+        &self,
+        root: &Path,
+        name: &str,
+        force: bool,
+    ) -> Result<Vec<String>, CoreError> {
+        let remote = self.client.pull_resources_by_name(name)?;
+        self.write_pulled_resources(root, remote, force)
+    }
+
+    fn write_pulled_resources(
+        &self,
+        root: &Path,
+        remote: ResourceMap,
+        force: bool,
+    ) -> Result<Vec<String>, CoreError> {
         let mut files_with_conflicts = Vec::new();
         for (path, resource) in remote {
             let target = root.join(path);
@@ -439,6 +475,38 @@ impl AdkService {
         Ok(self.client.create_chat_session(payload)?)
     }
 
+    pub fn send_chat_message(
+        &self,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, CoreError> {
+        Ok(self.client.send_chat_message(payload)?)
+    }
+
+    pub fn end_chat_session(
+        &self,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, CoreError> {
+        Ok(self.client.end_chat_session(payload)?)
+    }
+
+    pub fn conversation_url(
+        &self,
+        root: &Path,
+        conversation_id: &str,
+    ) -> Result<String, CoreError> {
+        let cfg = self.load_project_config(root)?;
+        let short_region = match cfg.region.as_str() {
+            "uk-1" => "uk",
+            "euw-1" => "eu",
+            "us-1" => "us",
+            other => other,
+        };
+        Ok(format!(
+            "https://studio.{short_region}.poly.ai/{}/{}/conversations/{conversation_id}",
+            cfg.account_id, cfg.project_id
+        ))
+    }
+
     pub fn current_branch(&self, root: &Path) -> Result<String, CoreError> {
         Ok(self.load_project_config(root)?.branch_id)
     }
@@ -457,13 +525,36 @@ impl AdkService {
         Ok(names)
     }
 
+    pub fn list_branch_map(
+        &self,
+        root: &Path,
+    ) -> Result<indexmap::IndexMap<String, String>, CoreError> {
+        let current_branch_id = self.current_branch(root)?;
+        let mut branches = indexmap::IndexMap::new();
+        for branch in self.client.list_branches()? {
+            branches.insert(branch.name, branch.branch_id);
+        }
+        if !branches.values().any(|id| id == &current_branch_id)
+            && !branches.contains_key(&current_branch_id)
+        {
+            branches.insert(current_branch_id.clone(), current_branch_id);
+        }
+        Ok(branches)
+    }
+
     pub fn create_branch(
         &self,
         root: &Path,
         branch_name: &str,
     ) -> Result<ProjectConfig, CoreError> {
-        let branch_id = self.client.create_branch(branch_name)?;
         let mut cfg = self.load_project_config(root)?;
+        if cfg.branch_id != "main" {
+            return Err(DomainError::InvalidData(
+                "Branches can only be created from the main branch (sandbox).".to_string(),
+            )
+            .into());
+        }
+        let branch_id = self.client.create_branch(branch_name)?;
         cfg.branch_id = branch_id;
         self.write_project_config(root, &cfg)?;
         Ok(cfg)

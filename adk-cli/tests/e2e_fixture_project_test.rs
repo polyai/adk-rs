@@ -186,7 +186,7 @@ fn validate_json_succeeds_on_full_fixture() {
     assert_eq!(output.status.code(), Some(0));
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be JSON");
-    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(payload.get("valid").and_then(|v| v.as_bool()), Some(true));
 }
 
 /// Related (CLI): `poly/tests/cli_test.py` - `FormatCommandTest` / `poly format --path <project>`.
@@ -205,7 +205,7 @@ fn format_json_succeeds_on_full_fixture() {
     assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
 }
 
-/// Related (CLI): `poly/tests/project_test.py` - `GetDiffsTest` (invokes `get_diffs`); stub CLI mirrors diff wiring.
+/// Related (CLI): `poly/tests/project_test.py` - `GetDiffsTest` (invokes `get_diffs`).
 #[test]
 fn diff_json_reports_changes_on_full_fixture() {
     let dir = full_fixture_dir();
@@ -244,12 +244,22 @@ fn chat_json_succeeds_on_full_fixture() {
     assert_eq!(output.status.code(), Some(0));
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be JSON");
-    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+    let conversation = payload
+        .get("conversations")
+        .and_then(|v| v.as_array())
+        .and_then(|v| v.first())
+        .expect("conversation entry");
     assert_eq!(
-        payload
-            .get("conversation")
-            .and_then(|v| v.get("conversation_id"))
-            .and_then(|v| v.as_str()),
+        conversation.get("conversation_id").and_then(|v| v.as_str()),
         Some("local-conversation")
+    );
+    let turns = conversation
+        .get("turns")
+        .and_then(|v| v.as_array())
+        .expect("turns array");
+    assert_eq!(turns.len(), 2);
+    assert_eq!(
+        turns[1].get("input").and_then(|v| v.as_str()),
+        Some("hello")
     );
 }

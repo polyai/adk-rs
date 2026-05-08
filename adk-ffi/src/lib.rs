@@ -85,7 +85,7 @@ mod tests {
             payload
                 .get("conflict_detection_available")
                 .and_then(|v| v.as_bool()),
-            Some(false)
+            Some(true)
         );
         assert!(payload.get("modified_files").is_some());
         assert!(payload.get("new_files").is_some());
@@ -102,7 +102,7 @@ mod tests {
             payload
                 .get("conflict_detection_available")
                 .and_then(|v| v.as_bool()),
-            Some(false)
+            Some(true)
         );
         assert!(
             payload

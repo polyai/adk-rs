@@ -14,15 +14,12 @@ fn run_rust(args: &[&str]) -> std::process::Output {
 }
 
 fn run_python_poly(args: &[&str]) -> Option<std::process::Output> {
-    let poly = "/home/ben/adk/.venv/bin/poly";
-    if !std::path::Path::new(poly).exists() {
-        return None;
+    let poly = std::env::var("PYTHON_ADK_BIN").unwrap_or_else(|_| "poly".to_string());
+    let mut command = Command::new(poly);
+    if let Ok(cwd) = std::env::var("PYTHON_ADK_CWD") {
+        command.current_dir(cwd);
     }
-    let output = Command::new(poly)
-        .args(args)
-        .current_dir("/home/ben/adk")
-        .output()
-        .ok()?;
+    let output = command.args(args).output().ok()?;
     Some(output)
 }
 
@@ -43,11 +40,13 @@ fn make_temp_project_dir() -> String {
 
 #[test]
 fn parity_missing_project_error_against_python() {
-    let Some(py) = run_python_poly(&["status", "--json", "--path", "/tmp"]) else {
-        eprintln!("Skipping parity test: `poly` executable not found in PATH");
+    let missing_project_path = std::env::temp_dir().to_string_lossy().to_string();
+    let Some(py) = run_python_poly(&["status", "--json", "--path", missing_project_path.as_str()])
+    else {
+        eprintln!("Skipping parity test: Python ADK CLI unavailable");
         return;
     };
-    let rs = run_rust(&["status", "--json", "--path", "/tmp"]);
+    let rs = run_rust(&["status", "--json", "--path", missing_project_path.as_str()]);
 
     assert_eq!(rs.status.code(), py.status.code());
     let py_json: serde_json::Value = serde_json::from_slice(&py.stdout).expect("python json");
@@ -66,6 +65,29 @@ fn parity_invalid_subcommand_exit_code() {
         return;
     };
     let rs = run_rust(&["not-a-command"]);
+    assert_eq!(rs.status.code(), py.status.code());
+}
+
+#[test]
+fn parity_version_flags_match_python() {
+    for flag in ["-v", "--version"] {
+        let Some(py) = run_python_poly(&[flag]) else {
+            eprintln!("Skipping parity test: python CLI unavailable");
+            return;
+        };
+        let rs = run_rust(&[flag]);
+        assert_eq!(rs.status.code(), py.status.code());
+        assert_eq!(
+            String::from_utf8_lossy(&rs.stdout).trim(),
+            String::from_utf8_lossy(&py.stdout).trim()
+        );
+    }
+
+    let Some(py) = run_python_poly(&["-V"]) else {
+        eprintln!("Skipping parity test: python CLI unavailable");
+        return;
+    };
+    let rs = run_rust(&["-V"]);
     assert_eq!(rs.status.code(), py.status.code());
 }
 

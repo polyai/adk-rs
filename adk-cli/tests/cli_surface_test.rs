@@ -7,6 +7,7 @@ use std::{
 fn run_poly(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_poly"))
         .env_remove("POLY_ADK_KEY")
+        .env_remove("GITHUB_ACCESS_TOKEN")
         .env("POLY_ADK_ALLOW_INMEMORY_FALLBACK", "1")
         .args(args)
         .output()
@@ -16,6 +17,7 @@ fn run_poly(args: &[&str]) -> std::process::Output {
 fn run_poly_without_fallback(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_poly"))
         .env_remove("POLY_ADK_KEY")
+        .env_remove("GITHUB_ACCESS_TOKEN")
         .env_remove("POLY_ADK_ALLOW_INMEMORY_FALLBACK")
         .args(args)
         .output()
@@ -56,9 +58,26 @@ fn make_temp_unformatted_json_project_dir() -> String {
     dir
 }
 
+fn sample_projection_json() -> &'static str {
+    r#"{"knowledgeBase":{"topics":{"entities":{"topic-1":{"name":"Welcome","isActive":true,"actions":"","content":"Hello there","exampleQueries":[{"query":"hi"}]}}}}}"#
+}
+
 #[test]
 fn invalid_subcommand_returns_parser_error() {
     let output = run_poly(&["not-a-command"]);
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+fn version_accepts_python_short_flag_and_output_shape() {
+    for flag in ["-v", "--version"] {
+        let output = run_poly(&[flag]);
+        assert_eq!(output.status.code(), Some(0));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout.trim(), env!("CARGO_PKG_VERSION"));
+    }
+
+    let output = run_poly(&["-V"]);
     assert_eq!(output.status.code(), Some(2));
 }
 
@@ -87,18 +106,17 @@ fn status_json_missing_project_matches_contract() {
 }
 
 #[test]
-fn status_json_includes_conflict_detection_availability() {
+fn status_json_uses_python_payload_shape() {
     let project_dir = make_temp_project_dir();
     let output = run_poly(&["status", "--json", "--path", &project_dir]);
     assert_eq!(output.status.code(), Some(0));
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert_eq!(
-        payload
-            .get("conflict_detection_available")
-            .and_then(|v| v.as_bool()),
-        Some(false)
-    );
+    assert!(payload.get("conflict_detection_available").is_none());
+    assert!(payload.get("files_with_conflicts").is_some());
+    assert!(payload.get("modified_files").is_some());
+    assert!(payload.get("new_files").is_some());
+    assert!(payload.get("deleted_files").is_some());
 }
 
 #[test]
@@ -120,9 +138,53 @@ fn diff_hash_and_before_after_is_nonfatal() {
 }
 
 #[test]
-fn validate_json_reports_parse_errors() {
-    let project_dir = make_temp_invalid_yaml_project_dir();
-    let output = run_poly(&["validate", "--json", "--path", &project_dir]);
+fn diff_files_accepts_python_nargs_style() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly(&[
+        "diff",
+        "--json",
+        "--path",
+        &project_dir,
+        "--files",
+        "sample-a.yaml",
+        "sample-b.yaml",
+    ]);
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn pull_from_projection_writes_resources_and_echoes_projection() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly(&[
+        "pull",
+        "--json",
+        "--output-json-projection",
+        "--path",
+        &project_dir,
+        "--from-projection",
+        sample_projection_json(),
+    ]);
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+    assert!(payload.get("projection").is_some());
+    let topic = std::path::PathBuf::from(&project_dir).join("topics/welcome.yaml");
+    let content = fs::read_to_string(topic).expect("topic written from projection");
+    assert!(content.contains("Hello there"));
+}
+
+#[test]
+fn push_from_projection_rejects_non_object_json() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly(&[
+        "push",
+        "--json",
+        "--path",
+        &project_dir,
+        "--from-projection",
+        "[]",
+    ]);
     assert_eq!(output.status.code(), Some(1));
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
@@ -130,6 +192,67 @@ fn validate_json_reports_parse_errors() {
         payload.get("success").and_then(|v| v.as_bool()),
         Some(false)
     );
+    assert!(
+        payload
+            .get("error")
+            .and_then(|v| v.as_str())
+            .is_some_and(|message| message.contains("--from-projection must be a JSON object"))
+    );
+}
+
+#[test]
+fn branch_switch_from_projection_updates_branch_and_writes_resources() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly(&[
+        "branch",
+        "switch",
+        "--json",
+        "--output-json-projection",
+        "--path",
+        &project_dir,
+        "--from-projection",
+        sample_projection_json(),
+        "feature-projection",
+    ]);
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(
+        payload.get("branch_name").and_then(|v| v.as_str()),
+        Some("feature-projection")
+    );
+    assert!(payload.get("projection").is_some());
+    let topic = std::path::PathBuf::from(&project_dir).join("topics/welcome.yaml");
+    assert!(topic.exists());
+}
+
+#[test]
+fn review_subcommands_accept_json_after_subcommand() {
+    let project_dir = make_temp_project_dir();
+    for args in [
+        vec!["review", "--path", &project_dir, "create", "--json"],
+        vec!["review", "list", "--json"],
+        vec!["review", "delete", "--json"],
+    ] {
+        let output = run_poly(&args);
+        assert_eq!(output.status.code(), Some(0));
+        let payload: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("valid JSON output");
+        assert_eq!(
+            payload.get("success").and_then(|v| v.as_bool()),
+            Some(false)
+        );
+    }
+}
+
+#[test]
+fn validate_json_reports_parse_errors() {
+    let project_dir = make_temp_invalid_yaml_project_dir();
+    let output = run_poly(&["validate", "--json", "--path", &project_dir]);
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(payload.get("valid").and_then(|v| v.as_bool()), Some(false));
     let errors = payload
         .get("errors")
         .and_then(|v| v.as_array())
@@ -149,11 +272,16 @@ fn format_check_json_reports_unformatted_files() {
         Some(false)
     );
     let changed = payload
-        .get("changed_files")
+        .get("affected")
         .and_then(|v| v.as_array())
-        .expect("changed_files array");
+        .expect("affected array");
     assert_eq!(changed.len(), 1);
     assert_eq!(changed[0].as_str(), Some("sample.json"));
+    assert_eq!(
+        payload.get("check_only").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert!(payload.get("format_errors").is_some());
 }
 
 #[test]
@@ -170,7 +298,7 @@ fn branch_current_reads_branch_from_project_config() {
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
     assert_eq!(
-        payload.get("branch").and_then(|v| v.as_str()),
+        payload.get("current_branch").and_then(|v| v.as_str()),
         Some("feature-x")
     );
 }
@@ -193,33 +321,60 @@ fn branch_switch_updates_project_branch() {
     let payload: serde_json::Value =
         serde_json::from_slice(&output2.stdout).expect("valid JSON output");
     assert_eq!(
-        payload.get("branch").and_then(|v| v.as_str()),
+        payload.get("current_branch").and_then(|v| v.as_str()),
         Some("feature-y")
     );
 }
 
 #[test]
-fn review_json_is_explicitly_unsupported() {
+fn branch_create_env_force_uses_hotfix_path() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly(&[
+        "branch",
+        "create",
+        "--json",
+        "--path",
+        &project_dir,
+        "--env",
+        "live",
+        "--force",
+        "hotfix-branch",
+    ]);
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        payload.get("branch_name").and_then(|v| v.as_str()),
+        Some("hotfix-branch")
+    );
+}
+
+#[test]
+fn review_json_reports_missing_github_token() {
     let project_dir = make_temp_project_dir();
     let output = run_poly(&["review", "--json", "--path", &project_dir, "list"]);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
     assert_eq!(
         payload.get("success").and_then(|v| v.as_bool()),
         Some(false)
     );
-    let error = payload.get("error").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(error.contains("not yet supported"));
+    let message = payload
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(message.contains("GITHUB_ACCESS_TOKEN"));
 }
 
 #[test]
-fn review_text_is_explicitly_unsupported() {
+fn review_text_reports_missing_github_token() {
     let project_dir = make_temp_project_dir();
     let output = run_poly(&["review", "--path", &project_dir, "list"]);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not yet supported"));
+    assert!(stderr.contains("GITHUB_ACCESS_TOKEN"));
 }
 
 #[test]

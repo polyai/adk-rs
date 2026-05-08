@@ -48,9 +48,29 @@ pub trait PlatformClient: Send + Sync {
             commands: vec![],
         })
     }
+    fn preview_push_resources_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, ApiError> {
+        let _ = (projection, actor);
+        self.preview_push_resources(resources)
+    }
     fn push_resources(&self, _resources: &ResourceMap) -> Result<PushResult, ApiError>;
+    fn push_resources_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, ApiError> {
+        let _ = (projection, actor);
+        self.push_resources(resources)
+    }
     fn list_deployments(&self, _environment: &str) -> Result<DeploymentList, ApiError>;
     fn create_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
+    fn send_chat_message(&self, _payload: Value) -> Result<Value, ApiError>;
+    fn end_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
     fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError>;
     fn create_branch(&self, branch_name: &str) -> Result<String, ApiError>;
     fn delete_branch(&self, branch_id: &str) -> Result<(), ApiError>;
@@ -183,6 +203,21 @@ impl PlatformClient for InMemoryPlatformClient {
             "response": "Mock chat session created",
             "conversation_ended": false
         }))
+    }
+
+    fn send_chat_message(&self, payload: Value) -> Result<Value, ApiError> {
+        let text = payload
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        Ok(serde_json::json!({
+            "response": format!("Mock reply to: {text}"),
+            "conversation_ended": false
+        }))
+    }
+
+    fn end_chat_session(&self, _payload: Value) -> Result<Value, ApiError> {
+        Ok(serde_json::json!({"success": true}))
     }
 
     fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
@@ -372,6 +407,19 @@ impl HttpPlatformClient {
             .unwrap_or(0))
     }
 
+    fn prepare_branch_chat(&self) -> Result<Value, ApiError> {
+        let sequence = self.fetch_branch_sequence(&self.branch_id)?;
+        let endpoint = format!("{}/{}/chat", self.branches_endpoint(), self.branch_id);
+        self.request_json(
+            reqwest::Method::POST,
+            &endpoint,
+            None,
+            Some(serde_json::json!({
+                "expectedBranchLastKnownSequence": sequence,
+            })),
+        )
+    }
+
     fn extract_projection(response: Value) -> Value {
         response.get("projection").cloned().unwrap_or(response)
     }
@@ -503,10 +551,20 @@ impl PlatformClient for HttpPlatformClient {
     }
 
     fn push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
-        let (commands, last_known_sequence) = self.build_push_commands(resources)?;
+        self.push_resources_with_options(resources, None, None)
+    }
+
+    fn push_resources_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, ApiError> {
+        let (commands, last_known_sequence) =
+            self.build_push_commands_with_options(resources, projection, actor)?;
         if commands.is_empty() {
             return Ok(PushResult {
-                success: true,
+                success: false,
                 message: "No changes detected".to_string(),
                 commands: vec![],
             });
@@ -536,7 +594,16 @@ impl PlatformClient for HttpPlatformClient {
     }
 
     fn preview_push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
-        let (commands, _) = self.build_push_commands(resources)?;
+        self.preview_push_resources_with_options(resources, None, None)
+    }
+
+    fn preview_push_resources_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, ApiError> {
+        let (commands, _) = self.build_push_commands_with_options(resources, projection, actor)?;
         if commands.is_empty() {
             return Ok(PushResult {
                 success: false,
@@ -588,11 +655,118 @@ impl PlatformClient for HttpPlatformClient {
     }
 
     fn create_chat_session(&self, payload: Value) -> Result<Value, ApiError> {
+        let environment = payload
+            .get("environment")
+            .and_then(Value::as_str)
+            .unwrap_or("sandbox");
+        let channel = payload
+            .get("channel")
+            .and_then(Value::as_str)
+            .unwrap_or("chat.polyai");
+        let mut body = serde_json::json!({
+            "channel": channel,
+        });
+        if let Some(variant) = payload.get("variant").and_then(Value::as_str) {
+            body["variant_id"] = Value::String(variant.to_string());
+        }
+        if let Some(input_lang) = payload.get("input_lang").and_then(Value::as_str) {
+            body["asr_lang_code"] = Value::String(input_lang.to_string());
+        }
+        if let Some(output_lang) = payload.get("output_lang").and_then(Value::as_str) {
+            body["tts_lang_code"] = Value::String(output_lang.to_string());
+        }
+
+        let endpoint = if environment == "draft" {
+            let chat_info = self.prepare_branch_chat()?;
+            let artifact_version = chat_info
+                .get("artifactVersion")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ApiError::Http(format!(
+                        "missing artifactVersion in branch chat response: {chat_info}"
+                    ))
+                })?;
+            let lambda_deployment_version = chat_info
+                .get("lambdaDeploymentVersion")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ApiError::Http(format!(
+                        "missing lambdaDeploymentVersion in branch chat response: {chat_info}"
+                    ))
+                })?;
+            body["artifact_version"] = Value::String(artifact_version.to_string());
+            body["lambda_deployment_version"] =
+                Value::String(lambda_deployment_version.to_string());
+            format!(
+                "/accounts/{}/projects/{}/draft/chat",
+                self.account_id, self.project_id
+            )
+        } else {
+            body["client_env"] = Value::String(environment.to_string());
+            format!(
+                "/accounts/{}/projects/{}/chat",
+                self.account_id, self.project_id
+            )
+        };
+        self.request_json(reqwest::Method::POST, &endpoint, None, Some(body))
+    }
+
+    fn send_chat_message(&self, payload: Value) -> Result<Value, ApiError> {
+        let conversation_id = payload
+            .get("conversation_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApiError::MissingConfig("conversation_id".to_string()))?;
+        let environment = payload
+            .get("environment")
+            .and_then(Value::as_str)
+            .unwrap_or("sandbox");
+        let message = payload
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let mut body = serde_json::json!({"message": message});
+        if environment != "draft" {
+            body["client_env"] = Value::String(environment.to_string());
+        }
+        if let Some(input_lang) = payload.get("input_lang").and_then(Value::as_str) {
+            body["asr_lang_code"] = Value::String(input_lang.to_string());
+        }
+        if let Some(output_lang) = payload.get("output_lang").and_then(Value::as_str) {
+            body["tts_lang_code"] = Value::String(output_lang.to_string());
+        }
+        let endpoint = if environment == "draft" {
+            format!(
+                "/accounts/{}/projects/{}/draft/chat/{conversation_id}",
+                self.account_id, self.project_id
+            )
+        } else {
+            format!(
+                "/accounts/{}/projects/{}/chat/{conversation_id}",
+                self.account_id, self.project_id
+            )
+        };
+        self.request_json(reqwest::Method::POST, &endpoint, None, Some(body))
+    }
+
+    fn end_chat_session(&self, payload: Value) -> Result<Value, ApiError> {
+        let conversation_id = payload
+            .get("conversation_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApiError::MissingConfig("conversation_id".to_string()))?;
+        let environment = payload
+            .get("environment")
+            .and_then(Value::as_str)
+            .unwrap_or("sandbox");
         let endpoint = format!(
-            "/accounts/{}/projects/{}/chat",
+            "/accounts/{}/projects/{}/chat/{conversation_id}/end",
             self.account_id, self.project_id
         );
-        self.request_json(reqwest::Method::POST, &endpoint, None, Some(payload))
+        self.request_json(
+            reqwest::Method::POST,
+            &endpoint,
+            None,
+            Some(serde_json::json!({"client_env": environment})),
+        )
     }
 
     fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
@@ -733,29 +907,36 @@ impl PlatformClient for HttpPlatformClient {
 }
 
 impl HttpPlatformClient {
-    fn build_push_commands(
+    fn build_push_commands_with_options(
         &self,
         resources: &ResourceMap,
+        projection_override: Option<&Value>,
+        actor: Option<&str>,
     ) -> Result<(Vec<Command>, u64), ApiError> {
-        let projection_response = self.fetch_projection_response()?;
-        let projection = projection_response
-            .get("projection")
-            .cloned()
-            .unwrap_or_else(|| projection_response.clone());
-        let last_known_sequence = projection_response
-            .get("lastKnownSequence")
-            .and_then(|v| match v {
-                Value::String(s) => s.parse::<u64>().ok(),
-                Value::Number(n) => n.as_u64(),
-                _ => None,
-            })
-            .unwrap_or(0);
-        let commands = build_phase1_commands(resources, &projection);
+        let (projection, last_known_sequence) = if let Some(projection) = projection_override {
+            (projection.clone(), 0)
+        } else {
+            let projection_response = self.fetch_projection_response()?;
+            let projection = projection_response
+                .get("projection")
+                .cloned()
+                .unwrap_or_else(|| projection_response.clone());
+            let last_known_sequence = projection_response
+                .get("lastKnownSequence")
+                .and_then(|v| match v {
+                    Value::String(s) => s.parse::<u64>().ok(),
+                    Value::Number(n) => n.as_u64(),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            (projection, last_known_sequence)
+        };
+        let commands = build_phase1_commands_with_actor(resources, &projection, actor);
         Ok((commands, last_known_sequence))
     }
 }
 
-fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, ApiError> {
+pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, ApiError> {
     let mut map = ResourceMap::new();
 
     for (id, topic) in topic_entries(projection) {
@@ -1061,11 +1242,19 @@ fn base_url_for_region(region: &str) -> Result<&'static str, ApiError> {
 ///
 /// **Execution ordering:** Python `SyncClientHandler.queue_resources` applies a strict global
 /// ordering (deletes, creates, updates) plus `PRIORITY_*` lists per resource family. This
-/// implementation groups commands in that broad shape for the original phase-1 types only; extra
-/// resource families are appended afterward and **do not yet** mirror every Python priority edge
-/// case; tighten ordering when parity tests require it.
+/// implementation builds those phases across the supported phase-1 and extended resource
+/// families, then applies explicit command-type priority lists within each phase.
+#[cfg(test)]
 fn build_phase1_commands(resources: &ResourceMap, projection: &Value) -> Vec<Command> {
-    let metadata = command_metadata();
+    build_phase1_commands_with_actor(resources, projection, None)
+}
+
+fn build_phase1_commands_with_actor(
+    resources: &ResourceMap,
+    projection: &Value,
+    actor: Option<&str>,
+) -> Vec<Command> {
+    let metadata = command_metadata_with_actor(actor);
     let mut entity_del = Vec::new();
     let mut function_del = Vec::new();
     let mut topic_del = Vec::new();
@@ -1445,16 +1634,21 @@ fn order_commands_with_priority(commands: &mut Vec<Command>, priority: &[&str]) 
     });
 }
 
-fn command_metadata() -> Option<Metadata> {
+fn command_metadata_with_actor(actor: Option<&str>) -> Option<Metadata> {
     let dur = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
+    let created_by = actor
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(actor_identity);
     Some(Metadata {
         created_at: Some(prost_types::Timestamp {
             seconds: dur.as_secs() as i64,
             nanos: dur.subsec_nanos() as i32,
         }),
-        created_by: actor_identity(),
+        created_by,
     })
 }
 
@@ -1941,6 +2135,83 @@ mod tests {
             Some(CommandPayload::CreateTopic(msg)) => assert_eq!(msg.id, "TOPIC-custom-id"),
             other => panic!("unexpected payload: {other:?}"),
         }
+    }
+
+    #[test]
+    fn push_commands_can_use_supplied_projection_and_actor() {
+        let client = HttpPlatformClient {
+            client: reqwest::blocking::Client::new(),
+            base_url: "http://localhost".to_string(),
+            api_key: "test-key".to_string(),
+            account_id: "test-account".to_string(),
+            project_id: "test-project".to_string(),
+            branch_id: "main".to_string(),
+        };
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            "topics/sample.yaml".to_string(),
+            Resource {
+                resource_id: "topic-1".to_string(),
+                name: "sample".to_string(),
+                file_path: "topics/sample.yaml".to_string(),
+                payload: serde_json::json!({
+                    "content": "name: sample\nenabled: true\nactions: \"\"\ncontent: \"local\"\nexample_queries: []\n"
+                }),
+            },
+        );
+        let projection = serde_json::json!({
+            "knowledgeBase": {
+                "topics": {
+                    "entities": {
+                        "topic-1": {
+                            "name": "sample",
+                            "isActive": true,
+                            "actions": "",
+                            "content": "remote",
+                            "exampleQueries": []
+                        }
+                    }
+                }
+            }
+        });
+
+        let (commands, last_known_sequence) = client
+            .build_push_commands_with_options(
+                &resources,
+                Some(&projection),
+                Some("reviewer@example.com"),
+            )
+            .expect("build commands");
+
+        assert_eq!(last_known_sequence, 0);
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].r#type, "update_topic");
+        assert_eq!(
+            commands[0].metadata.as_ref().map(|m| m.created_by.as_str()),
+            Some("reviewer@example.com")
+        );
+    }
+
+    #[test]
+    fn push_no_changes_uses_python_failure_contract() {
+        let client = HttpPlatformClient {
+            client: reqwest::blocking::Client::new(),
+            base_url: "http://localhost".to_string(),
+            api_key: "test-key".to_string(),
+            account_id: "test-account".to_string(),
+            project_id: "test-project".to_string(),
+            branch_id: "main".to_string(),
+        };
+        let resources = ResourceMap::new();
+        let projection = serde_json::json!({});
+
+        let result = client
+            .push_resources_with_options(&resources, Some(&projection), None)
+            .expect("push result");
+
+        assert!(!result.success);
+        assert_eq!(result.message, "No changes detected");
+        assert!(result.commands.is_empty());
     }
 
     #[test]

@@ -4,9 +4,8 @@
 //! **Execution ordering:** Python `SyncClientHandler.queue_resources` walks deletes (respecting
 //! `PRIORITY_DELETE_TYPES`), then creates (`PRIORITY_CREATE_TYPES`), then updates
 //! (`PRIORITY_UPDATE_TYPES`), and finally appends `handoff_set_default` for default handoffs.
-//! This module emits commands in a similar coarse shape (deletes, creates, updates, defaults)
-//! for these families only; it is appended **after** phase-1 commands in `build_phase1_commands`
-//! and does not yet replicate every Python priority nuance.
+//! This module emits per-family command groups; `build_phase1_commands` applies the global
+//! delete/create/update ordering across both phase-1 and extended families.
 
 use crate::{actor_identity, clean_name, extract_entities_map, push_command};
 use adk_domain::ResourceMap;
@@ -79,8 +78,13 @@ fn json_to_prost_value(v: &Value) -> ProstValue {
     }
 }
 
-fn sdk_user() -> String {
-    actor_identity()
+fn sdk_user(metadata: &Option<Metadata>) -> String {
+    metadata
+        .as_ref()
+        .map(|m| m.created_by.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(actor_identity)
 }
 
 fn remote_variables(projection: &Value) -> HashMap<String, String> {
@@ -757,7 +761,7 @@ pub(crate) fn extended_resource_command_groups(
                             id,
                             features,
                             updated_at: None,
-                            updated_by: sdk_user(),
+                            updated_by: sdk_user(metadata),
                         },
                     ),
                 );
