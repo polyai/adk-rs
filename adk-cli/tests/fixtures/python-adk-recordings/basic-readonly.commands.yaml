@@ -3,17 +3,17 @@ source:
   implementation: python-adk
   recorder: rust-httpmock-forwarding
   server: real-agent-studio
-  poly_binary: '${PYTHON_ADK_BIN:-poly}'
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
   region: us-1
   account_id: ben-ws
   project_id: PROJECT-JTQKOKLM
   project_name: Test
 replay_notes:
 - This command manifest was produced by the ignored python_adk_recording_test.
-- The HTTP traffic lives in real-agent-studio.httpmock.yaml, saved by httpmock record/playback.
+- The HTTP traffic lives in basic-readonly.httpmock.yaml, saved by httpmock record/playback.
 - Authentication headers are redacted after recording.
 - Substitute ${TMP} with a temporary working directory when replaying command expectations.
-httpmock_recording: real-agent-studio.httpmock.yaml
+httpmock_recording: basic-readonly.httpmock.yaml
 workflows:
 - name: real_init_and_local_checks
   description: Initialize the real Agent Studio project through httpmock forwarding, then run local checks.
@@ -595,7 +595,7 @@ workflows:
       versions:
       - artifact_version: 2026-03-31T14:14:29.436Z
         client_env: sandbox
-        created_at: Tue, 31 Mar 2026 14:14:29 GMT
+        created_at: ${TIMESTAMP}
         created_by: ben@poly-ai.com
         deleted: false
         deployment_metadata:
@@ -618,7 +618,7 @@ workflows:
         version_hash: a43f1ef472024e778829fee8f7c4bf71
       - artifact_version: 2026-03-31T14:14:04.151Z
         client_env: sandbox
-        created_at: Tue, 31 Mar 2026 14:14:04 GMT
+        created_at: ${TIMESTAMP}
         created_by: ben@poly-ai.com
         deleted: false
         deployment_metadata:
@@ -641,7 +641,7 @@ workflows:
         version_hash: 011f18e72a0e4285970cf7f8d4c27bd9
       - artifact_version: 2026-03-20T15:00:26.302Z
         client_env: sandbox
-        created_at: Fri, 20 Mar 2026 15:00:26 GMT
+        created_at: ${TIMESTAMP}
         created_by: ben@poly-ai.com
         deleted: false
         deployment_metadata:

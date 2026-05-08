@@ -3,18 +3,18 @@ source:
   implementation: python-adk
   recorder: rust-httpmock-forwarding
   server: real-agent-studio
-  poly_binary: '${PYTHON_ADK_BIN:-poly}'
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
   region: us-1
   account_id: ben-ws
   project_id: PROJECT-JTQKOKLM
   project_name: Test
 replay_notes:
 - This manifest records a mutating Python ADK workflow against a throwaway branch.
-- The HTTP traffic lives in real-agent-studio-mutating.httpmock.yaml, saved by httpmock record/playback.
+- The HTTP traffic lives in branch-update-push.httpmock.yaml, saved by httpmock record/playback.
 - Authentication headers are redacted after recording.
 - Apply file_edit steps before replaying the following command steps.
 - The branch is deleted at the end of the recorded workflow.
-httpmock_recording: real-agent-studio-mutating.httpmock.yaml
+httpmock_recording: branch-update-push.httpmock.yaml
 workflows:
 - name: real_branch_edit_push_and_cleanup
   description: Create a real Agent Studio branch, edit a local rules file, inspect changes, dry-run push commands, push to the branch, diff against main, then delete the branch.
@@ -55,7 +55,7 @@ workflows:
     exit_code: 0
     stdout_json:
       branch_name: ${BRANCH_NAME}
-      new_branch_id: BRANCH-048U1CHD
+      new_branch_id: BRANCH-Q3M8CB5C
       success: true
     stdout: null
     stderr: ''
@@ -82,6 +82,8 @@ workflows:
 
       # ADK recording branch edit
       This line was added by the Python ADK httpmock mutating workflow.
+    target: null
+    replacement: null
     success: true
     error: null
   - kind: command
@@ -157,9 +159,9 @@ workflows:
     exit_code: 0
     stdout_json:
       commands:
-      - command_id: c50874a0-dee1-4f76-8cc4-672481c31221
+      - command_id: ${COMMAND_ID}
         metadata:
-          created_at: 2026-05-08T16:52:22.400085Z
+          created_at: ${TIMESTAMP}
           created_by: adk-recorder@example.com
         type: update_rules
         update_rules:

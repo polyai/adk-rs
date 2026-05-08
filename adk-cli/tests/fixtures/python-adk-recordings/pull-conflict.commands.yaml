@@ -1,0 +1,206 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- This manifest records Python ADK pull conflict behavior with two checkouts.
+- The remote checkout pushes one edit to a throwaway branch while the local checkout makes a conflicting edit.
+- The pull without --force is expected to report failure/conflicts.
+- The force pull overwrites the local checkout, and the branch is deleted at the end.
+httpmock_recording: pull-conflict.httpmock.yaml
+workflows:
+- name: pull_conflict
+  description: Create two checkouts of a throwaway branch, push a remote edit, make a conflicting local edit, record pull conflict output, force pull, then delete the branch.
+  mutates_real_server: true
+  cleanup:
+  - poly branch delete ${BRANCH_NAME} --json --path ${TMP}/local/ben-ws/PROJECT-JTQKOKLM
+  steps:
+  - kind: command
+    name: init local checkout
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}/local
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/local/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: init remote checkout
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}/remote
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/remote/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: create conflict branch from local checkout
+    argv:
+    - poly
+    - branch
+    - create
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/local/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      branch_name: ${BRANCH_NAME}
+      new_branch_id: BRANCH-E9Z8Z6AK
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: switch remote checkout to conflict branch
+    argv:
+    - poly
+    - branch
+    - switch
+    - ${BRANCH_NAME}
+    - --json
+    - --force
+    - --path
+    - ${TMP}/remote/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      branch_name: ${BRANCH_NAME}
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: replace rules text in remote checkout
+    operation: replace_text
+    path: agent_settings/rules.txt
+    content: null
+    target: Your task is to assist users with their queries about [Organization/Service].
+    replacement: Your task is to assist remote recording users with their queries.
+    success: true
+    error: null
+  - kind: file_edit
+    name: append remote-only rules line
+    operation: append_text
+    path: agent_settings/rules.txt
+    content: |2
+
+
+      # ADK recording remote branch edit
+      This line is pushed from the second checkout.
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: push remote checkout change
+    argv:
+    - poly
+    - push
+    - --json
+    - --force
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/remote/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      dry_run: false
+      message: Resources pushed successfully.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: replace same rules text in local checkout
+    operation: replace_text
+    path: agent_settings/rules.txt
+    content: null
+    target: Your task is to assist users with their queries about [Organization/Service].
+    replacement: Your task is to assist local recording users with their queries.
+    success: true
+    error: null
+  - kind: file_edit
+    name: append local-only rules line
+    operation: append_text
+    path: agent_settings/rules.txt
+    content: |2
+
+
+      # ADK recording local branch edit
+      This line stays local before pull.
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: pull without force reports conflict
+    argv:
+    - poly
+    - pull
+    - --json
+    - --path
+    - ${TMP}/local/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      files_with_conflicts:
+      - ${TMP}/local/ben-ws/PROJECT-JTQKOKLM/agent_settings/rules.txt
+      success: false
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: force pull resolves by overwriting local checkout
+    argv:
+    - poly
+    - pull
+    - --json
+    - --force
+    - --path
+    - ${TMP}/local/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      files_with_conflicts: []
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: delete conflict branch
+    argv:
+    - poly
+    - branch
+    - delete
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/local/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      success: true
+      switched_to: main
+    stdout: null
+    stderr: ''

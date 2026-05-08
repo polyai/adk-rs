@@ -1,0 +1,103 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- This manifest records local Python ADK revert behavior after a file edit.
+- Apply file_edit steps before replaying the following command steps.
+- This workflow is local-only after init and does not mutate Agent Studio.
+httpmock_recording: revert-local.httpmock.yaml
+workflows:
+- name: revert_local
+  description: Initialize a real project, append to rules.txt, verify status sees it, revert that file, then verify the tree is clean.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: command
+    name: init real project before revert
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: append local revert edit
+    operation: append_text
+    path: agent_settings/rules.txt
+    content: |2
+
+
+      # ADK recording revert edit
+      This line should disappear after poly revert.
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: status before revert
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/rules.txt
+      new_files: []
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: revert edited rules file
+    argv:
+    - poly
+    - revert
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - agent_settings/rules.txt
+    exit_code: 0
+    stdout_json:
+      files_reverted: []
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: status after revert
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/rules.txt
+      new_files: []
+    stdout: null
+    stderr: ''

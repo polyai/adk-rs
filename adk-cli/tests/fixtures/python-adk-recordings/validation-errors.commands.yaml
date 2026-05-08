@@ -1,0 +1,243 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- This manifest records Python ADK error output for invalid local project files.
+- The validate and push steps are expected to report failure.
+- This workflow is local-only after init and does not mutate Agent Studio.
+httpmock_recording: validation-errors.httpmock.yaml
+workflows:
+- name: validation_errors
+  description: Initialize a real project, overwrite a YAML file with invalid syntax, then record validate and push dry-run error contracts.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: command
+    name: init real project before validation errors
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: write invalid personality yaml
+    operation: write_text
+    path: agent_settings/personality.yaml
+    content: |
+      adjectives:
+        Polite: true
+        - malformed
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: validate invalid yaml
+    argv:
+    - poly
+    - validate
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      error: 'Error reading resource personality at ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml: Error loading YAML file: ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/resource.py", line 341, in read_local_resource
+            yaml_dict = utils.load_yaml(content) or {}
+                        ~~~~~~~~~~~~~~~^^^^^^^^^
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/resource_utils.py", line 134, in load_yaml
+            return _yaml_loader.load(content)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/main.py", line 454, in load
+            return constructor.get_single_data()
+                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/constructor.py", line 117, in get_single_data
+            node = self.composer.get_single_node()
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 77, in get_single_node
+            document = self.compose_document()
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 100, in compose_document
+            node = self.compose_node(None, None)
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 144, in compose_node
+            node = self.compose_mapping_node(anchor)
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 227, in compose_mapping_node
+            item_value = self.compose_node(node, item_key)
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 144, in compose_node
+            node = self.compose_mapping_node(anchor)
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 220, in compose_mapping_node
+            while not self.parser.check_event(MappingEndEvent):
+                      ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/parser.py", line 141, in check_event
+            self.current_event = self.state()
+                                 ~~~~~~~~~~^^
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/parser.py", line 614, in parse_block_mapping_key
+            raise ParserError(
+            ...<4 lines>...
+            )
+        ruamel.yaml.parser.ParserError: while parsing a block mapping
+          in "<unicode string>", line 2, column 3:
+              Polite: true
+              ^ (line: 2)
+        expected <block end>, but found '-'
+          in "<unicode string>", line 3, column 3:
+              - malformed
+              ^ (line: 3)
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2066, in read_local_resource
+            resource = resource_class.read_local_resource(
+                file_path=resource.file_path,
+            ...<3 lines>...
+                **additional_kwargs,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/resource.py", line 343, in read_local_resource
+            raise ValueError(f"Error loading YAML file: {file_path}") from e
+        ValueError: Error loading YAML file: ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1082, in _run_command
+            cls.validate_project(args.path, args.json)
+            ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 2993, in validate_project
+            errors = project.validate_project()
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2636, in validate_project
+            local_resource = self.read_local_resource(
+                resource=resource_mapping,
+                resource_mappings=local_resource_mappings,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2074, in read_local_resource
+            raise ValueError(
+                f"Error reading resource {resource.resource_name} at {resource.file_path}: {str(e)}"
+            ) from e
+        ValueError: Error reading resource personality at ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml: Error loading YAML file: ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push dry-run invalid yaml
+    argv:
+    - poly
+    - push
+    - --json
+    - --dry-run
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      error: 'Error reading resource personality at ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml: Error loading YAML file: ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/resource.py", line 341, in read_local_resource
+            yaml_dict = utils.load_yaml(content) or {}
+                        ~~~~~~~~~~~~~~~^^^^^^^^^
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/resource_utils.py", line 134, in load_yaml
+            return _yaml_loader.load(content)
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/main.py", line 454, in load
+            return constructor.get_single_data()
+                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/constructor.py", line 117, in get_single_data
+            node = self.composer.get_single_node()
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 77, in get_single_node
+            document = self.compose_document()
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 100, in compose_document
+            node = self.compose_node(None, None)
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 144, in compose_node
+            node = self.compose_mapping_node(anchor)
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 227, in compose_mapping_node
+            item_value = self.compose_node(node, item_key)
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 144, in compose_node
+            node = self.compose_mapping_node(anchor)
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/composer.py", line 220, in compose_mapping_node
+            while not self.parser.check_event(MappingEndEvent):
+                      ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/parser.py", line 141, in check_event
+            self.current_event = self.state()
+                                 ~~~~~~~~~~^^
+          File "${PYTHON_ADK_VENV}/lib/python3.14/site-packages/ruamel/yaml/parser.py", line 614, in parse_block_mapping_key
+            raise ParserError(
+            ...<4 lines>...
+            )
+        ruamel.yaml.parser.ParserError: while parsing a block mapping
+          in "<unicode string>", line 2, column 3:
+              Polite: true
+              ^ (line: 2)
+        expected <block end>, but found '-'
+          in "<unicode string>", line 3, column 3:
+              - malformed
+              ^ (line: 3)
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2066, in read_local_resource
+            resource = resource_class.read_local_resource(
+                file_path=resource.file_path,
+            ...<3 lines>...
+                **additional_kwargs,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/resource.py", line 343, in read_local_resource
+            raise ValueError(f"Error loading YAML file: {file_path}") from e
+        ValueError: Error loading YAML file: ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 957, in _run_command
+            cls.push(
+            ~~~~~~~~^
+                args.path,
+                ^^^^^^^^^^
+            ...<7 lines>...
+                output_commands=args.output_json_commands,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1501, in push
+            push_ok, output, commands = project.push_project(
+                                        ~~~~~~~~~~~~~~~~~~~~^
+                force=force,
+                ^^^^^^^^^^^^
+            ...<4 lines>...
+                projection_json=projection_json,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 1146, in push_project
+            local_resource = self.read_local_resource(
+                resource=resource_mapping,
+                resource_mappings=local_resource_mappings,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2074, in read_local_resource
+            raise ValueError(
+                f"Error reading resource {resource.resource_name} at {resource.file_path}: {str(e)}"
+            ) from e
+        ValueError: Error reading resource personality at ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml: Error loading YAML file: ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml
+    stdout: null
+    stderr: ''
