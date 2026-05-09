@@ -1,0 +1,89 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Pending parity fixture for Python interactive-adjacent CLI behavior.
+- This records the deterministic stdin-backed branch-create prompt path plus JSON-mode failures for missing interactive arguments.
+- Questionary menus are intentionally not automated here; they need a separate TTY test harness.
+- This is not in the default replay scenario list until Rust interactive behavior is implemented.
+httpmock_recording: interactive-contracts.httpmock.yaml
+workflows:
+- name: interactive_contracts
+  description: Record Python branch create prompting for a missing branch name and JSON-mode branch switch failure when the branch name is omitted.
+  mutates_real_server: true
+  cleanup:
+  - poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM
+  steps:
+  - kind: command
+    name: init real project before interactive contracts
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: branch create prompts for missing branch name
+    argv:
+    - poly
+    - branch
+    - create
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    stdin: |
+      ${BRANCH_NAME}
+    exit_code: 0
+    stdout_json: null
+    stdout: |
+      Enter the name of the new branch: Branch '${BRANCH_NAME}' created (ID: BRANCH-5RIIEU24)
+    stderr: ''
+  - kind: command
+    name: branch switch json requires branch name
+    argv:
+    - poly
+    - branch
+    - switch
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      error: branch switch with --json requires a branch name argument.
+      success: false
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: delete branch created through prompt
+    argv:
+    - poly
+    - branch
+    - delete
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      success: true
+      switched_to: main
+    stdout: null
+    stderr: ''

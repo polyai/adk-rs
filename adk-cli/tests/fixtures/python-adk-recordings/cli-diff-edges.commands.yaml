@@ -1,0 +1,187 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Pending parity fixture for Python CLI surface details and diff/review edge behavior.
+- This records parser-level invalid region behavior, default init base path, verbose flag placement, hidden/visible help text, file filters, review filtering, and --before main local diff behavior.
+- This is not in the default replay scenario list until these surface contracts are implemented in Rust.
+httpmock_recording: cli-diff-edges.httpmock.yaml
+workflows:
+- name: cli_diff_edges
+  description: Record Python CLI parser contracts plus file-filtered diff/review and named diff behavior on a dirty local checkout.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: command
+    name: init rejects invalid region at parser level
+    argv:
+    - poly
+    - init
+    - --json
+    - --region
+    - not-a-region
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 2
+    stdout_json: null
+    stdout: null
+    stderr: |
+      usage: poly init [-h] [--verbose] [--json] [--debug] [--base-path BASE_PATH]
+                       [--region {us-1,euw-1,uk-1,studio,staging,dev}]
+                       [--account_id ACCOUNT_ID] [--project_id PROJECT_ID]
+                       [--format]
+      poly init: error: argument --region: invalid choice: 'not-a-region' (choose from us-1, euw-1, uk-1, studio, staging, dev)
+  - kind: command
+    name: init default base path uses current working directory
+    argv:
+    - poly
+    - init
+    - --json
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: deployments list rejects verbose after subcommand
+    argv:
+    - poly
+    - deployments
+    - list
+    - --verbose
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 2
+    stdout_json: null
+    stdout: null
+    stderr: |
+      usage: poly [-h] [-v]
+                  {docs,init,pull,push,status,revert,diff,review,branch,format,validate,chat,completion,deployments} ...
+      poly: error: unrecognized arguments: --verbose
+  - kind: command
+    name: branch switch help exposes output-json-projection
+    argv:
+    - poly
+    - branch
+    - switch
+    - --help
+    exit_code: 0
+    stdout_json: null
+    stdout: |
+      usage: poly branch switch [-h] [--path PATH] [--verbose] [--json] [--debug]
+                                [--format] [--force] [--output-json-projection]
+                                [branch_name]
+
+      positional arguments:
+        branch_name           Name of the branch to switch to.
+
+      options:
+        -h, --help            show this help message and exit
+        --path PATH           Base path to the project. Defaults to current working
+                              directory.
+        --verbose             Show full error tracebacks for debugging.
+        --json                Print a single JSON object on stdout (machine-
+                              readable).
+        --debug               Display debug logs.
+        --format              Format the project after switching branches.
+        --force, -f           Force switch to a different branch and discard
+                              changes.
+        --output-json-projection
+                              Output the projection in json format
+    stderr: ''
+  - kind: file_edit
+    name: append local main diff edge edit
+    operation: append_text
+    path: agent_settings/rules.txt
+    content: |2
+
+
+      # ADK recording diff edge
+      This line records Python diff edge behavior.
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: diff relative file filter
+    argv:
+    - poly
+    - diff
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --files
+    - agent_settings/rules.txt
+    exit_code: 0
+    stdout_json:
+      message: No changes detected
+      success: false
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: diff absolute file filter
+    argv:
+    - poly
+    - diff
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --files
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/rules.txt
+    exit_code: 0
+    stdout_json:
+      diffs:
+        agent_settings/rules.txt: "--- original\n+++ updated\n@@ -78,3 +78,7 @@\n \n \n # ADK recording conflict branch 56de8e44\n+\n+\n+# ADK recording diff edge\n+This line records Python diff edge behavior."
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: diff before main against dirty local checkout
+    argv:
+    - poly
+    - diff
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --before
+    - main
+    exit_code: 0
+    stdout_json:
+      diffs:
+        agent_settings/rules.txt: "--- original\n+++ updated\n@@ -78,3 +78,7 @@\n \n \n # ADK recording conflict branch 56de8e44\n+\n+\n+# ADK recording diff edge\n+This line records Python diff edge behavior."
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: review create relative file filter without github token
+    argv:
+    - poly
+    - review
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - create
+    - --json
+    - --files
+    - agent_settings/rules.txt
+    exit_code: 0
+    stdout_json:
+      message: No changes to review.
+      success: false
+    stdout: null
+    stderr: ''

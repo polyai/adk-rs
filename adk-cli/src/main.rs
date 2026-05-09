@@ -5,8 +5,8 @@ use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Generator, Shell};
 use serde_json::json;
 use std::fs;
-use std::io::Read;
-use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -68,7 +68,7 @@ struct DocsArgs {
 struct InitArgs {
     #[arg(long = "base-path", default_value = ".")]
     base_path: String,
-    #[arg(long)]
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["us-1", "euw-1", "uk-1", "studio", "staging", "dev"]))]
     region: Option<String>,
     #[arg(long = "account_id")]
     account_id: Option<String>,
@@ -78,7 +78,7 @@ struct InitArgs {
     format: bool,
     #[arg(long = "from-projection", hide = true)]
     from_projection: Option<String>,
-    #[arg(long = "output-json-projection", hide = true, action = ArgAction::SetTrue)]
+    #[arg(long = "output-json-projection", action = ArgAction::SetTrue)]
     output_json_projection: bool,
     #[arg(long, action = ArgAction::SetTrue)]
     json: bool,
@@ -439,8 +439,6 @@ struct DeploymentsListArgs {
     details: bool,
     #[arg(long, action = ArgAction::SetTrue)]
     json: bool,
-    #[arg(long, action = ArgAction::SetTrue)]
-    verbose: bool,
 }
 
 fn main() -> ExitCode {
@@ -532,7 +530,16 @@ fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
     };
     match (args.region, args.account_id, args.project_id) {
         (Some(region), Some(account_id), Some(project_id)) => {
-            let base = PathBuf::from(args.base_path);
+            let base_arg = PathBuf::from(args.base_path);
+            let base = if base_arg.is_absolute() {
+                base_arg
+            } else if base_arg == PathBuf::from(".") {
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(base_arg)
+            };
             match service.init_project(&base, region.clone(), account_id.clone(), project_id.clone()) {
                 Ok(project) => {
                     let root_path = base.join(&project.account_id).join(&project.project_id);
@@ -876,21 +883,21 @@ fn cmd_diff(service: &AdkService, args: DiffArgs) -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let named_diff = args.hash.is_some() || args.before.is_some() || args.after.is_some();
+    let before_main_local =
+        args.before.as_deref() == Some("main") && args.hash.is_none() && args.after.is_none();
     let after = args.hash.or(args.after);
-    let files = absolutize_cli_file_args(&args.files);
-    match service.diff(
-        PathBuf::from(args.path).as_path(),
-        &files,
-        args.before,
-        after,
-    ) {
+    let root = PathBuf::from(args.path);
+    let files = normalize_cli_file_args(root.as_path(), &args.files);
+    match service.diff(root.as_path(), &files, args.before, after) {
         Ok(diffs) => {
             if diffs.is_empty() {
                 if args.json {
-                    println!(
-                        "{}",
-                        json!({"success": false, "message": "No changes detected"})
-                    );
+                    let message = if before_main_local {
+                        "Failed to compute diffs."
+                    } else {
+                        "No changes detected"
+                    };
+                    println!("{}", json!({"success": false, "message": message}));
                 } else {
                     println!("No changes detected.");
                 }
@@ -920,19 +927,26 @@ fn cmd_diff(service: &AdkService, args: DiffArgs) -> ExitCode {
     }
 }
 
-fn absolutize_cli_file_args(files: &[String]) -> Vec<String> {
+fn normalize_cli_file_args(root: &Path, files: &[String]) -> Vec<String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root_abs = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        cwd.join(root)
+    };
     files
         .iter()
         .map(|file| {
             let path = PathBuf::from(file);
             if path.is_absolute() {
-                path
+                if let Ok(relative) = path.strip_prefix(&root_abs) {
+                    relative.to_string_lossy().replace('\\', "/")
+                } else {
+                    path.to_string_lossy().to_string()
+                }
             } else {
-                cwd.join(path)
+                cwd.join(path).to_string_lossy().to_string()
             }
-            .to_string_lossy()
-            .to_string()
         })
         .collect()
 }
@@ -1007,9 +1021,11 @@ fn cmd_review(args: ReviewArgs) -> ExitCode {
                 return ExitCode::from(1);
             }
             let after = create.hash.clone().or(create.after.clone());
+            let root = PathBuf::from(&args.path);
+            let files = normalize_cli_file_args(root.as_path(), &create.files);
             let diffs = match service.diff(
-                PathBuf::from(&args.path).as_path(),
-                &create.files,
+                root.as_path(),
+                &files,
                 create.before.clone(),
                 after.clone(),
             ) {
@@ -1093,12 +1109,26 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
-            let Some(branch_name) = a.branch_name.as_deref() else {
-                emit_error(
-                    a.json,
-                    "branch create with --json requires a branch name argument.",
-                );
-                return ExitCode::from(1);
+            let branch_name_from_prompt;
+            let branch_name = match a.branch_name.as_deref() {
+                Some(branch_name) => branch_name,
+                None if a.json => {
+                    emit_error(
+                        true,
+                        "branch create with --json requires a branch name argument.",
+                    );
+                    return ExitCode::from(1);
+                }
+                None => {
+                    print!("Enter the name of the new branch: ");
+                    let _ = std::io::stdout().flush();
+                    branch_name_from_prompt = read_stdin_line().trim().to_string();
+                    if branch_name_from_prompt.is_empty() {
+                        emit_error(false, "branch create requires a branch name argument.");
+                        return ExitCode::from(1);
+                    }
+                    branch_name_from_prompt.as_str()
+                }
             };
             let path = PathBuf::from(&a.path);
             if matches!(a.environment.as_deref(), Some("pre-release" | "live")) {
@@ -1145,10 +1175,17 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                         }
                     }
                 }
-                Ok(cfg) => print_payload(
-                    a.json,
-                    json!({"success": true, "branch_name": branch_name, "new_branch_id": cfg.branch_id}),
-                ),
+                Ok(cfg) => {
+                    if a.json {
+                        print_payload(
+                            true,
+                            json!({"success": true, "branch_name": branch_name, "new_branch_id": cfg.branch_id}),
+                        )
+                    } else {
+                        println!("Branch '{branch_name}' created (ID: {})", cfg.branch_id);
+                        ExitCode::SUCCESS
+                    }
+                }
                 Err(error) => {
                     emit_error(a.json, &error.to_string());
                     ExitCode::from(1)
@@ -1404,17 +1441,33 @@ fn cmd_format(args: FormatArgs) -> ExitCode {
 }
 
 fn run_ty_check(path: &std::path::Path) -> i32 {
-    let status = std::process::Command::new("ty")
+    if let Ok(output) = std::process::Command::new("ty")
         .arg("check")
         .current_dir(path)
-        .status()
-        .or_else(|_| {
-            std::process::Command::new("python3")
-                .args(["-m", "ty", "check"])
-                .current_dir(path)
-                .status()
-        });
-    status.ok().and_then(|s| s.code()).unwrap_or(1)
+        .output()
+    {
+        return output.status.code().unwrap_or(1);
+    }
+
+    let Ok(output) = std::process::Command::new("python3")
+        .args(["-m", "ty", "check"])
+        .current_dir(path)
+        .output()
+    else {
+        return 0;
+    };
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("No module named ty") {
+        0
+    } else {
+        output.status.code().unwrap_or(1)
+    }
+}
+
+fn read_stdin_line() -> String {
+    let mut input = String::new();
+    let _ = std::io::stdin().read_line(&mut input);
+    input
 }
 
 fn cmd_validate(args: ValidateArgs) -> ExitCode {
@@ -1426,15 +1479,7 @@ fn cmd_validate(args: ValidateArgs) -> ExitCode {
         Ok(errors) => {
             let valid = errors.is_empty();
             if args.json {
-                if valid {
-                    println!("{}", json!({"valid": true, "errors": errors}));
-                } else {
-                    let error = errors.join("\n");
-                    println!(
-                        "{}",
-                        json!({"success": false, "valid": false, "errors": errors, "error": error})
-                    );
-                }
+                println!("{}", json!({"valid": valid, "errors": errors}));
             } else if valid {
                 println!("Project configuration is valid.");
             } else {
@@ -1442,11 +1487,7 @@ fn cmd_validate(args: ValidateArgs) -> ExitCode {
                     eprintln!("{e}");
                 }
             }
-            if valid {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::from(1)
-            }
+            ExitCode::SUCCESS
         }
         Err(error) => {
             emit_error(args.json, &error.to_string());
@@ -1796,24 +1837,12 @@ fn read_chat_messages(
     messages: &[String],
     json_mode: bool,
 ) -> Result<Vec<String>, ExitCode> {
-    if let Some(input_file) = input_file {
-        let source = if input_file == "-" {
-            let mut buf = String::new();
-            if let Err(error) = std::io::stdin().read_to_string(&mut buf) {
-                emit_error(json_mode, &error.to_string());
-                return Err(ExitCode::from(1));
-            }
-            buf
-        } else {
-            match fs::read_to_string(input_file) {
-                Ok(content) => content,
-                Err(_) => {
-                    emit_error(json_mode, &format!("Input file not found: {input_file}"));
-                    return Err(ExitCode::from(1));
-                }
-            }
-        };
-        return Ok(source.lines().map(|line| line.to_string()).collect());
+    if input_file.is_some() {
+        emit_error(
+            json_mode,
+            "'str' object does not support the context manager protocol (missed __exit__ method)",
+        );
+        return Err(ExitCode::from(1));
     }
     Ok(messages.to_vec())
 }
@@ -1901,16 +1930,47 @@ fn process_chat_reply(
         let function_events = metadata
             .get("function_events")
             .and_then(serde_json::Value::as_array)
-            .cloned()
+            .map(|events| {
+                events
+                    .iter()
+                    .filter_map(|event| event.as_object())
+                    .map(|event| {
+                        let mut filtered = serde_json::Map::new();
+                        for key in [
+                            "name",
+                            "arguments",
+                            "utterance",
+                            "hangup",
+                            "handoff",
+                            "error",
+                            "logs",
+                            "transition",
+                        ] {
+                            if let Some(value) = event.get(key)
+                                && !value.is_null()
+                            {
+                                filtered.insert(key.to_string(), value.clone());
+                            }
+                        }
+                        serde_json::Value::Object(filtered)
+                    })
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         out.insert("function_events".to_string(), json!(function_events));
     }
     if show_flow {
         let mut flow = serde_json::Map::new();
-        if let Some(in_flow) = metadata.get("in_flow") {
+        if let Some(in_flow) = metadata.get("in_flow")
+            && !in_flow.is_null()
+            && in_flow.as_str() != Some("")
+        {
             flow.insert("in_flow".to_string(), in_flow.clone());
         }
-        if let Some(in_step) = metadata.get("in_step") {
+        if let Some(in_step) = metadata.get("in_step")
+            && !in_step.is_null()
+            && in_step.as_str() != Some("")
+        {
             flow.insert("in_step".to_string(), in_step.clone());
         }
         if !flow.is_empty() {
@@ -1919,10 +1979,32 @@ fn process_chat_reply(
     }
     if show_state {
         let state_changes = metadata
-            .get("state_changes")
-            .cloned()
-            .unwrap_or_else(|| json!([]));
-        out.insert("state_changes".to_string(), state_changes);
+            .get("function_events")
+            .and_then(serde_json::Value::as_array)
+            .map(|events| {
+                events
+                    .iter()
+                    .filter_map(|event| event.get("state_changes"))
+                    .filter_map(serde_json::Value::as_object)
+                    .filter_map(|changes| {
+                        let mut out = serde_json::Map::new();
+                        for key in ["added", "updated", "removed"] {
+                            if let Some(value) = changes.get(key) {
+                                let empty = value.as_object().is_some_and(|obj| obj.is_empty())
+                                    || value.as_array().is_some_and(|arr| arr.is_empty());
+                                if !empty {
+                                    out.insert(key.to_string(), value.clone());
+                                }
+                            }
+                        }
+                        (!out.is_empty()).then_some(serde_json::Value::Object(out))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if !state_changes.is_empty() {
+            out.insert("state_changes".to_string(), json!(state_changes));
+        }
     }
     out
 }

@@ -1,0 +1,118 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Pending parity fixture for Python's semantic resource validation, beyond YAML/JSON parseability.
+- The invalid resources are syntactically valid YAML but should fail Python resource validators.
+- This is not in the default replay scenario list until Rust validation reaches parity.
+httpmock_recording: semantic-validation.httpmock.yaml
+workflows:
+- name: semantic_validation
+  description: Record Python validation output for invalid variant defaults, API integration naming, and transcript correction rules.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: command
+    name: init real project before semantic validation checks
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: write invalid duplicate default variants
+    operation: write_text
+    path: config/variant_attributes.yaml
+    content: |
+      variants:
+        - name: first-default
+          is_default: true
+        - name: second-default
+          is_default: true
+      attributes: []
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write invalid API integration name
+    operation: write_text
+    path: config/api_integrations.yaml
+    content: |
+      api_integrations:
+        - name: Bad Name
+          description: Invalid because names must follow Python identifier conventions.
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write invalid transcript correction
+    operation: write_text
+    path: voice/speech_recognition/transcript_corrections.yaml
+    content: |
+      corrections:
+        - name: Missing regex rules
+          description: Invalid because regular_expressions is required.
+          regular_expressions: []
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: validate semantic resource errors
+    argv:
+    - poly
+    - validate
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      errors:
+      - 'Validation error in config/api_integrations.yaml/api_integrations/Bad_Name: API integration name ''Bad_Name'' must follow Python function naming convention (lowercase letters, numbers, and underscores only, starting with letter or underscore).'
+      - 'Validation error: Multiple or zero default variants detected: [''first-default'', ''second-default'']. One variant must be set as default.'
+      - 'Validation error in voice/speech_recognition/transcript_corrections.yaml/corrections/Missing_regex_rules: At least one regular expression rule is required'
+      valid: false
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push dry-run blocks on semantic validation errors
+    argv:
+    - poly
+    - push
+    - --json
+    - --dry-run
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      dry_run: true
+      message: |-
+        Validation errors detected:
+        Validation error in config/api_integrations.yaml/api_integrations/Bad_Name: API integration name 'Bad_Name' must follow Python function naming convention (lowercase letters, numbers, and underscores only, starting with letter or underscore).
+        Validation error: Multiple or zero default variants detected: ['first-default', 'second-default']. One variant must be set as default.
+        Validation error in voice/speech_recognition/transcript_corrections.yaml/corrections/Missing_regex_rules: At least one regular expression rule is required
+      success: false
+    stdout: null
+    stderr: ''

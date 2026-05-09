@@ -1,0 +1,333 @@
+when:
+  path: /adk/v1/accounts/ben-ws/projects
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Sat, 09 May 2026 00:59:58 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '396'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-0747e960-ab79-4a5d-8295-1ad8ac7580ab
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '209'
+  - name: x-kong-proxy-latency
+    value: '9'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: f00eb6368ec0b349c2cff45ccaa6b963
+  body: |
+    {"projects":[{"active":true,"created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","genai_account_id":"ben-ws","id":"PROJECT-JTQKOKLM","is_draft":null,"is_template":false,"last_updated":"Fri, 08 May 2026 18:26:17 GMT","metrics":{"total_conversations":null,"total_minutes":null},"name":"Test","parent_template_id":null,"phone_number":null,"phone_numbers":[],"type":"genai"}]}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/branches/main/projection
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Sat, 09 May 2026 00:59:59 GMT
+  - name: content-type
+    value: application/json; charset=utf-8
+  - name: content-length
+    value: '16934'
+  - name: connection
+    value: keep-alive
+  - name: content-security-policy
+    value: 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+  - name: cross-origin-opener-policy
+    value: same-origin
+  - name: cross-origin-resource-policy
+    value: same-origin
+  - name: origin-agent-cluster
+    value: ?1
+  - name: referrer-policy
+    value: no-referrer
+  - name: strict-transport-security
+    value: max-age=31536000; includeSubDomains
+  - name: x-content-type-options
+    value: nosniff
+  - name: x-dns-prefetch-control
+    value: off
+  - name: x-download-options
+    value: noopen
+  - name: x-frame-options
+    value: SAMEORIGIN
+  - name: x-permitted-cross-domain-policies
+    value: none
+  - name: x-xss-protection
+    value: '0'
+  - name: etag
+    value: W/"4226-bj+/cMY+lYZoPlx6RS9OYnE57fc"
+  - name: server
+    value: kong/3.12.0.4-enterprise-edition
+  - name: x-polyai-correlation-id
+    value: adk-5c1a5c51-7503-4cf6-ac42-d9d1709c6b5b
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '136'
+  - name: x-kong-proxy-latency
+    value: '2'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: e8b7d849e84abd6d8ca8644e56cb5921
+  body: '{"lastKnownSequence":"25","projection":{"knowledgeBase":{"topics":{"ids":["TOPICS-23b2d80e"],"entities":{"TOPICS-23b2d80e":{"id":"TOPICS-23b2d80e","name":"ADK Recording Conflict a6b12361","content":"This topic exists only to exercise Python ADK merge conflict recording.","actions":"ADK recording conflict branch a6b12361","exampleQueries":[{"query":"How do conflict recordings work?"}],"references":{"sms":{},"handoff":{},"attributes":{},"globalFunctions":{},"variables":{},"translations":{}},"isActive":true,"createdAt":"2026-05-08T18:26:06.533Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-05-08T18:26:11.974Z","updatedBy":"ben@poly-ai.com"}}},"embeddingModel":"","uninstantiatedTopics":{"ids":[],"entities":{}}},"sms":{"templates":{"ids":[],"entities":{}}},"handoff":{"handoffs":{"ids":["default-handoff"],"entities":{"default-handoff":{"id":"default-handoff","name":"Default handoff","description":"Handoff the call to the agent when caller requested.","sipConfig":{"config":{"$case":"refer","value":{"phoneNumber":"+1234567890"}}},"sipHeaders":{"headers":[{"key":"X-Custom-Header","value":"custom_value"},{"key":"X-PolyAI-Session","value":"session_id_123"}]},"active":true,"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"topics":{},"flowSteps":{}},"isDefault":true}}}},"flows":{"flows":{"ids":[],"entities":{}}},"variantManagement":{"variants":{"ids":[],"entities":{}},"attributes":{"ids":[],"entities":{}},"variantAttributeValues":{"ids":[],"entities":{}}},"stopKeywords":{"filters":{"ids":[],"entities":{}}},"llmSettings":{"modelId":"MODEL-27a9c7af","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"asrSettings":{"bargeIn":false,"latencyConfig":{"interactionStyle":"balanced"},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"languages":{"defaultLanguageCode":"en-US","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","additionalLanguages":{"ids":[],"entities":{}}},"contentFilterSettings":{"type":"azure","azureConfig":{"violence":{"isActive":false,"precision":"MEDIUM"},"hate":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"}},"disabled":false,"updatedAt":"","updatedBy":""},"functions":{"functions":{"ids":["default-function"],"entities":{"default-function":{"id":"default-function","name":"goodbye_and_hang_up","description":"Say goodbye and end the conversation if and only if you''ve explicitly confirmed with the user that they don''t need help with anything else","parameters":{"ids":[],"entities":{}},"code":"def goodbye_and_hang_up(conv: Conversation):\n  return {\n    \"utterance\": \"Okay. I hope you have a great rest of your day. Goodbye!\",\n    \"hangup\": True\n  }","errors":[],"latencyControl":{"enabled":false,"delayResponses":{"ids":[],"entities":{}},"initialDelay":0,"interval":0,"createdAt":"2026-03-31T14:13:36.070Z","createdBy":"","updatedAt":"2026-03-31T14:13:36.070Z","updatedBy":""},"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","archived":false,"references":{"flowSteps":{},"topics":{},"stopKeywords":{},"behaviour":{"GLOBAL_BEHAVIOUR":true},"variables":{}}}}}},"transcriptCorrections":{"transcriptCorrections":{"ids":[],"entities":{}}},"agentSettings":{"greeting":{"welcomeMessage":"Hello, how can I help you?","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{},"translations":{}},"languageCode":"en-US"},"disclaimerMessage":{"isEnabled":false,"message":"","ringingTone":{"s3Path":"","originalFilename":"","publicUrl":""},"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","languageCode":"en-US","references":{"translations":{}}},"personality":{"adjectives":{"Polite":true},"custom":"","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{}}},"role":{"value":"CustomerServiceRepresentative","additionalInfo":"","custom":"","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{}}},"rules":{"behaviour":"\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn''t match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''OUT_OF_SCOPE''.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user''s input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn''t catch that. Could you say that again?\"  \n3. \"I''m sorry, but I still didn''t catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''USER_INCOMPREHENSIBLE''.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you''re not designed to do:\n\"I don''t have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I''m doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you''re a live person: \"I''m a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That''s it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n","references":{"attributes":{},"globalFunctions":{"default-function":true},"handoff":{"default-handoff":true},"sms":{},"variables":{},"translations":{}},"createdBy":"ben@poly-ai.com","createdAt":"2026-05-08T18:19:37.835Z","updatedAt":"2026-05-08T18:24:03.042Z","updatedBy":"ben@poly-ai.com"}},"multilingualAgentSettings":{"greetings":{"entities":{"en-US":{"welcomeMessage":"Hello, how can I help you?","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{},"translations":{}},"languageCode":"en-US"}},"ids":["en-US"]},"disclaimerMessages":{"entities":{"en-US":{"isEnabled":false,"message":"","ringingTone":{"s3Path":"","originalFilename":"","publicUrl":""},"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","languageCode":"en-US","references":{"translations":{}}}},"ids":["en-US"]},"languageBehaviors":{"entities":{"en-US":{"behaviorPrompt":"","languageCode":"en-US","createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"attributes":{},"globalFunctions":{},"handoff":{},"sms":{},"variables":{}}}},"ids":["en-US"]},"personality":{"adjectives":{"Polite":true},"custom":"","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{}}},"role":{"value":"CustomerServiceRepresentative","additionalInfo":"","custom":"","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{}}},"rules":{"behaviour":"\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn''t match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''OUT_OF_SCOPE''.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user''s input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn''t catch that. Could you say that again?\"  \n3. \"I''m sorry, but I still didn''t catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''USER_INCOMPREHENSIBLE''.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you''re not designed to do:\n\"I don''t have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I''m doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you''re a live person: \"I''m a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That''s it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n","references":{"attributes":{},"globalFunctions":{"default-function":true},"handoff":{"default-handoff":true},"sms":{},"variables":{},"translations":{}},"createdBy":"ben@poly-ai.com","createdAt":"2026-05-08T18:19:37.835Z","updatedAt":"2026-05-08T18:24:03.042Z","updatedBy":"ben@poly-ai.com"}},"experimentalConfig":{"experimentalConfigs":{"ids":["default"],"entities":{"default":{"id":"default","features":{"asr":{"provider":"default","model":"poly-latency","use_asr_lib":true,"eager_final":true},"conversation_control":{"min_chunk_size":5},"llm":{"include_kb_functions_in_flows":true},"vad":{"provider":"silero","vad_end":400},"smart_vad":{"is_enabled":true},"ragdoll":{"previous_user_inputs_len":1}},"active":true,"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}}}},"pronunciations":{"pronunciations":{"ids":[],"entities":{}}},"keyphraseBoosting":{"keyphraseBoosting":{"ids":[],"entities":{}}},"entities":{"entities":{"ids":[],"entities":{}}},"voices":{"agentVoiceSettings":{"ids":[],"entities":{}},"agentVoices":{"ids":["6fad73f6","95c1c1f1"],"entities":{"6fad73f6":{"id":"6fad73f6","voiceId":"VOICE-6fad73f6","probability":0.5,"updatedBy":"ben@poly-ai.com","updatedAt":"2026-03-31T14:14:21.732Z","languageCode":"en-US"},"95c1c1f1":{"id":"95c1c1f1","voiceId":"VOICE-95c1c1f1","probability":0.5,"updatedBy":"ben@poly-ai.com","updatedAt":"2026-03-31T14:14:25.574Z"}}},"disclaimerVoices":{"ids":[],"entities":{}},"disclaimerVoiceSettings":{"ids":[],"entities":{}},"favoriteVoices":{"ids":[],"entities":{}}},"specialFunctions":{},"apiIntegrations":{"apiIntegrations":{"ids":[],"entities":{}}},"variables":{"variables":{"ids":[],"entities":{}}},"translations":{"translations":{"ids":[],"entities":{}}},"channels":{"voice":{"config":{"llmSettings":{"modelId":"MODEL-27a9c7af","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"stylePrompt":{"prompt":"","createdAt":"","createdBy":"","updatedAt":"","updatedBy":""},"greeting":{"welcomeMessage":"Hello, how can I help you?","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{},"translations":{}},"languageCode":"en-US"},"safetyFilters":{"type":"azure","azureConfig":{"violence":{"isActive":false,"precision":"MEDIUM"},"hate":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"}},"disabled":true,"updatedAt":"","updatedBy":""}},"asrSettings":{"bargeIn":false,"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"disclaimer":{"isEnabled":false,"message":"","ringingTone":{"s3Path":"","originalFilename":"","publicUrl":""},"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","languageCode":"en-US","references":{"translations":{}}}},"webChat":{"config":{"llmSettings":{"modelId":"","updatedAt":"","updatedBy":""},"stylePrompt":{"prompt":"","createdAt":"","createdBy":"","updatedAt":"","updatedBy":""},"greeting":{"welcomeMessage":"","createdAt":"","createdBy":"","updatedAt":"","updatedBy":"","references":{"variables":{},"translations":{}},"languageCode":"en-GB"},"safetyFilters":{"type":"azure","azureConfig":{"violence":{"isActive":false,"precision":"MEDIUM"},"hate":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"}},"disabled":true,"updatedAt":"","updatedBy":""}},"status":0}},"integrations":{"ids":[],"entities":{}},"mcpConfig":{"servers":{"ids":[],"entities":{}},"savedProfiles":{"ids":[],"entities":{}}}}}'
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/branches
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Sat, 09 May 2026 01:00:00 GMT
+  - name: content-type
+    value: application/json; charset=utf-8
+  - name: content-length
+    value: '812'
+  - name: connection
+    value: keep-alive
+  - name: content-security-policy
+    value: 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+  - name: cross-origin-opener-policy
+    value: same-origin
+  - name: cross-origin-resource-policy
+    value: same-origin
+  - name: origin-agent-cluster
+    value: ?1
+  - name: referrer-policy
+    value: no-referrer
+  - name: strict-transport-security
+    value: max-age=31536000; includeSubDomains
+  - name: x-content-type-options
+    value: nosniff
+  - name: x-dns-prefetch-control
+    value: off
+  - name: x-download-options
+    value: noopen
+  - name: x-frame-options
+    value: SAMEORIGIN
+  - name: x-permitted-cross-domain-policies
+    value: none
+  - name: x-xss-protection
+    value: '0'
+  - name: etag
+    value: W/"32c-1mHz4TYKGptbwy06zasqVzAvOu8"
+  - name: server
+    value: kong/3.12.0.4-enterprise-edition
+  - name: x-polyai-correlation-id
+    value: adk-d2ada960-a4fe-44b5-b668-53bf81fcc66c
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '29'
+  - name: x-kong-proxy-latency
+    value: '10'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: e016f801c00e5e0da7665d5055f7de69
+  body: '{"branches":[{"id":"329912e7-e68c-40c4-93be-539d05231795","name":"main","accountId":"ben-ws","projectId":"PROJECT-JTQKOKLM","branchId":"main","active":true,"createdBy":"ben@poly-ai.com","createdAt":"2026-03-20T15:00:26.184Z","updatedAt":"2026-05-08T18:26:17.438Z"},{"id":"4d40a15d-6252-4a0a-8b74-c6292c912b73","name":"ADK-64400-94af","accountId":"ben-ws","projectId":"PROJECT-JTQKOKLM","branchId":"BRANCH-PBM0OW3W","active":true,"createdBy":"ben@poly-ai.com","createdAt":"2026-05-08T18:20:00.097Z","updatedAt":"2026-05-08T18:20:00.204Z"},{"id":"ccc39287-b5d0-4e03-985f-6e36d2bd5916","name":"ADK-64390-accc","accountId":"ben-ws","projectId":"PROJECT-JTQKOKLM","branchId":"BRANCH-GQJGVBM3","active":true,"createdBy":"ben@poly-ai.com","createdAt":"2026-05-08T18:19:50.171Z","updatedAt":"2026-05-08T18:19:50.253Z"}]}'
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/branches/main/projection
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Sat, 09 May 2026 01:00:00 GMT
+  - name: content-type
+    value: application/json; charset=utf-8
+  - name: content-length
+    value: '16934'
+  - name: connection
+    value: keep-alive
+  - name: content-security-policy
+    value: 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+  - name: cross-origin-opener-policy
+    value: same-origin
+  - name: cross-origin-resource-policy
+    value: same-origin
+  - name: origin-agent-cluster
+    value: ?1
+  - name: referrer-policy
+    value: no-referrer
+  - name: strict-transport-security
+    value: max-age=31536000; includeSubDomains
+  - name: x-content-type-options
+    value: nosniff
+  - name: x-dns-prefetch-control
+    value: off
+  - name: x-download-options
+    value: noopen
+  - name: x-frame-options
+    value: SAMEORIGIN
+  - name: x-permitted-cross-domain-policies
+    value: none
+  - name: x-xss-protection
+    value: '0'
+  - name: etag
+    value: W/"4226-bj+/cMY+lYZoPlx6RS9OYnE57fc"
+  - name: server
+    value: kong/3.12.0.4-enterprise-edition
+  - name: x-polyai-correlation-id
+    value: adk-e390b912-ffdd-46ed-8f77-901c1554929f
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '140'
+  - name: x-kong-proxy-latency
+    value: '0'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 664cd3646276b37a975c870f54ee2158
+  body: '{"lastKnownSequence":"25","projection":{"knowledgeBase":{"topics":{"ids":["TOPICS-23b2d80e"],"entities":{"TOPICS-23b2d80e":{"id":"TOPICS-23b2d80e","name":"ADK Recording Conflict a6b12361","content":"This topic exists only to exercise Python ADK merge conflict recording.","actions":"ADK recording conflict branch a6b12361","exampleQueries":[{"query":"How do conflict recordings work?"}],"references":{"sms":{},"handoff":{},"attributes":{},"globalFunctions":{},"variables":{},"translations":{}},"isActive":true,"createdAt":"2026-05-08T18:26:06.533Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-05-08T18:26:11.974Z","updatedBy":"ben@poly-ai.com"}}},"embeddingModel":"","uninstantiatedTopics":{"ids":[],"entities":{}}},"sms":{"templates":{"ids":[],"entities":{}}},"handoff":{"handoffs":{"ids":["default-handoff"],"entities":{"default-handoff":{"id":"default-handoff","name":"Default handoff","description":"Handoff the call to the agent when caller requested.","sipConfig":{"config":{"$case":"refer","value":{"phoneNumber":"+1234567890"}}},"sipHeaders":{"headers":[{"key":"X-Custom-Header","value":"custom_value"},{"key":"X-PolyAI-Session","value":"session_id_123"}]},"active":true,"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"topics":{},"flowSteps":{}},"isDefault":true}}}},"flows":{"flows":{"ids":[],"entities":{}}},"variantManagement":{"variants":{"ids":[],"entities":{}},"attributes":{"ids":[],"entities":{}},"variantAttributeValues":{"ids":[],"entities":{}}},"stopKeywords":{"filters":{"ids":[],"entities":{}}},"llmSettings":{"modelId":"MODEL-27a9c7af","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"asrSettings":{"bargeIn":false,"latencyConfig":{"interactionStyle":"balanced"},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"languages":{"defaultLanguageCode":"en-US","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","additionalLanguages":{"ids":[],"entities":{}}},"contentFilterSettings":{"type":"azure","azureConfig":{"violence":{"isActive":false,"precision":"MEDIUM"},"hate":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"}},"disabled":false,"updatedAt":"","updatedBy":""},"functions":{"functions":{"ids":["default-function"],"entities":{"default-function":{"id":"default-function","name":"goodbye_and_hang_up","description":"Say goodbye and end the conversation if and only if you''ve explicitly confirmed with the user that they don''t need help with anything else","parameters":{"ids":[],"entities":{}},"code":"def goodbye_and_hang_up(conv: Conversation):\n  return {\n    \"utterance\": \"Okay. I hope you have a great rest of your day. Goodbye!\",\n    \"hangup\": True\n  }","errors":[],"latencyControl":{"enabled":false,"delayResponses":{"ids":[],"entities":{}},"initialDelay":0,"interval":0,"createdAt":"2026-03-31T14:13:36.070Z","createdBy":"","updatedAt":"2026-03-31T14:13:36.070Z","updatedBy":""},"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","archived":false,"references":{"flowSteps":{},"topics":{},"stopKeywords":{},"behaviour":{"GLOBAL_BEHAVIOUR":true},"variables":{}}}}}},"transcriptCorrections":{"transcriptCorrections":{"ids":[],"entities":{}}},"agentSettings":{"greeting":{"welcomeMessage":"Hello, how can I help you?","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{},"translations":{}},"languageCode":"en-US"},"disclaimerMessage":{"isEnabled":false,"message":"","ringingTone":{"s3Path":"","originalFilename":"","publicUrl":""},"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","languageCode":"en-US","references":{"translations":{}}},"personality":{"adjectives":{"Polite":true},"custom":"","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{}}},"role":{"value":"CustomerServiceRepresentative","additionalInfo":"","custom":"","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{}}},"rules":{"behaviour":"\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn''t match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''OUT_OF_SCOPE''.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user''s input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn''t catch that. Could you say that again?\"  \n3. \"I''m sorry, but I still didn''t catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''USER_INCOMPREHENSIBLE''.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you''re not designed to do:\n\"I don''t have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I''m doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you''re a live person: \"I''m a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That''s it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n","references":{"attributes":{},"globalFunctions":{"default-function":true},"handoff":{"default-handoff":true},"sms":{},"variables":{},"translations":{}},"createdBy":"ben@poly-ai.com","createdAt":"2026-05-08T18:19:37.835Z","updatedAt":"2026-05-08T18:24:03.042Z","updatedBy":"ben@poly-ai.com"}},"multilingualAgentSettings":{"greetings":{"entities":{"en-US":{"welcomeMessage":"Hello, how can I help you?","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{},"translations":{}},"languageCode":"en-US"}},"ids":["en-US"]},"disclaimerMessages":{"entities":{"en-US":{"isEnabled":false,"message":"","ringingTone":{"s3Path":"","originalFilename":"","publicUrl":""},"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","languageCode":"en-US","references":{"translations":{}}}},"ids":["en-US"]},"languageBehaviors":{"entities":{"en-US":{"behaviorPrompt":"","languageCode":"en-US","createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"attributes":{},"globalFunctions":{},"handoff":{},"sms":{},"variables":{}}}},"ids":["en-US"]},"personality":{"adjectives":{"Polite":true},"custom":"","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{}}},"role":{"value":"CustomerServiceRepresentative","additionalInfo":"","custom":"","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{}}},"rules":{"behaviour":"\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn''t match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''OUT_OF_SCOPE''.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user''s input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn''t catch that. Could you say that again?\"  \n3. \"I''m sorry, but I still didn''t catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''USER_INCOMPREHENSIBLE''.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you''re not designed to do:\n\"I don''t have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I''m doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you''re a live person: \"I''m a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That''s it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n","references":{"attributes":{},"globalFunctions":{"default-function":true},"handoff":{"default-handoff":true},"sms":{},"variables":{},"translations":{}},"createdBy":"ben@poly-ai.com","createdAt":"2026-05-08T18:19:37.835Z","updatedAt":"2026-05-08T18:24:03.042Z","updatedBy":"ben@poly-ai.com"}},"experimentalConfig":{"experimentalConfigs":{"ids":["default"],"entities":{"default":{"id":"default","features":{"asr":{"provider":"default","model":"poly-latency","use_asr_lib":true,"eager_final":true},"conversation_control":{"min_chunk_size":5},"llm":{"include_kb_functions_in_flows":true},"vad":{"provider":"silero","vad_end":400},"smart_vad":{"is_enabled":true},"ragdoll":{"previous_user_inputs_len":1}},"active":true,"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}}}},"pronunciations":{"pronunciations":{"ids":[],"entities":{}}},"keyphraseBoosting":{"keyphraseBoosting":{"ids":[],"entities":{}}},"entities":{"entities":{"ids":[],"entities":{}}},"voices":{"agentVoiceSettings":{"ids":[],"entities":{}},"agentVoices":{"ids":["6fad73f6","95c1c1f1"],"entities":{"6fad73f6":{"id":"6fad73f6","voiceId":"VOICE-6fad73f6","probability":0.5,"updatedBy":"ben@poly-ai.com","updatedAt":"2026-03-31T14:14:21.732Z","languageCode":"en-US"},"95c1c1f1":{"id":"95c1c1f1","voiceId":"VOICE-95c1c1f1","probability":0.5,"updatedBy":"ben@poly-ai.com","updatedAt":"2026-03-31T14:14:25.574Z"}}},"disclaimerVoices":{"ids":[],"entities":{}},"disclaimerVoiceSettings":{"ids":[],"entities":{}},"favoriteVoices":{"ids":[],"entities":{}}},"specialFunctions":{},"apiIntegrations":{"apiIntegrations":{"ids":[],"entities":{}}},"variables":{"variables":{"ids":[],"entities":{}}},"translations":{"translations":{"ids":[],"entities":{}}},"channels":{"voice":{"config":{"llmSettings":{"modelId":"MODEL-27a9c7af","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"stylePrompt":{"prompt":"","createdAt":"","createdBy":"","updatedAt":"","updatedBy":""},"greeting":{"welcomeMessage":"Hello, how can I help you?","createdAt":"","createdBy":"","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","references":{"variables":{},"translations":{}},"languageCode":"en-US"},"safetyFilters":{"type":"azure","azureConfig":{"violence":{"isActive":false,"precision":"MEDIUM"},"hate":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"}},"disabled":true,"updatedAt":"","updatedBy":""}},"asrSettings":{"bargeIn":false,"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"disclaimer":{"isEnabled":false,"message":"","ringingTone":{"s3Path":"","originalFilename":"","publicUrl":""},"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","languageCode":"en-US","references":{"translations":{}}}},"webChat":{"config":{"llmSettings":{"modelId":"","updatedAt":"","updatedBy":""},"stylePrompt":{"prompt":"","createdAt":"","createdBy":"","updatedAt":"","updatedBy":""},"greeting":{"welcomeMessage":"","createdAt":"","createdBy":"","updatedAt":"","updatedBy":"","references":{"variables":{},"translations":{}},"languageCode":"en-GB"},"safetyFilters":{"type":"azure","azureConfig":{"violence":{"isActive":false,"precision":"MEDIUM"},"hate":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"}},"disabled":true,"updatedAt":"","updatedBy":""}},"status":0}},"integrations":{"ids":[],"entities":{}},"mcpConfig":{"servers":{"ids":[],"entities":{}},"savedProfiles":{"ids":[],"entities":{}}}}}'
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/branches
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Sat, 09 May 2026 01:00:00 GMT
+  - name: content-type
+    value: application/json; charset=utf-8
+  - name: content-length
+    value: '812'
+  - name: connection
+    value: keep-alive
+  - name: content-security-policy
+    value: 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+  - name: cross-origin-opener-policy
+    value: same-origin
+  - name: cross-origin-resource-policy
+    value: same-origin
+  - name: origin-agent-cluster
+    value: ?1
+  - name: referrer-policy
+    value: no-referrer
+  - name: strict-transport-security
+    value: max-age=31536000; includeSubDomains
+  - name: x-content-type-options
+    value: nosniff
+  - name: x-dns-prefetch-control
+    value: off
+  - name: x-download-options
+    value: noopen
+  - name: x-frame-options
+    value: SAMEORIGIN
+  - name: x-permitted-cross-domain-policies
+    value: none
+  - name: x-xss-protection
+    value: '0'
+  - name: etag
+    value: W/"32c-1mHz4TYKGptbwy06zasqVzAvOu8"
+  - name: server
+    value: kong/3.12.0.4-enterprise-edition
+  - name: x-polyai-correlation-id
+    value: adk-d2ada960-a4fe-44b5-b668-53bf81fcc66c
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '20'
+  - name: x-kong-proxy-latency
+    value: '0'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: acd85c5018bb254c0b7e170b9ef99e0b
+  body: '{"branches":[{"id":"329912e7-e68c-40c4-93be-539d05231795","name":"main","accountId":"ben-ws","projectId":"PROJECT-JTQKOKLM","branchId":"main","active":true,"createdBy":"ben@poly-ai.com","createdAt":"2026-03-20T15:00:26.184Z","updatedAt":"2026-05-08T18:26:17.438Z"},{"id":"4d40a15d-6252-4a0a-8b74-c6292c912b73","name":"ADK-64400-94af","accountId":"ben-ws","projectId":"PROJECT-JTQKOKLM","branchId":"BRANCH-PBM0OW3W","active":true,"createdBy":"ben@poly-ai.com","createdAt":"2026-05-08T18:20:00.097Z","updatedAt":"2026-05-08T18:20:00.204Z"},{"id":"ccc39287-b5d0-4e03-985f-6e36d2bd5916","name":"ADK-64390-accc","accountId":"ben-ws","projectId":"PROJECT-JTQKOKLM","branchId":"BRANCH-GQJGVBM3","active":true,"createdBy":"ben@poly-ai.com","createdAt":"2026-05-08T18:19:50.171Z","updatedAt":"2026-05-08T18:19:50.253Z"}]}'
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments/active
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Sat, 09 May 2026 01:00:01 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '203'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-0132e925-d3f5-4a74-a252-2fdc86752bef
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '79'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 4ea2bb2d72774e39cda59645425f6139
+  body: |
+    {"live":{"deployment_id":"","version":""},"pre-release":{"deployment_id":"","version":""},"sandbox":{"deployment_id":"019e08d7-2369-79d9-adc5-f31ff69a1da8","version":"add8dee46e304ab1b0e49572237a47be"}}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments
+  method: GET
+  query_param:
+  - name: client_env
+    value: sandbox
+then:
+  status: 200
+  header:
+  - name: date
+    value: Sat, 09 May 2026 01:00:01 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '11144'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-6b60b285-1a3a-4656-82c9-d44d88db67dd
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '243'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 5afd5337255ef0163706127a42f46e41
+  body: |
+    {"deployments":[{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:17 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-2369-79d9-adc5-f31ff69a1da8","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:14 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-1904-781e-9793-fabae9720dac","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:07.979Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:07 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d6-feec-70d6-b040-628aba10bc2a","rag_kb_version":"2026-05-08T18:26:07.979Z","snapshot_id":"59c8f278-d32d-4081-8b51-cffef3e3c4c4","version_hash":"f0f3b3518bdf4dc1ba2c8f338e4b3fbe"},{"artifact_version":"2026-05-08T18:24:08.904Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:08 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2d6b-721a-b7ed-d1c2e18f7f63","rag_kb_version":"2026-05-08T18:24:08.904Z","snapshot_id":"ca351cc6-e1a3-45bd-8eaf-a3c0fa4410d7","version_hash":"cca4f6adf83a43d19accad13e88aaea5"},{"artifact_version":"2026-05-08T18:24:05.852Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2258-718c-bef6-bf277a82d981","rag_kb_version":"2026-05-08T18:24:05.852Z","snapshot_id":"e44e102e-0b46-404f-a525-8c1eb8e0cd98","version_hash":"1ffc8db30da54b208485dede8cac4f7c"},{"artifact_version":"2026-05-08T18:23:58.894Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:58 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-0668-795f-88c6-d906fb5c227a","rag_kb_version":"2026-05-08T18:23:58.894Z","snapshot_id":"41990ffa-ad83-471b-b6a1-4369b2ea6853","version_hash":"030459d9c9c84dd1aff4ffecce763a09"},{"artifact_version":"2026-05-08T18:23:15.767Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:15 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-5e3d-706f-846f-4ebcaa88a1dd","rag_kb_version":"2026-05-08T18:23:15.767Z","snapshot_id":"1094476f-15b6-473b-90ef-1a57909ebfe9","version_hash":"bb87cb54ff524998a59e101d1443b697"},{"artifact_version":"2026-05-08T18:23:09.268Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:09 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-448f-7075-afb2-5b97b6575f40","rag_kb_version":"2026-05-08T18:23:09.268Z","snapshot_id":"d44e3888-ff8b-4502-824a-8a287f2086fc","version_hash":"97f6a08a784e4c9d84d6dc8b7c25260a"},{"artifact_version":"2026-05-08T18:20:05.091Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:20:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording unresolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-74e4-7804-9401-7add7834f25c","rag_kb_version":"2026-05-08T18:20:05.091Z","snapshot_id":"78bde53d-2eaf-4c31-a26b-28211f89306e","version_hash":"a5d778a05b81426096864c37a2071993"},{"artifact_version":"2026-05-08T18:19:39.192Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:19:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording branch merge","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-1040-7beb-84e2-edd710dea388","rag_kb_version":"2026-05-08T18:19:39.192Z","snapshot_id":"9dd8b4d1-19f2-4358-91f1-97060a21a5fe","version_hash":"632be5c855384c0183595f28ae7b7ab0"},{"artifact_version":"2026-03-31T14:14:29.436Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:29 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-f43c-71ab-9281-e29f2fc5e7fe","rag_kb_version":"2026-03-31T14:14:29.436Z","snapshot_id":"f8192880-e181-4f08-8d96-a4b314899f26","version_hash":"a43f1ef472024e778829fee8f7c4bf71"},{"artifact_version":"2026-03-31T14:14:04.151Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:04 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-9148-7c4d-8dc6-cd0c9f0ccec4","rag_kb_version":"2026-03-31T14:14:04.151Z","snapshot_id":"20974432-1d13-4818-a5c4-d44d6ca115f5","version_hash":"011f18e72a0e4285970cf7f8d4c27bd9"},{"artifact_version":"2026-03-20T15:00:26.302Z","client_env":"sandbox","created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"Project initialization","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2e2f-792d-93c4-32f4b47031c7","rag_kb_version":"2026-03-20T15:00:26.302Z","snapshot_id":"019d0bc3-0fc8-7e48-84b0-29331481c3c4","version_hash":"7aeb1cf8c263474782889112399ac312"}]}

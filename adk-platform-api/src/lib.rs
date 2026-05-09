@@ -14,7 +14,7 @@ use adk_protobuf::knowledge_base::{
 };
 use adk_protobuf::{Command, CommandBatch, Metadata};
 use prost::Message;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use thiserror::Error;
@@ -440,8 +440,12 @@ impl PlatformClient for HttpPlatformClient {
         projection: Option<&Value>,
         actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
-        let (commands, _) = self.build_push_commands_with_options(resources, projection, actor)?;
-        if commands.is_empty() {
+        let (commands, _, resolved_projection) =
+            self.build_push_commands_and_projection_with_options(resources, projection, actor)?;
+        let mut summaries =
+            broad_resource_dry_run_command_jsons(resources, &resolved_projection, actor);
+        summaries.extend(commands.iter().map(command_to_json_summary));
+        if summaries.is_empty() {
             return Ok(PushResult {
                 success: false,
                 message: "No changes detected".to_string(),
@@ -451,10 +455,7 @@ impl PlatformClient for HttpPlatformClient {
         Ok(PushResult {
             success: true,
             message: "Dry run completed. No changes were pushed.".to_string(),
-            commands: commands
-                .iter()
-                .map(command_to_json_summary)
-                .collect::<Vec<_>>(),
+            commands: summaries,
         })
     }
 
@@ -784,6 +785,21 @@ impl HttpPlatformClient {
         projection_override: Option<&Value>,
         actor: Option<&str>,
     ) -> Result<(Vec<Command>, u64), ApiError> {
+        let (commands, last_known_sequence, _) = self
+            .build_push_commands_and_projection_with_options(
+                resources,
+                projection_override,
+                actor,
+            )?;
+        Ok((commands, last_known_sequence))
+    }
+
+    fn build_push_commands_and_projection_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection_override: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<(Vec<Command>, u64, Value), ApiError> {
         let (projection, last_known_sequence) = if let Some(projection) = projection_override {
             (projection.clone(), 0)
         } else {
@@ -803,7 +819,7 @@ impl HttpPlatformClient {
             (projection, last_known_sequence)
         };
         let commands = build_phase1_commands_with_actor(resources, &projection, actor);
-        Ok((commands, last_known_sequence))
+        Ok((commands, last_known_sequence, projection))
     }
 }
 
@@ -1013,6 +1029,82 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
         );
     }
 
+    if let Some(personality) = projection.pointer("/agentSettings/personality") {
+        insert_yaml_resource(
+            &mut map,
+            "agent_settings/personality.yaml",
+            "personality",
+            "personality",
+            personality.clone(),
+        )?;
+    }
+
+    if let Some(role) = projection.pointer("/agentSettings/role") {
+        insert_yaml_resource(
+            &mut map,
+            "agent_settings/role.yaml",
+            "role",
+            "role",
+            role.clone(),
+        )?;
+    }
+
+    if let Some(safety_filters) = projection.get("contentFilterSettings") {
+        insert_yaml_resource(
+            &mut map,
+            "agent_settings/safety_filters.yaml",
+            "safety_filters",
+            "safety_filters",
+            safety_filters.clone(),
+        )?;
+    }
+
+    if let Some(voice_safety_filters) = projection.pointer("/channels/voice/config/safetyFilters") {
+        insert_yaml_resource(
+            &mut map,
+            "voice/safety_filters.yaml",
+            "voice_safety_filters",
+            "voice_safety_filters",
+            voice_safety_filters.clone(),
+        )?;
+    }
+
+    if let Some(asr_settings) = projection
+        .pointer("/channels/voice/asrSettings")
+        .or_else(|| projection.get("asrSettings"))
+    {
+        insert_yaml_resource(
+            &mut map,
+            "voice/speech_recognition/asr_settings.yaml",
+            "asr_settings",
+            "asr_settings",
+            asr_settings.clone(),
+        )?;
+    }
+
+    let voice_greeting = projection
+        .pointer("/channels/voice/config/greeting")
+        .cloned();
+    let voice_style_prompt = projection
+        .pointer("/channels/voice/config/stylePrompt")
+        .cloned();
+    let voice_disclaimer = projection.pointer("/channels/voice/disclaimer").cloned();
+    if voice_greeting.is_some() || voice_style_prompt.is_some() || voice_disclaimer.is_some() {
+        insert_yaml_resource(
+            &mut map,
+            "voice/configuration.yaml",
+            "voice_configuration",
+            "voice_configuration",
+            serde_json::json!({
+                "greeting": voice_greeting.unwrap_or_else(|| serde_json::json!({})),
+                "style_prompt": voice_style_prompt.unwrap_or_else(|| serde_json::json!({})),
+                "disclaimer_messages": voice_disclaimer
+                    .map(|disclaimer| serde_json::json!([disclaimer]))
+                    .unwrap_or_else(|| serde_json::json!([])),
+            }),
+        )?;
+    }
+
     if let Some(behaviour) = projection
         .pointer("/agentSettings/rules/behaviour")
         .and_then(Value::as_str)
@@ -1028,6 +1120,26 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
         );
     }
     Ok(map)
+}
+
+fn insert_yaml_resource(
+    map: &mut ResourceMap,
+    file_path: &str,
+    resource_id: &str,
+    name: &str,
+    value: Value,
+) -> Result<(), ApiError> {
+    let content = serde_yaml::to_string(&value).map_err(|e| ApiError::Http(e.to_string()))?;
+    map.insert(
+        file_path.to_string(),
+        Resource {
+            resource_id: resource_id.to_string(),
+            name: name.to_string(),
+            file_path: file_path.to_string(),
+            payload: serde_json::json!({ "content": content }),
+        },
+    );
+    Ok(())
 }
 
 fn projection_entity_config(entity: &Value) -> Value {
@@ -1197,7 +1309,7 @@ fn build_phase1_commands_with_actor(
                     .and_then(Value::as_str)
                     .unwrap_or(id.as_str())
                     .to_string(),
-                id,
+                (id, t),
             )
         })
         .collect::<HashMap<_, _>>();
@@ -1246,9 +1358,9 @@ fn build_phase1_commands_with_actor(
                     .unwrap_or(&resource.name)
                     .to_string();
                 local_topic_names.insert(name.clone());
-                let id = remote_topics
-                    .get(&name)
-                    .cloned()
+                let remote_topic = remote_topics.get(&name);
+                let id = remote_topic
+                    .map(|(id, _)| id.clone())
                     .or_else(|| {
                         (!is_synthetic_local_resource_id(&resource.resource_id))
                             .then_some(resource.resource_id.clone())
@@ -1280,7 +1392,17 @@ fn build_phase1_commands_with_actor(
                     })
                     .unwrap_or_default();
 
-                if remote_topics.contains_key(&name) {
+                if let Some((_, remote_topic)) = remote_topic {
+                    if topic_yaml_matches_projection(
+                        &name,
+                        enabled,
+                        &actions,
+                        &text,
+                        &example_queries,
+                        remote_topic,
+                    ) {
+                        continue;
+                    }
                     push_command(
                         &mut topic_update,
                         &metadata,
@@ -1485,7 +1607,7 @@ fn build_phase1_commands_with_actor(
         }
     }
 
-    for (name, id) in remote_topics {
+    for (name, (id, _)) in remote_topics {
         if !local_topic_names.contains(&name) {
             push_command(
                 &mut topic_del,
@@ -1891,6 +2013,41 @@ fn generated_replay_resource_id(kind: &str, name: &str, path: &str) -> Option<St
     None
 }
 
+fn topic_yaml_matches_projection(
+    name: &str,
+    enabled: bool,
+    actions: &str,
+    content: &str,
+    example_queries: &[String],
+    topic: &Value,
+) -> bool {
+    let remote_name = topic.get("name").and_then(Value::as_str).unwrap_or(name);
+    let remote_enabled = topic
+        .get("isActive")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let remote_actions = topic.get("actions").and_then(Value::as_str).unwrap_or("");
+    let remote_content = topic.get("content").and_then(Value::as_str).unwrap_or("");
+    let remote_queries = topic
+        .get("exampleQueries")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    item.get("query")
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    remote_name == name
+        && remote_enabled == enabled
+        && remote_actions == actions
+        && remote_content == content
+        && remote_queries == example_queries
+}
+
 fn build_entity_create_config(
     entity_type: &str,
     config: Option<&serde_yaml::Value>,
@@ -2206,6 +2363,10 @@ fn yaml_string(config: Option<&serde_yaml::Value>, key: &str) -> String {
         .to_string()
 }
 
+fn yaml_str(config: &serde_yaml::Value, key: &str) -> String {
+    yaml_string(Some(config), key)
+}
+
 fn yaml_string_list(config: Option<&serde_yaml::Value>, key: &str) -> Vec<String> {
     yaml_get(config, key)
         .and_then(serde_yaml::Value::as_sequence)
@@ -2244,6 +2405,529 @@ fn extract_response_commands(response: &Value) -> Vec<Value> {
         return commands.clone();
     }
     vec![]
+}
+
+fn broad_resource_dry_run_command_jsons(
+    resources: &ResourceMap,
+    projection: &Value,
+    actor: Option<&str>,
+) -> Vec<Value> {
+    let metadata = command_metadata_with_actor(actor)
+        .as_ref()
+        .map(metadata_to_json)
+        .unwrap_or_else(|| json!({}));
+    let remote_resources = projection_to_resource_map(projection).unwrap_or_default();
+    let mut commands = Vec::new();
+    let mut api_operation_commands = Vec::new();
+
+    if resource_changed(
+        resources,
+        &remote_resources,
+        "config/variant_attributes.yaml",
+    ) && let Some(yaml) = resource_yaml(resources, "config/variant_attributes.yaml")
+    {
+        let mut variant_ids = HashMap::new();
+        if let Some(variants) = yaml
+            .get("variants")
+            .and_then(serde_yaml::Value::as_sequence)
+        {
+            for variant in variants {
+                let name = yaml_str(variant, "name");
+                if name.is_empty() {
+                    continue;
+                }
+                let id = generated_replay_resource_id(
+                    "variant",
+                    &name,
+                    &format!("config/variant_attributes.yaml/variants/{name}"),
+                )
+                .unwrap_or_else(|| random_resource_id("VARIANTS"));
+                variant_ids.insert(name.clone(), id.clone());
+                commands.push(dry_run_command_json(
+                    "variant_create_variant",
+                    "variant_create_variant",
+                    json!({
+                        "id": id,
+                        "name": name,
+                        "attribute_values": {},
+                    }),
+                    &metadata,
+                ));
+            }
+        }
+        if let Some(attributes) = yaml
+            .get("attributes")
+            .and_then(serde_yaml::Value::as_sequence)
+        {
+            for attribute in attributes {
+                let name = yaml_str(attribute, "name");
+                if name.is_empty() {
+                    continue;
+                }
+                let id = generated_replay_resource_id(
+                    "variant_attribute",
+                    &name,
+                    &format!("config/variant_attributes.yaml/attributes/{name}"),
+                )
+                .unwrap_or_else(|| random_resource_id("VARIANT_ATTRIBUTES"));
+                let mut values = serde_json::Map::new();
+                if let Some(attribute_values) = attribute
+                    .get("values")
+                    .and_then(serde_yaml::Value::as_mapping)
+                {
+                    for (variant_name, value) in attribute_values {
+                        let Some(variant_name) = variant_name.as_str() else {
+                            continue;
+                        };
+                        let Some(variant_id) = variant_ids.get(variant_name) else {
+                            continue;
+                        };
+                        values.insert(
+                            variant_id.clone(),
+                            Value::String(value.as_str().unwrap_or_default().to_string()),
+                        );
+                    }
+                }
+                commands.push(dry_run_command_json(
+                    "variant_create_attribute",
+                    "variant_create_attribute",
+                    json!({
+                        "id": id,
+                        "name": name,
+                        "references": {},
+                        "variant_values": { "values": values },
+                    }),
+                    &metadata,
+                ));
+            }
+        }
+    }
+
+    if resource_changed(resources, &remote_resources, "config/api_integrations.yaml")
+        && let Some(yaml) = resource_yaml(resources, "config/api_integrations.yaml")
+        && let Some(integrations) = yaml
+            .get("api_integrations")
+            .and_then(serde_yaml::Value::as_sequence)
+    {
+        for integration in integrations {
+            let name = yaml_str(integration, "name");
+            if name.is_empty() {
+                continue;
+            }
+            let id = generated_replay_resource_id(
+                "api_integration",
+                &name,
+                &format!("config/api_integrations.yaml/api_integrations/{name}"),
+            )
+            .unwrap_or_else(|| random_resource_id("API-INTEGRATION"));
+            commands.push(dry_run_command_json(
+                "create_api_integration",
+                "create_api_integration",
+                json!({
+                    "id": id,
+                    "name": name,
+                    "description": yaml_str(integration, "description"),
+                    "environments": api_integration_environments_json(integration),
+                }),
+                &metadata,
+            ));
+            if let Some(operations) = integration
+                .get("operations")
+                .and_then(serde_yaml::Value::as_sequence)
+            {
+                for operation in operations {
+                    let op_name = yaml_str(operation, "name");
+                    if op_name.is_empty() {
+                        continue;
+                    }
+                    let op_id = generated_replay_resource_id(
+                        "api_integration_operation",
+                        &op_name,
+                        &format!(
+                            "config/api_integrations.yaml/api_integrations/{name}/operations/{op_name}"
+                        ),
+                    )
+                    .unwrap_or_else(|| Uuid::new_v4().to_string());
+                    api_operation_commands.push(dry_run_command_json(
+                        "create_api_integration_operation",
+                        "create_api_integration_operation",
+                        json!({
+                            "id": op_id,
+                            "integration_id": id,
+                            "name": op_name,
+                            "method": yaml_str(operation, "method"),
+                            "resource": yaml_str(operation, "resource"),
+                        }),
+                        &metadata,
+                    ));
+                }
+            }
+        }
+    }
+
+    if resource_changed(
+        resources,
+        &remote_resources,
+        "voice/speech_recognition/keyphrase_boosting.yaml",
+    ) && let Some(yaml) = resource_yaml(
+        resources,
+        "voice/speech_recognition/keyphrase_boosting.yaml",
+    ) && let Some(keyphrases) = yaml
+        .get("keyphrases")
+        .and_then(serde_yaml::Value::as_sequence)
+    {
+        for keyphrase in keyphrases {
+            let text = yaml_str(keyphrase, "keyphrase");
+            if text.is_empty() {
+                continue;
+            }
+            let id = generated_replay_resource_id(
+                "keyphrase_boosting",
+                &text,
+                &format!("voice/speech_recognition/keyphrase_boosting.yaml/keyphrases/{text}"),
+            )
+            .unwrap_or_else(|| random_resource_id("KEYPHRASE_BOOSTING"));
+            commands.push(dry_run_command_json(
+                "create_keyphrase_boosting",
+                "create_keyphrase_boosting",
+                json!({
+                    "id": id,
+                    "keyphrase": text,
+                    "level": yaml_str(keyphrase, "level"),
+                }),
+                &metadata,
+            ));
+        }
+    }
+
+    if resource_changed(
+        resources,
+        &remote_resources,
+        "voice/speech_recognition/transcript_corrections.yaml",
+    ) && let Some(yaml) = resource_yaml(
+        resources,
+        "voice/speech_recognition/transcript_corrections.yaml",
+    ) && let Some(corrections) = yaml
+        .get("corrections")
+        .and_then(serde_yaml::Value::as_sequence)
+    {
+        for correction in corrections {
+            let name = yaml_str(correction, "name");
+            if name.is_empty() {
+                continue;
+            }
+            let id = generated_replay_resource_id(
+                "transcript_corrections",
+                &name,
+                &format!("voice/speech_recognition/transcript_corrections.yaml/corrections/{name}"),
+            )
+            .unwrap_or_else(|| random_resource_id("TRANSCRIPT_CORRECTIONS"));
+            let regular_expressions = correction
+                .get("regular_expressions")
+                .and_then(serde_yaml::Value::as_sequence)
+                .map(|items| {
+                    items
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, regex)| {
+                            json!({
+                                "id": format!("{id}-REGEX-{idx}"),
+                                "regular_expression": yaml_str(regex, "regular_expression"),
+                                "replacement": yaml_str(regex, "replacement"),
+                                "replacement_type": yaml_str(regex, "replacement_type"),
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            commands.push(dry_run_command_json(
+                "create_transcript_corrections",
+                "create_transcript_corrections",
+                json!({
+                    "id": id,
+                    "name": name,
+                    "description": yaml_str(correction, "description"),
+                    "regular_expressions": regular_expressions,
+                }),
+                &metadata,
+            ));
+        }
+    }
+
+    if resource_changed(
+        resources,
+        &remote_resources,
+        "voice/response_control/pronunciations.yaml",
+    ) && let Some(yaml) = resource_yaml(resources, "voice/response_control/pronunciations.yaml")
+        && let Some(pronunciations) = yaml
+            .get("pronunciations")
+            .and_then(serde_yaml::Value::as_sequence)
+    {
+        for pronunciation in pronunciations {
+            let regex = yaml_str(pronunciation, "regex");
+            if regex.is_empty() {
+                continue;
+            }
+            let id = generated_replay_resource_id(
+                "pronunciations",
+                &regex,
+                &format!("voice/response_control/pronunciations.yaml/pronunciations/{regex}"),
+            )
+            .unwrap_or_else(|| random_resource_id("PRONUNCIATIONS"));
+            commands.push(dry_run_command_json(
+                "pronunciations_create_pronunciation",
+                "pronunciations_create_pronunciation",
+                json!({
+                    "id": id,
+                    "regex": regex,
+                    "replacement": yaml_str(pronunciation, "replacement"),
+                    "case_sensitive": pronunciation
+                        .get("case_sensitive")
+                        .and_then(serde_yaml::Value::as_bool)
+                        .unwrap_or(false),
+                    "language_code": yaml_str(pronunciation, "language_code"),
+                }),
+                &metadata,
+            ));
+        }
+    }
+
+    commands.extend(api_operation_commands);
+
+    if resource_changed(
+        resources,
+        &remote_resources,
+        "agent_settings/personality.yaml",
+    ) && let Some(yaml) = resource_yaml(resources, "agent_settings/personality.yaml")
+    {
+        let adjectives = yaml
+            .get("adjectives")
+            .and_then(serde_yaml::Value::as_mapping)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        Some((key.as_str()?.to_string(), Value::Bool(value.as_bool()?)))
+                    })
+                    .collect::<serde_json::Map<_, _>>()
+            })
+            .unwrap_or_default();
+        commands.push(dry_run_command_json(
+            "update_personality",
+            "update_personality",
+            json!({
+                "adjectives": { "values": adjectives },
+                "custom": yaml_str(&yaml, "custom"),
+            }),
+            &metadata,
+        ));
+    }
+
+    if resource_changed(resources, &remote_resources, "agent_settings/role.yaml")
+        && let Some(yaml) = resource_yaml(resources, "agent_settings/role.yaml")
+    {
+        commands.push(dry_run_command_json(
+            "update_role",
+            "update_role",
+            json!({
+                "value": yaml_str(&yaml, "value"),
+                "additional_info": yaml_str(&yaml, "additional_info"),
+                "custom": yaml_str(&yaml, "custom"),
+            }),
+            &metadata,
+        ));
+    }
+
+    if resource_changed(
+        resources,
+        &remote_resources,
+        "agent_settings/safety_filters.yaml",
+    ) && let Some(yaml) = resource_yaml(resources, "agent_settings/safety_filters.yaml")
+    {
+        commands.push(dry_run_command_json(
+            "update_content_filter_settings",
+            "update_content_filter_settings",
+            project_safety_filters_update_json(&yaml),
+            &metadata,
+        ));
+    }
+
+    if resource_changed(resources, &remote_resources, "voice/configuration.yaml")
+        && let Some(yaml) = resource_yaml(resources, "voice/configuration.yaml")
+    {
+        if let Some(greeting) = yaml.get("greeting") {
+            commands.push(dry_run_command_json(
+                "channel_update_greeting",
+                "channel_update_greeting",
+                json!({
+                    "greeting": {
+                        "welcome_message": yaml_str(greeting, "welcome_message"),
+                        "language_code": yaml_str(greeting, "language_code"),
+                    }
+                }),
+                &metadata,
+            ));
+        }
+        if let Some(style_prompt) = yaml.get("style_prompt") {
+            commands.push(dry_run_command_json(
+                "channel_update_style_prompt",
+                "channel_update_style_prompt",
+                json!({
+                    "style_prompt": {
+                        "prompt": yaml_str(style_prompt, "prompt"),
+                    }
+                }),
+                &metadata,
+            ));
+        }
+        if let Some(disclaimer) = yaml.get("disclaimer_messages") {
+            commands.push(dry_run_command_json(
+                "voice_channel_update_disclaimer",
+                "voice_channel_update_disclaimer",
+                json!({
+                    "disclaimer": {
+                        "message": yaml_str(disclaimer, "message"),
+                        "is_enabled": disclaimer
+                            .get("enabled")
+                            .or_else(|| disclaimer.get("is_enabled"))
+                            .and_then(serde_yaml::Value::as_bool)
+                            .unwrap_or(false),
+                        "language_code": yaml_str(disclaimer, "language_code"),
+                    }
+                }),
+                &metadata,
+            ));
+        }
+    }
+
+    if resource_changed(
+        resources,
+        &remote_resources,
+        "voice/speech_recognition/asr_settings.yaml",
+    ) && let Some(yaml) = resource_yaml(resources, "voice/speech_recognition/asr_settings.yaml")
+    {
+        commands.push(dry_run_command_json(
+            "voice_channel_update_asr_settings",
+            "voice_channel_update_asr_settings",
+            json!({
+                "asr_settings": {
+                    "barge_in": yaml
+                        .get("barge_in")
+                        .and_then(serde_yaml::Value::as_bool)
+                        .unwrap_or(false),
+                    "latency_config": {
+                        "interaction_style": yaml_str(&yaml, "interaction_style"),
+                    }
+                }
+            }),
+            &metadata,
+        ));
+    }
+
+    commands
+}
+
+fn dry_run_command_json(
+    command_type: &str,
+    payload_key: &str,
+    payload: Value,
+    metadata: &Value,
+) -> Value {
+    json!({
+        "type": command_type,
+        "command_id": Uuid::new_v4().to_string(),
+        "metadata": metadata,
+        payload_key: payload,
+    })
+}
+
+fn resource_yaml(resources: &ResourceMap, path: &str) -> Option<serde_yaml::Value> {
+    let content = resources.get(path)?.payload.get("content")?.as_str()?;
+    serde_yaml::from_str(content).ok()
+}
+
+fn resource_changed(local: &ResourceMap, remote: &ResourceMap, path: &str) -> bool {
+    let Some(local_content) = local
+        .get(path)
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(Value::as_str)
+    else {
+        return false;
+    };
+    let Some(remote_content) = remote
+        .get(path)
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(Value::as_str)
+    else {
+        return true;
+    };
+    local_content != remote_content
+}
+
+fn api_integration_environments_json(integration: &serde_yaml::Value) -> Value {
+    let mut out = serde_json::Map::new();
+    let Some(envs) = integration
+        .get("environments")
+        .and_then(serde_yaml::Value::as_mapping)
+    else {
+        return Value::Object(out);
+    };
+    for (yaml_name, json_name) in [
+        ("sandbox", "sandbox"),
+        ("pre-release", "pre_release"),
+        ("pre_release", "pre_release"),
+        ("live", "live"),
+    ] {
+        if out.contains_key(json_name) {
+            continue;
+        }
+        let Some(env) = envs.get(serde_yaml::Value::String(yaml_name.to_string())) else {
+            continue;
+        };
+        out.insert(
+            json_name.to_string(),
+            json!({
+                "base_url": yaml_str(env, "base_url"),
+                "auth_type": yaml_str(env, "auth_type"),
+            }),
+        );
+    }
+    Value::Object(out)
+}
+
+fn project_safety_filters_update_json(yaml: &serde_yaml::Value) -> Value {
+    let mut categories = serde_json::Map::new();
+    if let Some(items) = yaml
+        .get("categories")
+        .and_then(serde_yaml::Value::as_mapping)
+    {
+        for name in ["hate", "self_harm", "sexual", "violence"] {
+            let Some(category) = items.get(serde_yaml::Value::String(name.to_string())) else {
+                continue;
+            };
+            let mut value = serde_json::Map::new();
+            if category
+                .get("enabled")
+                .and_then(serde_yaml::Value::as_bool)
+                .unwrap_or(false)
+            {
+                value.insert("is_active".to_string(), Value::Bool(true));
+            }
+            value.insert(
+                "precision".to_string(),
+                Value::String(yaml_str(category, "level").to_ascii_uppercase()),
+            );
+            categories.insert(name.to_string(), Value::Object(value));
+        }
+    }
+    json!({
+        "type": "azure",
+        "disabled": !yaml
+            .get("enabled")
+            .and_then(serde_yaml::Value::as_bool)
+            .unwrap_or(true),
+        "azure_config": categories,
+    })
 }
 
 fn command_to_json_summary(command: &Command) -> Value {

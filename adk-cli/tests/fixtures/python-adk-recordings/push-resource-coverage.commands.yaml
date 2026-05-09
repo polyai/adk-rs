@@ -1,0 +1,459 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Pending parity fixture for Python push command generation across resource families not yet covered by Rust.
+- The workflow uses dry-run push only; it should not persist these broad resource edits to Agent Studio.
+- This is not in the default replay scenario list until Rust command generation reaches parity.
+httpmock_recording: push-resource-coverage.httpmock.yaml
+workflows:
+- name: push_resource_coverage
+  description: Create a throwaway branch, edit/update representative advanced resource files, record Python dry-run protobuf command JSON, then delete the branch.
+  mutates_real_server: true
+  cleanup:
+  - poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM
+  steps:
+  - kind: command
+    name: init real project before broad push coverage
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: create broad resource coverage branch
+    argv:
+    - poly
+    - branch
+    - create
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      branch_name: ${BRANCH_NAME}
+      new_branch_id: BRANCH-HVMZ7NKQ
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: write updated personality settings
+    operation: write_text
+    path: agent_settings/personality.yaml
+    content: |
+      adjectives:
+        Polite: true
+        Curious: true
+      custom: Recording parity custom personality.
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write updated role settings
+    operation: write_text
+    path: agent_settings/role.yaml
+    content: |
+      value: CustomerServiceRepresentative
+      additional_info: Recording parity role detail.
+      custom: ""
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write updated project safety filters
+    operation: write_text
+    path: agent_settings/safety_filters.yaml
+    content: |
+      enabled: true
+      categories:
+        violence:
+          enabled: true
+          level: medium
+        hate:
+          enabled: false
+          level: medium
+        sexual:
+          enabled: false
+          level: medium
+        self_harm:
+          enabled: false
+          level: medium
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write updated voice ASR settings
+    operation: write_text
+    path: voice/speech_recognition/asr_settings.yaml
+    content: |
+      barge_in: true
+      interaction_style: balanced
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write updated voice channel configuration
+    operation: write_text
+    path: voice/configuration.yaml
+    content: |
+      greeting:
+        welcome_message: Hello from the ADK recording coverage workflow.
+        language_code: en-US
+      style_prompt:
+        prompt: Keep the voice reply compact.
+      disclaimer_messages:
+        message: This call may be recorded.
+        enabled: true
+        language_code: en-US
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write keyphrase boosting resources
+    operation: write_text
+    path: voice/speech_recognition/keyphrase_boosting.yaml
+    content: |
+      keyphrases:
+        - keyphrase: ADK parity
+          level: boosted
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write pronunciation resources
+    operation: write_text
+    path: voice/response_control/pronunciations.yaml
+    content: |
+      pronunciations:
+        - regex: "\\bADK\\b"
+          replacement: Agent Development Kit
+          case_sensitive: true
+          language_code: en-US
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write transcript correction resources
+    operation: write_text
+    path: voice/speech_recognition/transcript_corrections.yaml
+    content: |
+      corrections:
+        - name: ADK spelling
+          description: Correct ADK spelling.
+          regular_expressions:
+            - regular_expression: agent development kid
+              replacement: agent development kit
+              replacement_type: full
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write variant resources
+    operation: write_text
+    path: config/variant_attributes.yaml
+    content: |
+      variants:
+        - name: default
+          is_default: true
+        - name: treatment
+          is_default: false
+      attributes:
+        - name: adk-recording-cohort
+          values:
+            default: control
+            treatment: treatment
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write API integration resources
+    operation: write_text
+    path: config/api_integrations.yaml
+    content: |
+      api_integrations:
+        - name: adk_recording_api
+          description: Recording-only API integration.
+          environments:
+            sandbox:
+              base_url: https://example.invalid/sandbox
+              auth_type: none
+            pre-release:
+              base_url: https://example.invalid/pre
+              auth_type: none
+            live:
+              base_url: https://example.invalid/live
+              auth_type: none
+          operations:
+            - name: get_recording_status
+              method: GET
+              resource: /status
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: status after broad resource edits
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/personality.yaml
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/role.yaml
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/safety_filters.yaml
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/configuration.yaml/greeting
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/configuration.yaml/style_prompt
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/configuration.yaml/disclaimer_messages
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/speech_recognition/asr_settings.yaml
+      new_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/api_integrations.yaml/api_integrations/adk_recording_api
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/variant_attributes.yaml/variants/default
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/variant_attributes.yaml/variants/treatment
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/variant_attributes.yaml/attributes/adk_recording_cohort
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/speech_recognition/keyphrase_boosting.yaml/keyphrases/ADK_parity
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/speech_recognition/transcript_corrections.yaml/corrections/ADK_spelling
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/response_control/pronunciations.yaml/pronunciations/0
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push dry-run broad resource command payload
+    argv:
+    - poly
+    - push
+    - --output-json-commands
+    - --dry-run
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      commands:
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: variant_create_variant
+        variant_create_variant:
+          attribute_values: {}
+          id: VARIANTS-12d1eebb
+          name: default
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: variant_create_variant
+        variant_create_variant:
+          attribute_values: {}
+          id: VARIANTS-a1a8932b
+          name: treatment
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: variant_create_attribute
+        variant_create_attribute:
+          id: VARIANT_ATTRIBUTES-4d1c0cca
+          name: adk-recording-cohort
+          references: {}
+          variant_values:
+            values:
+              VARIANTS-12d1eebb: control
+              VARIANTS-a1a8932b: treatment
+      - command_id: ${COMMAND_ID}
+        create_api_integration:
+          description: Recording-only API integration.
+          environments:
+            live:
+              auth_type: none
+              base_url: https://example.invalid/live
+            pre_release:
+              auth_type: none
+              base_url: https://example.invalid/pre
+            sandbox:
+              auth_type: none
+              base_url: https://example.invalid/sandbox
+          id: API-INTEGRATION-69B5981D
+          name: adk_recording_api
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_api_integration
+      - command_id: ${COMMAND_ID}
+        create_keyphrase_boosting:
+          id: KEYPHRASE_BOOSTING-03080ef3
+          keyphrase: ADK parity
+          level: boosted
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_keyphrase_boosting
+      - command_id: ${COMMAND_ID}
+        create_transcript_corrections:
+          description: Correct ADK spelling.
+          id: TRANSCRIPT_CORRECTIONS-4e318ad7
+          name: ADK spelling
+          regular_expressions:
+          - id: TRANSCRIPT_CORRECTIONS-4e318ad7-REGEX-0
+            regular_expression: agent development kid
+            replacement: agent development kit
+            replacement_type: full
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_transcript_corrections
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        pronunciations_create_pronunciation:
+          case_sensitive: true
+          id: PRONUNCIATIONS-02b0a3fa
+          language_code: en-US
+          regex: \bADK\b
+          replacement: Agent Development Kit
+        type: pronunciations_create_pronunciation
+      - command_id: ${COMMAND_ID}
+        create_api_integration_operation:
+          id: db45deb4-ad22-4268-ae33-d6852cb2efaa
+          integration_id: API-INTEGRATION-69B5981D
+          method: GET
+          name: get_recording_status
+          resource: /status
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_api_integration_operation
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: update_personality
+        update_personality:
+          adjectives:
+            values:
+              Curious: true
+              Polite: true
+          custom: Recording parity custom personality.
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: update_role
+        update_role:
+          additional_info: Recording parity role detail.
+          custom: ''
+          value: CustomerServiceRepresentative
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: update_content_filter_settings
+        update_content_filter_settings:
+          azure_config:
+            hate:
+              precision: MEDIUM
+            self_harm:
+              precision: MEDIUM
+            sexual:
+              precision: MEDIUM
+            violence:
+              is_active: true
+              precision: MEDIUM
+          disabled: false
+          type: azure
+      - channel_update_greeting:
+          greeting:
+            language_code: en-US
+            welcome_message: Hello from the ADK recording coverage workflow.
+        command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: channel_update_greeting
+      - channel_update_style_prompt:
+          style_prompt:
+            prompt: Keep the voice reply compact.
+        command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: channel_update_style_prompt
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: voice_channel_update_disclaimer
+        voice_channel_update_disclaimer:
+          disclaimer:
+            is_enabled: true
+            language_code: en-US
+            message: This call may be recorded.
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: voice_channel_update_asr_settings
+        voice_channel_update_asr_settings:
+          asr_settings:
+            barge_in: true
+            latency_config:
+              interaction_style: balanced
+      dry_run: true
+      message: Dry run completed. No changes were pushed.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: delete broad resource coverage branch
+    argv:
+    - poly
+    - branch
+    - delete
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      success: true
+      switched_to: main
+    stdout: null
+    stderr: ''

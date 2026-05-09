@@ -44,6 +44,35 @@ Each scenario has a command manifest and a matching raw `httpmock` cassette:
 Step-level manifests include command steps plus explicit `file_edit` steps that
 a replay test must apply to the temp checkout.
 
+## Pending Parity Recorders
+
+The recorder test also contains ignored scenarios for behavior that is not yet
+enabled in the cheap Rust replay suite. These are TDD fixtures: record Python
+first, bring Rust to parity, then add the scenario name to `SCENARIOS` in
+`tests/support/mod.rs`.
+
+- `pull-resource-coverage.*`
+  Documents which settings/channel/ASR files Python `init` and `pull --force`
+  materialize locally.
+- `push-resource-coverage.*`
+  Documents Python dry-run command generation for advanced resource families:
+  personality, role, safety filters, channel settings, ASR, keyphrases,
+  pronunciations, transcript corrections, variants, and API integrations.
+- `semantic-validation.*`
+  Documents Python semantic validation beyond YAML/JSON parsing.
+- `format-local.*`
+  Documents Python formatting for YAML resources, Python function files, and
+  observed `--ty` behavior.
+- `interactive-contracts.*`
+  Documents deterministic interactive-adjacent behavior: stdin-backed branch
+  creation and JSON-mode errors for missing interactive arguments.
+- `chat-json.*`
+  Documents Python chat JSON output shape, metadata filtering, and current
+  input-file behavior.
+- `cli-diff-edges.*`
+  Documents parser edge cases, default path behavior, file-filtered diff/review,
+  and `--before main` against a dirty local checkout.
+
 ## Rust Test Files
 
 - `record_python_adk_httpmock_fixtures_test.rs`
@@ -98,6 +127,14 @@ To regenerate only the mutating branch workflow:
 ```bash
 cargo test -p adk-cli --test record_python_adk_httpmock_fixtures_test \
   record_branch_update_push_with_python_adk_and_httpmock \
+  -- --ignored --nocapture
+```
+
+To record one pending parity fixture while doing TDD:
+
+```bash
+cargo test -p adk-cli --test record_python_adk_httpmock_fixtures_test \
+  record_push_resource_coverage_with_python_adk_and_httpmock \
   -- --ignored --nocapture
 ```
 

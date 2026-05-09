@@ -1,0 +1,220 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Pending parity fixture for Python local formatting behavior.
+- The fixture records both YAML formatting and Python function formatting through Python ADK's formatter stack.
+- The ty step is recorded as observed because local ty availability is part of Python's current command contract.
+- This is not in the default replay scenario list until Rust formatting reaches parity.
+httpmock_recording: format-local.httpmock.yaml
+workflows:
+- name: format_local
+  description: Record Python format --check, format fix, and format --check --ty output after intentionally unformatted YAML and Python resources.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: command
+    name: init real project before formatting checks
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: write unformatted topic yaml
+    operation: write_text
+    path: topics/adk_format_recording.yaml
+    content: |
+      name: ADK Format Recording
+      enabled: true
+      actions: hi
+      content: hello
+      example_queries: [hello, hi]
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write unformatted function python
+    operation: write_text
+    path: functions/adk_format_recording.py
+    content: |
+      def adk_format_recording( conv ):
+       return {'utterance':'hi'}
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: format check finds YAML and Python changes
+    argv:
+    - poly
+    - format
+    - --json
+    - --check
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      affected:
+      - functions/adk_format_recording.py
+      - topics/adk_format_recording.yaml
+      - functions/goodbye_and_hang_up.py
+      check_only: true
+      format_errors: []
+      success: false
+      ty_ran: false
+      ty_returncode: null
+      ty_timed_out: false
+    stdout: null
+    stderr: |+
+      ERROR:poly.resources.resource_utils:Ruff check --fix failed for goodbye_and_hang_up. F403 `from _gen import *` used; unable to detect undefined names
+       --> -:1:1
+        |
+      1 | from _gen import *  # <AUTO GENERATED>
+        | ^^^^^^^^^^^^^^^^^^
+        |
+
+      F405 `func_description` may be undefined, or defined from star imports
+       --> -:4:2
+        |
+      4 | @func_description(
+        |  ^^^^^^^^^^^^^^^^
+      5 |     "Say goodbye and end the conversation if and only if you've explicitly confirmed with the user that they don't need help with anyth…
+      6 | )
+        |
+
+      F405 `Conversation` may be undefined, or defined from star imports
+       --> -:7:31
+        |
+      5 |     "Say goodbye and end the conversation if and only if you've explicitly confirmed with the user that they don't need help with anyt…
+      6 | )
+      7 | def goodbye_and_hang_up(conv: Conversation):
+        |                               ^^^^^^^^^^^^
+      8 |     return {
+      9 |         "utterance": "Okay. I hope you have a great rest of your day. Goodbye!",
+        |
+
+      Found 3 errors.
+
+  - kind: command
+    name: format fixes YAML and Python files
+    argv:
+    - poly
+    - format
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      affected:
+      - functions/adk_format_recording.py
+      - topics/adk_format_recording.yaml
+      - functions/goodbye_and_hang_up.py
+      check_only: false
+      format_errors: []
+      success: true
+      ty_ran: false
+      ty_returncode: null
+      ty_timed_out: false
+    stdout: null
+    stderr: |+
+      ERROR:poly.resources.resource_utils:Ruff check --fix failed for goodbye_and_hang_up. F403 `from _gen import *` used; unable to detect undefined names
+       --> -:1:1
+        |
+      1 | from _gen import *  # <AUTO GENERATED>
+        | ^^^^^^^^^^^^^^^^^^
+        |
+
+      F405 `func_description` may be undefined, or defined from star imports
+       --> -:4:2
+        |
+      4 | @func_description(
+        |  ^^^^^^^^^^^^^^^^
+      5 |     "Say goodbye and end the conversation if and only if you've explicitly confirmed with the user that they don't need help with anyth…
+      6 | )
+        |
+
+      F405 `Conversation` may be undefined, or defined from star imports
+       --> -:7:31
+        |
+      5 |     "Say goodbye and end the conversation if and only if you've explicitly confirmed with the user that they don't need help with anyt…
+      6 | )
+      7 | def goodbye_and_hang_up(conv: Conversation):
+        |                               ^^^^^^^^^^^^
+      8 |     return {
+      9 |         "utterance": "Okay. I hope you have a great rest of your day. Goodbye!",
+        |
+
+      Found 3 errors.
+
+  - kind: command
+    name: format check with ty after fixing files
+    argv:
+    - poly
+    - format
+    - --json
+    - --check
+    - --ty
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      affected: []
+      check_only: true
+      format_errors: []
+      success: true
+      ty_ran: true
+      ty_returncode: 0
+      ty_timed_out: false
+    stdout: null
+    stderr: |+
+      ERROR:poly.resources.resource_utils:Ruff check --fix failed for goodbye_and_hang_up. F403 `from _gen import *` used; unable to detect undefined names
+       --> -:1:1
+        |
+      1 | from _gen import *  # <AUTO GENERATED>
+        | ^^^^^^^^^^^^^^^^^^
+        |
+
+      F405 `func_description` may be undefined, or defined from star imports
+       --> -:4:2
+        |
+      4 | @func_description(
+        |  ^^^^^^^^^^^^^^^^
+      5 |     "Say goodbye and end the conversation if and only if you've explicitly confirmed with the user that they don't need help with anyth…
+      6 | )
+        |
+
+      F405 `Conversation` may be undefined, or defined from star imports
+       --> -:7:31
+        |
+      5 |     "Say goodbye and end the conversation if and only if you've explicitly confirmed with the user that they don't need help with anyt…
+      6 | )
+      7 | def goodbye_and_hang_up(conv: Conversation):
+        |                               ^^^^^^^^^^^^
+      8 |     return {
+      9 |         "utterance": "Okay. I hope you have a great rest of your day. Goodbye!",
+        |
+
+      Found 3 errors.
+

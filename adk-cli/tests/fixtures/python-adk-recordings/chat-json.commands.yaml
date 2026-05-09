@@ -1,0 +1,108 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Pending parity fixture for Python chat JSON output and metadata shaping.
+- The --message step records Python's JSON conversation/turn contract with metadata flags.
+- The --input-file step records current Python behavior separately, including any existing Python bug.
+- This is not in the default replay scenario list until Rust chat JSON behavior reaches parity.
+httpmock_recording: chat-json.httpmock.yaml
+workflows:
+- name: chat_json
+  description: Record Python chat --json output for scripted message metadata and the current input-file path behavior.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: command
+    name: init real project before chat JSON checks
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: chat json message with metadata flags
+    argv:
+    - poly
+    - chat
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --environment
+    - sandbox
+    - --message
+    - Hello from the ADK recording.
+    - --functions
+    - --flows
+    - --state
+    exit_code: 0
+    stdout_json:
+      conversations:
+      - conversation_id: AS_CHAT_b0f23a06-8976-4808-8c44-9eb17c927441
+        turns:
+        - conversation_ended: false
+          function_events: []
+          input: null
+          response: Hello, how can I help you?
+        - conversation_ended: false
+          function_events: []
+          input: Hello from the ADK recording.
+          response: Hi there! How can I help you today?
+        url: https://studio.us.poly.ai/ben-ws/PROJECT-JTQKOKLM/conversations/AS_CHAT_b0f23a06-8976-4808-8c44-9eb17c927441
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: write chat input file
+    operation: write_text
+    path: adk_chat_input.txt
+    content: |
+      Hello from input file
+      /exit
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: chat json input-file contract
+    argv:
+    - poly
+    - chat
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --environment
+    - sandbox
+    - --input-file
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM/adk_chat_input.txt
+    exit_code: 1
+    stdout_json:
+      error: '''str'' object does not support the context manager protocol (missed __exit__ method)'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1002, in _run_command
+            with src:
+                 ^^^
+        TypeError: 'str' object does not support the context manager protocol (missed __exit__ method)
+    stdout: null
+    stderr: ''

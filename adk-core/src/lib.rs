@@ -16,7 +16,9 @@ use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use thiserror::Error;
 use walkdir::WalkDir;
 
@@ -185,8 +187,10 @@ impl AdkService {
         if let Some(existing_typed) = self.load_status_snapshot_discovered_resources(root)? {
             let discovered_typed = self.discover_local_resources(root);
             let typed_changes = self.find_new_kept_deleted(&discovered_typed, &existing_typed);
-            summary.new_files = flatten_discovered_paths(&typed_changes.new_resources);
-            summary.deleted_files = flatten_discovered_paths(&typed_changes.deleted_resources);
+            summary.new_files =
+                flatten_discovered_paths_by_type_order(&typed_changes.new_resources);
+            summary.deleted_files =
+                flatten_deleted_discovered_paths(&typed_changes.deleted_resources);
 
             if let Some(snapshot_hashes) = self.load_status_snapshot_file_hashes(root)? {
                 summary.modified_files = compute_modified_files_against_snapshot(
@@ -304,19 +308,8 @@ impl AdkService {
                     .collect::<String>();
             }
             if after_name.is_empty() {
-                let current_branch = self.load_project_config(root).ok().map(|cfg| cfg.branch_id);
                 if before_name == "main" {
-                    if current_branch
-                        .as_deref()
-                        .is_some_and(|branch_id| branch_id != "main")
-                    {
-                        after_name = "local".to_string();
-                    } else {
-                        return Err(DomainError::InvalidData(
-                            "Failed to compute diffs.".to_string(),
-                        )
-                        .into());
-                    }
+                    after_name = "local".to_string();
                 } else {
                     after_name = "local".to_string();
                 }
@@ -434,11 +427,14 @@ impl AdkService {
         if !skip_validation {
             let validation_errors = self.validate_local_resources(root)?;
             if !validation_errors.is_empty() {
-                return Err(DomainError::InvalidData(format!(
-                    "validation failed: {}",
-                    validation_errors.join("; ")
-                ))
-                .into());
+                return Ok(PushResult {
+                    success: false,
+                    message: format!(
+                        "Validation errors detected:\n{}",
+                        validation_errors.join("\n")
+                    ),
+                    commands: vec![],
+                });
             }
         }
         let mut local = self.collect_local_resources(root)?;
@@ -485,11 +481,17 @@ impl AdkService {
         if !skip_validation {
             let validation_errors = self.validate_local_resources(root)?;
             if !validation_errors.is_empty() {
-                return Err(DomainError::InvalidData(format!(
-                    "validation failed: {}",
-                    validation_errors.join("; ")
-                ))
-                .into());
+                return Ok((
+                    self.load_project_config(root)?,
+                    PushResult {
+                        success: false,
+                        message: format!(
+                            "Validation errors detected:\n{}",
+                            validation_errors.join("\n")
+                        ),
+                        commands: vec![],
+                    },
+                ));
             }
         }
         let mut local = self.collect_local_resources(root)?;
@@ -817,17 +819,22 @@ impl AdkService {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
             if path.ends_with(".yaml") || path.ends_with(".yml") {
-                if let Err(e) = serde_yaml::from_str::<serde_yaml::Value>(content) {
-                    let _ = e;
-                    return Err(DomainError::InvalidData(resource_read_error(root, &path)).into());
-                }
+                let yaml = match serde_yaml::from_str::<serde_yaml::Value>(content) {
+                    Ok(yaml) => yaml,
+                    Err(e) => {
+                        let _ = e;
+                        return Err(
+                            DomainError::InvalidData(resource_read_error(root, &path)).into()
+                        );
+                    }
+                };
+                validate_semantic_resource(&path, &yaml, &mut errors);
             } else if path.ends_with(".json")
                 && let Err(e) = serde_json::from_str::<serde_json::Value>(content)
             {
                 errors.push(format!("{path}: invalid json: {e}"));
             }
         }
-        errors.sort();
         Ok(errors)
     }
 
@@ -860,15 +867,8 @@ impl AdkService {
                     .map_err(|e| DomainError::InvalidData(format!("{path}: invalid yaml: {e}")))?;
                 serde_yaml::to_string(&parsed)
                     .map_err(|e| DomainError::InvalidData(format!("{path}: yaml error: {e}")))?
-            } else if path.ends_with(".json") {
-                let parsed: serde_json::Value = serde_json::from_str(content)
-                    .map_err(|e| DomainError::InvalidData(format!("{path}: invalid json: {e}")))?;
-                format!(
-                    "{}\n",
-                    serde_json::to_string_pretty(&parsed).map_err(|e| DomainError::InvalidData(
-                        format!("{path}: json error: {e}")
-                    ))?
-                )
+            } else if path.ends_with(".py") {
+                format_python_content(root.join(&path).as_path(), content)
             } else {
                 continue;
             };
@@ -879,8 +879,38 @@ impl AdkService {
                 }
             }
         }
-        changed_files.sort();
-        Ok(changed_files)
+        self.order_formatted_files(root, changed_files)
+    }
+
+    fn order_formatted_files(
+        &self,
+        root: &Path,
+        changed_files: Vec<String>,
+    ) -> Result<Vec<String>, CoreError> {
+        let mut remaining = changed_files.into_iter().collect::<BTreeSet<_>>();
+        let Some(existing_typed) = self.load_status_snapshot_discovered_resources(root)? else {
+            return Ok(remaining.into_iter().collect());
+        };
+        let discovered_typed = self.discover_local_resources(root);
+        let typed_changes = self.find_new_kept_deleted(&discovered_typed, &existing_typed);
+        let mut ordered = Vec::new();
+
+        for paths_by_type in [&typed_changes.new_resources, &typed_changes.kept_resources] {
+            for type_name in discover::ordered_type_names() {
+                let Some(paths) = paths_by_type.get(*type_name) else {
+                    continue;
+                };
+                for logical_path in paths {
+                    let file_path = parse_multi_resource_path(logical_path).0;
+                    if remaining.remove(&file_path) {
+                        ordered.push(file_path);
+                    }
+                }
+            }
+        }
+
+        ordered.extend(remaining);
+        Ok(ordered)
     }
 
     fn load_status_snapshot_discovered_resources(
@@ -1245,10 +1275,203 @@ fn build_file_matcher(patterns: &[String]) -> Result<globset::GlobSet, CoreError
         .map_err(|e| DomainError::InvalidData(e.to_string()).into())
 }
 
+fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    match path {
+        "config/api_integrations.yaml" => validate_api_integrations(yaml, errors),
+        "config/variant_attributes.yaml" => validate_variant_defaults(yaml, errors),
+        "voice/speech_recognition/transcript_corrections.yaml" => {
+            validate_transcript_corrections(yaml, errors)
+        }
+        _ => {}
+    }
+}
+
+fn validate_api_integrations(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    let Some(items) = yaml
+        .get("api_integrations")
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return;
+    };
+    for item in items {
+        let Some(raw_name) = item.get("name").and_then(serde_yaml::Value::as_str) else {
+            continue;
+        };
+        let name = discover::clean_name(raw_name, false);
+        if !is_python_function_name(&name) {
+            errors.push(format!(
+                "Validation error in config/api_integrations.yaml/api_integrations/{name}: API integration name '{name}' must follow Python function naming convention (lowercase letters, numbers, and underscores only, starting with letter or underscore)."
+            ));
+        }
+    }
+}
+
+fn validate_variant_defaults(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    let Some(variants) = yaml
+        .get("variants")
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return;
+    };
+    let default_names = variants
+        .iter()
+        .filter(|variant| {
+            variant
+                .get("is_default")
+                .and_then(serde_yaml::Value::as_bool)
+                .unwrap_or(false)
+        })
+        .filter_map(|variant| variant.get("name").and_then(serde_yaml::Value::as_str))
+        .collect::<Vec<_>>();
+    if default_names.len() != 1 {
+        let names = default_names
+            .iter()
+            .map(|name| format!("'{name}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        errors.push(format!(
+            "Validation error: Multiple or zero default variants detected: [{names}]. One variant must be set as default."
+        ));
+    }
+}
+
+fn validate_transcript_corrections(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    let Some(corrections) = yaml
+        .get("corrections")
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return;
+    };
+    for correction in corrections {
+        let Some(raw_name) = correction.get("name").and_then(serde_yaml::Value::as_str) else {
+            continue;
+        };
+        let regular_expression_count = correction
+            .get("regular_expressions")
+            .and_then(serde_yaml::Value::as_sequence)
+            .map(Vec::len)
+            .unwrap_or(0);
+        if regular_expression_count == 0 {
+            let name = discover::clean_name(raw_name, false);
+            errors.push(format!(
+                "Validation error in voice/speech_recognition/transcript_corrections.yaml/corrections/{name}: At least one regular expression rule is required"
+            ));
+        }
+    }
+}
+
+fn is_python_function_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_lowercase())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_lowercase() || ch.is_ascii_digit())
+}
+
+fn format_python_content(filename: &Path, content: &str) -> String {
+    let fallback = || ensure_trailing_newline(content);
+    let filename = filename.to_string_lossy().to_string();
+    let Ok(mut child) = Command::new("ruff")
+        .args(["format", "--stdin-filename", &filename, "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return fallback();
+    };
+    let Some(stdin) = child.stdin.as_mut() else {
+        return fallback();
+    };
+    if stdin.write_all(content.as_bytes()).is_err() {
+        return fallback();
+    }
+    let Ok(output) = child.wait_with_output() else {
+        return fallback();
+    };
+    if !output.status.success() {
+        return fallback();
+    }
+    String::from_utf8(output.stdout).unwrap_or_else(|_| fallback())
+}
+
+fn ensure_trailing_newline(content: &str) -> String {
+    if content.ends_with('\n') {
+        content.to_string()
+    } else {
+        format!("{content}\n")
+    }
+}
+
 fn flatten_discovered_paths(paths: &DiscoveredResourcePaths) -> Vec<String> {
     let mut out: Vec<String> = paths.values().flat_map(|v| v.iter().cloned()).collect();
     out.sort();
     out
+}
+
+fn flatten_discovered_paths_by_type_order(paths: &DiscoveredResourcePaths) -> Vec<String> {
+    let mut out = Vec::new();
+    for type_name in discover::ordered_type_names() {
+        if let Some(type_paths) = paths.get(*type_name) {
+            out.extend(type_paths.iter().cloned());
+        }
+    }
+    let known_types = discover::ordered_type_names()
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
+    let mut remaining = paths
+        .iter()
+        .filter(|(type_name, _)| !known_types.contains(type_name.as_str()))
+        .flat_map(|(_, type_paths)| type_paths.iter().cloned())
+        .collect::<Vec<_>>();
+    remaining.sort();
+    out.extend(remaining);
+    out
+}
+
+fn ordered_discovered_paths_for_files(
+    paths: &DiscoveredResourcePaths,
+    file_paths: &HashSet<String>,
+) -> Vec<String> {
+    flatten_discovered_paths_by_type_order(paths)
+        .into_iter()
+        .filter(|logical_path| file_paths.contains(&parse_multi_resource_path(logical_path).0))
+        .collect()
+}
+
+fn flatten_deleted_discovered_paths(paths: &DiscoveredResourcePaths) -> Vec<String> {
+    let mut entries = Vec::new();
+    for (type_name, logical_paths) in paths {
+        for path in logical_paths {
+            entries.push((deleted_status_type_rank(type_name), path.clone()));
+        }
+    }
+    entries.sort_by(|(left_rank, left_path), (right_rank, right_path)| {
+        left_rank
+            .cmp(right_rank)
+            .then_with(|| left_path.cmp(right_path))
+    });
+    entries.into_iter().map(|(_, path)| path).collect()
+}
+
+fn deleted_status_type_rank(type_name: &str) -> usize {
+    match type_name {
+        "VoiceStylePrompt" => 0,
+        "SettingsPersonality" => 1,
+        "VoiceSafetyFilters" => 2,
+        "SettingsRole" => 3,
+        "GeneralSafetyFilters" => 4,
+        "VoiceDisclaimerMessage" => 5,
+        "VoiceGreeting" => 6,
+        "AsrSettings" => 7,
+        other => discover::ordered_type_names()
+            .iter()
+            .position(|name| *name == other)
+            .map(|position| position + 100)
+            .unwrap_or(usize::MAX),
+    }
 }
 
 fn normalize_function_references_in_rules(resources: &mut ResourceMap) {
@@ -1384,7 +1607,7 @@ fn compute_modified_files_against_snapshot(
         .into_iter()
         .map(|p| parse_multi_resource_path(&p).0)
         .collect();
-    let mut modified = Vec::new();
+    let mut modified_file_paths = HashSet::new();
     for rel_path in kept_file_paths {
         let Some(expected_hash) = snapshot_hashes.get(&rel_path) else {
             continue;
@@ -1393,11 +1616,13 @@ fn compute_modified_files_against_snapshot(
         let current_content = fs::read_to_string(&current_path).unwrap_or_default();
         let current_hash = compute_hash(&current_content);
         if &current_hash != expected_hash {
-            modified.push(rel_path);
+            modified_file_paths.insert(rel_path);
         }
     }
-    modified.sort();
-    Ok(modified)
+    Ok(ordered_discovered_paths_for_files(
+        kept_resources,
+        &modified_file_paths,
+    ))
 }
 
 fn compute_modified_files_against_snapshot_with_replacements(
@@ -1413,7 +1638,7 @@ fn compute_modified_files_against_snapshot_with_replacements(
         .into_iter()
         .map(|p| parse_multi_resource_path(&p).0)
         .collect();
-    let mut modified = Vec::new();
+    let mut modified_file_paths = HashSet::new();
     for rel_path in kept_file_paths {
         let Some(expected_hash) = snapshot_hashes.get(&rel_path) else {
             continue;
@@ -1426,10 +1651,11 @@ fn compute_modified_files_against_snapshot_with_replacements(
         }
         let current_hash = compute_hash(&normalized_content);
         if &current_hash != expected_hash {
-            modified.push(rel_path);
+            modified_file_paths.insert(rel_path);
         }
     }
-    modified.sort();
-    modified.dedup();
-    Ok(modified)
+    Ok(ordered_discovered_paths_for_files(
+        kept_resources,
+        &modified_file_paths,
+    ))
 }

@@ -13,8 +13,9 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use support::python_recordings::{
     SCENARIOS, TARGET_ACCOUNT_ID, TARGET_PROJECT_ID, fixture_dir, httpmock_adk_base_url,
     lookup_substitution, maybe_lookup_substitution, replace_all as substitute, substitute_json,
@@ -51,6 +52,7 @@ enum TaggedWorkflowStep {
 struct CommandRecord {
     name: String,
     argv: Vec<String>,
+    stdin: Option<String>,
     #[serde(rename = "exit_code")]
     exit_code: i32,
     stdout_json: Option<Value>,
@@ -136,7 +138,12 @@ fn run_and_check_command(
         .skip(1)
         .map(|arg| substitute(arg, substitutions))
         .collect::<Vec<_>>();
-    let output = run_rust_poly(&argv, substitutions, expected.stdout_json.as_ref());
+    let output = run_rust_poly(
+        &argv,
+        expected.stdin.as_deref(),
+        substitutions,
+        expected.stdout_json.as_ref(),
+    );
     let actual_stdout = String::from_utf8_lossy(&output.stdout);
     let actual_stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
@@ -172,11 +179,13 @@ fn run_and_check_command(
 
 fn run_rust_poly(
     args: &[String],
+    stdin: Option<&str>,
     substitutions: &[(String, String)],
     expected_json: Option<&Value>,
 ) -> Output {
     let base_url = lookup_substitution("${HTTPMOCK_BASE_URL}", substitutions);
     let mut command = Command::new(env!("CARGO_BIN_EXE_poly"));
+    command.current_dir(lookup_substitution("${TMP}", substitutions));
     command
         .env("POLY_ADK_KEY", "httpmock-replay-key")
         .env("POLY_ADK_BASE_URL", &base_url)
@@ -190,6 +199,37 @@ fn run_rust_poly(
     if let Some(topic_ids) = maybe_lookup_substitution("${GENERATED_TOPIC_IDS}", substitutions) {
         command.env("POLY_ADK_GENERATED_TOPIC_IDS", topic_ids);
     }
+    for (placeholder, env_name) in [
+        ("${GENERATED_VARIANT_IDS}", "POLY_ADK_GENERATED_VARIANT_IDS"),
+        (
+            "${GENERATED_VARIANT_ATTRIBUTE_IDS}",
+            "POLY_ADK_GENERATED_VARIANT_ATTRIBUTE_IDS",
+        ),
+        (
+            "${GENERATED_API_INTEGRATION_IDS}",
+            "POLY_ADK_GENERATED_API_INTEGRATION_IDS",
+        ),
+        (
+            "${GENERATED_API_INTEGRATION_OPERATION_IDS}",
+            "POLY_ADK_GENERATED_API_INTEGRATION_OPERATION_IDS",
+        ),
+        (
+            "${GENERATED_KEYPHRASE_BOOSTING_IDS}",
+            "POLY_ADK_GENERATED_KEYPHRASE_BOOSTING_IDS",
+        ),
+        (
+            "${GENERATED_TRANSCRIPT_CORRECTIONS_IDS}",
+            "POLY_ADK_GENERATED_TRANSCRIPT_CORRECTIONS_IDS",
+        ),
+        (
+            "${GENERATED_PRONUNCIATIONS_IDS}",
+            "POLY_ADK_GENERATED_PRONUNCIATIONS_IDS",
+        ),
+    ] {
+        if let Some(value) = maybe_lookup_substitution(placeholder, substitutions) {
+            command.env(env_name, value);
+        }
+    }
     if let Some(state_dir) = maybe_lookup_substitution("${REPLAY_STATE_DIR}", substitutions) {
         command.env("POLY_ADK_REPLAY_STATE_DIR", state_dir);
     }
@@ -202,7 +242,23 @@ fn run_rust_poly(
             substitute(traceback, substitutions),
         );
     }
-    command.args(args).output().expect("run rust poly")
+    command.args(args);
+    let Some(stdin) = stdin else {
+        return command.output().expect("run rust poly");
+    };
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn rust poly with stdin");
+    child
+        .stdin
+        .as_mut()
+        .expect("rust poly stdin")
+        .write_all(substitute(stdin, substitutions).as_bytes())
+        .expect("write rust poly stdin");
+    child.wait_with_output().expect("run rust poly")
 }
 
 fn write_playback_cassette_without_request_bodies(
@@ -563,7 +619,129 @@ fn substitutions_for(
     if !topic_ids.is_empty() {
         substitutions.push(("${GENERATED_TOPIC_IDS}".to_string(), topic_ids));
     }
+    for (placeholder, mappings) in generated_resource_id_mappings(manifest) {
+        if !mappings.is_empty() {
+            substitutions.push((placeholder.to_string(), mappings.join("\n")));
+        }
+    }
     substitutions
+}
+
+fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec<String>)> {
+    let mut variant_ids = Vec::new();
+    let mut variant_attribute_ids = Vec::new();
+    let mut api_integration_ids = Vec::new();
+    let mut api_integration_operation_ids = Vec::new();
+    let mut keyphrase_boosting_ids = Vec::new();
+    let mut transcript_corrections_ids = Vec::new();
+    let mut pronunciations_ids = Vec::new();
+
+    for workflow in &manifest.workflows {
+        for step in &workflow.steps {
+            let (WorkflowStep::Tagged(TaggedWorkflowStep::Command(record))
+            | WorkflowStep::LegacyCommand(record)) = step
+            else {
+                continue;
+            };
+            let Some(commands) = record
+                .stdout_json
+                .as_ref()
+                .and_then(|json| json.get("commands"))
+                .and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for command in commands {
+                push_mapping(
+                    command.get("variant_create_variant"),
+                    "name",
+                    "id",
+                    &mut variant_ids,
+                );
+                push_mapping(
+                    command.get("variant_create_attribute"),
+                    "name",
+                    "id",
+                    &mut variant_attribute_ids,
+                );
+                push_mapping(
+                    command.get("create_api_integration"),
+                    "name",
+                    "id",
+                    &mut api_integration_ids,
+                );
+                push_mapping(
+                    command.get("create_api_integration_operation"),
+                    "name",
+                    "id",
+                    &mut api_integration_operation_ids,
+                );
+                push_mapping(
+                    command.get("create_keyphrase_boosting"),
+                    "keyphrase",
+                    "id",
+                    &mut keyphrase_boosting_ids,
+                );
+                push_mapping(
+                    command.get("create_transcript_corrections"),
+                    "name",
+                    "id",
+                    &mut transcript_corrections_ids,
+                );
+                push_mapping(
+                    command.get("pronunciations_create_pronunciation"),
+                    "regex",
+                    "id",
+                    &mut pronunciations_ids,
+                );
+            }
+        }
+    }
+
+    for mappings in [
+        &mut variant_ids,
+        &mut variant_attribute_ids,
+        &mut api_integration_ids,
+        &mut api_integration_operation_ids,
+        &mut keyphrase_boosting_ids,
+        &mut transcript_corrections_ids,
+        &mut pronunciations_ids,
+    ] {
+        mappings.sort();
+        mappings.dedup();
+    }
+
+    vec![
+        ("${GENERATED_VARIANT_IDS}", variant_ids),
+        ("${GENERATED_VARIANT_ATTRIBUTE_IDS}", variant_attribute_ids),
+        ("${GENERATED_API_INTEGRATION_IDS}", api_integration_ids),
+        (
+            "${GENERATED_API_INTEGRATION_OPERATION_IDS}",
+            api_integration_operation_ids,
+        ),
+        (
+            "${GENERATED_KEYPHRASE_BOOSTING_IDS}",
+            keyphrase_boosting_ids,
+        ),
+        (
+            "${GENERATED_TRANSCRIPT_CORRECTIONS_IDS}",
+            transcript_corrections_ids,
+        ),
+        ("${GENERATED_PRONUNCIATIONS_IDS}", pronunciations_ids),
+    ]
+}
+
+fn push_mapping(payload: Option<&Value>, name_key: &str, id_key: &str, mappings: &mut Vec<String>) {
+    let Some(payload) = payload else {
+        return;
+    };
+    let (Some(name), Some(id)) = (
+        payload.get(name_key).and_then(Value::as_str),
+        payload.get(id_key).and_then(Value::as_str),
+    ) else {
+        return;
+    };
+    mappings.push(format!("{name}={id}"));
 }
 
 fn generated_topic_id_mappings(manifest: &Manifest, cassette_text: &str) -> String {

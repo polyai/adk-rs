@@ -4,8 +4,10 @@ use httpmock::prelude::*;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::fs;
+use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use support::python_recordings::{
     TARGET_ACCOUNT_ID, TARGET_PROJECT_ID, TARGET_PROJECT_NAME, TARGET_REGION,
     fixture_dir as recording_fixture_dir, httpmock_adk_base_url, python_adk_bin, recording_run_id,
@@ -34,12 +36,28 @@ const MAIN_PUSH_COMMAND_MANIFEST_FILE: &str = "main-push.commands.yaml";
 const MAIN_PUSH_HTTPMOCK_RECORDING_FILE: &str = "main-push.httpmock.yaml";
 const MERGE_CONFLICT_COMMAND_MANIFEST_FILE: &str = "merge-conflict-resolution.commands.yaml";
 const MERGE_CONFLICT_HTTPMOCK_RECORDING_FILE: &str = "merge-conflict-resolution.httpmock.yaml";
+const PULL_RESOURCE_COVERAGE_COMMAND_MANIFEST_FILE: &str = "pull-resource-coverage.commands.yaml";
+const PULL_RESOURCE_COVERAGE_HTTPMOCK_RECORDING_FILE: &str = "pull-resource-coverage.httpmock.yaml";
+const PUSH_RESOURCE_COVERAGE_COMMAND_MANIFEST_FILE: &str = "push-resource-coverage.commands.yaml";
+const PUSH_RESOURCE_COVERAGE_HTTPMOCK_RECORDING_FILE: &str = "push-resource-coverage.httpmock.yaml";
+const SEMANTIC_VALIDATION_COMMAND_MANIFEST_FILE: &str = "semantic-validation.commands.yaml";
+const SEMANTIC_VALIDATION_HTTPMOCK_RECORDING_FILE: &str = "semantic-validation.httpmock.yaml";
+const FORMAT_LOCAL_COMMAND_MANIFEST_FILE: &str = "format-local.commands.yaml";
+const FORMAT_LOCAL_HTTPMOCK_RECORDING_FILE: &str = "format-local.httpmock.yaml";
+const INTERACTIVE_CONTRACTS_COMMAND_MANIFEST_FILE: &str = "interactive-contracts.commands.yaml";
+const INTERACTIVE_CONTRACTS_HTTPMOCK_RECORDING_FILE: &str = "interactive-contracts.httpmock.yaml";
+const CHAT_JSON_COMMAND_MANIFEST_FILE: &str = "chat-json.commands.yaml";
+const CHAT_JSON_HTTPMOCK_RECORDING_FILE: &str = "chat-json.httpmock.yaml";
+const CLI_DIFF_EDGES_COMMAND_MANIFEST_FILE: &str = "cli-diff-edges.commands.yaml";
+const CLI_DIFF_EDGES_HTTPMOCK_RECORDING_FILE: &str = "cli-diff-edges.httpmock.yaml";
 const MUTATING_BRANCH_NAME: &str = "adk-rs-recording-mutating";
 const CREATE_DELETE_BRANCH_NAME: &str = "adk-rs-recording-create-delete";
 const DIRTY_SWITCH_BRANCH_NAME: &str = "adk-rs-recording-dirty-switch";
 const PULL_CONFLICT_BRANCH_NAME: &str = "adk-rs-recording-pull-conflict";
 const BRANCH_MERGE_BRANCH_PREFIX: &str = "adk-rs-recording-merge";
 const MERGE_CONFLICT_BRANCH_PREFIX: &str = "adk-rs-recording-conflict";
+const PUSH_RESOURCE_COVERAGE_BRANCH_NAME: &str = "adk-rs-recording-resource-coverage";
+const INTERACTIVE_BRANCH_NAME: &str = "adk-rs-recording-interactive";
 const MUTATING_EDIT_FILE: &str = "agent_settings/rules.txt";
 const MUTATING_EDIT_TEXT: &str = "\n\n# ADK recording branch edit\nThis line was added by the Python ADK httpmock mutating workflow.\n";
 const CREATE_TOPIC_FILE: &str = "topics/adk_recording_topic.yaml";
@@ -59,6 +77,25 @@ const PULL_CONFLICT_LOCAL_RULE: &str =
     "Your task is to assist local recording users with their queries.";
 const MAIN_PUSH_EDIT_FILE: &str = "agent_settings/rules.txt";
 const RECORDER_EMAIL: &str = "adk-recorder@example.com";
+const RESOURCE_COVERAGE_PERSONALITY: &str =
+    "adjectives:\n  Polite: true\n  Curious: true\ncustom: Recording parity custom personality.\n";
+const RESOURCE_COVERAGE_ROLE: &str = "value: CustomerServiceRepresentative\nadditional_info: Recording parity role detail.\ncustom: \"\"\n";
+const RESOURCE_COVERAGE_SAFETY_FILTERS: &str = "enabled: true\ncategories:\n  violence:\n    enabled: true\n    level: medium\n  hate:\n    enabled: false\n    level: medium\n  sexual:\n    enabled: false\n    level: medium\n  self_harm:\n    enabled: false\n    level: medium\n";
+const RESOURCE_COVERAGE_ASR_SETTINGS: &str = "barge_in: true\ninteraction_style: balanced\n";
+const RESOURCE_COVERAGE_VOICE_CONFIG: &str = "greeting:\n  welcome_message: Hello from the ADK recording coverage workflow.\n  language_code: en-US\nstyle_prompt:\n  prompt: Keep the voice reply compact.\ndisclaimer_messages:\n  message: This call may be recorded.\n  enabled: true\n  language_code: en-US\n";
+const RESOURCE_COVERAGE_KEYPHRASES: &str =
+    "keyphrases:\n  - keyphrase: ADK parity\n    level: boosted\n";
+const RESOURCE_COVERAGE_PRONUNCIATIONS: &str = "pronunciations:\n  - regex: \"\\\\bADK\\\\b\"\n    replacement: Agent Development Kit\n    case_sensitive: true\n    language_code: en-US\n";
+const RESOURCE_COVERAGE_TRANSCRIPT_CORRECTIONS: &str = "corrections:\n  - name: ADK spelling\n    description: Correct ADK spelling.\n    regular_expressions:\n      - regular_expression: agent development kid\n        replacement: agent development kit\n        replacement_type: full\n";
+const RESOURCE_COVERAGE_VARIANTS: &str = "variants:\n  - name: default\n    is_default: true\n  - name: treatment\n    is_default: false\nattributes:\n  - name: adk-recording-cohort\n    values:\n      default: control\n      treatment: treatment\n";
+const RESOURCE_COVERAGE_API_INTEGRATIONS: &str = "api_integrations:\n  - name: adk_recording_api\n    description: Recording-only API integration.\n    environments:\n      sandbox:\n        base_url: https://example.invalid/sandbox\n        auth_type: none\n      pre-release:\n        base_url: https://example.invalid/pre\n        auth_type: none\n      live:\n        base_url: https://example.invalid/live\n        auth_type: none\n    operations:\n      - name: get_recording_status\n        method: GET\n        resource: /status\n";
+const SEMANTIC_VALIDATION_VARIANTS: &str = "variants:\n  - name: first-default\n    is_default: true\n  - name: second-default\n    is_default: true\nattributes: []\n";
+const SEMANTIC_VALIDATION_API_INTEGRATIONS: &str = "api_integrations:\n  - name: Bad Name\n    description: Invalid because names must follow Python identifier conventions.\n";
+const SEMANTIC_VALIDATION_TRANSCRIPT_CORRECTIONS: &str = "corrections:\n  - name: Missing regex rules\n    description: Invalid because regular_expressions is required.\n    regular_expressions: []\n";
+const FORMAT_UNFORMATTED_TOPIC: &str = "name: ADK Format Recording\nenabled: true\nactions: hi\ncontent: hello\nexample_queries: [hello, hi]\n";
+const FORMAT_UNFORMATTED_FUNCTION: &str =
+    "def adk_format_recording( conv ):\n return {'utterance':'hi'}\n";
+const CHAT_INPUT_FILE_TEXT: &str = "Hello from input file\n/exit\n";
 
 #[derive(Debug, Serialize)]
 struct CommandManifest {
@@ -117,6 +154,8 @@ enum WorkflowStep {
 struct CommandRecord {
     name: &'static str,
     argv: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stdin: Option<String>,
     exit_code: i32,
     stdout_json: Option<Value>,
     stdout: Option<String>,
@@ -2256,20 +2295,1210 @@ fn record_merge_conflict_resolution_with_python_adk_and_httpmock() {
     );
 }
 
+#[test]
+#[ignore = "records real Agent Studio traffic; pending parity fixture for Python pull resource coverage"]
+fn record_pull_resource_coverage_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let init = run_python_poly(
+        "init real project with broad resource files",
+        &[
+            "init",
+            "--json",
+            "--base-path",
+            tmp_path.as_str(),
+            "--region",
+            TARGET_REGION,
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+            "--output-json-projection",
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "init real project with broad resource files",
+        command_succeeded(&init),
+    ));
+    steps.push(WorkflowStep::Command(init));
+
+    for (name, path) in [
+        (
+            "delete generated personality settings",
+            "agent_settings/personality.yaml",
+        ),
+        ("delete generated role settings", "agent_settings/role.yaml"),
+        (
+            "delete generated project safety filters",
+            "agent_settings/safety_filters.yaml",
+        ),
+        (
+            "delete generated voice configuration",
+            "voice/configuration.yaml",
+        ),
+        (
+            "delete generated voice safety filters",
+            "voice/safety_filters.yaml",
+        ),
+        (
+            "delete generated voice ASR settings",
+            "voice/speech_recognition/asr_settings.yaml",
+        ),
+    ] {
+        let edit = delete_file(name, &project_root, path, &replacements);
+        required_results.push((name, edit.success));
+        steps.push(WorkflowStep::FileEdit(edit));
+    }
+
+    let status = run_python_poly(
+        "status after deleting Python-generated resource files",
+        &["status", "--json", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "status after deleting Python-generated resource files",
+        command_succeeded(&status),
+    ));
+    steps.push(WorkflowStep::Command(status));
+
+    let force_pull = run_python_poly(
+        "force pull restores Python-generated resource files",
+        &[
+            "pull",
+            "--json",
+            "--force",
+            "--path",
+            project_path.as_str(),
+            "--output-json-projection",
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "force pull restores Python-generated resource files",
+        command_succeeded(&force_pull),
+    ));
+    steps.push(WorkflowStep::Command(force_pull));
+
+    let clean_status = run_python_poly(
+        "status after restoring generated resource files",
+        &["status", "--json", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "status after restoring generated resource files",
+        command_succeeded(&clean_status),
+    ));
+    steps.push(WorkflowStep::Command(clean_status));
+
+    let recording_path = recording
+        .save("pull-resource-coverage-python-adk")
+        .expect("save pull resource coverage recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        PULL_RESOURCE_COVERAGE_HTTPMOCK_RECORDING_FILE,
+        PULL_RESOURCE_COVERAGE_COMMAND_MANIFEST_FILE,
+        vec![
+            "Pending parity fixture for broad Python pull/init resource materialization.",
+            "The delete_file steps are intentional: replay fails early if Rust init/pull did not write the same resource files Python wrote.",
+            "This is not in the default replay scenario list until Rust resource materialization reaches parity.",
+        ],
+        StepWorkflow {
+            name: "pull_resource_coverage",
+            description: "Initialize the real project, delete representative Python-generated settings/channel/ASR files, record status, force pull, and verify they are restored.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("pull resource coverage", &required_results);
+}
+
+#[test]
+#[ignore = "records real Agent Studio traffic; pending parity fixture for Python push resource command coverage"]
+fn record_push_resource_coverage_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+        (
+            PUSH_RESOURCE_COVERAGE_BRANCH_NAME.to_string(),
+            "${BRANCH_NAME}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let init = run_python_poly(
+        "init real project before broad push coverage",
+        &[
+            "init",
+            "--json",
+            "--base-path",
+            tmp_path.as_str(),
+            "--region",
+            TARGET_REGION,
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "init real project before broad push coverage",
+        command_succeeded(&init),
+    ));
+    steps.push(WorkflowStep::Command(init));
+
+    let create_branch = run_python_poly(
+        "create broad resource coverage branch",
+        &[
+            "branch",
+            "create",
+            PUSH_RESOURCE_COVERAGE_BRANCH_NAME,
+            "--json",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    let branch_created = command_succeeded(&create_branch);
+    required_results.push(("create broad resource coverage branch", branch_created));
+    steps.push(WorkflowStep::Command(create_branch));
+
+    if branch_created {
+        for (name, path, content) in [
+            (
+                "write updated personality settings",
+                "agent_settings/personality.yaml",
+                RESOURCE_COVERAGE_PERSONALITY,
+            ),
+            (
+                "write updated role settings",
+                "agent_settings/role.yaml",
+                RESOURCE_COVERAGE_ROLE,
+            ),
+            (
+                "write updated project safety filters",
+                "agent_settings/safety_filters.yaml",
+                RESOURCE_COVERAGE_SAFETY_FILTERS,
+            ),
+            (
+                "write updated voice ASR settings",
+                "voice/speech_recognition/asr_settings.yaml",
+                RESOURCE_COVERAGE_ASR_SETTINGS,
+            ),
+            (
+                "write updated voice channel configuration",
+                "voice/configuration.yaml",
+                RESOURCE_COVERAGE_VOICE_CONFIG,
+            ),
+            (
+                "write keyphrase boosting resources",
+                "voice/speech_recognition/keyphrase_boosting.yaml",
+                RESOURCE_COVERAGE_KEYPHRASES,
+            ),
+            (
+                "write pronunciation resources",
+                "voice/response_control/pronunciations.yaml",
+                RESOURCE_COVERAGE_PRONUNCIATIONS,
+            ),
+            (
+                "write transcript correction resources",
+                "voice/speech_recognition/transcript_corrections.yaml",
+                RESOURCE_COVERAGE_TRANSCRIPT_CORRECTIONS,
+            ),
+            (
+                "write variant resources",
+                "config/variant_attributes.yaml",
+                RESOURCE_COVERAGE_VARIANTS,
+            ),
+            (
+                "write API integration resources",
+                "config/api_integrations.yaml",
+                RESOURCE_COVERAGE_API_INTEGRATIONS,
+            ),
+        ] {
+            let edit = write_text_file(name, &project_root, path, content, &replacements);
+            required_results.push((name, edit.success));
+            steps.push(WorkflowStep::FileEdit(edit));
+        }
+
+        let status = run_python_poly(
+            "status after broad resource edits",
+            &["status", "--json", "--path", project_path.as_str()],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "status after broad resource edits",
+            command_succeeded(&status),
+        ));
+        steps.push(WorkflowStep::Command(status));
+
+        let dry_run = run_python_poly(
+            "push dry-run broad resource command payload",
+            &[
+                "push",
+                "--output-json-commands",
+                "--dry-run",
+                "--skip-validation",
+                "--email",
+                RECORDER_EMAIL,
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "push dry-run broad resource command payload",
+            command_succeeded(&dry_run),
+        ));
+        steps.push(WorkflowStep::Command(dry_run));
+
+        let delete_branch = run_python_poly(
+            "delete broad resource coverage branch",
+            &[
+                "branch",
+                "delete",
+                PUSH_RESOURCE_COVERAGE_BRANCH_NAME,
+                "--json",
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "delete broad resource coverage branch",
+            command_succeeded(&delete_branch),
+        ));
+        steps.push(WorkflowStep::Command(delete_branch));
+    }
+
+    let recording_path = recording
+        .save("push-resource-coverage-python-adk")
+        .expect("save push resource coverage recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        PUSH_RESOURCE_COVERAGE_HTTPMOCK_RECORDING_FILE,
+        PUSH_RESOURCE_COVERAGE_COMMAND_MANIFEST_FILE,
+        vec![
+            "Pending parity fixture for Python push command generation across resource families not yet covered by Rust.",
+            "The workflow uses dry-run push only; it should not persist these broad resource edits to Agent Studio.",
+            "This is not in the default replay scenario list until Rust command generation reaches parity.",
+        ],
+        StepWorkflow {
+            name: "push_resource_coverage",
+            description: "Create a throwaway branch, edit/update representative advanced resource files, record Python dry-run protobuf command JSON, then delete the branch.",
+            mutates_real_server: true,
+            cleanup: vec![
+                "poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM",
+            ],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("push resource coverage", &required_results);
+}
+
+#[test]
+#[ignore = "records real Agent Studio traffic; pending parity fixture for Python semantic validation"]
+fn record_semantic_validation_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let init = run_python_poly(
+        "init real project before semantic validation checks",
+        &[
+            "init",
+            "--json",
+            "--base-path",
+            tmp_path.as_str(),
+            "--region",
+            TARGET_REGION,
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "init real project before semantic validation checks",
+        command_succeeded(&init),
+    ));
+    steps.push(WorkflowStep::Command(init));
+
+    for (name, path, content) in [
+        (
+            "write invalid duplicate default variants",
+            "config/variant_attributes.yaml",
+            SEMANTIC_VALIDATION_VARIANTS,
+        ),
+        (
+            "write invalid API integration name",
+            "config/api_integrations.yaml",
+            SEMANTIC_VALIDATION_API_INTEGRATIONS,
+        ),
+        (
+            "write invalid transcript correction",
+            "voice/speech_recognition/transcript_corrections.yaml",
+            SEMANTIC_VALIDATION_TRANSCRIPT_CORRECTIONS,
+        ),
+    ] {
+        let edit = write_text_file(name, &project_root, path, content, &replacements);
+        required_results.push((name, edit.success));
+        steps.push(WorkflowStep::FileEdit(edit));
+    }
+
+    let validate = run_python_poly(
+        "validate semantic resource errors",
+        &["validate", "--json", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "validate semantic resource errors",
+        command_reported_invalid_validation(&validate),
+    ));
+    steps.push(WorkflowStep::Command(validate));
+
+    let push = run_python_poly(
+        "push dry-run blocks on semantic validation errors",
+        &[
+            "push",
+            "--json",
+            "--dry-run",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "push dry-run blocks on semantic validation errors",
+        command_reported_failure(&push),
+    ));
+    steps.push(WorkflowStep::Command(push));
+
+    let recording_path = recording
+        .save("semantic-validation-python-adk")
+        .expect("save semantic validation recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        SEMANTIC_VALIDATION_HTTPMOCK_RECORDING_FILE,
+        SEMANTIC_VALIDATION_COMMAND_MANIFEST_FILE,
+        vec![
+            "Pending parity fixture for Python's semantic resource validation, beyond YAML/JSON parseability.",
+            "The invalid resources are syntactically valid YAML but should fail Python resource validators.",
+            "This is not in the default replay scenario list until Rust validation reaches parity.",
+        ],
+        StepWorkflow {
+            name: "semantic_validation",
+            description: "Record Python validation output for invalid variant defaults, API integration naming, and transcript correction rules.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("semantic validation", &required_results);
+}
+
+#[test]
+#[ignore = "records real Agent Studio traffic; pending parity fixture for Python local formatting"]
+fn record_format_local_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let init = run_python_poly(
+        "init real project before formatting checks",
+        &[
+            "init",
+            "--json",
+            "--base-path",
+            tmp_path.as_str(),
+            "--region",
+            TARGET_REGION,
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "init real project before formatting checks",
+        command_succeeded(&init),
+    ));
+    steps.push(WorkflowStep::Command(init));
+
+    for (name, path, content) in [
+        (
+            "write unformatted topic yaml",
+            "topics/adk_format_recording.yaml",
+            FORMAT_UNFORMATTED_TOPIC,
+        ),
+        (
+            "write unformatted function python",
+            "functions/adk_format_recording.py",
+            FORMAT_UNFORMATTED_FUNCTION,
+        ),
+    ] {
+        let edit = write_text_file(name, &project_root, path, content, &replacements);
+        required_results.push((name, edit.success));
+        steps.push(WorkflowStep::FileEdit(edit));
+    }
+
+    let check = run_python_poly(
+        "format check finds YAML and Python changes",
+        &[
+            "format",
+            "--json",
+            "--check",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "format check finds YAML and Python changes",
+        command_reported_failure(&check),
+    ));
+    steps.push(WorkflowStep::Command(check));
+
+    let format = run_python_poly(
+        "format fixes YAML and Python files",
+        &["format", "--json", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "format fixes YAML and Python files",
+        command_succeeded(&format),
+    ));
+    steps.push(WorkflowStep::Command(format));
+
+    let ty_check = run_python_poly(
+        "format check with ty after fixing files",
+        &[
+            "format",
+            "--json",
+            "--check",
+            "--ty",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    steps.push(WorkflowStep::Command(ty_check));
+
+    let recording_path = recording
+        .save("format-local-python-adk")
+        .expect("save local format recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        FORMAT_LOCAL_HTTPMOCK_RECORDING_FILE,
+        FORMAT_LOCAL_COMMAND_MANIFEST_FILE,
+        vec![
+            "Pending parity fixture for Python local formatting behavior.",
+            "The fixture records both YAML formatting and Python function formatting through Python ADK's formatter stack.",
+            "The ty step is recorded as observed because local ty availability is part of Python's current command contract.",
+            "This is not in the default replay scenario list until Rust formatting reaches parity.",
+        ],
+        StepWorkflow {
+            name: "format_local",
+            description: "Record Python format --check, format fix, and format --check --ty output after intentionally unformatted YAML and Python resources.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("format local", &required_results);
+}
+
+#[test]
+#[ignore = "records real Agent Studio traffic; pending parity fixture for Python interactive-adjacent contracts"]
+fn record_interactive_contracts_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+        (
+            INTERACTIVE_BRANCH_NAME.to_string(),
+            "${BRANCH_NAME}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let init = run_python_poly(
+        "init real project before interactive contracts",
+        &[
+            "init",
+            "--json",
+            "--base-path",
+            tmp_path.as_str(),
+            "--region",
+            TARGET_REGION,
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "init real project before interactive contracts",
+        command_succeeded(&init),
+    ));
+    steps.push(WorkflowStep::Command(init));
+
+    let create_prompted_branch = run_python_poly_with_options(
+        "branch create prompts for missing branch name",
+        &["branch", "create", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some(&format!("{INTERACTIVE_BRANCH_NAME}\n")),
+            ..RunPythonOptions::default()
+        },
+    );
+    let branch_created = command_succeeded(&create_prompted_branch);
+    required_results.push((
+        "branch create prompts for missing branch name",
+        branch_created,
+    ));
+    steps.push(WorkflowStep::Command(create_prompted_branch));
+
+    let switch_missing_json = run_python_poly(
+        "branch switch json requires branch name",
+        &[
+            "branch",
+            "switch",
+            "--json",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "branch switch json requires branch name",
+        command_reported_failure(&switch_missing_json),
+    ));
+    steps.push(WorkflowStep::Command(switch_missing_json));
+
+    if branch_created {
+        let delete_branch = run_python_poly(
+            "delete branch created through prompt",
+            &[
+                "branch",
+                "delete",
+                INTERACTIVE_BRANCH_NAME,
+                "--json",
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "delete branch created through prompt",
+            command_succeeded(&delete_branch),
+        ));
+        steps.push(WorkflowStep::Command(delete_branch));
+    }
+
+    let recording_path = recording
+        .save("interactive-contracts-python-adk")
+        .expect("save interactive contracts recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        INTERACTIVE_CONTRACTS_HTTPMOCK_RECORDING_FILE,
+        INTERACTIVE_CONTRACTS_COMMAND_MANIFEST_FILE,
+        vec![
+            "Pending parity fixture for Python interactive-adjacent CLI behavior.",
+            "This records the deterministic stdin-backed branch-create prompt path plus JSON-mode failures for missing interactive arguments.",
+            "Questionary menus are intentionally not automated here; they need a separate TTY test harness.",
+            "This is not in the default replay scenario list until Rust interactive behavior is implemented.",
+        ],
+        StepWorkflow {
+            name: "interactive_contracts",
+            description: "Record Python branch create prompting for a missing branch name and JSON-mode branch switch failure when the branch name is omitted.",
+            mutates_real_server: true,
+            cleanup: vec![
+                "poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM",
+            ],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("interactive contracts", &required_results);
+}
+
+#[test]
+#[ignore = "records real Agent Studio traffic; pending parity fixture for Python chat JSON behavior"]
+fn record_chat_json_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let init = run_python_poly(
+        "init real project before chat JSON checks",
+        &[
+            "init",
+            "--json",
+            "--base-path",
+            tmp_path.as_str(),
+            "--region",
+            TARGET_REGION,
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "init real project before chat JSON checks",
+        command_succeeded(&init),
+    ));
+    steps.push(WorkflowStep::Command(init));
+
+    let chat_message = run_python_poly(
+        "chat json message with metadata flags",
+        &[
+            "chat",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--environment",
+            "sandbox",
+            "--message",
+            "Hello from the ADK recording.",
+            "--functions",
+            "--flows",
+            "--state",
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "chat json message with metadata flags",
+        command_succeeded(&chat_message),
+    ));
+    steps.push(WorkflowStep::Command(chat_message));
+
+    let input_file = write_text_file(
+        "write chat input file",
+        &project_root,
+        "adk_chat_input.txt",
+        CHAT_INPUT_FILE_TEXT,
+        &replacements,
+    );
+    required_results.push(("write chat input file", input_file.success));
+    steps.push(WorkflowStep::FileEdit(input_file));
+
+    let chat_input_file_path = project_root.join("adk_chat_input.txt");
+    let chat_input_file_arg = chat_input_file_path.to_string_lossy().to_string();
+    let chat_input_file = run_python_poly(
+        "chat json input-file contract",
+        &[
+            "chat",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--environment",
+            "sandbox",
+            "--input-file",
+            chat_input_file_arg.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    steps.push(WorkflowStep::Command(chat_input_file));
+
+    let recording_path = recording
+        .save("chat-json-python-adk")
+        .expect("save chat JSON recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        CHAT_JSON_HTTPMOCK_RECORDING_FILE,
+        CHAT_JSON_COMMAND_MANIFEST_FILE,
+        vec![
+            "Pending parity fixture for Python chat JSON output and metadata shaping.",
+            "The --message step records Python's JSON conversation/turn contract with metadata flags.",
+            "The --input-file step records current Python behavior separately, including any existing Python bug.",
+            "This is not in the default replay scenario list until Rust chat JSON behavior reaches parity.",
+        ],
+        StepWorkflow {
+            name: "chat_json",
+            description: "Record Python chat --json output for scripted message metadata and the current input-file path behavior.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("chat JSON", &required_results);
+}
+
+#[test]
+#[ignore = "records real Agent Studio traffic; pending parity fixture for Python CLI surface and diff edge behavior"]
+fn record_cli_diff_edges_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+
+    let invalid_region = run_python_poly(
+        "init rejects invalid region at parser level",
+        &[
+            "init",
+            "--json",
+            "--region",
+            "not-a-region",
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "init rejects invalid region at parser level",
+        invalid_region.exit_code != 0,
+    ));
+    steps.push(WorkflowStep::Command(invalid_region));
+
+    let default_base_path_init = run_python_poly_with_options(
+        "init default base path uses current working directory",
+        &[
+            "init",
+            "--json",
+            "--region",
+            TARGET_REGION,
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            cwd: Some(tmp.as_path()),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "init default base path uses current working directory",
+        command_succeeded(&default_base_path_init),
+    ));
+    steps.push(WorkflowStep::Command(default_base_path_init));
+
+    let deployments_verbose_after_subcommand = run_python_poly(
+        "deployments list rejects verbose after subcommand",
+        &[
+            "deployments",
+            "list",
+            "--verbose",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "deployments list rejects verbose after subcommand",
+        deployments_verbose_after_subcommand.exit_code != 0,
+    ));
+    steps.push(WorkflowStep::Command(deployments_verbose_after_subcommand));
+
+    let switch_help = run_python_poly(
+        "branch switch help exposes output-json-projection",
+        &["branch", "switch", "--help"],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "branch switch help exposes output-json-projection",
+        switch_help
+            .stdout
+            .as_deref()
+            .is_some_and(|out| out.contains("--output-json-projection")),
+    ));
+    steps.push(WorkflowStep::Command(switch_help));
+
+    let edit = append_text_file(
+        "append local main diff edge edit",
+        &project_root,
+        MUTATING_EDIT_FILE,
+        "\n\n# ADK recording diff edge\nThis line records Python diff edge behavior.\n",
+        &replacements,
+    );
+    required_results.push(("append local main diff edge edit", edit.success));
+    steps.push(WorkflowStep::FileEdit(edit));
+
+    let relative_diff = run_python_poly(
+        "diff relative file filter",
+        &[
+            "diff",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--files",
+            MUTATING_EDIT_FILE,
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "diff relative file filter",
+        command_reported_failure(&relative_diff),
+    ));
+    steps.push(WorkflowStep::Command(relative_diff));
+
+    let absolute_file = project_root.join(MUTATING_EDIT_FILE);
+    let absolute_file_arg = absolute_file.to_string_lossy().to_string();
+    let absolute_diff = run_python_poly(
+        "diff absolute file filter",
+        &[
+            "diff",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--files",
+            absolute_file_arg.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "diff absolute file filter",
+        command_succeeded(&absolute_diff),
+    ));
+    steps.push(WorkflowStep::Command(absolute_diff));
+
+    let before_main_diff = run_python_poly(
+        "diff before main against dirty local checkout",
+        &[
+            "diff",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--before",
+            "main",
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "diff before main against dirty local checkout",
+        command_succeeded(&before_main_diff),
+    ));
+    steps.push(WorkflowStep::Command(before_main_diff));
+
+    let review_without_github = run_python_poly_with_options(
+        "review create relative file filter without github token",
+        &[
+            "review",
+            "--path",
+            project_path.as_str(),
+            "create",
+            "--json",
+            "--files",
+            MUTATING_EDIT_FILE,
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            remove_env: &["GITHUB_ACCESS_TOKEN"],
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "review create relative file filter without github token",
+        command_reported_failure(&review_without_github),
+    ));
+    steps.push(WorkflowStep::Command(review_without_github));
+
+    let recording_path = recording
+        .save("cli-diff-edges-python-adk")
+        .expect("save CLI/diff edge recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        CLI_DIFF_EDGES_HTTPMOCK_RECORDING_FILE,
+        CLI_DIFF_EDGES_COMMAND_MANIFEST_FILE,
+        vec![
+            "Pending parity fixture for Python CLI surface details and diff/review edge behavior.",
+            "This records parser-level invalid region behavior, default init base path, verbose flag placement, hidden/visible help text, file filters, review filtering, and --before main local diff behavior.",
+            "This is not in the default replay scenario list until these surface contracts are implemented in Rust.",
+        ],
+        StepWorkflow {
+            name: "cli_diff_edges",
+            description: "Record Python CLI parser contracts plus file-filtered diff/review and named diff behavior on a dirty local checkout.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("CLI/diff edges", &required_results);
+}
+
 fn run_python_poly(
     name: &'static str,
     args: &[&str],
     server: &MockServer,
     replacements: &[(String, String)],
 ) -> CommandRecord {
+    run_python_poly_with_options(
+        name,
+        args,
+        server,
+        replacements,
+        RunPythonOptions::default(),
+    )
+}
+
+#[derive(Default)]
+struct RunPythonOptions<'a> {
+    stdin: Option<&'a str>,
+    cwd: Option<&'a Path>,
+    remove_env: &'a [&'a str],
+}
+
+fn run_python_poly_with_options(
+    name: &'static str,
+    args: &[&str],
+    server: &MockServer,
+    replacements: &[(String, String)],
+    options: RunPythonOptions<'_>,
+) -> CommandRecord {
     let replacements = command_replacements(replacements);
-    let output = Command::new(python_adk_bin())
+    let mut command = Command::new(python_adk_bin());
+    command
         .env("POLY_ADK_BASE_URL_US", httpmock_adk_base_url(server))
         .env("POLY_ADK_BASE_URL_US_1", httpmock_adk_base_url(server))
         .env("POLY_ADK_BASE_URL", httpmock_adk_base_url(server))
-        .args(args)
-        .output()
-        .unwrap_or_else(|error| panic!("failed to run Python poly for {name}: {error}"));
+        .args(args);
+    for key in options.remove_env {
+        command.env_remove(key);
+    }
+    if let Some(cwd) = options.cwd {
+        command.current_dir(cwd);
+    }
+    let output = if let Some(stdin) = options.stdin {
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|error| panic!("failed to spawn Python poly for {name}: {error}"));
+        child
+            .stdin
+            .as_mut()
+            .expect("python poly stdin")
+            .write_all(stdin.as_bytes())
+            .unwrap_or_else(|error| panic!("failed to write stdin for {name}: {error}"));
+        child
+            .wait_with_output()
+            .unwrap_or_else(|error| panic!("failed to wait for Python poly {name}: {error}"))
+    } else {
+        command
+            .output()
+            .unwrap_or_else(|error| panic!("failed to run Python poly for {name}: {error}"))
+    };
     let exit_code = output.status.code().unwrap_or(1);
     let stdout_raw = normalize_text(&String::from_utf8_lossy(&output.stdout), &replacements);
     let stderr = normalize_text(&String::from_utf8_lossy(&output.stderr), &replacements);
@@ -2281,6 +3510,9 @@ fn run_python_poly(
         argv: std::iter::once("poly".to_string())
             .chain(args.iter().map(|arg| normalize_text(arg, &replacements)))
             .collect(),
+        stdin: options
+            .stdin
+            .map(|stdin| normalize_text(stdin, &replacements)),
         exit_code,
         stdout_json,
         stdout: if stdout_raw.trim().is_empty()
@@ -2463,6 +3695,27 @@ fn command_reported_failure(record: &CommandRecord) -> bool {
             .and_then(|json| json.get("success"))
             .and_then(Value::as_bool)
             == Some(false)
+}
+
+fn command_reported_invalid_validation(record: &CommandRecord) -> bool {
+    record.exit_code == 0
+        && record
+            .stdout_json
+            .as_ref()
+            .and_then(|json| json.get("valid"))
+            .and_then(Value::as_bool)
+            == Some(false)
+}
+
+fn assert_required_results(label: &str, required_results: &[(&'static str, bool)]) {
+    let failures: Vec<&str> = required_results
+        .iter()
+        .filter_map(|(name, success)| (!success).then_some(*name))
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "{label} recording had failed required steps: {failures:?}"
+    );
 }
 
 fn normalize_json_value(value: Value) -> Value {

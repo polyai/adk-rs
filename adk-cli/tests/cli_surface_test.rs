@@ -231,22 +231,18 @@ fn validate_json_reports_parse_errors() {
 }
 
 #[test]
-fn format_check_json_reports_unformatted_files() {
+fn format_check_json_ignores_json_files() {
     let project_dir = make_temp_unformatted_json_project_dir();
     let output = run_poly(&["format", "--json", "--check", "--path", &project_dir]);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert_eq!(
-        payload.get("success").and_then(|v| v.as_bool()),
-        Some(false)
-    );
+    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
     let changed = payload
         .get("affected")
         .and_then(|v| v.as_array())
         .expect("affected array");
-    assert_eq!(changed.len(), 1);
-    assert_eq!(changed[0].as_str(), Some("sample.json"));
+    assert!(changed.is_empty());
     assert_eq!(
         payload.get("check_only").and_then(|v| v.as_bool()),
         Some(true)
