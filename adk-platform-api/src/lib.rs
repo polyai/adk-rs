@@ -1,6 +1,7 @@
 use adk_domain::{
     BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, Resource, ResourceMap,
 };
+use adk_protobuf::agent::{RulesReferences, RulesUpdateRules};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityUpdate};
 use adk_protobuf::functions::{
@@ -9,13 +10,13 @@ use adk_protobuf::functions::{
 };
 use adk_protobuf::knowledge_base::{
     ExampleQueries, KnowledgeBaseCreateTopic, KnowledgeBaseDeleteTopic, KnowledgeBaseUpdateTopic,
+    TopicReferences,
 };
 use adk_protobuf::{Command, CommandBatch, Metadata};
 use prost::Message;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -27,14 +28,22 @@ pub enum ApiError {
     MissingConfig(String),
 }
 
+mod in_memory;
+mod push_extended;
+
+pub use in_memory::InMemoryPlatformClient;
+
 /// Platform API boundary used by `adk-core`.
 ///
 /// NOTE:
 /// - `HttpPlatformClient` is the real networked implementation.
 /// - `InMemoryPlatformClient` is a deterministic test double for local/unit tests.
-mod push_extended;
-
 pub trait PlatformClient: Send + Sync {
+    fn pull_projection_json(&self) -> Result<Value, ApiError> {
+        let resources = self.pull_resources()?;
+        serde_json::to_value(resources).map_err(|e| ApiError::Http(e.to_string()))
+    }
+
     fn pull_resources(&self) -> Result<ResourceMap, ApiError>;
     fn pull_resources_by_name(&self, name: &str) -> Result<ResourceMap, ApiError> {
         let _ = name;
@@ -67,6 +76,16 @@ pub trait PlatformClient: Send + Sync {
         let _ = (projection, actor);
         self.push_resources(resources)
     }
+    fn push_main_resources_to_new_branch(
+        &self,
+        branch_name: &str,
+        resources: &ResourceMap,
+        actor: Option<&str>,
+    ) -> Result<(String, PushResult), ApiError> {
+        let branch_id = self.create_branch(branch_name)?;
+        let push = self.push_resources_with_options(resources, None, actor)?;
+        Ok((branch_id, push))
+    }
     fn list_deployments(&self, _environment: &str) -> Result<DeploymentList, ApiError>;
     fn create_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
     fn send_chat_message(&self, _payload: Value) -> Result<Value, ApiError>;
@@ -79,208 +98,6 @@ pub trait PlatformClient: Send + Sync {
         deployment_message: &str,
         conflict_resolutions: Option<Vec<Value>>,
     ) -> Result<BranchMergeResult, ApiError>;
-}
-
-/// Test-only in-memory client used for deterministic non-network workflows.
-#[derive(Debug, Clone)]
-pub struct InMemoryPlatformClient {
-    resources: Arc<Mutex<ResourceMap>>,
-    branches: Arc<Mutex<indexmap::IndexMap<String, String>>>,
-    named_resources: Arc<Mutex<indexmap::IndexMap<String, ResourceMap>>>,
-    deployments: Arc<Mutex<DeploymentList>>,
-}
-
-impl Default for InMemoryPlatformClient {
-    fn default() -> Self {
-        Self {
-            resources: Arc::new(Mutex::new(ResourceMap::new())),
-            branches: Arc::new(Mutex::new(default_branches())),
-            named_resources: Arc::new(Mutex::new(indexmap::IndexMap::new())),
-            deployments: Arc::new(Mutex::new(DeploymentList {
-                versions: vec![],
-                active_deployment_hashes: Default::default(),
-            })),
-        }
-    }
-}
-
-impl InMemoryPlatformClient {
-    pub fn with_resources(resources: ResourceMap) -> Self {
-        let mut named_resources = indexmap::IndexMap::new();
-        named_resources.insert("main".to_string(), resources.clone());
-        Self {
-            resources: Arc::new(Mutex::new(resources)),
-            branches: Arc::new(Mutex::new(default_branches())),
-            named_resources: Arc::new(Mutex::new(named_resources)),
-            deployments: Arc::new(Mutex::new(DeploymentList {
-                versions: vec![],
-                active_deployment_hashes: Default::default(),
-            })),
-        }
-    }
-
-    pub fn with_named_resources(
-        resources: ResourceMap,
-        named_resources: indexmap::IndexMap<String, ResourceMap>,
-        deployments: DeploymentList,
-    ) -> Self {
-        Self {
-            resources: Arc::new(Mutex::new(resources)),
-            branches: Arc::new(Mutex::new(default_branches())),
-            named_resources: Arc::new(Mutex::new(named_resources)),
-            deployments: Arc::new(Mutex::new(deployments)),
-        }
-    }
-}
-
-fn default_branches() -> indexmap::IndexMap<String, String> {
-    let mut branches = indexmap::IndexMap::new();
-    branches.insert("main".to_string(), "main".to_string());
-    branches
-}
-
-impl PlatformClient for InMemoryPlatformClient {
-    fn preview_push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
-        let _ = resources;
-        Ok(PushResult {
-            success: true,
-            message: "Dry run completed. No changes were pushed.".to_string(),
-            commands: vec![],
-        })
-    }
-
-    fn pull_resources_by_name(&self, name: &str) -> Result<ResourceMap, ApiError> {
-        let named = self
-            .named_resources
-            .lock()
-            .map_err(|e| ApiError::Http(e.to_string()))?;
-        if let Some(resources) = named.get(name) {
-            return Ok(resources.clone());
-        }
-        let prefix = name.chars().take(9).collect::<String>().to_lowercase();
-        if !prefix.is_empty() {
-            for (key, value) in named.iter() {
-                if key.chars().take(9).collect::<String>().to_lowercase() == prefix {
-                    return Ok(value.clone());
-                }
-            }
-        }
-        drop(named);
-        self.pull_resources()
-    }
-
-    fn pull_resources(&self) -> Result<ResourceMap, ApiError> {
-        Ok(self
-            .resources
-            .lock()
-            .map_err(|e| ApiError::Http(e.to_string()))?
-            .clone())
-    }
-
-    fn push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
-        *self
-            .resources
-            .lock()
-            .map_err(|e| ApiError::Http(e.to_string()))? = resources.clone();
-        Ok(PushResult {
-            success: true,
-            message: "Push successful".to_string(),
-            commands: vec![],
-        })
-    }
-
-    fn list_deployments(&self, _environment: &str) -> Result<DeploymentList, ApiError> {
-        Ok(self
-            .deployments
-            .lock()
-            .map_err(|e| ApiError::Http(e.to_string()))?
-            .clone())
-    }
-
-    fn create_chat_session(&self, _payload: Value) -> Result<Value, ApiError> {
-        Ok(serde_json::json!({
-            "conversation_id": "local-conversation",
-            "response": "Mock chat session created",
-            "conversation_ended": false
-        }))
-    }
-
-    fn send_chat_message(&self, payload: Value) -> Result<Value, ApiError> {
-        let text = payload
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        Ok(serde_json::json!({
-            "response": format!("Mock reply to: {text}"),
-            "conversation_ended": false
-        }))
-    }
-
-    fn end_chat_session(&self, _payload: Value) -> Result<Value, ApiError> {
-        Ok(serde_json::json!({"success": true}))
-    }
-
-    fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
-        let branches = self
-            .branches
-            .lock()
-            .map_err(|e| ApiError::Http(e.to_string()))?;
-        Ok(branches
-            .iter()
-            .map(|(name, branch_id)| BranchDescriptor {
-                name: name.clone(),
-                branch_id: branch_id.clone(),
-            })
-            .collect())
-    }
-
-    fn create_branch(&self, branch_name: &str) -> Result<String, ApiError> {
-        let mut branches = self
-            .branches
-            .lock()
-            .map_err(|e| ApiError::Http(e.to_string()))?;
-        if branches.contains_key(branch_name) {
-            return Err(ApiError::Http(format!(
-                "branch '{branch_name}' already exists"
-            )));
-        }
-        let branch_id = branch_name.to_string();
-        branches.insert(branch_name.to_string(), branch_id.clone());
-        Ok(branch_id)
-    }
-
-    fn delete_branch(&self, branch_id: &str) -> Result<(), ApiError> {
-        if branch_id == "main" {
-            return Err(ApiError::Http("cannot delete main branch".to_string()));
-        }
-        let mut branches = self
-            .branches
-            .lock()
-            .map_err(|e| ApiError::Http(e.to_string()))?;
-        let Some(key) = branches
-            .iter()
-            .find_map(|(name, id)| (id == branch_id).then_some(name.clone()))
-        else {
-            // Stateless test fallback: deletion is still considered successful even when the
-            // branch inventory wasn't persisted across command invocations.
-            return Ok(());
-        };
-        branches.shift_remove(&key);
-        Ok(())
-    }
-
-    fn merge_branch(
-        &self,
-        _deployment_message: &str,
-        _conflict_resolutions: Option<Vec<Value>>,
-    ) -> Result<BranchMergeResult, ApiError> {
-        Ok(BranchMergeResult {
-            success: true,
-            conflicts: vec![],
-            errors: vec![],
-            sequence: Some("0".to_string()),
-        })
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -308,7 +125,7 @@ impl HttpPlatformClient {
         let base_url = base_url_for_region(region)?;
         Ok(Self {
             client: reqwest::blocking::Client::new(),
-            base_url: base_url.to_string(),
+            base_url,
             api_key,
             account_id: account_id.to_string(),
             project_id: project_id.to_string(),
@@ -397,14 +214,7 @@ impl HttpPlatformClient {
     fn fetch_branch_sequence(&self, branch_id: &str) -> Result<u64, ApiError> {
         let endpoint = format!("{}/{branch_id}/sequence", self.branches_endpoint());
         let payload = self.request_json(reqwest::Method::GET, &endpoint, None, None)?;
-        Ok(payload
-            .get("lastKnownSequence")
-            .and_then(|v| match v {
-                Value::String(s) => s.parse::<u64>().ok(),
-                Value::Number(n) => n.as_u64(),
-                _ => None,
-            })
-            .unwrap_or(0))
+        Ok(parse_last_known_sequence(&payload))
     }
 
     fn prepare_branch_chat(&self) -> Result<Value, ApiError> {
@@ -510,6 +320,11 @@ impl HttpPlatformClient {
 }
 
 impl PlatformClient for HttpPlatformClient {
+    fn pull_projection_json(&self) -> Result<Value, ApiError> {
+        let response = self.fetch_projection_response()?;
+        Ok(Self::extract_projection(response))
+    }
+
     fn pull_resources_by_name(&self, name: &str) -> Result<ResourceMap, ApiError> {
         let env_names = ["sandbox", "pre-release", "live"];
         if env_names.contains(&name) {
@@ -570,27 +385,49 @@ impl PlatformClient for HttpPlatformClient {
             });
         }
 
-        let endpoint = format!(
-            "/accounts/{}/projects/{}/branches/{}/command-batch",
-            self.account_id, self.project_id, self.branch_id
-        );
-        let batch = CommandBatch {
-            last_known_sequence,
-            commands,
-        };
-        let bytes = batch.encode_to_vec();
-        let response = self.request_binary_json(&endpoint, &bytes)?;
-        let response_commands = extract_response_commands(&response);
-        let response_message = response
-            .get("message")
+        self.push_commands_to_branch(&self.branch_id, last_known_sequence, commands)
+    }
+
+    fn push_main_resources_to_new_branch(
+        &self,
+        branch_name: &str,
+        resources: &ResourceMap,
+        actor: Option<&str>,
+    ) -> Result<(String, PushResult), ApiError> {
+        let main_projection_response = self.fetch_projection_response_for_branch("main")?;
+        let expected_main_last_known_sequence =
+            parse_last_known_sequence(&main_projection_response);
+        let response = self.request_json(
+            reqwest::Method::POST,
+            &self.branches_endpoint(),
+            None,
+            Some(serde_json::json!({
+                "expectedMainLastKnownSequence": expected_main_last_known_sequence,
+                "branchName": branch_name,
+            })),
+        )?;
+        let branch_id = response
+            .get("branchId")
             .and_then(Value::as_str)
-            .unwrap_or("Push accepted by platform endpoint (protobuf command-batch)")
-            .to_string();
-        Ok(PushResult {
-            success: true,
-            message: response_message,
-            commands: response_commands,
-        })
+            .map(ToString::to_string)
+            .ok_or_else(|| {
+                ApiError::Http("missing branchId in create-branch response".to_string())
+            })?;
+        let projection = main_projection_response
+            .get("projection")
+            .cloned()
+            .unwrap_or_else(|| main_projection_response.clone());
+        let commands = build_phase1_commands_with_actor(resources, &projection, actor);
+        let push = if commands.is_empty() {
+            PushResult {
+                success: false,
+                message: "No changes detected".to_string(),
+                commands: vec![],
+            }
+        } else {
+            self.push_commands_to_branch(&branch_id, expected_main_last_known_sequence, commands)?
+        };
+        Ok((branch_id, push))
     }
 
     fn preview_push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
@@ -642,9 +479,13 @@ impl PlatformClient for HttpPlatformClient {
         let mut active_hashes: indexmap::IndexMap<String, String> = Default::default();
         if let Some(obj) = active.as_object() {
             for (env_name, payload) in obj {
-                if let Some(hash) = payload.get("version_hash").and_then(Value::as_str) {
-                    active_hashes.insert(env_name.clone(), hash.to_string());
-                }
+                let hash = payload
+                    .get("version")
+                    .or_else(|| payload.get("version_hash"))
+                    .or_else(|| payload.get("versionHash"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                active_hashes.insert(env_name.clone(), hash.to_string());
             }
         }
 
@@ -802,7 +643,8 @@ impl PlatformClient for HttpPlatformClient {
     }
 
     fn create_branch(&self, branch_name: &str) -> Result<String, ApiError> {
-        let expected_main_last_known_sequence = self.fetch_branch_sequence("main")?;
+        let main_projection = self.fetch_projection_response_for_branch("main")?;
+        let expected_main_last_known_sequence = parse_last_known_sequence(&main_projection);
         let response = self.request_json(
             reqwest::Method::POST,
             &self.branches_endpoint(),
@@ -907,6 +749,35 @@ impl PlatformClient for HttpPlatformClient {
 }
 
 impl HttpPlatformClient {
+    fn push_commands_to_branch(
+        &self,
+        branch_id: &str,
+        last_known_sequence: u64,
+        commands: Vec<Command>,
+    ) -> Result<PushResult, ApiError> {
+        let endpoint = format!(
+            "/accounts/{}/projects/{}/branches/{branch_id}/command-batch",
+            self.account_id, self.project_id
+        );
+        let batch = CommandBatch {
+            last_known_sequence,
+            commands,
+        };
+        let bytes = batch.encode_to_vec();
+        let response = self.request_binary_json(&endpoint, &bytes)?;
+        let response_commands = extract_response_commands(&response);
+        let response_message = response
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("Resources pushed successfully.")
+            .to_string();
+        Ok(PushResult {
+            success: true,
+            message: response_message,
+            commands: response_commands,
+        })
+    }
+
     fn build_push_commands_with_options(
         &self,
         resources: &ResourceMap,
@@ -978,11 +849,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
             .to_string();
         let file_name = clean_name(&name).to_lowercase();
         let file_path = format!("functions/{file_name}.py");
-        let content = function
-            .get("code")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+        let content = function_raw_content(&function);
         map.insert(
             file_path.clone(),
             Resource {
@@ -1145,6 +1012,21 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
             },
         );
     }
+
+    if let Some(behaviour) = projection
+        .pointer("/agentSettings/rules/behaviour")
+        .and_then(Value::as_str)
+    {
+        map.insert(
+            "agent_settings/rules.txt".to_string(),
+            Resource {
+                resource_id: "rules".to_string(),
+                name: "rules".to_string(),
+                file_path: "agent_settings/rules.txt".to_string(),
+                payload: serde_json::json!({ "content": behaviour }),
+            },
+        );
+    }
     Ok(map)
 }
 
@@ -1225,16 +1107,57 @@ fn handoff_sip_headers_yaml(handoff: &Value) -> Value {
     Value::Array(yaml_headers)
 }
 
-fn base_url_for_region(region: &str) -> Result<&'static str, ApiError> {
-    match region {
-        "dev" => Ok("https://api.dev.poly.ai/adk/v1"),
-        "staging" => Ok("https://api.staging.poly.ai/adk/v1"),
-        "euw-1" => Ok("https://api.eu.poly.ai/adk/v1"),
-        "uk-1" => Ok("https://api.uk.poly.ai/adk/v1"),
-        "us-1" => Ok("https://api.us.poly.ai/adk/v1"),
-        "studio" => Ok("https://api.studio.poly.ai/adk/v1"),
-        _ => Err(ApiError::MissingConfig(format!("unknown region: {region}"))),
+fn base_url_for_region(region: &str) -> Result<String, ApiError> {
+    for name in base_url_env_names(region) {
+        if let Ok(value) = env::var(name)
+            && !value.trim().is_empty()
+        {
+            return Ok(value.trim_end_matches('/').to_string());
+        }
     }
+
+    let base_url = match region {
+        "dev" => "https://api.dev.poly.ai/adk/v1",
+        "staging" => "https://api.staging.poly.ai/adk/v1",
+        "euw-1" => "https://api.eu.poly.ai/adk/v1",
+        "uk-1" => "https://api.uk.poly.ai/adk/v1",
+        "us-1" => "https://api.us.poly.ai/adk/v1",
+        "studio" => "https://api.studio.poly.ai/adk/v1",
+        _ => return Err(ApiError::MissingConfig(format!("unknown region: {region}"))),
+    };
+    Ok(base_url.to_string())
+}
+
+fn base_url_env_names(region: &str) -> Vec<&'static str> {
+    let mut names = Vec::new();
+    match region {
+        "dev" => names.push("POLY_ADK_BASE_URL_DEV"),
+        "staging" => names.push("POLY_ADK_BASE_URL_STAGING"),
+        "euw-1" => {
+            names.push("POLY_ADK_BASE_URL_EUW_1");
+            names.push("POLY_ADK_BASE_URL_EU");
+        }
+        "uk-1" => names.push("POLY_ADK_BASE_URL_UK_1"),
+        "us-1" => {
+            names.push("POLY_ADK_BASE_URL_US_1");
+            names.push("POLY_ADK_BASE_URL_US");
+        }
+        "studio" => names.push("POLY_ADK_BASE_URL_STUDIO"),
+        _ => {}
+    }
+    names.push("POLY_ADK_BASE_URL");
+    names
+}
+
+fn parse_last_known_sequence(value: &Value) -> u64 {
+    value
+        .get("lastKnownSequence")
+        .and_then(|v| match v {
+            Value::String(s) => s.parse::<u64>().ok(),
+            Value::Number(n) => n.as_u64(),
+            _ => None,
+        })
+        .unwrap_or(0)
 }
 
 /// Builds protobuf commands for push (topics, functions, entities, variables, handoffs, SMS,
@@ -1264,6 +1187,7 @@ fn build_phase1_commands_with_actor(
     let mut entity_update = Vec::new();
     let mut function_update = Vec::new();
     let mut topic_update = Vec::new();
+    let mut settings_update = Vec::new();
 
     let remote_topics = topic_entries(projection)
         .into_iter()
@@ -1326,10 +1250,11 @@ fn build_phase1_commands_with_actor(
                     .get(&name)
                     .cloned()
                     .or_else(|| {
-                        (!resource.resource_id.trim().is_empty() && resource.resource_id != "local")
+                        (!is_synthetic_local_resource_id(&resource.resource_id))
                             .then_some(resource.resource_id.clone())
                     })
-                    .unwrap_or_else(|| format!("topic-{}", clean_name(&name).to_lowercase()));
+                    .or_else(|| generated_replay_resource_id("topic", &name, path))
+                    .unwrap_or_else(|| random_resource_id("TOPICS"));
                 let actions = yaml
                     .get("actions")
                     .and_then(serde_yaml::Value::as_str)
@@ -1408,15 +1333,30 @@ fn build_phase1_commands_with_actor(
                         .then_some(resource.resource_id.clone())
                 })
                 .unwrap_or_else(|| format!("function-{}", clean_name(&name).to_lowercase()));
+            let function_code = function_code_from_local_content(content);
             let inferred_description = infer_function_description(content);
-            let inferred_parameters = infer_function_parameters(content);
+            let inferred_parameters = infer_function_parameters(&function_code);
             if remote_functions.contains_key(&name) {
-                let description = remote_function
-                    .and_then(|(_, f)| f.get("description").and_then(Value::as_str))
-                    .map(ToString::to_string)
-                    .or_else(|| {
-                        (!inferred_description.is_empty()).then_some(inferred_description.clone())
-                    });
+                let remote_code =
+                    remote_function.and_then(|(_, f)| f.get("code").and_then(Value::as_str));
+                let remote_description =
+                    remote_function.and_then(|(_, f)| f.get("description").and_then(Value::as_str));
+                let description_changed = !inferred_description.is_empty()
+                    && remote_description != Some(inferred_description.as_str());
+                if remote_code == Some(function_code.as_str()) && !description_changed {
+                    continue;
+                }
+                let description = if description_changed {
+                    Some(inferred_description.clone())
+                } else {
+                    remote_function
+                        .and_then(|(_, f)| f.get("description").and_then(Value::as_str))
+                        .map(ToString::to_string)
+                        .or_else(|| {
+                            (!inferred_description.is_empty())
+                                .then_some(inferred_description.clone())
+                        })
+                };
                 let parameters = remote_function
                     .and_then(|(_, f)| function_parameters_update_from_projection(f))
                     .or_else(|| {
@@ -1435,7 +1375,7 @@ fn build_phase1_commands_with_actor(
                         name: Some(name.clone()),
                         description,
                         parameters,
-                        code: Some(content.to_string()),
+                        code: Some(function_code.clone()),
                         errors,
                         references: None,
                         archived: remote_function
@@ -1453,11 +1393,28 @@ fn build_phase1_commands_with_actor(
                         name: name.clone(),
                         description: inferred_description,
                         parameters: inferred_parameters,
-                        code: content.to_string(),
+                        code: function_code,
                         errors: vec![],
                         latency_control: None,
                         references: None,
                         archived: Some(false),
+                    }),
+                );
+            }
+        } else if path == "agent_settings/rules.txt" {
+            let remote_behaviour = projection
+                .pointer("/agentSettings/rules/behaviour")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if content != remote_behaviour {
+                push_command(
+                    &mut settings_update,
+                    &metadata,
+                    "update_rules",
+                    CommandPayload::UpdateRules(RulesUpdateRules {
+                        behaviour: Some(content.to_string()),
+                        references: rules_references_from_behaviour(content)
+                            .or_else(|| rules_references_from_projection(projection)),
                     }),
                 );
             }
@@ -1582,6 +1539,7 @@ fn build_phase1_commands_with_actor(
         .into_iter()
         .chain(function_update)
         .chain(topic_update)
+        .chain(settings_update)
         .chain(ext_groups.updates)
         .collect();
     order_commands_with_priority(&mut updates, &UPDATE_COMMAND_PRIORITY);
@@ -1617,6 +1575,7 @@ const CREATE_COMMAND_PRIORITY: &[&str] = &[
 const UPDATE_COMMAND_PRIORITY: &[&str] = &[
     "variable_update",
     "entity_update",
+    "update_rules",
     "update_function",
     "update_topic",
     "handoff_update",
@@ -1693,6 +1652,46 @@ fn function_entries(projection: &Value) -> HashMap<String, Value> {
     extract_entities_map(projection, &["functions", "functions", "entities"])
 }
 
+fn function_raw_content(function: &Value) -> String {
+    let code = function
+        .get("code")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut content = String::new();
+    if let Some(description) = function.get("description").and_then(Value::as_str)
+        && !description.is_empty()
+    {
+        content.push_str("@func_description(");
+        content.push_str(&python_string_literal(description));
+        content.push_str(")\n");
+    }
+    content.push_str(code);
+    content
+}
+
+fn python_string_literal(value: &str) -> String {
+    let quote = if value.contains('\'') && !value.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::new();
+    out.push(quote);
+    for ch in value.chars() {
+        if ch == '\\' || ch == quote {
+            out.push('\\');
+        }
+        match ch {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(ch),
+        }
+    }
+    out.push(quote);
+    out
+}
+
 fn entity_entries(projection: &Value) -> HashMap<String, Value> {
     extract_entities_map(projection, &["entities", "entities", "entities"])
 }
@@ -1723,6 +1722,86 @@ fn experimental_features(projection: &Value) -> Option<Value> {
             .get("features")?
             .clone(),
     )
+}
+
+fn rules_references_from_projection(projection: &Value) -> Option<RulesReferences> {
+    let references = projection.pointer("/agentSettings/rules/references")?;
+    let refs = RulesReferences {
+        sms: json_bool_map(references.get("sms")),
+        handoff: json_bool_map(references.get("handoff")),
+        attributes: json_bool_map(references.get("attributes")),
+        global_functions: json_bool_map(
+            references
+                .get("globalFunctions")
+                .or_else(|| references.get("global_functions")),
+        ),
+        variables: json_bool_map(references.get("variables")),
+        translations: json_bool_map(references.get("translations")),
+    };
+    if refs.sms.is_empty()
+        && refs.handoff.is_empty()
+        && refs.attributes.is_empty()
+        && refs.global_functions.is_empty()
+        && refs.variables.is_empty()
+        && refs.translations.is_empty()
+    {
+        None
+    } else {
+        Some(refs)
+    }
+}
+
+fn rules_references_from_behaviour(behaviour: &str) -> Option<RulesReferences> {
+    let refs = RulesReferences {
+        sms: extract_template_references(behaviour, "sms"),
+        handoff: extract_template_references(behaviour, "ho"),
+        attributes: extract_template_references(behaviour, "attr"),
+        global_functions: extract_template_references(behaviour, "fn"),
+        variables: extract_template_references(behaviour, "var"),
+        translations: HashMap::new(),
+    };
+    if refs.sms.is_empty()
+        && refs.handoff.is_empty()
+        && refs.attributes.is_empty()
+        && refs.global_functions.is_empty()
+        && refs.variables.is_empty()
+        && refs.translations.is_empty()
+    {
+        None
+    } else {
+        Some(refs)
+    }
+}
+
+fn extract_template_references(behaviour: &str, prefix: &str) -> HashMap<String, bool> {
+    let marker = format!("{{{{{prefix}:");
+    let mut out = HashMap::new();
+    let mut start = 0;
+    while let Some(index) = behaviour[start..].find(&marker) {
+        let value_start = start + index + marker.len();
+        let tail = &behaviour[value_start..];
+        let Some(end) = tail.find("}}") else {
+            break;
+        };
+        let value = tail[..end].trim();
+        if !value.is_empty() {
+            out.insert(value.to_string(), true);
+        }
+        start = value_start + end + 2;
+    }
+    out
+}
+
+fn json_bool_map(value: Option<&Value>) -> HashMap<String, bool> {
+    value
+        .and_then(Value::as_object)
+        .map(|object| {
+            object
+                .iter()
+                .map(|(key, value)| (key.clone(), value.as_bool().unwrap_or(true)))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub(crate) fn extract_entities_map(root: &Value, path: &[&str]) -> HashMap<String, Value> {
@@ -1783,6 +1862,35 @@ pub(crate) fn clean_name(s: &str) -> String {
         .collect::<String>()
 }
 
+fn is_synthetic_local_resource_id(resource_id: &str) -> bool {
+    let trimmed = resource_id.trim();
+    trimmed.is_empty()
+        || trimmed == "local"
+        || trimmed.contains('/')
+        || trimmed.ends_with(".yaml")
+        || trimmed.ends_with(".yml")
+        || trimmed.ends_with(".py")
+}
+
+fn random_resource_id(prefix: &str) -> String {
+    let hex = Uuid::new_v4().simple().to_string();
+    format!("{prefix}-{}", &hex[..8])
+}
+
+fn generated_replay_resource_id(kind: &str, name: &str, path: &str) -> Option<String> {
+    let env_name = format!("POLY_ADK_GENERATED_{}_IDS", kind.to_ascii_uppercase());
+    let mappings = env::var(env_name).ok()?;
+    for raw in mappings.lines() {
+        let Some((key, id)) = raw.split_once('=') else {
+            continue;
+        };
+        if key == name || key == path {
+            return Some(id.to_string());
+        }
+    }
+    None
+}
+
 fn build_entity_create_config(
     entity_type: &str,
     config: Option<&serde_yaml::Value>,
@@ -1839,7 +1947,31 @@ fn build_entity_create_config(
     }
 }
 
+fn function_code_from_local_content(content: &str) -> String {
+    let mut out = String::new();
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if line == "from _gen import *  # <AUTO GENERATED>"
+            || line == "from imports import *  # <AUTO GENERATED>"
+            || trimmed.starts_with("@func_description(")
+            || trimmed.starts_with("@func_parameter(")
+            || trimmed.starts_with("@func_latency_control(")
+        {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if !content.ends_with('\n') && out.ends_with('\n') {
+        out.pop();
+    }
+    out.trim_start_matches('\n').to_string()
+}
+
 fn infer_function_description(code: &str) -> String {
+    if let Some(description) = function_description_decorator(code) {
+        return description;
+    }
     let mut in_docstring = false;
     let mut delimiter = "";
     for raw in code.lines() {
@@ -1876,6 +2008,45 @@ fn infer_function_description(code: &str) -> String {
         }
     }
     String::new()
+}
+
+fn function_description_decorator(code: &str) -> Option<String> {
+    for line in code.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("@func_description(") else {
+            continue;
+        };
+        let arg = rest.strip_suffix(')').unwrap_or(rest).trim();
+        return Some(parse_python_string_literal(arg));
+    }
+    None
+}
+
+fn parse_python_string_literal(value: &str) -> String {
+    let mut chars = value.chars();
+    let Some(quote @ ('\'' | '"')) = chars.next() else {
+        return value.to_string();
+    };
+    let mut out = String::new();
+    let mut escaped = false;
+    for ch in chars {
+        if escaped {
+            match ch {
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                other => out.push(other),
+            }
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == quote {
+            break;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 fn infer_function_parameters(code: &str) -> Vec<FunctionParameterUpdate> {
@@ -2076,450 +2247,118 @@ fn extract_response_commands(response: &Value) -> Vec<Value> {
 }
 
 fn command_to_json_summary(command: &Command) -> Value {
-    serde_json::json!({
+    let mut value = serde_json::json!({
         "type": command.r#type,
         "command_id": command.command_id,
+    });
+    if let Some(metadata) = &command.metadata {
+        value["metadata"] = metadata_to_json(metadata);
+    }
+    if let Some(payload) = &command.payload {
+        match payload {
+            CommandPayload::DeleteFunction(delete) => {
+                value["delete_function"] = serde_json::json!({ "id": delete.id });
+            }
+            CommandPayload::CreateTopic(topic) => {
+                value["create_topic"] = create_topic_to_json(topic);
+            }
+            CommandPayload::UpdateRules(update) => {
+                value["update_rules"] = rules_update_to_json(update);
+            }
+            _ => {}
+        }
+    }
+    value
+}
+
+fn metadata_to_json(metadata: &Metadata) -> Value {
+    let created_at = metadata
+        .created_at
+        .as_ref()
+        .map(|timestamp| format!("{}.{:09}Z", timestamp.seconds, timestamp.nanos))
+        .unwrap_or_default();
+    serde_json::json!({
+        "created_at": created_at,
+        "created_by": metadata.created_by,
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn builds_create_topic_command_when_remote_missing() {
-        let mut resources = ResourceMap::new();
-        resources.insert(
-            "topics/sample.yaml".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "sample".to_string(),
-                file_path: "topics/sample.yaml".to_string(),
-                payload: serde_json::json!({
-                    "content": "name: sample\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
-                }),
-            },
-        );
-        let projection = serde_json::json!({});
-        let commands = build_phase1_commands(&resources, &projection);
-        assert_eq!(commands.len(), 1);
-        assert_eq!(commands[0].r#type, "create_topic");
-        assert!(commands[0].metadata.is_some());
-        assert!(matches!(
-            commands[0].payload,
-            Some(CommandPayload::CreateTopic(_))
-        ));
+fn rules_update_to_json(update: &RulesUpdateRules) -> Value {
+    let mut value = serde_json::Map::new();
+    if let Some(behaviour) = &update.behaviour {
+        value.insert("behaviour".to_string(), Value::String(behaviour.clone()));
     }
-
-    #[test]
-    fn create_topic_uses_local_resource_id_before_synthetic_fallback() {
-        let mut resources = ResourceMap::new();
-        resources.insert(
-            "topics/sample.yaml".to_string(),
-            Resource {
-                resource_id: "TOPIC-custom-id".to_string(),
-                name: "sample".to_string(),
-                file_path: "topics/sample.yaml".to_string(),
-                payload: serde_json::json!({
-                    "content": "name: sample\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
-                }),
-            },
-        );
-        let projection = serde_json::json!({});
-        let commands = build_phase1_commands(&resources, &projection);
-        let create_cmd = commands
-            .iter()
-            .find(|c| c.r#type == "create_topic")
-            .expect("create topic command");
-        match &create_cmd.payload {
-            Some(CommandPayload::CreateTopic(msg)) => assert_eq!(msg.id, "TOPIC-custom-id"),
-            other => panic!("unexpected payload: {other:?}"),
+    if let Some(references) = &update.references {
+        let references_json = rules_references_to_json(references);
+        if references_json
+            .as_object()
+            .map(|object| !object.is_empty())
+            .unwrap_or(false)
+        {
+            value.insert("references".to_string(), references_json);
         }
     }
-
-    #[test]
-    fn push_commands_can_use_supplied_projection_and_actor() {
-        let client = HttpPlatformClient {
-            client: reqwest::blocking::Client::new(),
-            base_url: "http://localhost".to_string(),
-            api_key: "test-key".to_string(),
-            account_id: "test-account".to_string(),
-            project_id: "test-project".to_string(),
-            branch_id: "main".to_string(),
-        };
-        let mut resources = ResourceMap::new();
-        resources.insert(
-            "topics/sample.yaml".to_string(),
-            Resource {
-                resource_id: "topic-1".to_string(),
-                name: "sample".to_string(),
-                file_path: "topics/sample.yaml".to_string(),
-                payload: serde_json::json!({
-                    "content": "name: sample\nenabled: true\nactions: \"\"\ncontent: \"local\"\nexample_queries: []\n"
-                }),
-            },
-        );
-        let projection = serde_json::json!({
-            "knowledgeBase": {
-                "topics": {
-                    "entities": {
-                        "topic-1": {
-                            "name": "sample",
-                            "isActive": true,
-                            "actions": "",
-                            "content": "remote",
-                            "exampleQueries": []
-                        }
-                    }
-                }
-            }
-        });
-
-        let (commands, last_known_sequence) = client
-            .build_push_commands_with_options(
-                &resources,
-                Some(&projection),
-                Some("reviewer@example.com"),
-            )
-            .expect("build commands");
-
-        assert_eq!(last_known_sequence, 0);
-        assert_eq!(commands.len(), 1);
-        assert_eq!(commands[0].r#type, "update_topic");
-        assert_eq!(
-            commands[0].metadata.as_ref().map(|m| m.created_by.as_str()),
-            Some("reviewer@example.com")
-        );
-    }
-
-    #[test]
-    fn push_no_changes_uses_python_failure_contract() {
-        let client = HttpPlatformClient {
-            client: reqwest::blocking::Client::new(),
-            base_url: "http://localhost".to_string(),
-            api_key: "test-key".to_string(),
-            account_id: "test-account".to_string(),
-            project_id: "test-project".to_string(),
-            branch_id: "main".to_string(),
-        };
-        let resources = ResourceMap::new();
-        let projection = serde_json::json!({});
-
-        let result = client
-            .push_resources_with_options(&resources, Some(&projection), None)
-            .expect("push result");
-
-        assert!(!result.success);
-        assert_eq!(result.message, "No changes detected");
-        assert!(result.commands.is_empty());
-    }
-
-    #[test]
-    fn builds_delete_topic_command_when_local_removed() {
-        let resources = ResourceMap::new();
-        let projection = serde_json::json!({
-            "knowledgeBase": {
-                "topics": {
-                    "entities": {
-                        "topic-1": {
-                            "name": "sample",
-                            "actions": "",
-                            "content": "hello"
-                        }
-                    }
-                }
-            }
-        });
-        let commands = build_phase1_commands(&resources, &projection);
-        assert_eq!(commands.len(), 1);
-        assert_eq!(commands[0].r#type, "delete_topic");
-        assert!(matches!(
-            commands[0].payload,
-            Some(CommandPayload::DeleteTopic(_))
-        ));
-    }
-
-    #[test]
-    fn update_function_uses_remote_metadata_when_available() {
-        let mut resources = ResourceMap::new();
-        resources.insert(
-            "functions/test.py".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "test".to_string(),
-                file_path: "functions/test.py".to_string(),
-                payload: serde_json::json!({
-                    "content": "def test(conv):\n    return 'ok'\n"
-                }),
-            },
-        );
-        let projection = serde_json::json!({
-            "functions": {
-                "functions": {
-                    "entities": {
-                        "fn-1": {
-                            "name": "test",
-                            "description": "Remote description",
-                            "parameters": [{"id": "p1", "name": "customer", "description": "Customer id", "type": "string"}],
-                            "errors": [{"lineno": 2, "message": "bad", "text": "raise"}],
-                            "archived": true
-                        }
-                    }
-                }
-            }
-        });
-        let commands = build_phase1_commands(&resources, &projection);
-        let update = commands
-            .iter()
-            .find(|c| c.r#type == "update_function")
-            .expect("update function command");
-        match &update.payload {
-            Some(CommandPayload::UpdateFunction(msg)) => {
-                assert_eq!(msg.description.as_deref(), Some("Remote description"));
-                assert!(
-                    msg.parameters
-                        .as_ref()
-                        .is_some_and(|p| !p.parameters.is_empty())
-                );
-                assert!(msg.errors.as_ref().is_some_and(|e| !e.errors.is_empty()));
-                assert_eq!(msg.archived, Some(true));
-            }
-            other => panic!("unexpected payload: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn create_function_infers_description_and_parameters_from_code() {
-        let mut resources = ResourceMap::new();
-        resources.insert(
-            "functions/new_func.py".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "new_func".to_string(),
-                file_path: "functions/new_func.py".to_string(),
-                payload: serde_json::json!({
-                    "content": "def new_func(name, age=0):\n    \"\"\"Create greeting.\"\"\"\n    return f'Hi {name}'\n"
-                }),
-            },
-        );
-        let commands = build_phase1_commands(&resources, &serde_json::json!({}));
-        let create = commands
-            .iter()
-            .find(|c| c.r#type == "create_function")
-            .expect("create function command");
-        match &create.payload {
-            Some(CommandPayload::CreateFunction(msg)) => {
-                assert_eq!(msg.description, "Create greeting.");
-                assert_eq!(msg.parameters.len(), 2);
-            }
-            other => panic!("unexpected payload: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn phase1_plus_extended_appends_variable_commands() {
-        let mut resources = ResourceMap::new();
-        resources.insert(
-            "topics/sample.yaml".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "sample".to_string(),
-                file_path: "topics/sample.yaml".to_string(),
-                payload: serde_json::json!({
-                    "content": "name: sample\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
-                }),
-            },
-        );
-        resources.insert(
-            "variables/MyVar".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "MyVar".to_string(),
-                file_path: "variables/MyVar".to_string(),
-                payload: serde_json::json!({ "content": "" }),
-            },
-        );
-        let projection = serde_json::json!({});
-        let commands = build_phase1_commands(&resources, &projection);
-        let types: Vec<&str> = commands.iter().map(|c| c.r#type.as_str()).collect();
-        assert!(types.contains(&"create_topic"));
-        assert!(types.contains(&"variable_create"));
-    }
-
-    #[test]
-    fn phase1_and_extended_follow_global_delete_create_update_order() {
-        let mut resources = ResourceMap::new();
-        resources.insert(
-            "topics/new.yaml".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "new".to_string(),
-                file_path: "topics/new.yaml".to_string(),
-                payload: serde_json::json!({
-                    "content": "name: new\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
-                }),
-            },
-        );
-        resources.insert(
-            "topics/create_only.yaml".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "create_only".to_string(),
-                file_path: "topics/create_only.yaml".to_string(),
-                payload: serde_json::json!({
-                    "content": "name: create_only\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
-                }),
-            },
-        );
-        resources.insert(
-            "variables/NewVar".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "NewVar".to_string(),
-                file_path: "variables/NewVar".to_string(),
-                payload: serde_json::json!({"content": ""}),
-            },
-        );
-        resources.insert(
-            "variables/FreshVar".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "FreshVar".to_string(),
-                file_path: "variables/FreshVar".to_string(),
-                payload: serde_json::json!({"content": "{\"name\":\"FreshVar\"}"}),
-            },
-        );
-        let projection = serde_json::json!({
-            "knowledgeBase": {"topics": {"entities": {"topic-old": {"name": "old"}}}},
-            "variables": {"variables": {"entities": {"vrbl-old": {"name": "OldVar"}}}}
-        });
-        let commands = build_phase1_commands(&resources, &projection);
-        let types: Vec<&str> = commands.iter().map(|c| c.r#type.as_str()).collect();
-        let delete_topic_idx = types
-            .iter()
-            .position(|t| *t == "delete_topic")
-            .expect("delete_topic");
-        let variable_delete_idx = types
-            .iter()
-            .position(|t| *t == "variable_delete")
-            .expect("variable_delete");
-        let create_topic_idx = types
-            .iter()
-            .position(|t| *t == "create_topic")
-            .expect("create_topic");
-        let variable_create_idx = types
-            .iter()
-            .position(|t| *t == "variable_create")
-            .expect("variable_create");
-        assert!(delete_topic_idx < create_topic_idx);
-        assert!(variable_delete_idx < variable_create_idx);
-        assert!(delete_topic_idx < variable_create_idx);
-    }
-
-    #[test]
-    fn queue_prioritizes_variable_commands_across_all_phases() {
-        let mut resources = ResourceMap::new();
-        resources.insert(
-            "topics/new.yaml".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "new".to_string(),
-                file_path: "topics/new.yaml".to_string(),
-                payload: serde_json::json!({
-                    "content": "name: new\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
-                }),
-            },
-        );
-        resources.insert(
-            "variables/NewVar".to_string(),
-            Resource {
-                resource_id: "local".to_string(),
-                name: "NewVar".to_string(),
-                file_path: "variables/NewVar".to_string(),
-                payload: serde_json::json!({"content": "{\"name\":\"NewVar\"}"}),
-            },
-        );
-        let projection = serde_json::json!({
-            "knowledgeBase": {"topics": {"entities": {"topic-old": {"name": "old"}, "topic-new": {"name": "new"}}}},
-            "variables": {"variables": {"entities": {"vrbl-old": {"name": "OldVar"}, "vrbl-keep": {"name": "NewVar"}}}}
-        });
-        let commands = build_phase1_commands(&resources, &projection);
-        let types: Vec<&str> = commands.iter().map(|c| c.r#type.as_str()).collect();
-        let variable_delete_idx = types
-            .iter()
-            .position(|t| *t == "variable_delete")
-            .expect("variable_delete");
-        let topic_delete_idx = types
-            .iter()
-            .position(|t| *t == "delete_topic")
-            .expect("delete_topic");
-        let variable_update_idx = types
-            .iter()
-            .position(|t| *t == "variable_update")
-            .expect("variable_update");
-        let topic_update_idx = types
-            .iter()
-            .position(|t| *t == "update_topic")
-            .expect("update_topic");
-        assert!(variable_delete_idx < topic_delete_idx);
-        assert!(variable_update_idx < topic_update_idx);
-    }
-
-    #[test]
-    fn projection_to_resource_map_includes_extended_resource_files() {
-        let projection = serde_json::json!({
-            "variables": {"variables": {"entities": {"vrbl-1": {"name": "MyVar"}}}},
-            "entities": {"entities": {"entities": {"ent-1": {"name": "Age", "description": "age", "type": "numeric", "numberConfig": {"min": 1, "max": 120}}}}},
-            "handoff": {"handoffs": {"entities": {"ho-1": {"name": "Sales", "description": "to sales", "active": true, "isDefault": true, "sipConfig": {"invite": {"phoneNumber": "+1555", "outboundEndpoint": "trunk", "outboundEncryption": "tls"}}, "sipHeaders": {"headers": [{"key": "X-Test", "value": "1"}]}}}}},
-            "sms": {"templates": {"entities": {"twilio_sms-1": {"name": "Welcome", "text": "hi", "active": true, "envPhoneNumbers": {"sandbox": "+1", "preRelease": "+2", "live": "+3"}}}}},
-            "stopKeywords": {"filters": {"entities": {"sk-1": {"title": "HangUp", "description": "end", "regularExpressions": ["^bye$"], "sayPhrase": false, "languageCode": "en-US"}}}},
-            "experimentalConfig": {"experimentalConfigs": {"entities": {"default": {"features": {"foo": true}}}}}
-        });
-        let map = projection_to_resource_map(&projection).expect("map");
-        assert!(map.contains_key("variables/MyVar"));
-        assert!(map.contains_key("config/entities.yaml"));
-        assert!(map.contains_key("config/handoffs.yaml"));
-        assert!(map.contains_key("config/sms_templates.yaml"));
-        assert!(map.contains_key("voice/response_control/phrase_filtering.yaml"));
-        assert!(map.contains_key("agent_settings/experimental_config.json"));
-        let variable_content = map
-            .get("variables/MyVar")
-            .and_then(|r| r.payload.get("content"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        assert!(variable_content.contains("\"name\": \"MyVar\""));
-        let entities_content = map
-            .get("config/entities.yaml")
-            .and_then(|r| r.payload.get("content"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        assert!(entities_content.contains("min: 1"));
-        assert!(entities_content.contains("max: 120"));
-        let handoff_content = map
-            .get("config/handoffs.yaml")
-            .and_then(|r| r.payload.get("content"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        assert!(handoff_content.contains("method: invite"));
-        assert!(handoff_content.contains("phone_number: '+1555'"));
-        assert!(handoff_content.contains("key: X-Test"));
-    }
-
-    #[test]
-    fn extract_response_commands_reads_common_response_shapes() {
-        let direct = serde_json::json!({
-            "commands": [{"type": "create_topic"}]
-        });
-        assert_eq!(extract_response_commands(&direct).len(), 1);
-
-        let nested_batch = serde_json::json!({
-            "commandBatch": {"commands": [{"type": "delete_topic"}]}
-        });
-        assert_eq!(extract_response_commands(&nested_batch).len(), 1);
-
-        let nested_result = serde_json::json!({
-            "result": {"commands": [{"type": "update_topic"}]}
-        });
-        assert_eq!(extract_response_commands(&nested_result).len(), 1);
-    }
+    Value::Object(value)
 }
+
+fn create_topic_to_json(topic: &KnowledgeBaseCreateTopic) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert("id".to_string(), Value::String(topic.id.clone()));
+    value.insert("name".to_string(), Value::String(topic.name.clone()));
+    value.insert("content".to_string(), Value::String(topic.content.clone()));
+    value.insert("actions".to_string(), Value::String(topic.actions.clone()));
+    if let Some(example_queries) = &topic.example_queries {
+        value.insert(
+            "example_queries".to_string(),
+            serde_json::json!({ "queries": example_queries.queries.clone() }),
+        );
+    }
+    value.insert(
+        "references".to_string(),
+        topic
+            .references
+            .as_ref()
+            .map(topic_references_to_json)
+            .unwrap_or_else(|| Value::Object(serde_json::Map::new())),
+    );
+    if let Some(is_active) = topic.is_active {
+        value.insert("is_active".to_string(), Value::Bool(is_active));
+    }
+    Value::Object(value)
+}
+
+fn topic_references_to_json(references: &TopicReferences) -> Value {
+    let mut value = serde_json::Map::new();
+    insert_bool_map(&mut value, "sms", &references.sms);
+    insert_bool_map(&mut value, "handoff", &references.handoff);
+    insert_bool_map(&mut value, "attributes", &references.attributes);
+    insert_bool_map(&mut value, "globalFunctions", &references.global_functions);
+    insert_bool_map(&mut value, "variables", &references.variables);
+    insert_bool_map(&mut value, "translations", &references.translations);
+    Value::Object(value)
+}
+
+fn rules_references_to_json(references: &RulesReferences) -> Value {
+    let mut value = serde_json::Map::new();
+    insert_bool_map(&mut value, "sms", &references.sms);
+    insert_bool_map(&mut value, "handoff", &references.handoff);
+    insert_bool_map(&mut value, "attributes", &references.attributes);
+    insert_bool_map(&mut value, "globalFunctions", &references.global_functions);
+    insert_bool_map(&mut value, "variables", &references.variables);
+    insert_bool_map(&mut value, "translations", &references.translations);
+    Value::Object(value)
+}
+
+fn insert_bool_map(
+    target: &mut serde_json::Map<String, Value>,
+    key: &str,
+    source: &HashMap<String, bool>,
+) {
+    if source.is_empty() {
+        return;
+    }
+    target.insert(key.to_string(), serde_json::json!(source));
+}
+
+#[cfg(test)]
+mod tests;

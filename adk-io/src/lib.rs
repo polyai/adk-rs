@@ -16,7 +16,13 @@ pub fn compute_hash(content: &str) -> String {
 
 pub fn diff_text(before: &str, after: &str) -> String {
     let diff = TextDiff::from_lines(before, after);
-    diff.unified_diff().to_string()
+    format!("--- original\n+++ updated\n{}", diff.unified_diff())
+        .lines()
+        .filter(|line| *line != "\\ No newline at end of file")
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim_end_matches('\n')
+        .to_string()
 }
 
 pub fn diff_resources(before: &ResourceMap, after: &ResourceMap) -> DiffMap {
@@ -25,19 +31,20 @@ pub fn diff_resources(before: &ResourceMap, after: &ResourceMap) -> DiffMap {
     all_paths.extend(before.keys().cloned());
     all_paths.extend(after.keys().cloned());
     for path in all_paths {
-        let resource = after.get(&path);
-        let new_payload = resource
-            .and_then(|r| serde_json::to_string_pretty(&r.payload).ok())
-            .unwrap_or_default();
-        let old_payload = before
-            .get(&path)
-            .and_then(|r| serde_json::to_string_pretty(&r.payload).ok())
-            .unwrap_or_default();
-        if old_payload != new_payload {
-            out.insert(path, diff_text(&old_payload, &new_payload));
+        let after_content = resource_content(after.get(&path));
+        let before_content = resource_content(before.get(&path));
+        if before_content != after_content {
+            out.insert(path, diff_text(&before_content, &after_content));
         }
     }
     out
+}
+
+fn resource_content(resource: Option<&adk_domain::Resource>) -> String {
+    resource
+        .and_then(|r| r.payload.get("content").and_then(|v| v.as_str()))
+        .unwrap_or_default()
+        .to_string()
 }
 
 pub fn parse_multi_resource_path(path: &str) -> (String, Option<String>) {

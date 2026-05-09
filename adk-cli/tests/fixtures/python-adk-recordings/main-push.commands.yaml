@@ -1,0 +1,104 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- This manifest records Python ADK push behavior from a main checkout.
+- Python ADK persists the edit by creating and switching to an ADK branch; it does
+  not merge that edit into main.
+httpmock_recording: main-push.httpmock.yaml
+workflows:
+- name: push_from_main
+  description: Initialize main, edit rules.txt, push from the main checkout, then verify local status is clean.
+  mutates_real_server: true
+  cleanup: []
+  steps:
+  - kind: command
+    name: init real project before direct main push
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: append push-from-main edit
+    operation: append_text
+    path: agent_settings/rules.txt
+    content: ${MAIN_PUSH_TEXT}
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: status before push from main
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/rules.txt
+      new_files: []
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push from main checkout
+    argv:
+    - poly
+    - push
+    - --json
+    - --force
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      dry_run: false
+      message: Resources pushed successfully.
+      new_branch_id: BRANCH-GQJGVBM3
+      success: true
+      switched_to: ADK-64390-accc
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: status after push from main
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files: []
+      new_files: []
+    stdout: null
+    stderr: ''

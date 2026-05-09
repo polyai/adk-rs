@@ -1,21 +1,20 @@
+//! Cheap checks for the saved Python ADK recording fixtures.
+//!
+//! This test does not run the Rust CLI against the recordings. The ignored
+//! `record_python_adk_httpmock_fixtures_test` target regenerates them; the
+//! `replay_python_adk_httpmock_fixtures_test` target exercises Rust against the
+//! saved cassettes.
+
+mod support;
+
 use serde_yaml::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
-
-const RECORDING_FIXTURE_DIR: &str = "tests/fixtures/python-adk-recordings";
-const SCENARIOS: &[&str] = &[
-    "basic-readonly",
-    "branch-update-push",
-    "create-delete-dryrun",
-    "dirty-switch",
-    "pull-conflict",
-    "revert-local",
-    "validation-errors",
-];
+use std::path::Path;
+use support::python_recordings::{SCENARIOS, fixture_dir};
 
 #[test]
-fn python_adk_recording_fixtures_are_complete_and_portable() {
-    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(RECORDING_FIXTURE_DIR);
+fn saved_python_adk_recording_fixtures_are_complete_and_portable() {
+    let fixture_dir = fixture_dir();
     for scenario in SCENARIOS {
         let commands_path = fixture_dir.join(format!("{scenario}.commands.yaml"));
         let httpmock_path = fixture_dir.join(format!("{scenario}.httpmock.yaml"));

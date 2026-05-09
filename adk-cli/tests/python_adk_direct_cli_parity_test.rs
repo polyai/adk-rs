@@ -1,21 +1,16 @@
-use std::process::Command;
-use std::{
-    fs,
-    time::{SystemTime, UNIX_EPOCH},
-};
+//! Direct Python ADK vs Rust CLI parity checks for small local command contracts.
+//!
+//! These tests spawn both CLIs directly. They do not record HTTP traffic and do
+//! not replay the saved httpmock cassettes.
 
-fn run_rust(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_poly"))
-        .env_remove("POLY_ADK_KEY")
-        .env("POLY_ADK_ALLOW_INMEMORY_FALLBACK", "1")
-        .args(args)
-        .output()
-        .expect("run rust cli")
-}
+mod support;
+
+use std::process::Command;
+use support::cli::{make_temp_project_dir as support_temp_project_dir, run_poly_offline};
+use support::python_recordings::python_adk_bin;
 
 fn run_python_poly(args: &[&str]) -> Option<std::process::Output> {
-    let poly = std::env::var("PYTHON_ADK_BIN").unwrap_or_else(|_| "poly".to_string());
-    let mut command = Command::new(poly);
+    let mut command = Command::new(python_adk_bin());
     if let Ok(cwd) = std::env::var("PYTHON_ADK_CWD") {
         command.current_dir(cwd);
     }
@@ -23,19 +18,12 @@ fn run_python_poly(args: &[&str]) -> Option<std::process::Output> {
     Some(output)
 }
 
+fn run_rust(args: &[&str]) -> std::process::Output {
+    run_poly_offline(args)
+}
+
 fn make_temp_project_dir() -> String {
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("adk-rs-parity-{ts}"));
-    fs::create_dir_all(&dir).expect("mkdir");
-    fs::write(
-        dir.join("project.yaml"),
-        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
-    )
-    .expect("write config");
-    dir.to_string_lossy().to_string()
+    support_temp_project_dir("adk-rs-parity")
 }
 
 #[test]

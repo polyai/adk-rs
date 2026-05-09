@@ -1,61 +1,27 @@
-use std::process::Command;
-use std::{
-    fs,
-    time::{SystemTime, UNIX_EPOCH},
+mod support;
+
+use std::fs;
+use support::cli::{
+    make_temp_invalid_yaml_project_dir as support_temp_invalid_yaml_project_dir,
+    make_temp_project_dir as support_temp_project_dir,
+    make_temp_unformatted_json_project_dir as support_temp_unformatted_json_project_dir,
+    run_poly_offline, run_poly_without_fallback,
 };
 
 fn run_poly(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_poly"))
-        .env_remove("POLY_ADK_KEY")
-        .env_remove("GITHUB_ACCESS_TOKEN")
-        .env("POLY_ADK_ALLOW_INMEMORY_FALLBACK", "1")
-        .args(args)
-        .output()
-        .expect("failed to execute poly")
-}
-
-fn run_poly_without_fallback(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_poly"))
-        .env_remove("POLY_ADK_KEY")
-        .env_remove("GITHUB_ACCESS_TOKEN")
-        .env_remove("POLY_ADK_ALLOW_INMEMORY_FALLBACK")
-        .args(args)
-        .output()
-        .expect("failed to execute poly")
+    run_poly_offline(args)
 }
 
 fn make_temp_project_dir() -> String {
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("adk-rs-cli-test-{ts}"));
-    fs::create_dir_all(&dir).expect("mkdir");
-    fs::write(
-        dir.join("project.yaml"),
-        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
-    )
-    .expect("write config");
-    dir.to_string_lossy().to_string()
+    support_temp_project_dir("adk-rs-cli-test")
 }
 
 fn make_temp_invalid_yaml_project_dir() -> String {
-    let dir = make_temp_project_dir();
-    let p = std::path::PathBuf::from(&dir);
-    fs::create_dir_all(p.join("topics")).expect("mkdir topics");
-    fs::write(
-        p.join("topics/bad.yaml"),
-        "name: bad\ncontent: [unterminated\n",
-    )
-    .expect("write invalid yaml");
-    dir
+    support_temp_invalid_yaml_project_dir("adk-rs-cli-test")
 }
 
 fn make_temp_unformatted_json_project_dir() -> String {
-    let dir = make_temp_project_dir();
-    let p = std::path::PathBuf::from(&dir);
-    fs::write(p.join("sample.json"), "{\"b\":2,\"a\":1}").expect("write unformatted json");
-    dir
+    support_temp_unformatted_json_project_dir("adk-rs-cli-test")
 }
 
 fn sample_projection_json() -> &'static str {
@@ -249,15 +215,19 @@ fn review_subcommands_accept_json_after_subcommand() {
 fn validate_json_reports_parse_errors() {
     let project_dir = make_temp_invalid_yaml_project_dir();
     let output = run_poly(&["validate", "--json", "--path", &project_dir]);
-    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.status.code(), Some(1));
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert_eq!(payload.get("valid").and_then(|v| v.as_bool()), Some(false));
-    let errors = payload
-        .get("errors")
-        .and_then(|v| v.as_array())
-        .expect("errors array");
-    assert!(!errors.is_empty(), "expected validation errors");
+    assert_eq!(
+        payload.get("success").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    let error = payload
+        .get("error")
+        .and_then(|v| v.as_str())
+        .expect("error string");
+    assert!(error.contains("Error reading resource bad at"));
+    assert!(error.contains("Error loading YAML file:"));
 }
 
 #[test]

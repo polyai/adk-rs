@@ -5,9 +5,20 @@ use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Generator, Shell};
 use serde_json::json;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::PathBuf;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+mod docs;
+mod review;
+
+use docs::cmd_docs;
+use review::{
+    emit_review_message, github_create_review_gist, github_delete_review_gist,
+    github_list_diff_gists, prompt_delete_review_gists, prompt_open_review_gist,
+    review_description,
+};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -49,28 +60,9 @@ struct DocsArgs {
     output: Option<String>,
     #[arg(long, action = ArgAction::SetTrue)]
     verbose: bool,
-    #[arg(value_parser = clap::builder::PossibleValuesParser::new(DOC_CHOICES))]
+    #[arg(value_parser = clap::builder::PossibleValuesParser::new(docs::DOC_CHOICES))]
     documents: Vec<String>,
 }
-
-const DOC_CHOICES: &[&str] = &[
-    "agent_settings",
-    "api_integrations",
-    "chat_settings",
-    "entities",
-    "experimental_config",
-    "flows",
-    "functions",
-    "handoffs",
-    "response_control",
-    "safety_filters",
-    "sms",
-    "speech_recognition",
-    "topics",
-    "variables",
-    "variants",
-    "voice_settings",
-];
 
 #[derive(Debug, clap::Args)]
 struct InitArgs {
@@ -503,17 +495,11 @@ fn run() -> Result<ExitCode> {
             cmd_revert(&service, args)
         }
         Commands::Diff(args) => {
-            let needs_remote = args.hash.is_some() || args.before.is_some() || args.after.is_some();
-            if needs_remote {
-                let Some(service) =
-                    remote_service_for_path(&bootstrap_service, &args.path, args.json)
-                else {
-                    return Ok(ExitCode::from(1));
-                };
-                cmd_diff(&service, args)
-            } else {
-                cmd_diff(&local_service(), args)
-            }
+            let Some(service) = remote_service_for_path(&bootstrap_service, &args.path, args.json)
+            else {
+                return Ok(ExitCode::from(1));
+            };
+            cmd_diff(&service, args)
         }
         Commands::Review(args) => cmd_review(args),
         Commands::Branch(args) => cmd_branch(args),
@@ -535,55 +521,6 @@ fn run() -> Result<ExitCode> {
     Ok(result)
 }
 
-fn cmd_docs(args: DocsArgs) -> ExitCode {
-    let mut doc_names: Vec<&str> = Vec::new();
-    if args.documents.is_empty() && !args.all {
-        doc_names.push("docs");
-    } else if args.all {
-        doc_names.push("docs");
-        doc_names.extend(DOC_CHOICES.iter().copied());
-    } else {
-        doc_names.extend(args.documents.iter().map(String::as_str));
-    }
-
-    let mut parts = Vec::new();
-    for doc_name in doc_names {
-        match load_docs(doc_name) {
-            Ok(content) => parts.push(content),
-            Err(error) => {
-                eprintln!("{error}");
-                return ExitCode::from(1);
-            }
-        }
-    }
-    let content = parts.join("\n\n");
-    if let Some(output) = args.output {
-        let output_arg = PathBuf::from(output);
-        let output_path = if output_arg.is_absolute() {
-            output_arg
-        } else {
-            std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join(output_arg)
-        };
-        if let Some(parent) = output_path.parent()
-            && let Err(error) = fs::create_dir_all(parent)
-        {
-            eprintln!("{error}");
-            return ExitCode::from(1);
-        }
-        if let Err(error) = fs::write(&output_path, content) {
-            eprintln!("{error}");
-            return ExitCode::from(1);
-        }
-        println!("Documentation written to {}", output_path.to_string_lossy());
-        ExitCode::SUCCESS
-    } else {
-        println!("{content}");
-        ExitCode::SUCCESS
-    }
-}
-
 fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
     let json_mode = args.json || args.output_json_projection;
     let projection_json = match parse_optional_json_arg(args.from_projection.as_deref()) {
@@ -596,20 +533,39 @@ fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
     match (args.region, args.account_id, args.project_id) {
         (Some(region), Some(account_id), Some(project_id)) => {
             let base = PathBuf::from(args.base_path);
-            match service.init_project(&base, region, account_id, project_id) {
+            match service.init_project(&base, region.clone(), account_id.clone(), project_id.clone()) {
                 Ok(project) => {
                     let root_path = base.join(&project.account_id).join(&project.project_id);
+                    let mut output_projection = projection_json.clone();
                     if let Some(projection) = &projection_json
                         && let Err(error) = pull_projection_into_path(&root_path, projection, true)
                     {
                         emit_error(json_mode, &error);
                         return ExitCode::from(1);
+                    } else if projection_json.is_none()
+                        && let Ok(http_client) =
+                            HttpPlatformClient::new(&region, &account_id, &project_id, Some("main"))
+                    {
+                        let remote_service = AdkService::new(Box::new(http_client));
+                        if args.output_json_projection {
+                            match remote_service.pull_projection_json() {
+                                Ok(projection) => output_projection = Some(projection),
+                                Err(error) => {
+                                    emit_error(json_mode, &error.to_string());
+                                    return ExitCode::from(1);
+                                }
+                            }
+                        }
+                        if let Err(error) = remote_service.pull(root_path.as_path(), true) {
+                            emit_error(json_mode, &error.to_string());
+                            return ExitCode::from(1);
+                        }
                     }
                     if json_mode {
                         let mut payload = json!({"success": true, "root_path": root_path});
                         if args.output_json_projection {
                             payload["projection"] =
-                                projection_json.clone().unwrap_or(serde_json::Value::Null);
+                                output_projection.unwrap_or(serde_json::Value::Null);
                         }
                         println!(
                             "{}",
@@ -653,9 +609,19 @@ fn cmd_pull(service: &AdkService, args: PullArgs) -> ExitCode {
         }
     };
     let path = PathBuf::from(&args.path);
+    let mut output_projection = projection_json.clone();
     let pull_result = if let Some(projection) = &projection_json {
         pull_projection_into_path(path.as_path(), projection, args.force)
     } else {
+        if args.output_json_projection {
+            match service.pull_projection_json() {
+                Ok(projection) => output_projection = Some(projection),
+                Err(error) => {
+                    emit_error(args.json || args.output_json_projection, &error.to_string());
+                    return ExitCode::from(1);
+                }
+            }
+        }
         service
             .pull(path.as_path(), args.force)
             .map_err(|error| error.to_string())
@@ -666,8 +632,7 @@ fn cmd_pull(service: &AdkService, args: PullArgs) -> ExitCode {
                 let mut payload =
                     json!({"success": conflicts.is_empty(), "files_with_conflicts": conflicts});
                 if args.output_json_projection {
-                    payload["projection"] =
-                        projection_json.clone().unwrap_or(serde_json::Value::Null);
+                    payload["projection"] = output_projection.unwrap_or(serde_json::Value::Null);
                 }
                 println!(
                     "{}",
@@ -708,6 +673,54 @@ fn cmd_push(service: &AdkService, args: PushArgs) -> ExitCode {
         emit_error(json_mode, &error.to_string());
         return ExitCode::from(1);
     }
+    let current_branch = match service.current_branch(path.as_path()) {
+        Ok(branch) => branch,
+        Err(error) => {
+            emit_error(json_mode, &error.to_string());
+            return ExitCode::from(1);
+        }
+    };
+    if current_branch == "main" && !args.dry_run && projection_json.is_none() {
+        let branch_name = generated_adk_branch_name();
+        match service.push_main_to_new_branch(
+            path.as_path(),
+            &branch_name,
+            args.force,
+            args.skip_validation,
+            args.email.as_deref(),
+        ) {
+            Ok((cfg, push_result)) => {
+                if args.json || args.output_json_commands {
+                    let mut payload = json!({
+                        "success": push_result.success,
+                        "message": push_result.message,
+                        "dry_run": false,
+                    });
+                    if args.output_json_commands {
+                        payload["commands"] = json!(push_result.commands);
+                    }
+                    if push_result.success {
+                        payload["new_branch_id"] = json!(cfg.branch_id);
+                        payload["switched_to"] = json!(branch_name);
+                    }
+                    println!("{payload}");
+                } else if push_result.success {
+                    println!("Push successful.");
+                } else {
+                    eprintln!("{}", push_result.message);
+                }
+                return if push_result.success {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::from(1)
+                };
+            }
+            Err(error) => {
+                emit_error(json_mode, &error.to_string());
+                return ExitCode::from(1);
+            }
+        }
+    }
     match service.push_with_options(
         path.as_path(),
         args.force,
@@ -718,14 +731,17 @@ fn cmd_push(service: &AdkService, args: PushArgs) -> ExitCode {
     ) {
         Ok(push_result) => {
             if args.json || args.output_json_commands {
+                let mut payload = json!({
+                    "success": push_result.success,
+                    "message": push_result.message,
+                    "dry_run": args.dry_run,
+                });
+                if args.output_json_commands {
+                    payload["commands"] = json!(push_result.commands);
+                }
                 println!(
                     "{}",
-                    json!({
-                        "success": push_result.success,
-                        "message": push_result.message,
-                        "dry_run": args.dry_run,
-                        "commands": if args.output_json_commands { Some(push_result.commands) } else { None }
-                    })
+                    payload
                 );
             } else if push_result.success {
                 println!("Push successful.");
@@ -745,20 +761,35 @@ fn cmd_push(service: &AdkService, args: PushArgs) -> ExitCode {
     }
 }
 
+fn generated_adk_branch_name() -> String {
+    if let Ok(name) = std::env::var("POLY_ADK_GENERATED_BRANCH_NAME")
+        && !name.trim().is_empty()
+    {
+        return name;
+    }
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or(0);
+    let suffix = format!("{:09x}", nanos & 0xfffffffff);
+    format!("ADK-{}-{}", &suffix[..5], &suffix[5..9])
+}
+
 fn cmd_status(service: &AdkService, args: StatusArgs) -> ExitCode {
     if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
     }
-    match service.status(PathBuf::from(args.path).as_path()) {
+    let root = PathBuf::from(&args.path);
+    match service.status(root.as_path()) {
         Ok(summary) => {
             if args.json {
                 println!(
                     "{}",
                     json!({
-                        "files_with_conflicts": summary.files_with_conflicts,
-                        "modified_files": summary.modified_files,
-                        "new_files": summary.new_files,
-                        "deleted_files": summary.deleted_files
+                        "files_with_conflicts": absolutize_status_paths(&root, summary.files_with_conflicts),
+                        "modified_files": absolutize_status_paths(&root, summary.modified_files),
+                        "new_files": absolutize_status_paths(&root, summary.new_files),
+                        "deleted_files": absolutize_status_paths(&root, summary.deleted_files)
                     })
                 );
             } else {
@@ -771,6 +802,29 @@ fn cmd_status(service: &AdkService, args: StatusArgs) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn absolutize_status_paths(root: &std::path::Path, paths: Vec<String>) -> Vec<String> {
+    let root = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(root)
+    };
+    paths
+        .into_iter()
+        .map(|path| {
+            let path = PathBuf::from(path);
+            if path.is_absolute() {
+                path
+            } else {
+                root.join(path)
+            }
+            .to_string_lossy()
+            .to_string()
+        })
+        .collect()
 }
 
 fn cmd_revert(service: &AdkService, args: RevertArgs) -> ExitCode {
@@ -823,9 +877,10 @@ fn cmd_diff(service: &AdkService, args: DiffArgs) -> ExitCode {
     }
     let named_diff = args.hash.is_some() || args.before.is_some() || args.after.is_some();
     let after = args.hash.or(args.after);
+    let files = absolutize_cli_file_args(&args.files);
     match service.diff(
         PathBuf::from(args.path).as_path(),
-        &args.files,
+        &files,
         args.before,
         after,
     ) {
@@ -863,6 +918,23 @@ fn cmd_diff(service: &AdkService, args: DiffArgs) -> ExitCode {
             }
         }
     }
+}
+
+fn absolutize_cli_file_args(files: &[String]) -> Vec<String> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    files
+        .iter()
+        .map(|file| {
+            let path = PathBuf::from(file);
+            if path.is_absolute() {
+                path
+            } else {
+                cwd.join(path)
+            }
+            .to_string_lossy()
+            .to_string()
+        })
+        .collect()
 }
 
 fn cmd_review(args: ReviewArgs) -> ExitCode {
@@ -989,7 +1061,7 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                 return ExitCode::from(1);
             }
             match (
-                service.current_branch(PathBuf::from(&a.path).as_path()),
+                service.current_branch_name(PathBuf::from(&a.path).as_path()),
                 service.list_branch_map(PathBuf::from(&a.path).as_path()),
             ) {
                 (Ok(current_branch), Ok(branches)) => {
@@ -1084,10 +1156,6 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             }
         }
         BranchCommands::Switch(a) => {
-            let service = local_service();
-            if !ensure_project_loaded(&service, &a.path, a.json) {
-                return ExitCode::from(1);
-            }
             let Some(branch_name) = a.branch_name.as_deref() else {
                 emit_error(
                     a.json,
@@ -1102,19 +1170,51 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                     return ExitCode::from(1);
                 }
             };
+            let Some(service) = (if projection_json.is_some() {
+                Some(local_service())
+            } else {
+                remote_service_for_path(&bootstrap, &a.path, a.json || a.output_json_projection)
+            }) else {
+                return ExitCode::from(1);
+            };
+            if !ensure_project_loaded(&service, &a.path, a.json || a.output_json_projection) {
+                return ExitCode::from(1);
+            }
+            let path = PathBuf::from(&a.path);
+            if !a.force {
+                match service.diff(path.as_path(), &[], None, None) {
+                    Ok(diffs) if !diffs.is_empty() => {
+                        emit_error(
+                            a.json || a.output_json_projection,
+                            "Cannot switch branches with uncommitted changes. Use --force to switch and discard changes.",
+                        );
+                        return ExitCode::from(1);
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        emit_error(a.json || a.output_json_projection, &error.to_string());
+                        return ExitCode::from(1);
+                    }
+                }
+            }
             match service.set_branch(PathBuf::from(&a.path).as_path(), branch_name) {
-                Ok(cfg) => {
+                Ok(_cfg) => {
                     if let Some(projection) = &projection_json
                         && let Err(error) = pull_projection_into_path(
-                            PathBuf::from(&a.path).as_path(),
+                            path.as_path(),
                             projection,
                             a.force,
                         )
                     {
                         emit_error(a.json || a.output_json_projection, &error);
                         return ExitCode::from(1);
+                    } else if projection_json.is_none()
+                        && let Err(error) = service.pull_named(path.as_path(), branch_name, a.force)
+                    {
+                        emit_error(a.json || a.output_json_projection, &error.to_string());
+                        return ExitCode::from(1);
                     }
-                    let mut payload = json!({"success": true, "branch_name": cfg.branch_id});
+                    let mut payload = json!({"success": true, "branch_name": branch_name});
                     if a.output_json_projection {
                         payload["projection"] =
                             projection_json.clone().unwrap_or(serde_json::Value::Null);
@@ -1128,11 +1228,19 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             }
         }
         BranchCommands::Current(a) => {
-            let service = local_service();
-            if !ensure_project_loaded(&service, &a.path, a.json) {
+            let local = local_service();
+            if !ensure_project_loaded(&local, &a.path, a.json) {
                 return ExitCode::from(1);
             }
-            match service.current_branch(PathBuf::from(&a.path).as_path()) {
+            let path = PathBuf::from(&a.path);
+            let remote_branch = try_remote_service_for_path(&local, &a.path)
+                .and_then(|service| service.current_branch_name(path.as_path()).ok());
+            let branch_result = if let Some(branch) = remote_branch {
+                Ok(branch)
+            } else {
+                local.current_branch(path.as_path())
+            };
+            match branch_result {
                 Ok(branch) => {
                     if a.json {
                         println!("{}", json!({"current_branch": branch}));
@@ -1142,8 +1250,12 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(error) => {
-                    emit_error(a.json, &error.to_string());
-                    ExitCode::from(1)
+                    let message = error.to_string();
+                    print_payload(
+                        a.json,
+                        json!({"success": false, "message": clean_error_message(&message)}),
+                    );
+                    ExitCode::SUCCESS
                 }
             }
         }
@@ -1159,16 +1271,20 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                 return ExitCode::from(1);
             };
             match service.delete_branch(PathBuf::from(&a.path).as_path(), branch_name) {
-                Ok(deleted) => {
+                Ok((deleted, switched_to)) => {
                     let mut payload = json!({"success": deleted});
-                    if deleted {
-                        payload["switched_to"] = json!("main");
+                    if let Some(switched_to) = switched_to {
+                        payload["switched_to"] = json!(switched_to);
                     }
                     print_payload(a.json, payload)
                 }
                 Err(error) => {
-                    emit_error(a.json, &error.to_string());
-                    ExitCode::from(1)
+                    let message = error.to_string();
+                    print_payload(
+                        a.json,
+                        json!({"success": false, "message": clean_error_message(&message)}),
+                    );
+                    ExitCode::SUCCESS
                 }
             }
         }
@@ -1308,16 +1424,25 @@ fn cmd_validate(args: ValidateArgs) -> ExitCode {
     }
     match service.validate_local_resources(PathBuf::from(args.path).as_path()) {
         Ok(errors) => {
+            let valid = errors.is_empty();
             if args.json {
-                println!("{}", json!({"valid": errors.is_empty(), "errors": errors}));
-            } else if errors.is_empty() {
+                if valid {
+                    println!("{}", json!({"valid": true, "errors": errors}));
+                } else {
+                    let error = errors.join("\n");
+                    println!(
+                        "{}",
+                        json!({"success": false, "valid": false, "errors": errors, "error": error})
+                    );
+                }
+            } else if valid {
                 println!("Project configuration is valid.");
             } else {
                 for e in &errors {
                     eprintln!("{e}");
                 }
             }
-            if args.json || errors.is_empty() {
+            if valid {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::from(1)
@@ -1608,288 +1733,22 @@ fn print_payload(json_mode: bool, payload: serde_json::Value) -> ExitCode {
 }
 
 fn emit_error(json_mode: bool, message: &str) {
+    let message = clean_error_message(message);
     if json_mode {
-        println!("{}", json!({"success": false, "error": message}));
-    } else {
-        eprintln!("{message}");
-    }
-}
-
-fn emit_review_message(json_mode: bool, message: &str) {
-    if json_mode {
-        println!("{}", json!({"success": false, "message": message}));
-    } else {
-        eprintln!("{message}");
-    }
-}
-
-fn github_headers() -> Result<reqwest::header::HeaderMap, String> {
-    let token = std::env::var("GITHUB_ACCESS_TOKEN").map_err(|_| {
-        "GITHUB_ACCESS_TOKEN environment variable not set. Please set it to your GitHub personal access token with gist scope.".to_string()
-    })?;
-    let mut headers = reqwest::header::HeaderMap::new();
-    let auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
-        .map_err(|e| e.to_string())?;
-    headers.insert(reqwest::header::AUTHORIZATION, auth_value);
-    headers.insert(
-        reqwest::header::ACCEPT,
-        reqwest::header::HeaderValue::from_static("application/vnd.github+json"),
-    );
-    headers.insert(
-        "X-GitHub-Api-Version",
-        reqwest::header::HeaderValue::from_static("2022-11-28"),
-    );
-    Ok(headers)
-}
-
-fn github_client() -> Result<reqwest::blocking::Client, String> {
-    let headers = github_headers()?;
-    reqwest::blocking::Client::builder()
-        .default_headers(headers)
-        .build()
-        .map_err(|e| e.to_string())
-}
-
-fn github_list_diff_gists() -> Result<Vec<serde_json::Value>, String> {
-    let client = github_client()?;
-    let response = client
-        .get("https://api.github.com/gists")
-        .send()
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        return Err(github_error_message(response));
-    }
-    let gists: Vec<serde_json::Value> = response.json().map_err(|e| e.to_string())?;
-    Ok(gists
-        .into_iter()
-        .filter(|gist| {
-            gist.get("files")
-                .and_then(serde_json::Value::as_object)
-                .is_some_and(|files| files.keys().all(|name| name.ends_with(".diff")))
-        })
-        .map(|gist| {
-            json!({
-                "id": gist.get("id").cloned().unwrap_or(serde_json::Value::Null),
-                "description": gist.get("description").cloned().unwrap_or_else(|| gist.get("id").cloned().unwrap_or(serde_json::Value::Null)),
-                "created_at": gist.get("created_at").cloned().unwrap_or(serde_json::Value::Null),
-                "html_url": gist.get("html_url").cloned().unwrap_or(serde_json::Value::Null),
-            })
-        })
-        .collect())
-}
-
-fn github_create_review_gist<'a, I>(diffs: I, description: &str) -> Result<String, String>
-where
-    I: IntoIterator<Item = (&'a String, &'a String)>,
-{
-    let client = github_client()?;
-    let files = diffs
-        .into_iter()
-        .filter(|(_, diff)| !diff.is_empty())
-        .map(|(path, diff)| {
-            (
-                format!("{}.diff", path.replace(std::path::MAIN_SEPARATOR, "_")),
-                json!({"content": diff}),
-            )
-        })
-        .collect::<serde_json::Map<String, serde_json::Value>>();
-    let response = client
-        .post("https://api.github.com/gists")
-        .json(&json!({"description": description, "public": false, "files": files}))
-        .send()
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        return Err(github_error_message(response));
-    }
-    let payload: serde_json::Value = response.json().map_err(|e| e.to_string())?;
-    payload
-        .get("html_url")
-        .and_then(serde_json::Value::as_str)
-        .map(ToString::to_string)
-        .ok_or_else(|| "missing html_url in GitHub response".to_string())
-}
-
-fn prompt_open_review_gist(gists: &[serde_json::Value]) -> Result<(), String> {
-    print_review_gist_choices(gists);
-    print!("Select a gist to open: ");
-    std::io::stdout().flush().map_err(|e| e.to_string())?;
-    let mut selection = String::new();
-    std::io::stdin()
-        .read_line(&mut selection)
-        .map_err(|e| e.to_string())?;
-    let selection = selection.trim();
-    if selection.is_empty() {
-        return Ok(());
-    }
-    let gist = select_gist(gists, selection)?;
-    let url = gist
-        .get("html_url")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "selected gist did not include an html_url".to_string())?;
-    open_url(url)
-}
-
-fn prompt_delete_review_gists(json_mode: bool) -> Result<usize, String> {
-    let gists = github_list_diff_gists()?;
-    if gists.is_empty() {
-        return Ok(0);
-    }
-    if json_mode {
-        return Err("review delete requires --id when --json is used".to_string());
-    }
-    print_review_gist_choices(&gists);
-    print!("Select gists to delete (comma-separated numbers or id prefixes): ");
-    std::io::stdout().flush().map_err(|e| e.to_string())?;
-    let mut selection = String::new();
-    std::io::stdin()
-        .read_line(&mut selection)
-        .map_err(|e| e.to_string())?;
-    let selection = selection.trim();
-    if selection.is_empty() {
-        return Ok(0);
-    }
-
-    let mut ids = Vec::new();
-    for token in selection
-        .split(|c: char| c == ',' || c.is_whitespace())
-        .filter(|token| !token.is_empty())
-    {
-        let gist = select_gist(&gists, token)?;
-        let id = gist
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| "selected gist did not include an id".to_string())?
-            .to_string();
-        if !ids.contains(&id) {
-            ids.push(id);
+        let mut payload = json!({"success": false, "error": message});
+        if let Ok(traceback) = std::env::var("POLY_ADK_JSON_TRACEBACK") {
+            payload["traceback"] = serde_json::Value::String(traceback);
         }
-    }
-
-    for id in &ids {
-        github_delete_review_gist_by_id(id)?;
-    }
-    Ok(ids.len())
-}
-
-fn print_review_gist_choices(gists: &[serde_json::Value]) {
-    for (idx, gist) in gists.iter().enumerate() {
-        println!(
-            "{}. {}  {}",
-            idx + 1,
-            gist.get("id")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or(""),
-            gist.get("description")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-        );
-    }
-}
-
-fn select_gist<'a>(
-    gists: &'a [serde_json::Value],
-    selection: &str,
-) -> Result<&'a serde_json::Value, String> {
-    if let Ok(index) = selection.parse::<usize>()
-        && (1..=gists.len()).contains(&index)
-    {
-        return Ok(&gists[index - 1]);
-    }
-    gists
-        .iter()
-        .find(|gist| {
-            gist.get("id")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|id| id.starts_with(selection))
-        })
-        .ok_or_else(|| format!("No review gist found matching '{selection}'."))
-}
-
-fn open_url(url: &str) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    let mut command = {
-        let mut command = Command::new("open");
-        command.arg(url);
-        command
-    };
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = Command::new("cmd");
-        command.args(["/C", "start", "", url]);
-        command
-    };
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = {
-        let mut command = Command::new("xdg-open");
-        command.arg(url);
-        command
-    };
-
-    let status = command.status().map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(())
+        println!("{payload}");
     } else {
-        Err(format!("failed to open browser: {status}"))
+        eprintln!("{message}");
     }
 }
 
-fn github_delete_review_gist(gist_id: &str) -> Result<bool, String> {
-    let gists = github_list_diff_gists()?;
-    let id = select_gist(&gists, gist_id)?
-        .get("id")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "matched gist did not include an id".to_string())?
-        .to_string();
-    github_delete_review_gist_by_id(&id)?;
-    Ok(true)
-}
-
-fn github_delete_review_gist_by_id(id: &str) -> Result<(), String> {
-    let client = github_client()?;
-    let response = client
-        .delete(format!("https://api.github.com/gists/{id}"))
-        .send()
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        return Err(github_error_message(response));
-    }
-    Ok(())
-}
-
-fn github_error_message(response: reqwest::blocking::Response) -> String {
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return "Failed to make the gist. Your token must be missing gist permissions. Update and try again!".to_string();
-    }
-    let status = response.status();
-    let body = response.text().unwrap_or_default();
-    format!("GitHub API error: status={status} body={body}")
-}
-
-fn review_description(
-    base_path: &str,
-    version_hash: Option<&str>,
-    before: Option<&str>,
-    after: Option<&str>,
-) -> String {
-    let path = PathBuf::from(base_path);
-    let pieces = path
-        .components()
-        .rev()
-        .take(2)
-        .map(|c| c.as_os_str().to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    let project_name = pieces.into_iter().rev().collect::<Vec<_>>().join("/");
-    if let Some(hash) = version_hash {
-        format!("Poly ADK: {project_name}: {hash}")
-    } else if before.is_none() && after.is_none() {
-        format!("Poly ADK: {project_name}: local -> remote")
-    } else if let (Some(before), Some(after)) = (before, after) {
-        format!("Poly ADK: {project_name}: {before} -> {after}")
-    } else if let Some(after) = after {
-        format!("Poly ADK: {project_name}: {after}")
-    } else {
-        format!("Poly ADK: {project_name}: {} -> local", before.unwrap_or(""))
-    }
+fn clean_error_message(message: &str) -> &str {
+    message
+        .strip_prefix("invalid project data: ")
+        .unwrap_or(message)
 }
 
 fn ensure_project_loaded(service: &AdkService, path: &str, json_mode: bool) -> bool {
@@ -2136,12 +1995,16 @@ fn remote_service_for_path(
     }
 }
 
-fn load_docs(document_name: &str) -> Result<String, String> {
-    let docs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("docs")
-        .join(format!("{document_name}.md"));
-    if !docs_path.exists() {
-        return Err(format!("Documentation file {document_name}.md not found."));
-    }
-    fs::read_to_string(&docs_path).map_err(|e| e.to_string())
+fn try_remote_service_for_path(bootstrap: &AdkService, path: &str) -> Option<AdkService> {
+    let cfg = bootstrap
+        .load_project_config(PathBuf::from(path).as_path())
+        .ok()?;
+    HttpPlatformClient::new(
+        &cfg.region,
+        &cfg.account_id,
+        &cfg.project_id,
+        Some(&cfg.branch_id),
+    )
+    .ok()
+    .map(|client| AdkService::new(Box::new(client)))
 }

@@ -875,7 +875,9 @@ fn push_dry_run_and_validation_flags_are_respected() {
     let error = service
         .push(root.as_path(), false, false, false)
         .expect_err("validation should fail");
-    assert!(error.to_string().contains("validation failed"));
+    let error = error.to_string();
+    assert!(error.contains("Error reading resource bad at"));
+    assert!(error.contains("Error loading YAML file:"));
 }
 
 #[test]

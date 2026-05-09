@@ -1,0 +1,369 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- This manifest records a permanent merge conflict and resolution into main.
+- A small base topic is first merged to main so the conflict target is unique to this recording.
+- The unresolved merge is expected to fail, then the recorded resolution accepts the branch side.
+- The main branch retains the resolved branch-side topic edit.
+httpmock_recording: merge-conflict-resolution.httpmock.yaml
+workflows:
+- name: merge_conflict_resolution
+  description: Merge a small base topic to main, diverge two branches on that topic, merge one branch to advance main, record the other branch's conflict, resolve with theirs, then attempt branch cleanup.
+  mutates_real_server: true
+  cleanup: []
+  steps:
+  - kind: command
+    name: init base checkout before conflict setup
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}/base
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/base/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: create base marker branch
+    argv:
+    - poly
+    - branch
+    - create
+    - ${BRANCH_NAME}-base
+    - --json
+    - --path
+    - ${TMP}/base/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      branch_name: ${BRANCH_NAME}-base
+      new_branch_id: BRANCH-FU5SZKHT
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: write conflict base topic
+    operation: write_text
+    path: ${CONFLICT_TOPIC_FILE}
+    content: |
+      name: ${CONFLICT_TOPIC_NAME}
+      enabled: true
+      actions: ${CONFLICT_BASE_LINE}
+      content: This topic exists only to exercise Python ADK merge conflict recording.
+      example_queries:
+      - How do conflict recordings work?
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: push conflict base marker branch
+    argv:
+    - poly
+    - push
+    - --json
+    - --force
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/base/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      dry_run: false
+      message: Resources pushed successfully.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: merge base marker branch into main
+    argv:
+    - poly
+    - branch
+    - merge
+    - ADK recording conflict base marker
+    - --json
+    - --path
+    - ${TMP}/base/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: init branch checkout after conflict base merge
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}/branch
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: init main-side checkout after conflict base merge
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}/main
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/main/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: create branch for conflict resolution
+    argv:
+    - poly
+    - branch
+    - create
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      branch_name: ${BRANCH_NAME}
+      new_branch_id: BRANCH-SF0E2CGI
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: create main-side branch
+    argv:
+    - poly
+    - branch
+    - create
+    - ${BRANCH_NAME}-main
+    - --json
+    - --path
+    - ${TMP}/main/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      branch_name: ${BRANCH_NAME}-main
+      new_branch_id: BRANCH-WJ24NIL1
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: replace base topic action in branch checkout
+    operation: replace_text
+    path: ${CONFLICT_TOPIC_FILE}
+    content: null
+    target: ${CONFLICT_BASE_LINE}
+    replacement: ${CONFLICT_BRANCH_LINE}
+    success: true
+    error: null
+  - kind: command
+    name: push branch side of conflict
+    argv:
+    - poly
+    - push
+    - --json
+    - --force
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      dry_run: false
+      message: Resources pushed successfully.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: replace base topic action in main-side checkout
+    operation: replace_text
+    path: ${CONFLICT_TOPIC_FILE}
+    content: null
+    target: ${CONFLICT_BASE_LINE}
+    replacement: ${CONFLICT_MAIN_LINE}
+    success: true
+    error: null
+  - kind: command
+    name: push main-side conflict branch
+    argv:
+    - poly
+    - push
+    - --json
+    - --force
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/main/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      dry_run: false
+      message: Resources pushed successfully.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: merge main-side branch into main
+    argv:
+    - poly
+    - branch
+    - merge
+    - ADK recording main-side conflict marker
+    - --json
+    - --path
+    - ${TMP}/main/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: merge conflict without resolutions
+    argv:
+    - poly
+    - branch
+    - merge
+    - ADK recording unresolved conflict
+    - --json
+    - --path
+    - ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      conflicts:
+      - baseValue: ${CONFLICT_BASE_LINE}
+        oursValue: ${CONFLICT_MAIN_LINE}
+        path:
+        - knowledgeBase
+        - topics
+        - entities
+        - TOPICS-23b2d80e
+        - actions
+        theirsValue: ${CONFLICT_BRANCH_LINE}
+        type: modify
+      - baseValue: 2026-05-08T18:26:06.533Z
+        oursValue: 2026-05-08T18:26:13.142Z
+        path:
+        - knowledgeBase
+        - topics
+        - entities
+        - TOPICS-23b2d80e
+        - updatedAt
+        theirsValue: 2026-05-08T18:26:11.974Z
+        type: modify
+      errors: []
+      success: false
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: merge conflict with theirs resolution
+    argv:
+    - poly
+    - branch
+    - merge
+    - ADK recording resolved conflict
+    - --json
+    - --resolutions
+    - '[{"path":["knowledgeBase","topics","entities","TOPICS-23b2d80e","actions"],"strategy":"theirs"},{"path":["knowledgeBase","topics","entities","TOPICS-23b2d80e","updatedAt"],"strategy":"theirs"}]'
+    - --path
+    - ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: current branch after conflict resolution merge
+    argv:
+    - poly
+    - branch
+    - current
+    - --json
+    - --path
+    - ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      current_branch: main
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: delete conflict resolution branch if still present
+    argv:
+    - poly
+    - branch
+    - delete
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      message: Branch '${BRANCH_NAME}' does not exist or cannot be deleted.
+      success: false
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: delete base marker branch if still present
+    argv:
+    - poly
+    - branch
+    - delete
+    - ${BRANCH_NAME}-base
+    - --json
+    - --path
+    - ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      message: Branch '${BRANCH_NAME}-base' does not exist or cannot be deleted.
+      success: false
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: delete main-side branch if still present
+    argv:
+    - poly
+    - branch
+    - delete
+    - ${BRANCH_NAME}-main
+    - --json
+    - --path
+    - ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      message: Branch '${BRANCH_NAME}-main' does not exist or cannot be deleted.
+      success: false
+    stdout: null
+    stderr: ''

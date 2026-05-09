@@ -1,19 +1,19 @@
+mod support;
+
 use httpmock::prelude::*;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use support::python_recordings::{
+    TARGET_ACCOUNT_ID, TARGET_PROJECT_ID, TARGET_PROJECT_NAME, TARGET_REGION,
+    fixture_dir as recording_fixture_dir, httpmock_adk_base_url, python_adk_bin, recording_run_id,
+    replace_all as normalize_text, temp_recording_dir,
+};
 
-const PYTHON_ADK_BIN_ENV: &str = "PYTHON_ADK_BIN";
 const PYTHON_ADK_BIN_DISPLAY: &str = "${PYTHON_ADK_BIN:-poly}";
 const AGENT_STUDIO_HOST_URL: &str = "https://api.us.poly.ai";
-const TARGET_REGION: &str = "us-1";
-const TARGET_ACCOUNT_ID: &str = "ben-ws";
-const TARGET_PROJECT_ID: &str = "PROJECT-JTQKOKLM";
-const TARGET_PROJECT_NAME: &str = "Test";
-const RECORDING_FIXTURE_DIR: &str = "tests/fixtures/python-adk-recordings";
 const BASIC_COMMAND_MANIFEST_FILE: &str = "basic-readonly.commands.yaml";
 const BASIC_HTTPMOCK_RECORDING_FILE: &str = "basic-readonly.httpmock.yaml";
 const BRANCH_UPDATE_COMMAND_MANIFEST_FILE: &str = "branch-update-push.commands.yaml";
@@ -28,10 +28,18 @@ const REVERT_LOCAL_COMMAND_MANIFEST_FILE: &str = "revert-local.commands.yaml";
 const REVERT_LOCAL_HTTPMOCK_RECORDING_FILE: &str = "revert-local.httpmock.yaml";
 const PULL_CONFLICT_COMMAND_MANIFEST_FILE: &str = "pull-conflict.commands.yaml";
 const PULL_CONFLICT_HTTPMOCK_RECORDING_FILE: &str = "pull-conflict.httpmock.yaml";
+const BRANCH_MERGE_COMMAND_MANIFEST_FILE: &str = "branch-merge-main.commands.yaml";
+const BRANCH_MERGE_HTTPMOCK_RECORDING_FILE: &str = "branch-merge-main.httpmock.yaml";
+const MAIN_PUSH_COMMAND_MANIFEST_FILE: &str = "main-push.commands.yaml";
+const MAIN_PUSH_HTTPMOCK_RECORDING_FILE: &str = "main-push.httpmock.yaml";
+const MERGE_CONFLICT_COMMAND_MANIFEST_FILE: &str = "merge-conflict-resolution.commands.yaml";
+const MERGE_CONFLICT_HTTPMOCK_RECORDING_FILE: &str = "merge-conflict-resolution.httpmock.yaml";
 const MUTATING_BRANCH_NAME: &str = "adk-rs-recording-mutating";
 const CREATE_DELETE_BRANCH_NAME: &str = "adk-rs-recording-create-delete";
 const DIRTY_SWITCH_BRANCH_NAME: &str = "adk-rs-recording-dirty-switch";
 const PULL_CONFLICT_BRANCH_NAME: &str = "adk-rs-recording-pull-conflict";
+const BRANCH_MERGE_BRANCH_PREFIX: &str = "adk-rs-recording-merge";
+const MERGE_CONFLICT_BRANCH_PREFIX: &str = "adk-rs-recording-conflict";
 const MUTATING_EDIT_FILE: &str = "agent_settings/rules.txt";
 const MUTATING_EDIT_TEXT: &str = "\n\n# ADK recording branch edit\nThis line was added by the Python ADK httpmock mutating workflow.\n";
 const CREATE_TOPIC_FILE: &str = "topics/adk_recording_topic.yaml";
@@ -49,6 +57,7 @@ const PULL_CONFLICT_REMOTE_RULE: &str =
     "Your task is to assist remote recording users with their queries.";
 const PULL_CONFLICT_LOCAL_RULE: &str =
     "Your task is to assist local recording users with their queries.";
+const MAIN_PUSH_EDIT_FILE: &str = "agent_settings/rules.txt";
 const RECORDER_EMAIL: &str = "adk-recorder@example.com";
 
 #[derive(Debug, Serialize)]
@@ -302,7 +311,7 @@ fn record_basic_readonly_with_python_adk_and_httpmock() {
             project_name: TARGET_PROJECT_NAME,
         },
         replay_notes: vec![
-            "This command manifest was produced by the ignored python_adk_recording_test.",
+            "This command manifest was produced by the ignored record_python_adk_httpmock_fixtures_test.",
             "The HTTP traffic lives in basic-readonly.httpmock.yaml, saved by httpmock record/playback.",
             "Authentication headers are redacted after recording.",
             "Substitute ${TMP} with a temporary working directory when replaying command expectations.",
@@ -1453,6 +1462,800 @@ fn record_pull_conflict_with_python_adk_and_httpmock() {
     );
 }
 
+#[test]
+#[ignore = "records permanent real Agent Studio traffic; merges a branch into main"]
+fn record_branch_merge_main_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let run_id = recording_run_id();
+    let branch_name = format!("{BRANCH_MERGE_BRANCH_PREFIX}-{run_id}");
+    let merge_text = format!(
+        "\n\n# ADK recording branch merge {run_id}\nThis line was merged into main by the Python ADK recorder.\n"
+    );
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+        (branch_name.clone(), "${BRANCH_NAME}".to_string()),
+        (merge_text.clone(), "${MERGE_TEXT}".to_string()),
+    ];
+    let mut required_results = Vec::new();
+    let mut steps = Vec::new();
+
+    let init = run_python_poly(
+        "init real project before branch merge",
+        &[
+            "init",
+            "--json",
+            "--base-path",
+            tmp_path.as_str(),
+            "--region",
+            TARGET_REGION,
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "init real project before branch merge",
+        command_succeeded(&init),
+    ));
+    steps.push(WorkflowStep::Command(init));
+
+    let create_branch = run_python_poly(
+        "create branch to merge",
+        &[
+            "branch",
+            "create",
+            branch_name.as_str(),
+            "--json",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    let branch_created = command_succeeded(&create_branch);
+    required_results.push(("create branch to merge", branch_created));
+    steps.push(WorkflowStep::Command(create_branch));
+
+    if branch_created {
+        let edit = append_text_file(
+            "append branch merge edit",
+            &project_root,
+            MUTATING_EDIT_FILE,
+            merge_text.as_str(),
+            &replacements,
+        );
+        required_results.push(("append branch merge edit", edit.success));
+        steps.push(WorkflowStep::FileEdit(edit));
+
+        for (name, args) in [
+            (
+                "push branch before merge",
+                vec![
+                    "push",
+                    "--json",
+                    "--force",
+                    "--skip-validation",
+                    "--email",
+                    RECORDER_EMAIL,
+                    "--path",
+                    project_path.as_str(),
+                ],
+            ),
+            (
+                "merge branch into main",
+                vec![
+                    "branch",
+                    "merge",
+                    "ADK recording branch merge",
+                    "--json",
+                    "--path",
+                    project_path.as_str(),
+                ],
+            ),
+            (
+                "current branch after merge",
+                vec![
+                    "branch",
+                    "current",
+                    "--json",
+                    "--path",
+                    project_path.as_str(),
+                ],
+            ),
+            (
+                "status after merge switch to main",
+                vec!["status", "--json", "--path", project_path.as_str()],
+            ),
+        ] {
+            let record = run_python_poly(name, &args, &server, &replacements);
+            required_results.push((name, command_succeeded(&record)));
+            steps.push(WorkflowStep::Command(record));
+        }
+
+        let delete_branch = run_python_poly(
+            "delete merged branch if still present",
+            &[
+                "branch",
+                "delete",
+                branch_name.as_str(),
+                "--json",
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        steps.push(WorkflowStep::Command(delete_branch));
+    }
+
+    let recording_path = recording
+        .save("branch-merge-main-python-adk")
+        .expect("save branch merge recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        BRANCH_MERGE_HTTPMOCK_RECORDING_FILE,
+        BRANCH_MERGE_COMMAND_MANIFEST_FILE,
+        vec![
+            "This manifest records a permanent branch merge into main.",
+            "The throwaway branch is pushed, merged into main, and then deleted if still present.",
+            "The main branch retains the merged rules.txt change.",
+        ],
+        StepWorkflow {
+            name: "branch_merge_main",
+            description: "Create a branch, edit rules.txt, push the branch, merge it into main, verify main is current, then attempt branch cleanup.",
+            mutates_real_server: true,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+
+    let failures: Vec<&str> = required_results
+        .iter()
+        .filter_map(|(name, success)| (!success).then_some(*name))
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "branch merge recording had failed required steps: {failures:?}"
+    );
+}
+
+#[test]
+#[ignore = "records real Agent Studio traffic; pushes from a main checkout"]
+fn record_main_push_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let run_id = recording_run_id();
+    let push_text = format!(
+        "\n\n# ADK recording direct main push {run_id}\nThis line was pushed directly to main by the Python ADK recorder.\n"
+    );
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+        (push_text.clone(), "${MAIN_PUSH_TEXT}".to_string()),
+    ];
+    let mut required_results = Vec::new();
+    let mut steps = Vec::new();
+
+    let init = run_python_poly(
+        "init real project before direct main push",
+        &[
+            "init",
+            "--json",
+            "--base-path",
+            tmp_path.as_str(),
+            "--region",
+            TARGET_REGION,
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "init real project before direct main push",
+        command_succeeded(&init),
+    ));
+    steps.push(WorkflowStep::Command(init));
+
+    let edit = append_text_file(
+        "append push-from-main edit",
+        &project_root,
+        MAIN_PUSH_EDIT_FILE,
+        push_text.as_str(),
+        &replacements,
+    );
+    required_results.push(("append push-from-main edit", edit.success));
+    steps.push(WorkflowStep::FileEdit(edit));
+
+    for (name, args) in [
+        (
+            "status before push from main",
+            vec!["status", "--json", "--path", project_path.as_str()],
+        ),
+        (
+            "push from main checkout",
+            vec![
+                "push",
+                "--json",
+                "--force",
+                "--skip-validation",
+                "--email",
+                RECORDER_EMAIL,
+                "--path",
+                project_path.as_str(),
+            ],
+        ),
+        (
+            "status after push from main",
+            vec!["status", "--json", "--path", project_path.as_str()],
+        ),
+    ] {
+        let record = run_python_poly(name, &args, &server, &replacements);
+        required_results.push((name, command_succeeded(&record)));
+        steps.push(WorkflowStep::Command(record));
+    }
+
+    let recording_path = recording
+        .save("main-push-python-adk")
+        .expect("save push-from-main recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        MAIN_PUSH_HTTPMOCK_RECORDING_FILE,
+        MAIN_PUSH_COMMAND_MANIFEST_FILE,
+        vec![
+            "This manifest records Python ADK push behavior from a main checkout.",
+            "Python ADK persists the edit by creating and switching to an ADK branch; it does not merge that edit into main.",
+        ],
+        StepWorkflow {
+            name: "push_from_main",
+            description: "Initialize main, edit rules.txt, push from the main checkout, then verify local status is clean.",
+            mutates_real_server: true,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+
+    let failures: Vec<&str> = required_results
+        .iter()
+        .filter_map(|(name, success)| (!success).then_some(*name))
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "main push recording had failed required steps: {failures:?}"
+    );
+}
+
+#[test]
+#[ignore = "records permanent real Agent Studio traffic; resolves a merge conflict into main"]
+fn record_merge_conflict_resolution_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let run_id = recording_run_id();
+    let branch_name = format!("{MERGE_CONFLICT_BRANCH_PREFIX}-{run_id}");
+    let base_branch_name = format!("{branch_name}-base");
+    let main_branch_name = format!("{branch_name}-main");
+    let base_line = format!("ADK recording conflict base {run_id}");
+    let main_line = format!("ADK recording conflict main {run_id}");
+    let branch_line = format!("ADK recording conflict branch {run_id}");
+    let topic_file = format!("topics/adk_recording_conflict_{run_id}.yaml");
+    let topic_name = format!("ADK Recording Conflict {run_id}");
+    let base_topic_text = format!(
+        "name: {topic_name}\nenabled: true\nactions: {base_line}\ncontent: This topic exists only to exercise Python ADK merge conflict recording.\nexample_queries:\n- How do conflict recordings work?\n"
+    );
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    let base_dir = tmp.join("base");
+    let branch_dir = tmp.join("branch");
+    let main_dir = tmp.join("main");
+    fs::create_dir_all(&base_dir).expect("create base recording dir");
+    fs::create_dir_all(&branch_dir).expect("create branch recording dir");
+    fs::create_dir_all(&main_dir).expect("create main recording dir");
+    let base_project = base_dir.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let branch_project = branch_dir.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let main_project = main_dir.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let base_project_path = base_project.to_string_lossy().to_string();
+    let branch_project_path = branch_project.to_string_lossy().to_string();
+    let main_project_path = main_project.to_string_lossy().to_string();
+    let base_dir_path = base_dir.to_string_lossy().to_string();
+    let branch_dir_path = branch_dir.to_string_lossy().to_string();
+    let main_dir_path = main_dir.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+        (branch_name.clone(), "${BRANCH_NAME}".to_string()),
+        (base_branch_name.clone(), "${BASE_BRANCH_NAME}".to_string()),
+        (main_branch_name.clone(), "${MAIN_BRANCH_NAME}".to_string()),
+        (topic_file.clone(), "${CONFLICT_TOPIC_FILE}".to_string()),
+        (topic_name.clone(), "${CONFLICT_TOPIC_NAME}".to_string()),
+        (base_line.clone(), "${CONFLICT_BASE_LINE}".to_string()),
+        (main_line.clone(), "${CONFLICT_MAIN_LINE}".to_string()),
+        (branch_line.clone(), "${CONFLICT_BRANCH_LINE}".to_string()),
+    ];
+    let mut required_results = Vec::new();
+    let mut steps = Vec::new();
+
+    let init_base = run_python_poly(
+        "init base checkout before conflict setup",
+        &[
+            "init",
+            "--json",
+            "--base-path",
+            base_dir_path.as_str(),
+            "--region",
+            TARGET_REGION,
+            "--account_id",
+            TARGET_ACCOUNT_ID,
+            "--project_id",
+            TARGET_PROJECT_ID,
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "init base checkout before conflict setup",
+        command_succeeded(&init_base),
+    ));
+    steps.push(WorkflowStep::Command(init_base));
+
+    let create_base_branch = run_python_poly(
+        "create base marker branch",
+        &[
+            "branch",
+            "create",
+            base_branch_name.as_str(),
+            "--json",
+            "--path",
+            base_project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    let base_branch_created = command_succeeded(&create_base_branch);
+    required_results.push(("create base marker branch", base_branch_created));
+    steps.push(WorkflowStep::Command(create_base_branch));
+
+    let mut base_ready = false;
+    if base_branch_created {
+        let base_edit = write_text_file(
+            "write conflict base topic",
+            &base_project,
+            topic_file.as_str(),
+            base_topic_text.as_str(),
+            &replacements,
+        );
+        required_results.push(("write conflict base topic", base_edit.success));
+        steps.push(WorkflowStep::FileEdit(base_edit));
+
+        let push_base = run_python_poly(
+            "push conflict base marker branch",
+            &[
+                "push",
+                "--json",
+                "--force",
+                "--skip-validation",
+                "--email",
+                RECORDER_EMAIL,
+                "--path",
+                base_project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "push conflict base marker branch",
+            command_succeeded(&push_base),
+        ));
+        steps.push(WorkflowStep::Command(push_base));
+
+        let merge_base = run_python_poly(
+            "merge base marker branch into main",
+            &[
+                "branch",
+                "merge",
+                "ADK recording conflict base marker",
+                "--json",
+                "--path",
+                base_project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        base_ready = command_succeeded(&merge_base);
+        required_results.push(("merge base marker branch into main", base_ready));
+        steps.push(WorkflowStep::Command(merge_base));
+    }
+
+    if base_ready {
+        for (name, base_path) in [
+            (
+                "init branch checkout after conflict base merge",
+                branch_dir_path.as_str(),
+            ),
+            (
+                "init main-side checkout after conflict base merge",
+                main_dir_path.as_str(),
+            ),
+        ] {
+            let init = run_python_poly(
+                name,
+                &[
+                    "init",
+                    "--json",
+                    "--base-path",
+                    base_path,
+                    "--region",
+                    TARGET_REGION,
+                    "--account_id",
+                    TARGET_ACCOUNT_ID,
+                    "--project_id",
+                    TARGET_PROJECT_ID,
+                ],
+                &server,
+                &replacements,
+            );
+            required_results.push((name, command_succeeded(&init)));
+            steps.push(WorkflowStep::Command(init));
+        }
+
+        let create_branch = run_python_poly(
+            "create branch for conflict resolution",
+            &[
+                "branch",
+                "create",
+                branch_name.as_str(),
+                "--json",
+                "--path",
+                branch_project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        let branch_created = command_succeeded(&create_branch);
+        required_results.push(("create branch for conflict resolution", branch_created));
+        steps.push(WorkflowStep::Command(create_branch));
+
+        let create_main_branch = run_python_poly(
+            "create main-side branch",
+            &[
+                "branch",
+                "create",
+                main_branch_name.as_str(),
+                "--json",
+                "--path",
+                main_project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        let main_branch_created = command_succeeded(&create_main_branch);
+        required_results.push(("create main-side branch", main_branch_created));
+        steps.push(WorkflowStep::Command(create_main_branch));
+
+        if !branch_created || !main_branch_created {
+            let recording_path = recording
+                .save("merge-conflict-resolution-python-adk")
+                .expect("save merge conflict resolution recording");
+            write_step_recording_fixture(
+                &api_key,
+                recording_path,
+                MERGE_CONFLICT_HTTPMOCK_RECORDING_FILE,
+                MERGE_CONFLICT_COMMAND_MANIFEST_FILE,
+                vec![
+                    "This manifest records a permanent merge conflict and resolution into main.",
+                    "A small base topic is first merged to main so the conflict target is unique to this recording.",
+                    "The unresolved merge is expected to fail, then the recorded resolution accepts the branch side.",
+                    "The main branch retains the resolved branch-side topic edit.",
+                ],
+                StepWorkflow {
+                    name: "merge_conflict_resolution",
+                    description: "Merge a small base topic to main, diverge two branches on that topic, merge one branch to advance main, record the other branch's conflict, resolve with theirs, then attempt branch cleanup.",
+                    mutates_real_server: true,
+                    cleanup: vec![],
+                    steps,
+                },
+            );
+            let _ = fs::remove_dir_all(&tmp);
+
+            let failures: Vec<&str> = required_results
+                .iter()
+                .filter_map(|(name, success)| (!success).then_some(*name))
+                .collect();
+            assert!(
+                failures.is_empty(),
+                "merge conflict resolution recording had failed required steps: {failures:?}"
+            );
+            return;
+        }
+
+        let branch_edit = replace_text_file(
+            "replace base topic action in branch checkout",
+            &branch_project,
+            topic_file.as_str(),
+            base_line.as_str(),
+            branch_line.as_str(),
+            &replacements,
+        );
+        required_results.push((
+            "replace base topic action in branch checkout",
+            branch_edit.success,
+        ));
+        steps.push(WorkflowStep::FileEdit(branch_edit));
+
+        let push_branch = run_python_poly(
+            "push branch side of conflict",
+            &[
+                "push",
+                "--json",
+                "--force",
+                "--skip-validation",
+                "--email",
+                RECORDER_EMAIL,
+                "--path",
+                branch_project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "push branch side of conflict",
+            command_succeeded(&push_branch),
+        ));
+        steps.push(WorkflowStep::Command(push_branch));
+
+        let main_edit = replace_text_file(
+            "replace base topic action in main-side checkout",
+            &main_project,
+            topic_file.as_str(),
+            base_line.as_str(),
+            main_line.as_str(),
+            &replacements,
+        );
+        required_results.push((
+            "replace base topic action in main-side checkout",
+            main_edit.success,
+        ));
+        steps.push(WorkflowStep::FileEdit(main_edit));
+
+        let push_main = run_python_poly(
+            "push main-side conflict branch",
+            &[
+                "push",
+                "--json",
+                "--force",
+                "--skip-validation",
+                "--email",
+                RECORDER_EMAIL,
+                "--path",
+                main_project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "push main-side conflict branch",
+            command_succeeded(&push_main),
+        ));
+        steps.push(WorkflowStep::Command(push_main));
+
+        let merge_main_side = run_python_poly(
+            "merge main-side branch into main",
+            &[
+                "branch",
+                "merge",
+                "ADK recording main-side conflict marker",
+                "--json",
+                "--path",
+                main_project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "merge main-side branch into main",
+            command_succeeded(&merge_main_side),
+        ));
+        steps.push(WorkflowStep::Command(merge_main_side));
+
+        let failed_merge = run_python_poly(
+            "merge conflict without resolutions",
+            &[
+                "branch",
+                "merge",
+                "ADK recording unresolved conflict",
+                "--json",
+                "--path",
+                branch_project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        let resolution_json = merge_resolutions_for_conflicts(&failed_merge);
+        required_results.push((
+            "merge conflict without resolutions",
+            command_reported_failure(&failed_merge) && resolution_json.is_some(),
+        ));
+        steps.push(WorkflowStep::Command(failed_merge));
+
+        if let Some(resolution_json) = resolution_json {
+            let resolved_merge = run_python_poly(
+                "merge conflict with theirs resolution",
+                &[
+                    "branch",
+                    "merge",
+                    "ADK recording resolved conflict",
+                    "--json",
+                    "--resolutions",
+                    resolution_json.as_str(),
+                    "--path",
+                    branch_project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+            );
+            required_results.push((
+                "merge conflict with theirs resolution",
+                command_succeeded(&resolved_merge),
+            ));
+            steps.push(WorkflowStep::Command(resolved_merge));
+
+            let current = run_python_poly(
+                "current branch after conflict resolution merge",
+                &[
+                    "branch",
+                    "current",
+                    "--json",
+                    "--path",
+                    branch_project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+            );
+            required_results.push((
+                "current branch after conflict resolution merge",
+                command_succeeded(&current),
+            ));
+            steps.push(WorkflowStep::Command(current));
+
+            let delete_branch = run_python_poly(
+                "delete conflict resolution branch if still present",
+                &[
+                    "branch",
+                    "delete",
+                    branch_name.as_str(),
+                    "--json",
+                    "--path",
+                    branch_project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+            );
+            steps.push(WorkflowStep::Command(delete_branch));
+
+            for (name, delete_name) in [
+                (
+                    "delete base marker branch if still present",
+                    base_branch_name.as_str(),
+                ),
+                (
+                    "delete main-side branch if still present",
+                    main_branch_name.as_str(),
+                ),
+            ] {
+                let delete_branch = run_python_poly(
+                    name,
+                    &[
+                        "branch",
+                        "delete",
+                        delete_name,
+                        "--json",
+                        "--path",
+                        branch_project_path.as_str(),
+                    ],
+                    &server,
+                    &replacements,
+                );
+                steps.push(WorkflowStep::Command(delete_branch));
+            }
+        }
+    }
+
+    let recording_path = recording
+        .save("merge-conflict-resolution-python-adk")
+        .expect("save merge conflict resolution recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        MERGE_CONFLICT_HTTPMOCK_RECORDING_FILE,
+        MERGE_CONFLICT_COMMAND_MANIFEST_FILE,
+        vec![
+            "This manifest records a permanent merge conflict and resolution into main.",
+            "A small base topic is first merged to main so the conflict target is unique to this recording.",
+            "The unresolved merge is expected to fail, then the recorded resolution accepts the branch side.",
+            "The main branch retains the resolved branch-side topic edit.",
+        ],
+        StepWorkflow {
+            name: "merge_conflict_resolution",
+            description: "Merge a small base topic to main, diverge two branches on that topic, merge one branch to advance main, record the other branch's conflict, resolve with theirs, then attempt branch cleanup.",
+            mutates_real_server: true,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+
+    let failures: Vec<&str> = required_results
+        .iter()
+        .filter_map(|(name, success)| (!success).then_some(*name))
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "merge conflict resolution recording had failed required steps: {failures:?}"
+    );
+}
+
 fn run_python_poly(
     name: &'static str,
     args: &[&str],
@@ -1494,8 +2297,8 @@ fn run_python_poly(
 fn append_text_file(
     name: &'static str,
     project_root: &std::path::Path,
-    relative_path: &'static str,
-    content: &'static str,
+    relative_path: &str,
+    content: &str,
     replacements: &[(String, String)],
 ) -> FileEditRecord {
     let path = project_root.join(relative_path);
@@ -1523,8 +2326,8 @@ fn append_text_file(
 fn write_text_file(
     name: &'static str,
     project_root: &std::path::Path,
-    relative_path: &'static str,
-    content: &'static str,
+    relative_path: &str,
+    content: &str,
     replacements: &[(String, String)],
 ) -> FileEditRecord {
     let path = project_root.join(relative_path);
@@ -1553,9 +2356,9 @@ fn write_text_file(
 fn replace_text_file(
     name: &'static str,
     project_root: &std::path::Path,
-    relative_path: &'static str,
-    target: &'static str,
-    replacement: &'static str,
+    relative_path: &str,
+    target: &str,
+    replacement: &str,
     replacements: &[(String, String)],
 ) -> FileEditRecord {
     let path = project_root.join(relative_path);
@@ -1588,7 +2391,7 @@ fn replace_text_file(
 fn delete_file(
     name: &'static str,
     project_root: &std::path::Path,
-    relative_path: &'static str,
+    relative_path: &str,
     replacements: &[(String, String)],
 ) -> FileEditRecord {
     let path = project_root.join(relative_path);
@@ -1681,14 +2484,6 @@ fn normalize_json_value(value: Value) -> Value {
     }
 }
 
-fn normalize_text(input: &str, replacements: &[(String, String)]) -> String {
-    replacements
-        .iter()
-        .fold(input.to_string(), |value, (from, to)| {
-            value.replace(from, to)
-        })
-}
-
 fn command_replacements(replacements: &[(String, String)]) -> Vec<(String, String)> {
     let mut all = machine_path_replacements();
     all.extend(replacements.iter().cloned());
@@ -1720,22 +2515,6 @@ fn machine_path_replacements() -> Vec<(String, String)> {
     replacements
 }
 
-fn httpmock_adk_base_url(server: &MockServer) -> String {
-    format!("{}/adk/v1", server.base_url())
-}
-
-fn temp_recording_dir() -> PathBuf {
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    std::env::temp_dir().join(format!("adk-rs-python-adk-recording-{ts}"))
-}
-
-fn recording_fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(RECORDING_FIXTURE_DIR)
-}
-
 fn api_key_from_env() -> String {
     ["POLY_ADK_KEY", "POLY_ADK_KEY_US", "POLY_ADK_KEY_US_1"]
         .into_iter()
@@ -1743,6 +2522,19 @@ fn api_key_from_env() -> String {
         .expect("POLY_ADK_KEY, POLY_ADK_KEY_US, or POLY_ADK_KEY_US_1 must be set")
 }
 
-fn python_adk_bin() -> String {
-    std::env::var(PYTHON_ADK_BIN_ENV).unwrap_or_else(|_| "poly".to_string())
+fn merge_resolutions_for_conflicts(record: &CommandRecord) -> Option<String> {
+    let conflicts = record.stdout_json.as_ref()?.get("conflicts")?.as_array()?;
+    let resolutions = conflicts
+        .iter()
+        .filter_map(|conflict| {
+            let path = conflict.get("path")?.as_array()?.clone();
+            Some(json!({
+                "path": path,
+                "strategy": "theirs"
+            }))
+        })
+        .collect::<Vec<_>>();
+    (!resolutions.is_empty())
+        .then(|| serde_json::to_string(&resolutions).ok())
+        .flatten()
 }

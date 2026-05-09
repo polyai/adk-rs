@@ -1,0 +1,147 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- This manifest records a permanent branch merge into main.
+- The throwaway branch is pushed, merged into main, and then deleted if still present.
+- The main branch retains the merged rules.txt change.
+httpmock_recording: branch-merge-main.httpmock.yaml
+workflows:
+- name: branch_merge_main
+  description: Create a branch, edit rules.txt, push the branch, merge it into main, verify main is current, then attempt branch cleanup.
+  mutates_real_server: true
+  cleanup: []
+  steps:
+  - kind: command
+    name: init real project before branch merge
+    argv:
+    - poly
+    - init
+    - --json
+    - --base-path
+    - ${TMP}
+    - --region
+    - us-1
+    - --account_id
+    - ben-ws
+    - --project_id
+    - PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: create branch to merge
+    argv:
+    - poly
+    - branch
+    - create
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      branch_name: ${BRANCH_NAME}
+      new_branch_id: BRANCH-4GHRCJ3I
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: append branch merge edit
+    operation: append_text
+    path: agent_settings/rules.txt
+    content: ${MERGE_TEXT}
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: push branch before merge
+    argv:
+    - poly
+    - push
+    - --json
+    - --force
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      dry_run: false
+      message: Resources pushed successfully.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: merge branch into main
+    argv:
+    - poly
+    - branch
+    - merge
+    - ADK recording branch merge
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: current branch after merge
+    argv:
+    - poly
+    - branch
+    - current
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      current_branch: main
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: status after merge switch to main
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files: []
+      new_files: []
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: delete merged branch if still present
+    argv:
+    - poly
+    - branch
+    - delete
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      message: Branch '${BRANCH_NAME}' does not exist or cannot be deleted.
+      success: false
+    stdout: null
+    stderr: ''

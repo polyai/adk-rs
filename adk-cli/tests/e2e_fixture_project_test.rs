@@ -9,25 +9,16 @@
 //! Each test documents related Python coverage (`poly/tests/project_test.py` or `cli_test.py`).
 //! These are subprocess smoke tests; behavior parity lives in `adk-core/tests/project_fixture_test.rs`.
 
-use std::path::PathBuf;
-use std::process::Command;
-use std::{
-    fs,
-    time::{SystemTime, UNIX_EPOCH},
-};
+mod support;
 
-fn poly_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_poly")
-}
+use std::path::PathBuf;
+use support::cli::{copy_dir_recursive, poly_offline_command, temp_dir};
 
 /// Without `POLY_ADK_KEY`, `poly` uses `InMemoryPlatformClient` (see `service_for_path`). Tests
 /// remove the key so behavior is deterministic in CI and on developer machines that export API
 /// credentials.
-fn poly_offline() -> Command {
-    let mut cmd = Command::new(poly_bin());
-    cmd.env_remove("POLY_ADK_KEY");
-    cmd.env("POLY_ADK_ALLOW_INMEMORY_FALLBACK", "1");
-    cmd
+fn poly_offline() -> std::process::Command {
+    poly_offline_command()
 }
 
 fn fixtures_root() -> PathBuf {
@@ -43,28 +34,9 @@ fn empty_fixture_dir() -> PathBuf {
 }
 
 fn make_temp_copy_of_full_fixture() -> PathBuf {
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let dst = std::env::temp_dir().join(format!("adk-rs-e2e-format-{ts}"));
+    let dst = temp_dir("adk-rs-e2e-format");
     copy_dir_recursive(&full_fixture_dir(), &dst).expect("copy fixture tree");
     dst
-}
-
-fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-        if src_path.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            fs::copy(src_path, dst_path)?;
-        }
-    }
-    Ok(())
 }
 
 /// Infrastructure: same on-disk trees as `poly/tests/project_test.py` (`TEST_DIR`, `EMPTY_PROJECT_DIR`).
@@ -152,9 +124,13 @@ fn status_json_succeeds_on_empty_fixture() {
         .and_then(|v| v.as_array())
         .expect("new_files array");
     assert_eq!(new_files.len(), 1);
+    let expected_new_file = std::path::PathBuf::from(&dir)
+        .join("empty_project.json")
+        .to_string_lossy()
+        .to_string();
     assert_eq!(
         new_files[0].as_str(),
-        Some("empty_project.json"),
+        Some(expected_new_file.as_str()),
         "unexpected new_files: {new_files:?}"
     );
     assert_eq!(
