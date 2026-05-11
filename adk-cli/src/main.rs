@@ -425,6 +425,9 @@ struct DeploymentsArgs {
 #[derive(Debug, Subcommand)]
 enum DeploymentsCommands {
     List(DeploymentsListArgs),
+    Show(DeploymentsShowArgs),
+    Promote(DeploymentsPromoteArgs),
+    Rollback(DeploymentsRollbackArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -448,6 +451,67 @@ struct DeploymentsListArgs {
     details: bool,
     #[arg(long, action = ArgAction::SetTrue)]
     json: bool,
+}
+
+#[derive(Debug, clap::Args)]
+struct DeploymentsShowArgs {
+    version_hash: String,
+    #[arg(long, default_value = ".")]
+    path: String,
+    #[arg(
+        long,
+        short = 'e',
+        default_value = "sandbox",
+        value_parser = clap::builder::PossibleValuesParser::new(["sandbox", "pre-release", "live"])
+    )]
+    env: String,
+    #[arg(long, action = ArgAction::SetTrue)]
+    json: bool,
+}
+
+#[derive(Debug, clap::Args)]
+struct DeploymentsPromoteArgs {
+    #[arg(long = "from")]
+    from_deployment: String,
+    #[arg(
+        long = "to",
+        value_parser = clap::builder::PossibleValuesParser::new(["pre-release", "live"])
+    )]
+    to_env: String,
+    #[arg(long, short = 'm')]
+    message: Option<String>,
+    #[arg(long, action = ArgAction::SetTrue)]
+    force: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    dry_run: bool,
+    #[arg(long, default_value = ".")]
+    path: String,
+    #[arg(long, action = ArgAction::SetTrue)]
+    json: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    verbose: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    debug: bool,
+}
+
+#[derive(Debug, clap::Args)]
+struct DeploymentsRollbackArgs {
+    #[arg(long = "to")]
+    to_deployment: String,
+    #[arg(long, short = 'm')]
+    message: Option<String>,
+    #[arg(long, action = ArgAction::SetTrue)]
+    force: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    dry_run: bool,
+    #[arg(long, default_value = ".")]
+    path: String,
+    #[arg(long, action = ArgAction::SetTrue)]
+    json: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    verbose: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    debug: bool,
 }
 
 fn main() -> ExitCode {
@@ -517,10 +581,8 @@ fn run() -> Result<ExitCode> {
         Commands::Chat(args) => cmd_chat(args),
         Commands::Completion(args) => cmd_completion(args),
         Commands::Deployments(args) => {
-            let path = match &args.command {
-                DeploymentsCommands::List(list) => list.path.as_str(),
-            };
-            let json_mode = matches!(&args.command, DeploymentsCommands::List(list) if list.json);
+            let path = deployments_path(&args);
+            let json_mode = deployments_json(&args);
             let Some(service) = remote_service_for_path(&bootstrap_service, path, json_mode) else {
                 return Ok(ExitCode::from(1));
             };
@@ -528,6 +590,24 @@ fn run() -> Result<ExitCode> {
         }
     };
     Ok(result)
+}
+
+fn deployments_path(args: &DeploymentsArgs) -> &str {
+    match &args.command {
+        DeploymentsCommands::List(args) => args.path.as_str(),
+        DeploymentsCommands::Show(args) => args.path.as_str(),
+        DeploymentsCommands::Promote(args) => args.path.as_str(),
+        DeploymentsCommands::Rollback(args) => args.path.as_str(),
+    }
+}
+
+fn deployments_json(args: &DeploymentsArgs) -> bool {
+    match &args.command {
+        DeploymentsCommands::List(args) => args.json,
+        DeploymentsCommands::Show(args) => args.json,
+        DeploymentsCommands::Promote(args) => args.json,
+        DeploymentsCommands::Rollback(args) => args.json,
+    }
 }
 
 fn command_verbose(command: &Commands) -> bool {
@@ -551,7 +631,7 @@ fn command_verbose(command: &Commands) -> bool {
         Commands::Validate(args) => args.verbose,
         Commands::Chat(args) => args.verbose,
         Commands::Completion(_) => false,
-        Commands::Deployments(args) => args.verbose,
+        Commands::Deployments(args) => deployments_verbose(args),
     }
 }
 
@@ -562,6 +642,7 @@ fn command_debug(command: &Commands) -> bool {
         Commands::Push(args) => args.debug,
         Commands::Branch(args) => branch_debug(args),
         Commands::Chat(args) => args.debug,
+        Commands::Deployments(args) => deployments_debug(args),
         _ => false,
     }
 }
@@ -583,6 +664,23 @@ fn branch_debug(args: &BranchArgs) -> bool {
         BranchCommands::Switch(args) => args.debug,
         BranchCommands::Delete(args) => args.debug,
         BranchCommands::Merge(args) => args.debug,
+    }
+}
+
+fn deployments_verbose(args: &DeploymentsArgs) -> bool {
+    args.verbose
+        || match &args.command {
+            DeploymentsCommands::List(_) | DeploymentsCommands::Show(_) => false,
+            DeploymentsCommands::Promote(args) => args.verbose,
+            DeploymentsCommands::Rollback(args) => args.verbose,
+        }
+}
+
+fn deployments_debug(args: &DeploymentsArgs) -> bool {
+    match &args.command {
+        DeploymentsCommands::Promote(args) => args.debug,
+        DeploymentsCommands::Rollback(args) => args.debug,
+        DeploymentsCommands::List(_) | DeploymentsCommands::Show(_) => false,
     }
 }
 
@@ -3119,7 +3217,465 @@ fn cmd_deployments(service: &AdkService, args: DeploymentsArgs) -> ExitCode {
                 }
             }
         }
+        DeploymentsCommands::Show(show_args) => cmd_deployments_show(service, show_args),
+        DeploymentsCommands::Promote(promote_args) => {
+            cmd_deployments_promote(service, promote_args)
+        }
+        DeploymentsCommands::Rollback(rollback_args) => {
+            cmd_deployments_rollback(service, rollback_args)
+        }
     }
+}
+
+fn cmd_deployments_show(service: &AdkService, args: DeploymentsShowArgs) -> ExitCode {
+    if !ensure_project_loaded(service, &args.path, args.json) {
+        return ExitCode::from(1);
+    }
+    let deployments = match service.list_deployments(&args.env) {
+        Ok(deployments) => deployments,
+        Err(error) => {
+            emit_error(args.json, &error.to_string());
+            return ExitCode::from(1);
+        }
+    };
+    if deployments.versions.is_empty() {
+        emit_error(args.json, "No versions found.");
+        return ExitCode::from(1);
+    }
+    let prefix = deployment_hash_prefix(&args.version_hash);
+    let Some((version_idx, deployment)) = find_deployment_by_prefix(&deployments.versions, &prefix)
+    else {
+        emit_error(args.json, &format!("Version hash '{prefix}' not found."));
+        return ExitCode::from(1);
+    };
+    let deployment = deployment.clone();
+    let target_hash = deployment_hash(&deployment).unwrap_or_default().to_string();
+    let predecessor_hash = deployments
+        .versions
+        .get(version_idx + 1)
+        .and_then(deployment_hash)
+        .map(ToString::to_string);
+    let sandbox_versions = if args.env == "sandbox" {
+        deployments.versions.clone()
+    } else {
+        match service.list_deployments("sandbox") {
+            Ok(deployments) => deployments.versions,
+            Err(error) => {
+                emit_error(args.json, &error.to_string());
+                return ExitCode::from(1);
+            }
+        }
+    };
+    let (included, is_rollback) =
+        resolve_included_deployments(&sandbox_versions, &target_hash, predecessor_hash.as_deref());
+
+    if args.json {
+        println!(
+            "{}",
+            json!({
+                "success": true,
+                "deployment": deployment,
+                "active_deployment_hashes": deployments.active_deployment_hashes,
+                "included_deployments": included,
+                "is_rollback": is_rollback,
+            })
+        );
+    } else {
+        print_deployment_show(
+            &deployment,
+            &deployments.active_deployment_hashes,
+            &included,
+            is_rollback,
+        );
+    }
+    ExitCode::SUCCESS
+}
+
+fn cmd_deployments_promote(service: &AdkService, args: DeploymentsPromoteArgs) -> ExitCode {
+    if !ensure_project_loaded(service, &args.path, args.json) {
+        return ExitCode::from(1);
+    }
+    let search_env = if args.to_env == "live" {
+        "pre-release"
+    } else {
+        "sandbox"
+    };
+    let deployments = match service.list_deployments(search_env) {
+        Ok(deployments) => deployments,
+        Err(error) => {
+            emit_error(args.json, &error.to_string());
+            return ExitCode::from(1);
+        }
+    };
+    let deployment_hash_or_alias = deployments
+        .active_deployment_hashes
+        .get(&args.from_deployment)
+        .map(String::as_str)
+        .unwrap_or(args.from_deployment.as_str());
+    let prefix = deployment_hash_prefix(deployment_hash_or_alias);
+    let Some((_, deployment)) = find_deployment_by_prefix(&deployments.versions, &prefix) else {
+        return print_deployment_json_or_error(
+            args.json,
+            json!({
+                "success": false,
+                "to_env": args.to_env,
+                "error": format!("Deployment '{}' not found in {search_env}.", args.from_deployment),
+            }),
+        );
+    };
+    let deployment = deployment.clone();
+    let Some(deployment_id) = deployment_id(&deployment).map(ToString::to_string) else {
+        emit_error(args.json, "Selected deployment does not include an id.");
+        return ExitCode::from(1);
+    };
+    let from_hash = deployment_hash(&deployment).unwrap_or_default().to_string();
+    let deployment_message = deployment_message(&deployment).unwrap_or("");
+    let message = args
+        .message
+        .clone()
+        .unwrap_or_else(|| deployment_message.to_string());
+    let predecessor_hash = deployments
+        .active_deployment_hashes
+        .get(&args.to_env)
+        .map(String::as_str);
+    let sandbox_versions = if search_env == "sandbox" {
+        deployments.versions.clone()
+    } else {
+        match service.list_deployments("sandbox") {
+            Ok(deployments) => deployments.versions,
+            Err(error) => {
+                emit_error(args.json, &error.to_string());
+                return ExitCode::from(1);
+            }
+        }
+    };
+    let (included, is_rollback) =
+        resolve_included_deployments(&sandbox_versions, &from_hash, predecessor_hash);
+    let mut result = json!({
+        "success": false,
+        "to_env": args.to_env,
+        "from_hash": from_hash,
+        "message": message,
+        "included_deployments": included,
+    });
+
+    if !args.json {
+        console::plain(format!(
+            "Promoting hash [bold]{}[/bold] to [info]{}[/info]",
+            result
+                .get("from_hash")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .chars()
+                .take(9)
+                .collect::<String>(),
+            args.to_env
+        ));
+        if is_rollback {
+            console::plain(format!(
+                "Rolling back to an earlier version: {}",
+                deployment_message_or_dash(&deployment)
+            ));
+        } else if predecessor_hash.is_none() {
+            console::plain(format!("First deployment to {}.", args.to_env));
+        }
+        if let Some(items) = result
+            .get("included_deployments")
+            .and_then(serde_json::Value::as_array)
+            && !items.is_empty()
+        {
+            let label = if is_rollback {
+                "Reverting deployments"
+            } else {
+                "Included deployments"
+            };
+            console::plain(format!("{label} ({}):", items.len()));
+            print_deployment_versions(items, &indexmap::IndexMap::new(), false);
+        }
+    }
+
+    if args.dry_run {
+        result["dry_run"] = json!(true);
+        return print_deployment_dry_run(args.json, result);
+    }
+    if !args.json && !args.force {
+        match prompt_confirm("Confirm Deployment?") {
+            Ok(true) => {}
+            Ok(false) => {
+                console::warning("Aborted.");
+                return ExitCode::SUCCESS;
+            }
+            Err(error) => {
+                emit_error(false, &error);
+                return ExitCode::from(1);
+            }
+        }
+    }
+
+    match service.promote_deployment(
+        &deployment_id,
+        &args.to_env,
+        result
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(""),
+    ) {
+        Ok(_) => {
+            result["success"] = json!(true);
+            if args.json {
+                println!("{result}");
+            } else {
+                console::success(format!(
+                    "Deployment {} promoted to {}.",
+                    args.from_deployment, args.to_env
+                ));
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            if args.json {
+                result["error"] = json!(error.to_string());
+                println!("{result}");
+            } else {
+                emit_error(false, &format!("Failed to promote deployment: {error}"));
+            }
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_deployments_rollback(service: &AdkService, args: DeploymentsRollbackArgs) -> ExitCode {
+    if !ensure_project_loaded(service, &args.path, args.json) {
+        return ExitCode::from(1);
+    }
+    let deployments = match service.list_deployments("sandbox") {
+        Ok(deployments) => deployments,
+        Err(error) => {
+            emit_error(args.json, &error.to_string());
+            return ExitCode::from(1);
+        }
+    };
+    let deployment_hash_or_alias = deployments
+        .active_deployment_hashes
+        .get(&args.to_deployment)
+        .map(String::as_str)
+        .unwrap_or(args.to_deployment.as_str());
+    let prefix = deployment_hash_prefix(deployment_hash_or_alias);
+    let Some((_, deployment)) = find_deployment_by_prefix(&deployments.versions, &prefix) else {
+        return print_deployment_json_or_error(
+            args.json,
+            json!({
+                "success": false,
+                "error": format!("Deployment '{}' not found in sandbox.", args.to_deployment),
+            }),
+        );
+    };
+    let deployment = deployment.clone();
+    let Some(deployment_id) = deployment_id(&deployment).map(ToString::to_string) else {
+        emit_error(args.json, "Selected deployment does not include an id.");
+        return ExitCode::from(1);
+    };
+    let target_hash = deployment_hash(&deployment).unwrap_or_default().to_string();
+    let deployment_message = deployment_message(&deployment).unwrap_or("");
+    let message = args
+        .message
+        .clone()
+        .unwrap_or_else(|| deployment_message.to_string());
+    let current_sandbox_hash = deployments
+        .active_deployment_hashes
+        .get("sandbox")
+        .map(String::as_str);
+    let (reverted, _) =
+        resolve_included_deployments(
+            &deployments.versions,
+            current_sandbox_hash.unwrap_or(""),
+            Some(&target_hash),
+        );
+    let mut result = json!({
+        "success": false,
+        "target_hash": target_hash,
+        "message": message,
+        "reverted_deployments": reverted,
+    });
+
+    if !args.json {
+        console::plain(format!(
+            "Rolling back sandbox to deployment '[bold]{}[/bold]: {}'",
+            result
+                .get("target_hash")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .chars()
+                .take(9)
+                .collect::<String>(),
+            deployment_message_or_dash(&deployment)
+        ));
+        if let Some(items) = result
+            .get("reverted_deployments")
+            .and_then(serde_json::Value::as_array)
+            && !items.is_empty()
+        {
+            console::plain(format!("Reverting deployments ({}):", items.len()));
+            print_deployment_versions(items, &indexmap::IndexMap::new(), false);
+        }
+    }
+
+    if args.dry_run {
+        result["dry_run"] = json!(true);
+        return print_deployment_dry_run(args.json, result);
+    }
+    if !args.json && !args.force {
+        match prompt_confirm("Confirm Rollback?") {
+            Ok(true) => {}
+            Ok(false) => {
+                console::warning("Aborted.");
+                return ExitCode::SUCCESS;
+            }
+            Err(error) => {
+                emit_error(false, &error);
+                return ExitCode::from(1);
+            }
+        }
+    }
+
+    match service.rollback_deployment(
+        &deployment_id,
+        result
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(""),
+    ) {
+        Ok(_) => {
+            result["success"] = json!(true);
+            if args.json {
+                println!("{result}");
+            } else {
+                console::success(format!(
+                    "Sandbox rolled back to deployment {}.",
+                    args.to_deployment
+                ));
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            if args.json {
+                result["error"] = json!(error.to_string());
+                println!("{result}");
+            } else {
+                emit_error(false, &format!("Failed to rollback deployment: {error}"));
+            }
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn print_deployment_json_or_error(json_mode: bool, payload: serde_json::Value) -> ExitCode {
+    if json_mode {
+        println!("{payload}");
+    } else {
+        emit_error(
+            false,
+            payload
+                .get("error")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Deployment command failed."),
+        );
+    }
+    ExitCode::from(1)
+}
+
+fn print_deployment_dry_run(json_mode: bool, payload: serde_json::Value) -> ExitCode {
+    if json_mode {
+        println!("{payload}");
+    } else {
+        console::plain("[muted]Dry run - no changes were made.[/muted]");
+    }
+    ExitCode::SUCCESS
+}
+
+fn find_deployment_by_prefix<'a>(
+    deployments: &'a [serde_json::Value],
+    prefix: &str,
+) -> Option<(usize, &'a serde_json::Value)> {
+    deployments.iter().enumerate().find(|(_, deployment)| {
+        deployment_hash(deployment)
+            .map(|hash| hash.chars().take(9).collect::<String>() == prefix)
+            .unwrap_or(false)
+    })
+}
+
+fn deployment_hash_prefix(hash: &str) -> String {
+    hash.chars().take(9).collect()
+}
+
+fn deployment_hash(deployment: &serde_json::Value) -> Option<&str> {
+    string_field(deployment, &["version_hash", "versionHash", "hash"])
+}
+
+fn deployment_id(deployment: &serde_json::Value) -> Option<&str> {
+    string_field(deployment, &["id", "deployment_id", "deploymentId"])
+}
+
+fn deployment_message(deployment: &serde_json::Value) -> Option<&str> {
+    deployment
+        .pointer("/deployment_metadata/deployment_message")
+        .and_then(serde_json::Value::as_str)
+        .filter(|message| !message.is_empty())
+}
+
+fn deployment_message_or_dash(deployment: &serde_json::Value) -> &str {
+    deployment_message(deployment).unwrap_or("-")
+}
+
+fn resolve_included_deployments(
+    sandbox_versions: &[serde_json::Value],
+    target_hash: &str,
+    predecessor_hash: Option<&str>,
+) -> (Vec<serde_json::Value>, bool) {
+    let Some(target_idx) = sandbox_versions
+        .iter()
+        .position(|version| deployment_hash(version) == Some(target_hash))
+    else {
+        return (vec![], false);
+    };
+    let Some(predecessor_hash) = predecessor_hash.filter(|hash| !hash.is_empty()) else {
+        return (sandbox_versions[target_idx..].to_vec(), false);
+    };
+    let Some(pred_idx) = sandbox_versions
+        .iter()
+        .position(|version| deployment_hash(version) == Some(predecessor_hash))
+    else {
+        return (sandbox_versions[target_idx..].to_vec(), false);
+    };
+    if pred_idx < target_idx {
+        (sandbox_versions[pred_idx..target_idx].to_vec(), true)
+    } else {
+        (sandbox_versions[target_idx..pred_idx].to_vec(), false)
+    }
+}
+
+fn print_deployment_show(
+    deployment: &serde_json::Value,
+    active_deployment_hashes: &indexmap::IndexMap<String, String>,
+    included_deployments: &[serde_json::Value],
+    is_rollback: bool,
+) {
+    console::plain("[label]Deployment:[/label]");
+    print_deployment_version_details(deployment, active_deployment_hashes);
+    if included_deployments.is_empty() {
+        return;
+    }
+    let label = if is_rollback {
+        "Reverted deployments"
+    } else {
+        "Included deployments"
+    };
+    console::plain(format!("[label]{label}:[/label]"));
+    print_deployment_versions(
+        included_deployments,
+        &indexmap::IndexMap::new(),
+        false,
+    );
 }
 
 fn print_deployment_versions(

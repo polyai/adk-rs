@@ -2,7 +2,7 @@ mod support;
 
 use httpmock::Method::{DELETE, GET, POST};
 use httpmock::MockServer;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -21,6 +21,41 @@ fn stdout(output: &Output) -> String {
 
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).to_string()
+}
+
+fn write_us_project(prefix: &str) -> PathBuf {
+    let project_dir = temp_dir(prefix);
+    fs::create_dir_all(&project_dir).expect("create project dir");
+    fs::write(
+        project_dir.join("project.yaml"),
+        "region: us-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write config");
+    project_dir
+}
+
+fn deployment_json(id: &str, hash: &str, env: &str, message: &str) -> Value {
+    json!({
+        "id": id,
+        "version_hash": hash,
+        "created_at": "2026-05-01T12:00:00Z",
+        "created_by": "tester@example.com",
+        "artifact_version": format!("artifact-{id}"),
+        "function_deployment_version": format!("lambda-{id}"),
+        "client_env": env,
+        "deployment_metadata": {
+            "deployment_type": "manual",
+            "deployment_message": message
+        }
+    })
+}
+
+fn mock_active_deployments<'a>(server: &'a MockServer, body: Value) -> httpmock::Mock<'a> {
+    server.mock(|when, then| {
+        when.method(GET)
+            .path("/adk/v1/accounts/test/projects/proj/deployments/active");
+        then.status(200).json_body(body);
+    })
 }
 
 fn assert_not_json_object(text: &str) {
@@ -653,6 +688,218 @@ fn deployments_list_text_honors_details_flag() {
     assert!(detailed_stdout.contains("Message: Initial deploy"));
     deployments.assert_calls(2);
     active.assert_calls(2);
+}
+
+#[test]
+fn deployments_show_json_resolves_included_deployments_from_sandbox_history() {
+    let server = MockServer::start();
+    let live = server.mock(|when, then| {
+        when.method(GET)
+            .path("/adk/v1/accounts/test/projects/proj/deployments")
+            .query_param("client_env", "live");
+        then.status(200).json_body(json!({
+            "deployments": [
+                deployment_json("dep-live-0", "hash00000xxxx", "live", "live promotion"),
+                deployment_json("dep-live-3", "hash00003xxxx", "live", "older live")
+            ]
+        }));
+    });
+    let sandbox = server.mock(|when, then| {
+        when.method(GET)
+            .path("/adk/v1/accounts/test/projects/proj/deployments")
+            .query_param("client_env", "sandbox");
+        then.status(200).json_body(json!({
+            "deployments": [
+                deployment_json("dep-0", "hash00000xxxx", "sandbox", "newest"),
+                deployment_json("dep-1", "hash00001xxxx", "sandbox", "middle"),
+                deployment_json("dep-2", "hash00002xxxx", "sandbox", "middle older"),
+                deployment_json("dep-3", "hash00003xxxx", "sandbox", "oldest")
+            ]
+        }));
+    });
+    let active = mock_active_deployments(
+        &server,
+        json!({
+            "sandbox": {"version_hash": "hash00000xxxx"},
+            "live": {"version_hash": "hash00000xxxx"}
+        }),
+    );
+    let project_dir = write_us_project("adk-rs-deployments-show-json");
+
+    let mut command = poly_without_fallback_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env(
+            "POLY_ADK_BASE_URL_US",
+            format!("{}/adk/v1", server.base_url()),
+        )
+        .env(
+            "POLY_ADK_BASE_URL_US_1",
+            format!("{}/adk/v1", server.base_url()),
+        )
+        .args([
+            "deployments",
+            "show",
+            "hash00000xxxx",
+            "--env",
+            "live",
+            "--json",
+            "--path",
+        ])
+        .arg(project_dir.to_string_lossy().as_ref())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command.output().expect("run deployments show");
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("json deployments show output");
+    assert_eq!(payload["success"], true);
+    assert_eq!(payload["deployment"]["id"], "dep-live-0");
+    assert_eq!(payload["is_rollback"], false);
+    let included = payload["included_deployments"]
+        .as_array()
+        .expect("included deployments");
+    assert_eq!(included.len(), 3);
+    assert_eq!(included[0]["id"], "dep-0");
+    assert_eq!(included[2]["id"], "dep-2");
+    live.assert();
+    sandbox.assert();
+    active.assert_calls(2);
+}
+
+#[test]
+fn deployments_promote_json_posts_to_platform_root_endpoint() {
+    let server = MockServer::start();
+    let deployments = server.mock(|when, then| {
+        when.method(GET)
+            .path("/adk/v1/accounts/test/projects/proj/deployments")
+            .query_param("client_env", "sandbox");
+        then.status(200).json_body(json!({
+            "deployments": [
+                deployment_json("dep-1", "abc123456xyz", "sandbox", "original message"),
+                deployment_json("dep-2", "def789012xyz", "sandbox", "previous message")
+            ]
+        }));
+    });
+    let active = mock_active_deployments(
+        &server,
+        json!({
+            "sandbox": {"version_hash": "abc123456xyz"},
+            "pre-release": {"version_hash": "def789012xyz"}
+        }),
+    );
+    let promote = server.mock(|when, then| {
+        when.method(POST)
+            .path("/v1/agents/proj/deployments/dep-1/promote")
+            .json_body(json!({
+                "targetEnvironment": "pre-release",
+                "deploymentMessage": "Release notes"
+            }));
+        then.status(200).json_body(json!({"ok": true}));
+    });
+    let project_dir = write_us_project("adk-rs-deployments-promote-json");
+
+    let mut command = poly_without_fallback_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env(
+            "POLY_ADK_BASE_URL_US",
+            format!("{}/adk/v1", server.base_url()),
+        )
+        .env(
+            "POLY_ADK_BASE_URL_US_1",
+            format!("{}/adk/v1", server.base_url()),
+        )
+        .args([
+            "deployments",
+            "promote",
+            "--from",
+            "sandbox",
+            "--to",
+            "pre-release",
+            "--message",
+            "Release notes",
+            "--json",
+            "--force",
+            "--path",
+        ])
+        .arg(project_dir.to_string_lossy().as_ref())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command.output().expect("run deployments promote");
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("json deployments promote output");
+    assert_eq!(payload["success"], true);
+    assert_eq!(payload["to_env"], "pre-release");
+    assert_eq!(payload["from_hash"], "abc123456xyz");
+    assert_eq!(payload["message"], "Release notes");
+    assert_eq!(payload["included_deployments"][0]["id"], "dep-1");
+    deployments.assert();
+    active.assert();
+    promote.assert();
+}
+
+#[test]
+fn deployments_rollback_json_dry_run_matches_python_contract() {
+    let server = MockServer::start();
+    let deployments = server.mock(|when, then| {
+        when.method(GET)
+            .path("/adk/v1/accounts/test/projects/proj/deployments")
+            .query_param("client_env", "sandbox");
+        then.status(200).json_body(json!({
+            "deployments": [
+                deployment_json("dep-current", "abc123456xyz", "sandbox", "current"),
+                deployment_json("dep-target", "def789012xyz", "sandbox", "target"),
+                deployment_json("dep-old", "ghi345678xyz", "sandbox", "old")
+            ]
+        }));
+    });
+    let active = mock_active_deployments(
+        &server,
+        json!({
+            "sandbox": {"version_hash": "abc123456xyz"}
+        }),
+    );
+    let project_dir = write_us_project("adk-rs-deployments-rollback-dry-run");
+
+    let mut command = poly_without_fallback_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env(
+            "POLY_ADK_BASE_URL_US",
+            format!("{}/adk/v1", server.base_url()),
+        )
+        .env(
+            "POLY_ADK_BASE_URL_US_1",
+            format!("{}/adk/v1", server.base_url()),
+        )
+        .args([
+            "deployments",
+            "rollback",
+            "--to",
+            "def789012",
+            "--dry-run",
+            "--json",
+            "--path",
+        ])
+        .arg(project_dir.to_string_lossy().as_ref())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command.output().expect("run deployments rollback");
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("json deployments rollback output");
+    assert_eq!(payload["success"], false);
+    assert_eq!(payload["dry_run"], true);
+    assert_eq!(payload["target_hash"], "def789012xyz");
+    assert_eq!(payload["message"], "target");
+    assert_eq!(payload["reverted_deployments"][0]["id"], "dep-current");
+    deployments.assert();
+    active.assert();
 }
 
 #[test]

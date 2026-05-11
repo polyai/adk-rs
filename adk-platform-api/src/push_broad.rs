@@ -17,8 +17,8 @@ use adk_protobuf::api_integrations::{
 };
 use adk_protobuf::asr_settings::{AsrSettingsUpdateAsrSettings, LatencyConfig};
 use adk_protobuf::channels::{
-    ChannelType, ChannelUpdateGreeting, ChannelUpdateStylePrompt, StylePromptUpdateStylePrompt,
-    VoiceChannelUpdateAsrSettings, VoiceChannelUpdateDisclaimer,
+    ChannelType, ChannelUpdateGreeting, ChannelUpdateSafetyFilters, ChannelUpdateStylePrompt,
+    StylePromptUpdateStylePrompt, VoiceChannelUpdateAsrSettings, VoiceChannelUpdateDisclaimer,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::content_filter_settings::{
@@ -392,6 +392,17 @@ pub(crate) fn broad_resource_command_groups(
         );
     }
 
+    if resource_changed(resources, &remote_resources, "voice/safety_filters.yaml")
+        && let Some(yaml) = resource_yaml(resources, "voice/safety_filters.yaml")
+    {
+        push_channel_safety_filters_update(
+            &mut groups.updates,
+            metadata,
+            ChannelType::Voice,
+            &yaml,
+        );
+    }
+
     if resource_changed(resources, &remote_resources, "voice/configuration.yaml")
         && let Some(yaml) = resource_yaml(resources, "voice/configuration.yaml")
     {
@@ -424,6 +435,7 @@ pub(crate) fn broad_resource_command_groups(
             );
         }
         if let Some(disclaimer) = yaml.get("disclaimer_messages") {
+            let disclaimer = first_yaml_mapping(disclaimer).unwrap_or(disclaimer);
             push_command(
                 &mut groups.updates,
                 metadata,
@@ -441,6 +453,58 @@ pub(crate) fn broad_resource_command_groups(
                         ringing_tone: None,
                         language_code: yaml_str(disclaimer, "language_code"),
                         references: None,
+                    }),
+                }),
+            );
+        }
+    }
+
+    let chat_configuration_yaml =
+        if resource_changed(resources, &remote_resources, "chat/configuration.yaml") {
+            resource_yaml(resources, "chat/configuration.yaml")
+        } else {
+            None
+        };
+
+    if let Some(yaml) = chat_configuration_yaml.as_ref() {
+        if let Some(greeting) = yaml.get("greeting") {
+            push_command(
+                &mut groups.updates,
+                metadata,
+                "channel_update_greeting",
+                CommandPayload::ChannelUpdateGreeting(ChannelUpdateGreeting {
+                    channel_type: ChannelType::WebChat as i32,
+                    greeting: Some(GreetingUpdateGreeting {
+                        welcome_message: Some(yaml_str(greeting, "welcome_message")),
+                        references: None,
+                        language_code: yaml_str(greeting, "language_code"),
+                    }),
+                }),
+            );
+        }
+    }
+
+    if resource_changed(resources, &remote_resources, "chat/safety_filters.yaml")
+        && let Some(yaml) = resource_yaml(resources, "chat/safety_filters.yaml")
+    {
+        push_channel_safety_filters_update(
+            &mut groups.updates,
+            metadata,
+            ChannelType::WebChat,
+            &yaml,
+        );
+    }
+
+    if let Some(yaml) = chat_configuration_yaml.as_ref() {
+        if let Some(style_prompt) = yaml.get("style_prompt") {
+            push_command(
+                &mut groups.updates,
+                metadata,
+                "channel_update_style_prompt",
+                CommandPayload::ChannelUpdateStylePrompt(ChannelUpdateStylePrompt {
+                    channel_type: ChannelType::WebChat as i32,
+                    style_prompt: Some(StylePromptUpdateStylePrompt {
+                        prompt: yaml_str(style_prompt, "prompt"),
                     }),
                 }),
             );
@@ -473,6 +537,23 @@ pub(crate) fn broad_resource_command_groups(
     }
 
     groups
+}
+
+fn push_channel_safety_filters_update(
+    commands: &mut Vec<adk_protobuf::Command>,
+    metadata: &Option<Metadata>,
+    channel_type: ChannelType,
+    yaml: &serde_yaml::Value,
+) {
+    push_command(
+        commands,
+        metadata,
+        "channel_update_safety_filters",
+        CommandPayload::ChannelUpdateSafetyFilters(ChannelUpdateSafetyFilters {
+            channel_type: channel_type as i32,
+            safety_filters: Some(content_filter_settings_from_yaml(yaml)),
+        }),
+    );
 }
 
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
@@ -573,19 +654,36 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
         )),
         CommandPayload::ChannelUpdateGreeting(msg) => Some((
             "channel_update_greeting",
-            json!({
-                "greeting": msg.greeting.as_ref().map(greeting_json).unwrap_or_else(|| json!({})),
-            }),
+            channel_payload_json(
+                msg.channel_type,
+                "greeting",
+                msg.greeting
+                    .as_ref()
+                    .map(greeting_json)
+                    .unwrap_or_else(|| json!({})),
+            ),
         )),
         CommandPayload::ChannelUpdateStylePrompt(msg) => Some((
             "channel_update_style_prompt",
-            json!({
-                "style_prompt": msg
-                    .style_prompt
+            channel_payload_json(
+                msg.channel_type,
+                "style_prompt",
+                msg.style_prompt
                     .as_ref()
                     .map(|style_prompt| json!({ "prompt": style_prompt.prompt }))
                     .unwrap_or_else(|| json!({})),
-            }),
+            ),
+        )),
+        CommandPayload::ChannelUpdateSafetyFilters(msg) => Some((
+            "channel_update_safety_filters",
+            channel_payload_json(
+                msg.channel_type,
+                "safety_filters",
+                msg.safety_filters
+                    .as_ref()
+                    .map(content_filter_settings_json)
+                    .unwrap_or_else(|| json!({})),
+            ),
         )),
         CommandPayload::VoiceChannelUpdateDisclaimer(msg) => Some((
             "voice_channel_update_disclaimer",
@@ -614,6 +712,13 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
 fn resource_yaml(resources: &ResourceMap, path: &str) -> Option<serde_yaml::Value> {
     let content = resources.get(path)?.payload.get("content")?.as_str()?;
     serde_yaml::from_str(content).ok()
+}
+
+fn first_yaml_mapping(value: &serde_yaml::Value) -> Option<&serde_yaml::Value> {
+    value
+        .as_sequence()?
+        .iter()
+        .find(|item| item.as_mapping().is_some())
 }
 
 fn resource_changed(local: &ResourceMap, remote: &ResourceMap, path: &str) -> bool {
@@ -818,6 +923,18 @@ fn content_filter_category_json(category: &AzureContentFilterCategory) -> Value 
         "precision".to_string(),
         Value::String(category.precision.clone()),
     );
+    Value::Object(value)
+}
+
+fn channel_payload_json(channel_type: i32, payload_key: &str, payload: Value) -> Value {
+    let mut value = serde_json::Map::new();
+    if channel_type == ChannelType::WebChat as i32 {
+        value.insert(
+            "channel_type".to_string(),
+            Value::String("WEB_CHAT".to_string()),
+        );
+    }
+    value.insert(payload_key.to_string(), payload);
     Value::Object(value)
 }
 

@@ -148,7 +148,7 @@ fn load_project_config_matches_python_project_test_init() {
 
 /// Port: `poly/utils.py` - `export_decorators` and `save_imports`
 #[test]
-fn init_and_pull_write_python_compatible_gen_sdk_package() {
+fn init_and_pull_write_python_compatible_gen_package() {
     let service = service_offline();
     let base = make_temp_project_dir();
     service
@@ -226,7 +226,7 @@ fn init_and_pull_write_python_compatible_gen_sdk_package() {
 
 /// Port: `poly/utils.py` - `_gen` package template files
 #[test]
-fn init_gen_sdk_package_matches_synced_python_fixture_files() {
+fn init_python_gen_package_matches_synced_fixture_files() {
     let service = service_offline();
     let base = make_temp_project_dir();
     service

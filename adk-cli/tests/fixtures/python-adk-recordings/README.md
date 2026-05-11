@@ -18,6 +18,10 @@ Each scenario has a command manifest and a matching raw `httpmock` cassette:
   Create a throwaway branch, edit `agent_settings/rules.txt`, dry-run push
   command generation, perform a real branch push, diff against main, and delete
   the branch.
+- `channel-settings.*`
+  Create a throwaway branch, pull a webchat-enabled baseline projection, write
+  voice safety filters plus webchat greeting/style/safety resources, dry-run
+  Python channel update command generation, and delete the branch.
 - `chat-error-metadata.*`
   Chat JSON metadata flags plus Python's turn-level JSON error contract for a
   failed `send_message` call.
@@ -27,6 +31,10 @@ Each scenario has a command manifest and a matching raw `httpmock` cassette:
 - `create-delete-dryrun.*`
   Create a throwaway branch, add a local topic, delete a local function, inspect
   status/diff, dry-run push command generation, and delete the branch.
+- `deployments-mutation.*`
+  List and show deployments, dry-run a promotion, promote to pre-release,
+  dry-run a rollback, roll sandbox back to a prior deployment, then restore the
+  original sandbox deployment.
 - `dirty-switch.*`
   Create a throwaway branch, dirty the checkout, record switch-without-force
   failure, force switch back to main, and delete the branch.
@@ -67,6 +75,9 @@ focused parity behavior beyond the larger workflows above:
   pronunciations, transcript corrections, variants, and API integrations.
 - `semantic-validation.*`
   Documents Python semantic validation beyond YAML/JSON parsing.
+- `special-functions.*`
+  Documents Python start/end special-function pull materialization, create,
+  update, delete, and related `conv.state.*` variable command behavior.
 - `format-local.*`
   Documents Python formatting for YAML resources, Python function files, and
   observed `--ty` behavior.

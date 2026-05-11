@@ -93,7 +93,10 @@ fn replay_scenario(scenario: &str) {
     let tmp = temp_replay_dir(scenario);
     fs::create_dir_all(&tmp).unwrap_or_else(|error| panic!("{scenario}: create tmp dir: {error}"));
     let playback_server = MockServer::start();
-    if scenario == "chat-session-controls" {
+    if matches!(
+        scenario,
+        "chat-session-controls" | "deployments-mutation" | "special-functions"
+    ) {
         install_stateful_playback_server(scenario, &playback_server, &cassette_text);
     } else {
         let playback_cassette_path = write_playback_cassette_without_request_bodies(
@@ -142,7 +145,10 @@ struct CassetteInteraction {
 }
 
 fn install_stateful_playback_server(scenario: &str, server: &MockServer, cassette_text: &str) {
-    let interactions = parse_cassette_interactions(scenario, cassette_text);
+    let mut interactions = parse_cassette_interactions(scenario, cassette_text);
+    if scenario == "special-functions" {
+        add_extra_special_function_pre_push_projection(&mut interactions);
+    }
     let interactions = Arc::new(Mutex::new(interactions));
     let scenario = scenario.to_string();
     server.mock(|when, then| {
@@ -172,6 +178,44 @@ fn install_stateful_playback_server(scenario: &str, server: &MockServer, cassett
             }
         });
     });
+}
+
+fn add_extra_special_function_pre_push_projection(interactions: &mut Vec<CassetteInteraction>) {
+    let Some(command_batch_index) = interactions.iter().position(|interaction| {
+        interaction.method == "POST" && interaction.path.ends_with("/command-batch")
+    }) else {
+        return;
+    };
+    let command_batch_path = interactions[command_batch_index].path.clone();
+    let branch_path = command_batch_path.trim_end_matches("/command-batch");
+    let projection_path = format!("{branch_path}/projection");
+    let Some(projection) = interactions[..command_batch_index]
+        .iter()
+        .rfind(|interaction| interaction.method == "GET" && interaction.path == projection_path)
+        .cloned()
+    else {
+        return;
+    };
+
+    // Python records one pre-push projection for the dry-run + real push pair.
+    // Rust refetches before the real push, so replay needs the same recorded
+    // projection available twice before moving to the post-push projection.
+    interactions.insert(command_batch_index, projection);
+
+    let Some(command_batch_index) = interactions.iter().position(|interaction| {
+        interaction.method == "POST" && interaction.path == command_batch_path
+    }) else {
+        return;
+    };
+    let Some(post_push_projection_index) = interactions[command_batch_index + 1..]
+        .iter()
+        .position(|interaction| interaction.method == "GET" && interaction.path == projection_path)
+        .map(|index| command_batch_index + 1 + index)
+    else {
+        return;
+    };
+    let projection = interactions[post_push_projection_index].clone();
+    interactions.insert(post_push_projection_index + 1, projection);
 }
 
 fn parse_cassette_interactions(scenario: &str, cassette_text: &str) -> Vec<CassetteInteraction> {
@@ -350,6 +394,14 @@ fn run_rust_poly(
         (
             "${GENERATED_PRONUNCIATIONS_IDS}",
             "POLY_ADK_GENERATED_PRONUNCIATIONS_IDS",
+        ),
+        (
+            "${GENERATED_FUNCTION_IDS}",
+            "POLY_ADK_GENERATED_FUNCTION_IDS",
+        ),
+        (
+            "${GENERATED_VARIABLE_IDS}",
+            "POLY_ADK_GENERATED_VARIABLE_IDS",
         ),
     ] {
         if let Some(value) = maybe_lookup_substitution(placeholder, substitutions) {
@@ -761,6 +813,8 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
     let mut keyphrase_boosting_ids = Vec::new();
     let mut transcript_corrections_ids = Vec::new();
     let mut pronunciations_ids = Vec::new();
+    let mut function_ids = Vec::new();
+    let mut variable_ids = Vec::new();
 
     for workflow in &manifest.workflows {
         for step in &workflow.steps {
@@ -820,6 +874,30 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
                     "id",
                     &mut pronunciations_ids,
                 );
+                push_mapping(
+                    command.get("create_start_function"),
+                    "name",
+                    "id",
+                    &mut function_ids,
+                );
+                push_mapping(
+                    command.get("create_end_function"),
+                    "name",
+                    "id",
+                    &mut function_ids,
+                );
+                push_mapping(
+                    command.get("create_function"),
+                    "name",
+                    "id",
+                    &mut function_ids,
+                );
+                push_mapping(
+                    command.get("variable_create"),
+                    "name",
+                    "id",
+                    &mut variable_ids,
+                );
             }
         }
     }
@@ -832,6 +910,8 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
         &mut keyphrase_boosting_ids,
         &mut transcript_corrections_ids,
         &mut pronunciations_ids,
+        &mut function_ids,
+        &mut variable_ids,
     ] {
         mappings.sort();
         mappings.dedup();
@@ -854,6 +934,8 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
             transcript_corrections_ids,
         ),
         ("${GENERATED_PRONUNCIATIONS_IDS}", pronunciations_ids),
+        ("${GENERATED_FUNCTION_IDS}", function_ids),
+        ("${GENERATED_VARIABLE_IDS}", variable_ids),
     ]
 }
 

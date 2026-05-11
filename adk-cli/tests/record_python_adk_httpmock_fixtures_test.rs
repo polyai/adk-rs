@@ -56,6 +56,14 @@ const CHAT_ERROR_METADATA_COMMAND_MANIFEST_FILE: &str = "chat-error-metadata.com
 const CHAT_ERROR_METADATA_HTTPMOCK_RECORDING_FILE: &str = "chat-error-metadata.httpmock.yaml";
 const CLI_DIFF_EDGES_COMMAND_MANIFEST_FILE: &str = "cli-diff-edges.commands.yaml";
 const CLI_DIFF_EDGES_HTTPMOCK_RECORDING_FILE: &str = "cli-diff-edges.httpmock.yaml";
+const DEPLOYMENTS_MUTATION_COMMAND_MANIFEST_FILE: &str = "deployments-mutation.commands.yaml";
+const DEPLOYMENTS_MUTATION_HTTPMOCK_RECORDING_FILE: &str = "deployments-mutation.httpmock.yaml";
+const SPECIAL_FUNCTIONS_COMMAND_MANIFEST_FILE: &str = "special-functions.commands.yaml";
+const SPECIAL_FUNCTIONS_HTTPMOCK_RECORDING_FILE: &str = "special-functions.httpmock.yaml";
+const CHANNEL_SETTINGS_COMMAND_MANIFEST_FILE: &str = "channel-settings.commands.yaml";
+const CHANNEL_SETTINGS_HTTPMOCK_RECORDING_FILE: &str = "channel-settings.httpmock.yaml";
+const BROAD_LIFECYCLE_COMMAND_MANIFEST_FILE: &str = "broad-lifecycle.commands.yaml";
+const BROAD_LIFECYCLE_HTTPMOCK_RECORDING_FILE: &str = "broad-lifecycle.httpmock.yaml";
 const MUTATING_BRANCH_NAME: &str = "adk-rs-recording-mutating";
 const CREATE_DELETE_BRANCH_NAME: &str = "adk-rs-recording-create-delete";
 const DIRTY_SWITCH_BRANCH_NAME: &str = "adk-rs-recording-dirty-switch";
@@ -64,6 +72,9 @@ const BRANCH_MERGE_BRANCH_PREFIX: &str = "adk-rs-recording-merge";
 const MERGE_CONFLICT_BRANCH_PREFIX: &str = "adk-rs-recording-conflict";
 const PUSH_RESOURCE_COVERAGE_BRANCH_NAME: &str = "adk-rs-recording-resource-coverage";
 const INTERACTIVE_BRANCH_NAME: &str = "adk-rs-recording-interactive";
+const SPECIAL_FUNCTIONS_BRANCH_PREFIX: &str = "adk-rs-recording-special";
+const CHANNEL_SETTINGS_BRANCH_PREFIX: &str = "adk-rs-recording-channel";
+const BROAD_LIFECYCLE_BRANCH_PREFIX: &str = "adk-rs-recording-lifecycle";
 const MUTATING_EDIT_FILE: &str = "agent_settings/rules.txt";
 const MUTATING_EDIT_TEXT: &str = "\n\n# ADK recording branch edit\nThis line was added by the Python ADK httpmock mutating workflow.\n";
 const CREATE_TOPIC_FILE: &str = "topics/adk_recording_topic.yaml";
@@ -107,6 +118,16 @@ const PULL_FORCE_LOCAL_TOPIC_TEXT: &str = "name: ADK Pull Force Local Only\nenab
 const PULL_FORCE_LOCAL_FUNCTION_FILE: &str = "functions/adk_pull_force_local_only.py";
 const PULL_FORCE_LOCAL_FUNCTION_TEXT: &str =
     "def adk_pull_force_local_only(conversation):\n    return {\"utterance\": \"local only\"}\n";
+const SPECIAL_START_FUNCTION_TEXT: &str = "from _gen import Conversation\n\n\n@func_description('ADK recording start function')\ndef start_function(conv: Conversation):\n    conv.state.adk_recording_special = 'started'\n    return None\n";
+const SPECIAL_END_FUNCTION_TEXT: &str = "from _gen import Conversation\n\n\ndef end_function(conv: Conversation, reason: str):\n    conv.state.adk_recording_special_end = reason\n    return None\n";
+const CHANNEL_SETTINGS_VOICE_SAFETY_FILTERS: &str = "enabled: true\ncategories:\n  violence:\n    enabled: true\n    level: medium\n  hate:\n    enabled: false\n    level: medium\n  sexual:\n    enabled: false\n    level: medium\n  self_harm:\n    enabled: false\n    level: medium\n";
+const CHANNEL_SETTINGS_CHAT_CONFIGURATION: &str = "greeting:\n  welcome_message: Hello from the ADK channel recording.\n  language_code: en-US\nstyle_prompt:\n  prompt: Keep webchat replies compact.\n";
+const CHANNEL_SETTINGS_CHAT_SAFETY_FILTERS: &str = "enabled: true\ncategories:\n  violence:\n    enabled: false\n    level: medium\n  hate:\n    enabled: true\n    level: medium\n  sexual:\n    enabled: false\n    level: medium\n  self_harm:\n    enabled: false\n    level: medium\n";
+const BROAD_LIFECYCLE_VARIANTS: &str = "variants:\n  - name: control\n  - name: treatment\n    is_default: true\n  - name: new_variant\nattributes:\n  - name: channel\n    values:\n      control: local-control\n      treatment: local-treatment\n      new_variant: local-new\n  - name: new_attr\n    values:\n      control: attr-control\n      treatment: attr-treatment\n      new_variant: attr-new\n";
+const BROAD_LIFECYCLE_API_INTEGRATIONS: &str = "api_integrations:\n  - name: adk_lifecycle_api\n    description: Updated lifecycle integration.\n    environments:\n      sandbox:\n        base_url: https://example.invalid/updated-sandbox\n        auth_type: none\n      pre-release:\n        base_url: https://example.invalid/remote-pre\n        auth_type: none\n      live:\n        base_url: https://example.invalid/remote-live\n        auth_type: none\n    operations:\n      - name: get_status\n        method: POST\n        resource: /status-updated\n      - name: create_status\n        method: POST\n        resource: /status\n  - name: adk_new_api\n    description: New lifecycle integration.\n    environments:\n      sandbox:\n        base_url: https://example.invalid/new-sandbox\n        auth_type: none\n      pre-release:\n        base_url: https://example.invalid/new-pre\n        auth_type: none\n      live:\n        base_url: https://example.invalid/new-live\n        auth_type: none\n    operations:\n      - name: new_status\n        method: GET\n        resource: /new-status\n";
+const BROAD_LIFECYCLE_KEYPHRASES: &str = "keyphrases:\n  - keyphrase: ADK lifecycle\n    level: maximum\n  - keyphrase: ADK new phrase\n    level: boosted\n";
+const BROAD_LIFECYCLE_TRANSCRIPT_CORRECTIONS: &str = "corrections:\n  - name: Lifecycle correction\n    description: Updated lifecycle correction.\n    regular_expressions:\n      - regular_expression: agent development kids\n        replacement: agent development kit\n        replacement_type: full\n  - name: New lifecycle correction\n    description: New lifecycle correction.\n    regular_expressions:\n      - regular_expression: rust port\n        replacement: Rust port\n        replacement_type: full\n";
+const BROAD_LIFECYCLE_PRONUNCIATIONS: &str = "pronunciations:\n  - regex: \"\\\\bADK\\\\b\"\n    replacement: Agent Development Kit\n    case_sensitive: true\n    language_code: en-US\n    description: Updated lifecycle pronunciation.\n";
 
 #[derive(Debug, Serialize)]
 struct CommandManifest {
@@ -374,6 +395,997 @@ fn record_basic_readonly_with_python_adk_and_httpmock() {
         .expect("write command manifest");
 
     let _ = fs::remove_dir_all(&tmp);
+}
+
+#[test]
+#[ignore = "records real Agent Studio deployment show/promote/rollback traffic"]
+fn record_deployments_mutation_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+
+    let config = write_text_file(
+        "write project config before deployment mutation workflows",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before deployment mutation workflows",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let list = run_python_poly_with_options(
+        "deployments list sandbox for mutation hashes",
+        &[
+            "deployments",
+            "list",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--env",
+            "sandbox",
+            "--limit",
+            "5",
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            base_url: PythonBaseUrlMode::AgentStudioRoot,
+            ..RunPythonOptions::default()
+        },
+    );
+    let newest_hash = deployment_hash_at(&list, 0).map(|hash| deployment_hash_prefix(&hash));
+    let previous_hash = deployment_hash_at(&list, 1).map(|hash| deployment_hash_prefix(&hash));
+    required_results.push((
+        "deployments list sandbox for mutation hashes",
+        command_succeeded(&list),
+    ));
+    required_results.push(("extract newest deployment hash", newest_hash.is_some()));
+    required_results.push(("extract previous deployment hash", previous_hash.is_some()));
+    steps.push(WorkflowStep::Command(list));
+
+    if let Some(newest_hash) = newest_hash {
+        let show = run_python_poly_with_options(
+            "deployments show newest sandbox deployment",
+            &[
+                "deployments",
+                "show",
+                newest_hash.as_str(),
+                "--json",
+                "--path",
+                project_path.as_str(),
+                "--env",
+                "sandbox",
+            ],
+            &server,
+            &replacements,
+            RunPythonOptions {
+                base_url: PythonBaseUrlMode::AgentStudioRoot,
+                ..RunPythonOptions::default()
+            },
+        );
+        required_results.push((
+            "deployments show newest sandbox deployment",
+            command_succeeded(&show),
+        ));
+        steps.push(WorkflowStep::Command(show));
+
+        let promote_dry_run = run_python_poly_with_options(
+            "deployments promote newest to pre-release dry run",
+            &[
+                "deployments",
+                "promote",
+                "--from",
+                newest_hash.as_str(),
+                "--to",
+                "pre-release",
+                "--dry-run",
+                "--json",
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+            RunPythonOptions {
+                base_url: PythonBaseUrlMode::AgentStudioRoot,
+                ..RunPythonOptions::default()
+            },
+        );
+        required_results.push((
+            "deployments promote newest to pre-release dry run",
+            command_succeeded(&promote_dry_run) || command_was_dry_run(&promote_dry_run),
+        ));
+        steps.push(WorkflowStep::Command(promote_dry_run));
+
+        let promote = run_python_poly_with_options(
+            "deployments promote newest to pre-release",
+            &[
+                "deployments",
+                "promote",
+                "--from",
+                newest_hash.as_str(),
+                "--to",
+                "pre-release",
+                "--message",
+                "ADK deployment recording promote",
+                "--force",
+                "--json",
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+            RunPythonOptions {
+                base_url: PythonBaseUrlMode::AgentStudioRoot,
+                ..RunPythonOptions::default()
+            },
+        );
+        required_results.push((
+            "deployments promote newest to pre-release",
+            command_succeeded(&promote),
+        ));
+        steps.push(WorkflowStep::Command(promote));
+
+        if let Some(previous_hash) = previous_hash {
+            let rollback_dry_run = run_python_poly_with_options(
+                "deployments rollback sandbox to previous dry run",
+                &[
+                    "deployments",
+                    "rollback",
+                    "--to",
+                    previous_hash.as_str(),
+                    "--dry-run",
+                    "--json",
+                    "--path",
+                    project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+                RunPythonOptions {
+                    base_url: PythonBaseUrlMode::AgentStudioRoot,
+                    ..RunPythonOptions::default()
+                },
+            );
+            required_results.push((
+                "deployments rollback sandbox to previous dry run",
+                command_succeeded(&rollback_dry_run) || command_was_dry_run(&rollback_dry_run),
+            ));
+            steps.push(WorkflowStep::Command(rollback_dry_run));
+
+            let rollback = run_python_poly_with_options(
+                "deployments rollback sandbox to previous",
+                &[
+                    "deployments",
+                    "rollback",
+                    "--to",
+                    previous_hash.as_str(),
+                    "--message",
+                    "ADK deployment recording rollback",
+                    "--force",
+                    "--json",
+                    "--path",
+                    project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+                RunPythonOptions {
+                    base_url: PythonBaseUrlMode::AgentStudioRoot,
+                    ..RunPythonOptions::default()
+                },
+            );
+            required_results.push((
+                "deployments rollback sandbox to previous",
+                command_succeeded(&rollback),
+            ));
+            steps.push(WorkflowStep::Command(rollback));
+
+            let restore = run_python_poly_with_options(
+                "deployments restore sandbox to newest",
+                &[
+                    "deployments",
+                    "rollback",
+                    "--to",
+                    newest_hash.as_str(),
+                    "--message",
+                    "ADK deployment recording restore",
+                    "--force",
+                    "--json",
+                    "--path",
+                    project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+                RunPythonOptions {
+                    base_url: PythonBaseUrlMode::AgentStudioRoot,
+                    ..RunPythonOptions::default()
+                },
+            );
+            required_results.push((
+                "deployments restore sandbox to newest",
+                command_succeeded(&restore),
+            ));
+            steps.push(WorkflowStep::Command(restore));
+        }
+    }
+
+    let recording_path = recording
+        .save("deployments-mutation-python-adk")
+        .expect("save deployment mutation recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        DEPLOYMENTS_MUTATION_HTTPMOCK_RECORDING_FILE,
+        DEPLOYMENTS_MUTATION_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python deployment show/promote/rollback JSON contracts.",
+            "The promote and rollback commands mutate the safe real Agent Studio test project.",
+            "The final rollback command restores sandbox to the newest deployment captured at the start of the fixture.",
+        ],
+        StepWorkflow {
+            name: "deployments_mutation",
+            description: "Record deployment show, dry-run, promote, rollback, and restore workflows against the real project.",
+            mutates_real_server: true,
+            cleanup: vec![
+                "Sandbox is restored to the newest deployment captured at fixture start.",
+            ],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("deployment mutation", &required_results);
+}
+
+#[test]
+#[ignore = "records mutating real Agent Studio traffic; special function workflow"]
+fn record_special_functions_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let branch_name = format!("{SPECIAL_FUNCTIONS_BRANCH_PREFIX}-{}", recording_run_id());
+
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+        (branch_name.clone(), "${BRANCH_NAME}".to_string()),
+    ];
+
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let mut steps = Vec::new();
+
+    let config = write_text_file(
+        "write project config before special function workflow",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before special function workflow",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let pull = run_python_poly(
+        "force pull real project before special function workflow",
+        &["pull", "--json", "--force", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "force pull real project before special function workflow",
+        command_succeeded(&pull),
+    ));
+    steps.push(WorkflowStep::Command(pull));
+
+    let create_branch = run_python_poly(
+        "create throwaway special function branch",
+        &[
+            "branch",
+            "create",
+            branch_name.as_str(),
+            "--json",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    let branch_created = command_succeeded(&create_branch);
+    required_results.push(("create throwaway special function branch", branch_created));
+    steps.push(WorkflowStep::Command(create_branch));
+
+    if branch_created {
+        let write_start = write_text_file(
+            "write local start function",
+            &project_root,
+            "functions/start_function.py",
+            SPECIAL_START_FUNCTION_TEXT,
+            &replacements,
+        );
+        required_results.push(("write local start function", write_start.success));
+        steps.push(WorkflowStep::FileEdit(write_start));
+
+        let write_end = write_text_file(
+            "write local end function",
+            &project_root,
+            "functions/end_function.py",
+            SPECIAL_END_FUNCTION_TEXT,
+            &replacements,
+        );
+        required_results.push(("write local end function", write_end.success));
+        steps.push(WorkflowStep::FileEdit(write_end));
+
+        let create_dry_run = run_python_poly(
+            "push dry-run creates start and end functions",
+            &[
+                "push",
+                "--output-json-commands",
+                "--dry-run",
+                "--skip-validation",
+                "--email",
+                RECORDER_EMAIL,
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "push dry-run creates start and end functions",
+            command_succeeded(&create_dry_run),
+        ));
+        steps.push(WorkflowStep::Command(create_dry_run));
+
+        let create_push = run_python_poly(
+            "push start and end functions to branch",
+            &[
+                "push",
+                "--json",
+                "--force",
+                "--skip-validation",
+                "--email",
+                RECORDER_EMAIL,
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        let create_pushed = command_succeeded(&create_push);
+        required_results.push(("push start and end functions to branch", create_pushed));
+        steps.push(WorkflowStep::Command(create_push));
+
+        if create_pushed {
+            let pull_special = run_python_poly(
+                "force pull materializes special functions",
+                &[
+                    "pull",
+                    "--json",
+                    "--force",
+                    "--output-json-projection",
+                    "--path",
+                    project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+            );
+            required_results.push((
+                "force pull materializes special functions",
+                command_succeeded(&pull_special),
+            ));
+            steps.push(WorkflowStep::Command(pull_special));
+
+            let update_start = replace_text_file(
+                "edit pulled start function",
+                &project_root,
+                "functions/start_function.py",
+                "conv.state.adk_recording_special = 'started'",
+                "conv.state.adk_recording_special = 'updated'",
+                &replacements,
+            );
+            required_results.push(("edit pulled start function", update_start.success));
+            steps.push(WorkflowStep::FileEdit(update_start));
+
+            let update_dry_run = run_python_poly(
+                "push dry-run updates start function",
+                &[
+                    "push",
+                    "--output-json-commands",
+                    "--dry-run",
+                    "--skip-validation",
+                    "--email",
+                    RECORDER_EMAIL,
+                    "--path",
+                    project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+            );
+            required_results.push((
+                "push dry-run updates start function",
+                command_succeeded(&update_dry_run),
+            ));
+            steps.push(WorkflowStep::Command(update_dry_run));
+
+            let delete_end = delete_file(
+                "delete pulled end function",
+                &project_root,
+                "functions/end_function.py",
+                &replacements,
+            );
+            required_results.push(("delete pulled end function", delete_end.success));
+            steps.push(WorkflowStep::FileEdit(delete_end));
+
+            let delete_dry_run = run_python_poly(
+                "push dry-run deletes end function",
+                &[
+                    "push",
+                    "--output-json-commands",
+                    "--dry-run",
+                    "--skip-validation",
+                    "--email",
+                    RECORDER_EMAIL,
+                    "--path",
+                    project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+            );
+            required_results.push((
+                "push dry-run deletes end function",
+                command_succeeded(&delete_dry_run),
+            ));
+            steps.push(WorkflowStep::Command(delete_dry_run));
+        }
+
+        let delete_branch = run_python_poly(
+            "delete throwaway special function branch",
+            &[
+                "branch",
+                "delete",
+                branch_name.as_str(),
+                "--json",
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "delete throwaway special function branch",
+            command_succeeded(&delete_branch),
+        ));
+        steps.push(WorkflowStep::Command(delete_branch));
+    }
+
+    let recording_path = recording
+        .save("special-functions-python-adk")
+        .expect("save special functions recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        SPECIAL_FUNCTIONS_HTTPMOCK_RECORDING_FILE,
+        SPECIAL_FUNCTIONS_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python start/end special-function pull and push command contracts.",
+            "The workflow creates a throwaway branch, dry-runs create commands, pushes them, pulls the resulting specialFunctions projection, dry-runs an update, dry-runs a delete, then deletes the branch.",
+            "Authentication headers are redacted after recording.",
+        ],
+        StepWorkflow {
+            name: "special_functions",
+            description: "Record Python special function create, pull materialization, update, delete, and branch cleanup behavior.",
+            mutates_real_server: true,
+            cleanup: vec![
+                "poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM",
+            ],
+            steps,
+        },
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("special functions", &required_results);
+}
+
+#[test]
+#[ignore = "records mutating real Agent Studio traffic; channel settings dry-run workflow"]
+fn record_channel_settings_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let branch_name = format!("{CHANNEL_SETTINGS_BRANCH_PREFIX}-{}", recording_run_id());
+
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+        (branch_name.clone(), "${BRANCH_NAME}".to_string()),
+    ];
+
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let mut steps = Vec::new();
+
+    let config = write_text_file(
+        "write project config before channel settings workflow",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before channel settings workflow",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let pull = run_python_poly(
+        "force pull real project before channel settings workflow",
+        &[
+            "pull",
+            "--json",
+            "--force",
+            "--output-json-projection",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    let channel_settings_projection_stdin = channel_settings_projection_stdin(&pull);
+    required_results.push((
+        "force pull real project before channel settings workflow",
+        command_succeeded(&pull),
+    ));
+    required_results.push((
+        "derive channel settings projection with webchat enabled",
+        channel_settings_projection_stdin.is_some(),
+    ));
+    steps.push(WorkflowStep::Command(pull));
+
+    let create_branch = run_python_poly(
+        "create throwaway channel settings branch",
+        &[
+            "branch",
+            "create",
+            branch_name.as_str(),
+            "--json",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    let branch_created = command_succeeded(&create_branch);
+    required_results.push(("create throwaway channel settings branch", branch_created));
+    steps.push(WorkflowStep::Command(create_branch));
+
+    if branch_created {
+        if let Some(projection_stdin) = channel_settings_projection_stdin.as_deref() {
+            let baseline_pull = run_python_poly_with_options(
+                "pull webchat-enabled channel settings baseline",
+                &[
+                    "pull",
+                    "--json",
+                    "--force",
+                    "--from-projection",
+                    "-",
+                    "--path",
+                    project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+                RunPythonOptions {
+                    stdin: Some(projection_stdin),
+                    ..RunPythonOptions::default()
+                },
+            );
+            required_results.push((
+                "pull webchat-enabled channel settings baseline",
+                command_succeeded(&baseline_pull),
+            ));
+            steps.push(WorkflowStep::Command(baseline_pull));
+        }
+
+        let voice_safety = write_text_file(
+            "write voice safety filters",
+            &project_root,
+            "voice/safety_filters.yaml",
+            CHANNEL_SETTINGS_VOICE_SAFETY_FILTERS,
+            &replacements,
+        );
+        required_results.push(("write voice safety filters", voice_safety.success));
+        steps.push(WorkflowStep::FileEdit(voice_safety));
+
+        let chat_config = write_text_file(
+            "write webchat configuration",
+            &project_root,
+            "chat/configuration.yaml",
+            CHANNEL_SETTINGS_CHAT_CONFIGURATION,
+            &replacements,
+        );
+        required_results.push(("write webchat configuration", chat_config.success));
+        steps.push(WorkflowStep::FileEdit(chat_config));
+
+        let chat_safety = write_text_file(
+            "write webchat safety filters",
+            &project_root,
+            "chat/safety_filters.yaml",
+            CHANNEL_SETTINGS_CHAT_SAFETY_FILTERS,
+            &replacements,
+        );
+        required_results.push(("write webchat safety filters", chat_safety.success));
+        steps.push(WorkflowStep::FileEdit(chat_safety));
+
+        let dry_run = run_python_poly(
+            "push dry-run updates channel settings",
+            &[
+                "push",
+                "--output-json-commands",
+                "--dry-run",
+                "--skip-validation",
+                "--email",
+                RECORDER_EMAIL,
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "push dry-run updates channel settings",
+            command_succeeded(&dry_run),
+        ));
+        steps.push(WorkflowStep::Command(dry_run));
+
+        let delete_branch = run_python_poly(
+            "delete throwaway channel settings branch",
+            &[
+                "branch",
+                "delete",
+                branch_name.as_str(),
+                "--json",
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "delete throwaway channel settings branch",
+            command_succeeded(&delete_branch),
+        ));
+        steps.push(WorkflowStep::Command(delete_branch));
+    }
+
+    let recording_path = recording
+        .save("channel-settings-python-adk")
+        .expect("save channel settings recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        CHANNEL_SETTINGS_HTTPMOCK_RECORDING_FILE,
+        CHANNEL_SETTINGS_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python channel settings command contracts for voice and webchat.",
+            "The workflow creates a throwaway branch, writes voice safety filters plus webchat greeting/style/safety resources, dry-runs push command generation, then deletes the branch.",
+            "Authentication headers are redacted after recording.",
+        ],
+        StepWorkflow {
+            name: "channel_settings",
+            description: "Record Python voice/webchat channel update command behavior.",
+            mutates_real_server: true,
+            cleanup: vec![
+                "poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM",
+            ],
+            steps,
+        },
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("channel settings", &required_results);
+}
+
+#[test]
+#[ignore = "records mutating real Agent Studio traffic; broad resource lifecycle dry-run workflow"]
+fn record_broad_lifecycle_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let branch_name = format!("{BROAD_LIFECYCLE_BRANCH_PREFIX}-{}", recording_run_id());
+
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+        (branch_name.clone(), "${BRANCH_NAME}".to_string()),
+    ];
+
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let mut steps = Vec::new();
+
+    let config = write_text_file(
+        "write project config before broad lifecycle workflow",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before broad lifecycle workflow",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let pull = run_python_poly(
+        "force pull real project before broad lifecycle workflow",
+        &[
+            "pull",
+            "--json",
+            "--force",
+            "--output-json-projection",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    let broad_lifecycle_projection_stdin = broad_lifecycle_projection_stdin(&pull);
+    required_results.push((
+        "force pull real project before broad lifecycle workflow",
+        command_succeeded(&pull),
+    ));
+    required_results.push((
+        "derive broad lifecycle projection",
+        broad_lifecycle_projection_stdin.is_some(),
+    ));
+    steps.push(WorkflowStep::Command(pull));
+
+    let create_branch = run_python_poly(
+        "create throwaway broad lifecycle branch",
+        &[
+            "branch",
+            "create",
+            branch_name.as_str(),
+            "--json",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    let branch_created = command_succeeded(&create_branch);
+    required_results.push(("create throwaway broad lifecycle branch", branch_created));
+    steps.push(WorkflowStep::Command(create_branch));
+
+    if branch_created {
+        if let Some(projection_stdin) = broad_lifecycle_projection_stdin.as_deref() {
+            let baseline_pull = run_python_poly_with_options(
+                "pull broad lifecycle baseline projection",
+                &[
+                    "pull",
+                    "--json",
+                    "--force",
+                    "--from-projection",
+                    "-",
+                    "--path",
+                    project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+                RunPythonOptions {
+                    stdin: Some(projection_stdin),
+                    ..RunPythonOptions::default()
+                },
+            );
+            required_results.push((
+                "pull broad lifecycle baseline projection",
+                command_succeeded(&baseline_pull),
+            ));
+            steps.push(WorkflowStep::Command(baseline_pull));
+        }
+
+        for (name, path, content) in [
+            (
+                "write broad lifecycle variants",
+                "config/variant_attributes.yaml",
+                BROAD_LIFECYCLE_VARIANTS,
+            ),
+            (
+                "write broad lifecycle API integrations",
+                "config/api_integrations.yaml",
+                BROAD_LIFECYCLE_API_INTEGRATIONS,
+            ),
+            (
+                "write broad lifecycle keyphrases",
+                "voice/speech_recognition/keyphrase_boosting.yaml",
+                BROAD_LIFECYCLE_KEYPHRASES,
+            ),
+            (
+                "write broad lifecycle transcript corrections",
+                "voice/speech_recognition/transcript_corrections.yaml",
+                BROAD_LIFECYCLE_TRANSCRIPT_CORRECTIONS,
+            ),
+            (
+                "write broad lifecycle pronunciations",
+                "voice/response_control/pronunciations.yaml",
+                BROAD_LIFECYCLE_PRONUNCIATIONS,
+            ),
+        ] {
+            let edit = write_text_file(name, &project_root, path, content, &replacements);
+            required_results.push((name, edit.success));
+            steps.push(WorkflowStep::FileEdit(edit));
+        }
+
+        let dry_run = if let Some(projection_stdin) = broad_lifecycle_projection_stdin.as_deref() {
+            run_python_poly_with_options(
+                "push dry-run broad lifecycle command payload",
+                &[
+                    "push",
+                    "--output-json-commands",
+                    "--dry-run",
+                    "--skip-validation",
+                    "--from-projection",
+                    "-",
+                    "--email",
+                    RECORDER_EMAIL,
+                    "--path",
+                    project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+                RunPythonOptions {
+                    stdin: Some(projection_stdin),
+                    ..RunPythonOptions::default()
+                },
+            )
+        } else {
+            run_python_poly(
+                "push dry-run broad lifecycle command payload",
+                &[
+                    "push",
+                    "--output-json-commands",
+                    "--dry-run",
+                    "--skip-validation",
+                    "--email",
+                    RECORDER_EMAIL,
+                    "--path",
+                    project_path.as_str(),
+                ],
+                &server,
+                &replacements,
+            )
+        };
+        required_results.push((
+            "push dry-run broad lifecycle command payload",
+            command_succeeded(&dry_run),
+        ));
+        steps.push(WorkflowStep::Command(dry_run));
+
+        let delete_branch = run_python_poly(
+            "delete throwaway broad lifecycle branch",
+            &[
+                "branch",
+                "delete",
+                branch_name.as_str(),
+                "--json",
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "delete throwaway broad lifecycle branch",
+            command_succeeded(&delete_branch),
+        ));
+        steps.push(WorkflowStep::Command(delete_branch));
+    }
+
+    let recording_path = recording
+        .save("broad-lifecycle-python-adk")
+        .expect("save broad lifecycle recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        BROAD_LIFECYCLE_HTTPMOCK_RECORDING_FILE,
+        BROAD_LIFECYCLE_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python update/delete/create command contracts for broad multi-resource files.",
+            "The workflow creates a throwaway branch, pulls a synthetic baseline projection for broad resources, edits/deletes/creates local entries, dry-runs push command generation, then deletes the branch.",
+            "Authentication headers are redacted after recording.",
+        ],
+        StepWorkflow {
+            name: "broad_lifecycle",
+            description: "Record Python lifecycle command behavior for variants, API integrations, keyphrases, transcript corrections, and pronunciations.",
+            mutates_real_server: true,
+            cleanup: vec![
+                "poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM",
+            ],
+            steps,
+        },
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("broad lifecycle", &required_results);
 }
 
 #[test]
@@ -3227,6 +4239,25 @@ fn first_recorded_conversation_id(record: &CommandRecord) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn deployment_hash_at(record: &CommandRecord, index: usize) -> Option<String> {
+    let deployment = record
+        .stdout_json
+        .as_ref()?
+        .get("versions")?
+        .as_array()?
+        .get(index)?;
+    deployment
+        .get("version_hash")
+        .or_else(|| deployment.get("versionHash"))
+        .or_else(|| deployment.get("hash"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn deployment_hash_prefix(hash: &str) -> String {
+    hash.chars().take(9).collect()
+}
+
 fn chat_record_has_error_turn(record: &CommandRecord) -> bool {
     record
         .stdout_json
@@ -3239,6 +4270,315 @@ fn target_project_config() -> String {
     format!(
         "region: {TARGET_REGION}\naccount_id: {TARGET_ACCOUNT_ID}\nproject_id: {TARGET_PROJECT_ID}\nbranch_id: main\n"
     )
+}
+
+fn channel_settings_projection_stdin(record: &CommandRecord) -> Option<String> {
+    let mut projection = record.stdout_json.as_ref()?.get("projection")?.clone();
+
+    set_json_path(
+        &mut projection,
+        &["channels", "voice", "config", "safetyFilters"],
+        disabled_channel_safety_filter_projection(),
+    );
+    set_json_path(
+        &mut projection,
+        &["channels", "webChat", "status"],
+        json!(true),
+    );
+    set_json_path(
+        &mut projection,
+        &["channels", "webChat", "config", "greeting"],
+        json!({
+            "welcomeMessage": "Remote webchat greeting.",
+            "languageCode": "en-US",
+            "references": {
+                "variables": {},
+                "translations": {}
+            }
+        }),
+    );
+    set_json_path(
+        &mut projection,
+        &["channels", "webChat", "config", "stylePrompt"],
+        json!({
+            "prompt": "Remote webchat style."
+        }),
+    );
+    set_json_path(
+        &mut projection,
+        &["channels", "webChat", "config", "safetyFilters"],
+        disabled_channel_safety_filter_projection(),
+    );
+
+    Some(serde_json::to_string(&projection).expect("serialize channel settings projection"))
+}
+
+fn broad_lifecycle_projection_stdin(record: &CommandRecord) -> Option<String> {
+    let mut projection = record.stdout_json.as_ref()?.get("projection")?.clone();
+
+    set_json_path(
+        &mut projection,
+        &["variantManagement"],
+        json!({
+            "variants": {
+                "ids": ["VAR-control", "VAR-treatment", "VAR-delete"],
+                "entities": {
+                    "VAR-control": {
+                        "id": "VAR-control",
+                        "name": "control",
+                        "isDefault": true
+                    },
+                    "VAR-treatment": {
+                        "id": "VAR-treatment",
+                        "name": "treatment",
+                        "isDefault": false
+                    },
+                    "VAR-delete": {
+                        "id": "VAR-delete",
+                        "name": "delete_variant",
+                        "isDefault": false
+                    }
+                }
+            },
+            "attributes": {
+                "ids": ["ATTR-channel", "ATTR-delete"],
+                "entities": {
+                    "ATTR-channel": {
+                        "id": "ATTR-channel",
+                        "name": "channel",
+                        "archived": false
+                    },
+                    "ATTR-delete": {
+                        "id": "ATTR-delete",
+                        "name": "delete_attr",
+                        "archived": false
+                    }
+                }
+            },
+            "variantAttributeValues": {
+                "entities": {
+                    "VAR-control": {
+                        "values": {
+                            "ATTR-channel": "remote-control",
+                            "ATTR-delete": "delete-control"
+                        }
+                    },
+                    "VAR-treatment": {
+                        "values": {
+                            "ATTR-channel": "remote-treatment",
+                            "ATTR-delete": "delete-treatment"
+                        }
+                    },
+                    "VAR-delete": {
+                        "values": {
+                            "ATTR-channel": "remote-delete",
+                            "ATTR-delete": "delete-delete"
+                        }
+                    }
+                },
+                "ids": ["VAR-control", "VAR-treatment", "VAR-delete"]
+            }
+        }),
+    );
+    set_json_path(
+        &mut projection,
+        &["apiIntegrations", "apiIntegrations"],
+        json!({
+            "ids": ["API-lifecycle", "API-delete"],
+            "entities": {
+                "API-lifecycle": {
+                    "id": "API-lifecycle",
+                    "name": "adk_lifecycle_api",
+                    "description": "Remote lifecycle integration.",
+                    "environments": {
+                        "sandbox": {
+                            "baseUrl": "https://example.invalid/remote-sandbox",
+                            "authType": "none"
+                        },
+                        "preRelease": {
+                            "baseUrl": "https://example.invalid/remote-pre",
+                            "authType": "none"
+                        },
+                        "live": {
+                            "baseUrl": "https://example.invalid/remote-live",
+                            "authType": "none"
+                        }
+                    },
+                    "operations": {
+                        "OP-status": {
+                            "id": "OP-status",
+                            "name": "get_status",
+                            "method": "GET",
+                            "resource": "/status"
+                        },
+                        "OP-delete": {
+                            "id": "OP-delete",
+                            "name": "delete_status",
+                            "method": "DELETE",
+                            "resource": "/status"
+                        }
+                    }
+                },
+                "API-delete": {
+                    "id": "API-delete",
+                    "name": "adk_delete_api",
+                    "description": "Integration removed by the lifecycle fixture.",
+                    "environments": {
+                        "sandbox": {
+                            "baseUrl": "https://example.invalid/delete-sandbox",
+                            "authType": "none"
+                        },
+                        "preRelease": {
+                            "baseUrl": "https://example.invalid/delete-pre",
+                            "authType": "none"
+                        },
+                        "live": {
+                            "baseUrl": "https://example.invalid/delete-live",
+                            "authType": "none"
+                        }
+                    },
+                    "operations": {}
+                }
+            }
+        }),
+    );
+    set_json_path(
+        &mut projection,
+        &["keyphraseBoosting", "keyphraseBoosting"],
+        json!({
+            "ids": ["KP-update", "KP-delete"],
+            "entities": {
+                "KP-update": {
+                    "id": "KP-update",
+                    "keyphrase": "ADK lifecycle",
+                    "level": "default"
+                },
+                "KP-delete": {
+                    "id": "KP-delete",
+                    "keyphrase": "ADK delete phrase",
+                    "level": "boosted"
+                }
+            }
+        }),
+    );
+    set_json_path(
+        &mut projection,
+        &["transcriptCorrections", "transcriptCorrections"],
+        json!({
+            "ids": ["TC-update", "TC-delete"],
+            "entities": {
+                "TC-update": {
+                    "id": "TC-update",
+                    "name": "Lifecycle correction",
+                    "description": "Remote lifecycle correction.",
+                    "regularExpressions": [
+                        {
+                            "id": "TC-update-REGEX-0",
+                            "regularExpression": "agent development kid",
+                            "replacement": "agent development kit",
+                            "replacementType": "full"
+                        }
+                    ]
+                },
+                "TC-delete": {
+                    "id": "TC-delete",
+                    "name": "Delete lifecycle correction",
+                    "description": "Correction removed by the lifecycle fixture.",
+                    "regularExpressions": [
+                        {
+                            "id": "TC-delete-REGEX-0",
+                            "regularExpression": "delete me",
+                            "replacement": "deleted",
+                            "replacementType": "full"
+                        }
+                    ]
+                }
+            }
+        }),
+    );
+    set_json_path(
+        &mut projection,
+        &["pronunciations", "pronunciations"],
+        json!({
+            "ids": ["PRON-0-update", "PRON-1-delete"],
+            "entities": {
+                "PRON-0-update": {
+                    "id": "PRON-0-update",
+                    "regex": "\\bADK\\b",
+                    "replacement": "A D K",
+                    "caseSensitive": true,
+                    "languageCode": "en-US",
+                    "description": "Remote lifecycle pronunciation.",
+                    "position": 0,
+                    "name": ""
+                },
+                "PRON-1-delete": {
+                    "id": "PRON-1-delete",
+                    "regex": "\\bOLD\\b",
+                    "replacement": "old",
+                    "caseSensitive": false,
+                    "languageCode": "en-US",
+                    "description": "Pronunciation removed by the lifecycle fixture.",
+                    "position": 1,
+                    "name": ""
+                }
+            }
+        }),
+    );
+
+    Some(serde_json::to_string(&projection).expect("serialize broad lifecycle projection"))
+}
+
+fn disabled_channel_safety_filter_projection() -> Value {
+    json!({
+        "type": "azure",
+        "disabled": true,
+        "azureConfig": {
+            "violence": {
+                "isActive": false,
+                "precision": "MEDIUM"
+            },
+            "hate": {
+                "isActive": false,
+                "precision": "MEDIUM"
+            },
+            "sexual": {
+                "isActive": false,
+                "precision": "MEDIUM"
+            },
+            "selfHarm": {
+                "isActive": false,
+                "precision": "MEDIUM"
+            }
+        }
+    })
+}
+
+fn set_json_path(root: &mut Value, path: &[&str], value: Value) {
+    let Some((last, parents)) = path.split_last() else {
+        *root = value;
+        return;
+    };
+
+    let mut current = root;
+    for segment in parents {
+        if !current.is_object() {
+            *current = json!({});
+        }
+        current = current
+            .as_object_mut()
+            .expect("json object")
+            .entry((*segment).to_string())
+            .or_insert_with(|| json!({}));
+    }
+
+    if !current.is_object() {
+        *current = json!({});
+    }
+    current
+        .as_object_mut()
+        .expect("json object")
+        .insert((*last).to_string(), value);
 }
 
 #[test]
@@ -4189,6 +5529,16 @@ fn command_succeeded(record: &CommandRecord) -> bool {
             .and_then(|json| json.get("success"))
             .and_then(Value::as_bool)
             .unwrap_or(true)
+}
+
+fn command_was_dry_run(record: &CommandRecord) -> bool {
+    record.exit_code == 0
+        && record
+            .stdout_json
+            .as_ref()
+            .and_then(|json| json.get("dry_run"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
 }
 
 fn command_reported_failure(record: &CommandRecord) -> bool {

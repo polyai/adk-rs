@@ -26,43 +26,52 @@ pub const PROJECT_CONFIG_FILE: &str = "project.yaml";
 pub const STATUS_FILE: &str = "_gen/.agent_studio_config";
 const MIGRATED_LEGACY_TOPIC_FILES: &str = "migrated_legacy_topic_files";
 
-const GENERATED_SDK_FILES: &[(&str, &str)] = &[
-    ("__init__.py", include_str!("../generated-sdk/__init__.py")),
+const PYTHON_GEN_TEMPLATE_FILES: &[(&str, &str)] = &[
+    (
+        "__init__.py",
+        include_str!("../python-gen-template/__init__.py"),
+    ),
     (
         "attachment.py",
-        include_str!("../generated-sdk/attachment.py"),
+        include_str!("../python-gen-template/attachment.py"),
     ),
     (
         "conv_utils.py",
-        include_str!("../generated-sdk/conv_utils.py"),
+        include_str!("../python-gen-template/conv_utils.py"),
     ),
     (
         "conversation.py",
-        include_str!("../generated-sdk/conversation.py"),
+        include_str!("../python-gen-template/conversation.py"),
     ),
     (
         "decorators.py",
-        include_str!("../generated-sdk/decorators.py"),
+        include_str!("../python-gen-template/decorators.py"),
     ),
     (
         "external_events.py",
-        include_str!("../generated-sdk/external_events.py"),
+        include_str!("../python-gen-template/external_events.py"),
     ),
-    ("flow.py", include_str!("../generated-sdk/flow.py")),
-    ("history.py", include_str!("../generated-sdk/history.py")),
+    ("flow.py", include_str!("../python-gen-template/flow.py")),
+    (
+        "history.py",
+        include_str!("../python-gen-template/history.py"),
+    ),
     (
         "log_utils.py",
-        include_str!("../generated-sdk/log_utils.py"),
+        include_str!("../python-gen-template/log_utils.py"),
     ),
-    ("memory.py", include_str!("../generated-sdk/memory.py")),
+    (
+        "memory.py",
+        include_str!("../python-gen-template/memory.py"),
+    ),
     (
         "secret_vault.py",
-        include_str!("../generated-sdk/secret_vault.py"),
+        include_str!("../python-gen-template/secret_vault.py"),
     ),
-    ("sms.py", include_str!("../generated-sdk/sms.py")),
+    ("sms.py", include_str!("../python-gen-template/sms.py")),
     (
         "value_extraction.py",
-        include_str!("../generated-sdk/value_extraction.py"),
+        include_str!("../python-gen-template/value_extraction.py"),
     ),
 ];
 
@@ -117,7 +126,7 @@ impl AdkService {
         let serialized =
             serde_yaml::to_string(&config).map_err(|e| DomainError::InvalidData(e.to_string()))?;
         fs::write(root.join(PROJECT_CONFIG_FILE), serialized)?;
-        self.write_generated_sdk_package(&root)?;
+        self.write_python_gen_package(&root)?;
         Ok(config)
     }
 
@@ -494,8 +503,10 @@ impl AdkService {
                 });
             }
         }
-        let mut local = self.collect_local_resources(root)?;
-        self.apply_deleted_reference_names(root, &mut local)?;
+        let mut persistent_local = self.collect_local_resources(root)?;
+        self.apply_deleted_reference_names(root, &mut persistent_local)?;
+        let mut local = persistent_local.clone();
+        self.add_discovered_variable_resources(root, &mut local);
         if dry_run {
             return Ok(self
                 .client
@@ -505,10 +516,38 @@ impl AdkService {
             .client
             .push_resources_with_options(&local, projection, actor)?;
         if result.success {
-            self.save_replay_state_resources(root, &local)?;
-            self.write_status_snapshot_from_resources(root, &local)?;
+            self.save_replay_state_resources(root, &persistent_local)?;
+            self.write_status_snapshot_from_resources(root, &persistent_local)?;
         }
         Ok(result)
+    }
+
+    fn add_discovered_variable_resources(&self, root: &Path, local: &mut ResourceMap) {
+        let project_root = find_project_root(root).unwrap_or_else(|| root.to_path_buf());
+        let discovered = self.discover_local_resources(&project_root);
+        let Some(variables) = discovered.get("Variable") else {
+            return;
+        };
+        for logical_path in variables {
+            if local.contains_key(logical_path) {
+                continue;
+            }
+            let Some(name) = logical_path.strip_prefix("variables/") else {
+                continue;
+            };
+            if name.is_empty() {
+                continue;
+            }
+            local.insert(
+                logical_path.clone(),
+                Resource {
+                    resource_id: "local".to_string(),
+                    name: name.to_string(),
+                    file_path: logical_path.clone(),
+                    payload: serde_json::json!({ "content": "" }),
+                },
+            );
+        }
     }
 
     pub fn push_main_to_new_branch(
@@ -551,8 +590,10 @@ impl AdkService {
                 ));
             }
         }
-        let mut local = self.collect_local_resources(root)?;
-        self.apply_deleted_reference_names(root, &mut local)?;
+        let mut persistent_local = self.collect_local_resources(root)?;
+        self.apply_deleted_reference_names(root, &mut persistent_local)?;
+        let mut local = persistent_local.clone();
+        self.add_discovered_variable_resources(root, &mut local);
         let (branch_id, push_result) =
             self.client
                 .push_main_resources_to_new_branch(branch_name, &local, actor)?;
@@ -560,8 +601,8 @@ impl AdkService {
         if push_result.success {
             cfg.branch_id = branch_id;
             self.write_project_config(root, &cfg)?;
-            self.save_replay_state_resources(root, &local)?;
-            self.write_status_snapshot_from_resources(root, &local)?;
+            self.save_replay_state_resources(root, &persistent_local)?;
+            self.write_status_snapshot_from_resources(root, &persistent_local)?;
         }
         Ok((cfg, push_result))
     }
@@ -691,6 +732,25 @@ impl AdkService {
 
     pub fn list_deployments(&self, environment: &str) -> Result<DeploymentList, CoreError> {
         Ok(self.client.list_deployments(environment)?)
+    }
+
+    pub fn promote_deployment(
+        &self,
+        deployment_id: &str,
+        target_env: &str,
+        message: &str,
+    ) -> Result<serde_json::Value, CoreError> {
+        Ok(self
+            .client
+            .promote_deployment(deployment_id, target_env, message)?)
+    }
+
+    pub fn rollback_deployment(
+        &self,
+        deployment_id: &str,
+        message: &str,
+    ) -> Result<serde_json::Value, CoreError> {
+        Ok(self.client.rollback_deployment(deployment_id, message)?)
     }
 
     pub fn create_chat_session(
@@ -1252,12 +1312,12 @@ impl AdkService {
         let encoded =
             base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&status)?);
         let gen_dir = project_root.join("_gen");
-        self.write_generated_sdk_package(&project_root)?;
+        self.write_python_gen_package(&project_root)?;
         fs::write(gen_dir.join(".agent_studio_config"), encoded)?;
         Ok(())
     }
 
-    fn write_generated_sdk_package(&self, project_root: &Path) -> Result<(), CoreError> {
+    fn write_python_gen_package(&self, project_root: &Path) -> Result<(), CoreError> {
         let gen_dir = project_root.join("_gen");
         fs::create_dir_all(&gen_dir)?;
         for entry in fs::read_dir(&gen_dir)? {
@@ -1267,7 +1327,7 @@ impl AdkService {
                 fs::remove_file(path)?;
             }
         }
-        for (file_name, contents) in GENERATED_SDK_FILES {
+        for (file_name, contents) in PYTHON_GEN_TEMPLATE_FILES {
             fs::write(gen_dir.join(file_name), contents)?;
         }
         Ok(())
@@ -1294,7 +1354,7 @@ impl AdkService {
                             .collect(),
                     ),
                 );
-                self.write_generated_sdk_package(project_root)?;
+                self.write_python_gen_package(project_root)?;
                 self.write_status_snapshot_json(project_root, &status)?;
             }
         }

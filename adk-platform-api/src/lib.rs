@@ -3,15 +3,22 @@ use adk_domain::{
 };
 use adk_protobuf::agent::{RulesReferences, RulesUpdateRules};
 use adk_protobuf::command::Payload as CommandPayload;
+use adk_protobuf::end_function::{
+    EndFunctionCreate, EndFunctionDelete, EndFunctionReferences, EndFunctionUpdate,
+};
 use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityUpdate};
 use adk_protobuf::functions::{
-    ErrorsUpdate, FunctionCreateFunction, FunctionDeleteFunction, FunctionError,
+    ErrorsUpdate, FunctionCreateFunction, FunctionDeleteFunction, FunctionError, FunctionParameter,
     FunctionParameterUpdate, FunctionUpdateFunction, ParametersUpdate,
 };
 use adk_protobuf::knowledge_base::{
     ExampleQueries, KnowledgeBaseCreateTopic, KnowledgeBaseDeleteTopic, KnowledgeBaseUpdateTopic,
     TopicReferences,
 };
+use adk_protobuf::start_function::{
+    StartFunctionCreate, StartFunctionDelete, StartFunctionReferences, StartFunctionUpdate,
+};
+use adk_protobuf::variables::VariableReferences;
 use adk_protobuf::{Command, CommandBatch, Metadata};
 use prost::Message;
 use serde_json::Value;
@@ -94,6 +101,13 @@ pub trait PlatformClient: Send + Sync {
         Ok((branch_id, push))
     }
     fn list_deployments(&self, _environment: &str) -> Result<DeploymentList, ApiError>;
+    fn promote_deployment(
+        &self,
+        deployment_id: &str,
+        target_env: &str,
+        message: &str,
+    ) -> Result<Value, ApiError>;
+    fn rollback_deployment(&self, deployment_id: &str, message: &str) -> Result<Value, ApiError>;
     fn create_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
     fn send_chat_message(&self, _payload: Value) -> Result<Value, ApiError>;
     fn end_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
@@ -244,6 +258,30 @@ impl HttpPlatformClient {
         }
         if let Some(json) = body {
             request = request.json(&json);
+        }
+        let response = request.send().map_err(|e| ApiError::Http(e.to_string()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(http_status_error(status, &url));
+        }
+        response.json().map_err(|e| ApiError::Http(e.to_string()))
+    }
+
+    fn request_platform_json(
+        &self,
+        method: reqwest::Method,
+        endpoint: &str,
+        payload: Option<Value>,
+    ) -> Result<Value, ApiError> {
+        let url = format!("{}{}", platform_root_url(&self.base_url), endpoint);
+        let mut request = self
+            .client
+            .request(method, &url)
+            .header("X-API-KEY", &self.api_key)
+            .header("X-PolyAI-Correlation-Id", format!("adk-{}", Uuid::new_v4()))
+            .header("Content-Type", "application/json");
+        if let Some(payload) = payload {
+            request = request.json(&payload);
         }
         let response = request.send().map_err(|e| ApiError::Http(e.to_string()))?;
         let status = response.status();
@@ -583,6 +621,40 @@ impl PlatformClient for HttpPlatformClient {
             versions,
             active_deployment_hashes: active_hashes,
         })
+    }
+
+    fn promote_deployment(
+        &self,
+        deployment_id: &str,
+        target_env: &str,
+        message: &str,
+    ) -> Result<Value, ApiError> {
+        let endpoint = format!(
+            "/v1/agents/{}/deployments/{deployment_id}/promote",
+            self.project_id
+        );
+        self.request_platform_json(
+            reqwest::Method::POST,
+            &endpoint,
+            Some(serde_json::json!({
+                "targetEnvironment": target_env,
+                "deploymentMessage": message,
+            })),
+        )
+    }
+
+    fn rollback_deployment(&self, deployment_id: &str, message: &str) -> Result<Value, ApiError> {
+        let endpoint = format!(
+            "/v1/agents/{}/deployments/{deployment_id}/rollback",
+            self.project_id
+        );
+        self.request_platform_json(
+            reqwest::Method::POST,
+            &endpoint,
+            Some(serde_json::json!({
+                "deploymentMessage": message,
+            })),
+        )
     }
 
     fn create_chat_session(&self, payload: Value) -> Result<Value, ApiError> {
@@ -965,6 +1037,22 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
             },
         );
     }
+    for kind in [SpecialFunctionKind::Start, SpecialFunctionKind::End] {
+        if let Some((id, function)) = special_function_entry(projection, kind) {
+            let name = special_function_name(kind).to_string();
+            let file_path = format!("functions/{name}.py");
+            let content = function_raw_content(&function);
+            map.insert(
+                file_path.clone(),
+                Resource {
+                    resource_id: id,
+                    name,
+                    file_path,
+                    payload: serde_json::json!({"content": content}),
+                },
+            );
+        }
+    }
 
     let mut entity_yaml_list = Vec::new();
     for (id, entity) in entity_entries(projection) {
@@ -990,27 +1078,6 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
                 name: "entities".to_string(),
                 file_path: "config/entities.yaml".to_string(),
                 payload: serde_json::json!({"content": content}),
-            },
-        );
-    }
-
-    // variables/<name> logical resources
-    for (id, variable) in variable_entries(projection) {
-        let name = variable
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or(id.as_str())
-            .to_string();
-        let file_path = format!("variables/{name}");
-        map.insert(
-            file_path.clone(),
-            Resource {
-                resource_id: id,
-                name,
-                file_path,
-                payload: serde_json::json!({
-                    "content": serde_json::to_string_pretty(&variable).unwrap_or_else(|_| "{}".to_string())
-                }),
             },
         );
     }
@@ -1194,6 +1261,38 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
         )?;
     }
 
+    if web_chat_channel_is_created(projection.pointer("/channels/webChat")) {
+        let chat_greeting = projection
+            .pointer("/channels/webChat/config/greeting")
+            .cloned();
+        let chat_style_prompt = projection
+            .pointer("/channels/webChat/config/stylePrompt")
+            .cloned();
+        if chat_greeting.is_some() || chat_style_prompt.is_some() {
+            insert_yaml_resource(
+                &mut map,
+                "chat/configuration.yaml",
+                "chat_configuration",
+                "chat_configuration",
+                serde_json::json!({
+                    "greeting": chat_greeting.unwrap_or_else(|| serde_json::json!({})),
+                    "style_prompt": chat_style_prompt.unwrap_or_else(|| serde_json::json!({})),
+                }),
+            )?;
+        }
+        if let Some(chat_safety_filters) =
+            projection.pointer("/channels/webChat/config/safetyFilters")
+        {
+            insert_yaml_resource(
+                &mut map,
+                "chat/safety_filters.yaml",
+                "chat_safety_filters",
+                "chat_safety_filters",
+                chat_safety_filters.clone(),
+            )?;
+        }
+    }
+
     if let Some(behaviour) = projection
         .pointer("/agentSettings/rules/behaviour")
         .and_then(Value::as_str)
@@ -1209,6 +1308,21 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
         );
     }
     Ok(map)
+}
+
+fn web_chat_channel_is_created(channel: Option<&Value>) -> bool {
+    let Some(channel) = channel else {
+        return false;
+    };
+    match channel.get("status") {
+        Some(Value::Bool(status)) => *status,
+        Some(Value::Number(status)) => status.as_i64().is_some_and(|status| status != 0),
+        Some(Value::String(status)) => {
+            !matches!(status.as_str(), "" | "0" | "NOT_CREATED" | "not_created")
+        }
+        Some(Value::Null) | None => false,
+        Some(_) => true,
+    }
 }
 
 fn insert_yaml_resource(
@@ -1329,6 +1443,10 @@ fn base_url_for_region(region: &str) -> Result<String, ApiError> {
     Ok(base_url.to_string())
 }
 
+fn platform_root_url(adk_base_url: &str) -> &str {
+    adk_base_url.strip_suffix("/adk/v1").unwrap_or(adk_base_url)
+}
+
 fn http_status_error(status: reqwest::StatusCode, url: &str) -> ApiError {
     ApiError::HttpStatus {
         status_code: status.as_u16(),
@@ -1392,12 +1510,18 @@ fn build_phase1_commands_with_actor(
     let metadata = command_metadata_with_actor(actor);
     let mut entity_del = Vec::new();
     let mut function_del = Vec::new();
+    let mut start_function_del = Vec::new();
+    let mut end_function_del = Vec::new();
     let mut topic_del = Vec::new();
     let mut entity_create = Vec::new();
     let mut function_create = Vec::new();
+    let mut start_function_create = Vec::new();
+    let mut end_function_create = Vec::new();
     let mut topic_create = Vec::new();
     let mut entity_update = Vec::new();
     let mut function_update = Vec::new();
+    let mut start_function_update = Vec::new();
+    let mut end_function_update = Vec::new();
     let mut topic_update = Vec::new();
     let mut settings_update = Vec::new();
 
@@ -1425,6 +1549,8 @@ fn build_phase1_commands_with_actor(
             )
         })
         .collect::<HashMap<_, _>>();
+    let remote_start_function = special_function_entry(projection, SpecialFunctionKind::Start);
+    let remote_end_function = special_function_entry(projection, SpecialFunctionKind::End);
     let remote_entities = entity_entries(projection)
         .into_iter()
         .map(|(id, e)| {
@@ -1440,6 +1566,8 @@ fn build_phase1_commands_with_actor(
 
     let mut local_topic_names = HashSet::new();
     let mut local_function_names = HashSet::new();
+    let mut has_local_start_function = false;
+    let mut has_local_end_function = false;
     let mut local_entity_names = HashSet::new();
 
     for resource in resources.values() {
@@ -1545,6 +1673,120 @@ fn build_phase1_commands_with_actor(
                 .unwrap_or_default()
                 .trim_end_matches(".py")
                 .to_string();
+            if let Some(kind) = special_function_kind_from_path(path) {
+                match kind {
+                    SpecialFunctionKind::Start => has_local_start_function = true,
+                    SpecialFunctionKind::End => has_local_end_function = true,
+                }
+                let remote_function = match kind {
+                    SpecialFunctionKind::Start => remote_start_function.as_ref(),
+                    SpecialFunctionKind::End => remote_end_function.as_ref(),
+                };
+                let id = remote_function
+                    .map(|(id, _)| id.clone())
+                    .or_else(|| {
+                        (!is_synthetic_local_resource_id(&resource.resource_id))
+                            .then_some(resource.resource_id.clone())
+                    })
+                    .unwrap_or_else(|| {
+                        generated_or_stable_resource_id("function", "FUNCTIONS", &name, path)
+                    });
+                let function_code = function_code_from_local_content(content);
+                let inferred_description = infer_function_description(content);
+                let variable_references =
+                    variable_reference_ids_from_code(&function_code, projection);
+                if let Some((_, remote_function)) = remote_function {
+                    let remote_code = remote_function.get("code").and_then(Value::as_str);
+                    let remote_description =
+                        remote_function.get("description").and_then(Value::as_str);
+                    let description_changed = !inferred_description.is_empty()
+                        && remote_description != Some(inferred_description.as_str());
+                    if remote_code == Some(function_code.as_str()) && !description_changed {
+                        continue;
+                    }
+                    let description = if description_changed {
+                        Some(inferred_description.clone())
+                    } else {
+                        remote_function
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string)
+                            .or_else(|| {
+                                (!inferred_description.is_empty())
+                                    .then_some(inferred_description.clone())
+                            })
+                    };
+                    let errors = function_errors_update_from_projection(remote_function);
+                    match kind {
+                        SpecialFunctionKind::Start => push_command(
+                            &mut start_function_update,
+                            &metadata,
+                            "update_start_function",
+                            CommandPayload::UpdateStartFunction(StartFunctionUpdate {
+                                id: id.clone(),
+                                description,
+                                code: Some(function_code.clone()),
+                                errors,
+                                references: Some(StartFunctionReferences {
+                                    variables: variable_references,
+                                }),
+                            }),
+                        ),
+                        SpecialFunctionKind::End => push_command(
+                            &mut end_function_update,
+                            &metadata,
+                            "update_end_function",
+                            CommandPayload::UpdateEndFunction(EndFunctionUpdate {
+                                id: id.clone(),
+                                description,
+                                code: Some(function_code.clone()),
+                                errors,
+                                references: Some(EndFunctionReferences {
+                                    variables: variable_references,
+                                }),
+                            }),
+                        ),
+                    }
+                } else {
+                    match kind {
+                        SpecialFunctionKind::Start => push_command(
+                            &mut start_function_create,
+                            &metadata,
+                            "create_start_function",
+                            CommandPayload::CreateStartFunction(StartFunctionCreate {
+                                id: id.clone(),
+                                name: name.clone(),
+                                description: inferred_description,
+                                parameters: vec![],
+                                code: function_code,
+                                errors: vec![],
+                                archived: Some(false),
+                                references: Some(StartFunctionReferences {
+                                    variables: variable_references,
+                                }),
+                            }),
+                        ),
+                        SpecialFunctionKind::End => push_command(
+                            &mut end_function_create,
+                            &metadata,
+                            "create_end_function",
+                            CommandPayload::CreateEndFunction(EndFunctionCreate {
+                                id: id.clone(),
+                                name: name.clone(),
+                                description: inferred_description,
+                                parameters: vec![],
+                                code: function_code,
+                                errors: vec![],
+                                archived: Some(false),
+                                references: Some(EndFunctionReferences {
+                                    variables: variable_references,
+                                }),
+                            }),
+                        ),
+                    }
+                }
+                continue;
+            }
             local_function_names.insert(name.clone());
             let remote_function = remote_functions.get(&name);
             let id = remote_functions
@@ -1727,6 +1969,26 @@ fn build_phase1_commands_with_actor(
             );
         }
     }
+    if let Some((id, _)) = remote_start_function
+        && !has_local_start_function
+    {
+        push_command(
+            &mut start_function_del,
+            &metadata,
+            "delete_start_function",
+            CommandPayload::DeleteStartFunction(StartFunctionDelete { id }),
+        );
+    }
+    if let Some((id, _)) = remote_end_function
+        && !has_local_end_function
+    {
+        push_command(
+            &mut end_function_del,
+            &metadata,
+            "delete_end_function",
+            CommandPayload::DeleteEndFunction(EndFunctionDelete { id }),
+        );
+    }
     for (name, id) in remote_entities {
         if !local_entity_names.contains(&name) {
             push_command(
@@ -1744,6 +2006,8 @@ fn build_phase1_commands_with_actor(
 
     let mut deletes: Vec<Command> = entity_del
         .into_iter()
+        .chain(start_function_del)
+        .chain(end_function_del)
         .chain(function_del)
         .chain(topic_del)
         .chain(ext_groups.deletes)
@@ -1753,6 +2017,8 @@ fn build_phase1_commands_with_actor(
 
     let mut creates: Vec<Command> = entity_create
         .into_iter()
+        .chain(start_function_create)
+        .chain(end_function_create)
         .chain(function_create)
         .chain(topic_create)
         .chain(ext_groups.creates)
@@ -1762,6 +2028,8 @@ fn build_phase1_commands_with_actor(
 
     let mut updates: Vec<Command> = entity_update
         .into_iter()
+        .chain(start_function_update)
+        .chain(end_function_update)
         .chain(function_update)
         .chain(topic_update)
         .chain(settings_update)
@@ -1782,6 +2050,8 @@ fn build_phase1_commands_with_actor(
 const DELETE_COMMAND_PRIORITY: &[&str] = &[
     "variable_delete",
     "entity_delete",
+    "delete_start_function",
+    "delete_end_function",
     "delete_function",
     "delete_topic",
     "handoff_delete",
@@ -1794,6 +2064,8 @@ const CREATE_COMMAND_PRIORITY: &[&str] = &[
     "entity_create",
     "sms_create_template",
     "handoff_create",
+    "create_start_function",
+    "create_end_function",
     "create_function",
     "create_topic",
     "stop_keywords_create",
@@ -1803,6 +2075,8 @@ const UPDATE_COMMAND_PRIORITY: &[&str] = &[
     "variable_update",
     "entity_update",
     "update_rules",
+    "update_start_function",
+    "update_end_function",
     "update_function",
     "update_topic",
     "handoff_update",
@@ -1879,6 +2153,56 @@ fn function_entries(projection: &Value) -> HashMap<String, Value> {
     extract_entities_map(projection, &["functions", "functions", "entities"])
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpecialFunctionKind {
+    Start,
+    End,
+}
+
+fn special_function_kind_from_path(path: &str) -> Option<SpecialFunctionKind> {
+    match path {
+        "functions/start_function.py" => Some(SpecialFunctionKind::Start),
+        "functions/end_function.py" => Some(SpecialFunctionKind::End),
+        _ => None,
+    }
+}
+
+fn special_function_projection_key(kind: SpecialFunctionKind) -> &'static str {
+    match kind {
+        SpecialFunctionKind::Start => "startFunction",
+        SpecialFunctionKind::End => "endFunction",
+    }
+}
+
+fn special_function_name(kind: SpecialFunctionKind) -> &'static str {
+    match kind {
+        SpecialFunctionKind::Start => "start_function",
+        SpecialFunctionKind::End => "end_function",
+    }
+}
+
+fn special_function_entry(
+    projection: &Value,
+    kind: SpecialFunctionKind,
+) -> Option<(String, Value)> {
+    let function = projection
+        .get("specialFunctions")?
+        .get(special_function_projection_key(kind))?;
+    if function
+        .get("archived")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let id = function
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| special_function_name(kind))
+        .to_string();
+    Some((id, function.clone()))
+}
+
 fn function_raw_content(function: &Value) -> String {
     let code = function
         .get("code")
@@ -1894,6 +2218,63 @@ fn function_raw_content(function: &Value) -> String {
     }
     content.push_str(code);
     content
+}
+
+fn variable_reference_ids_from_code(code: &str, projection: &Value) -> HashMap<String, bool> {
+    extract_variable_names_from_code(code)
+        .into_iter()
+        .map(|name| {
+            let id = variable_entries(projection)
+                .into_iter()
+                .find_map(|(id, variable)| {
+                    (variable.get("name").and_then(Value::as_str) == Some(name.as_str()))
+                        .then_some(id)
+                })
+                .unwrap_or_else(|| {
+                    generated_or_stable_resource_id(
+                        "variable",
+                        "VARIABLES",
+                        &name,
+                        &format!("variables/{name}"),
+                    )
+                });
+            (id, true)
+        })
+        .collect()
+}
+
+pub(crate) fn extract_variable_names_from_code(code: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in code.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        let mut rest = line;
+        while let Some(index) = rest.find("conv.state.") {
+            let after = &rest[index + "conv.state.".len()..];
+            let name_len = after
+                .char_indices()
+                .take_while(|(idx, ch)| {
+                    if *idx == 0 {
+                        ch.is_ascii_alphabetic() || *ch == '_'
+                    } else {
+                        ch.is_ascii_alphanumeric() || *ch == '_'
+                    }
+                })
+                .map(|(idx, ch)| idx + ch.len_utf8())
+                .last()
+                .unwrap_or(0);
+            if name_len > 0 {
+                let name = &after[..name_len];
+                let after_name = after[name_len..].trim_start();
+                if !after_name.starts_with('(') {
+                    names.push(name.to_string());
+                }
+            }
+            rest = after;
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
 }
 
 fn python_string_literal(value: &str) -> String {
@@ -2116,6 +2497,22 @@ pub(crate) fn generated_replay_resource_id(kind: &str, name: &str, path: &str) -
         }
     }
     None
+}
+
+pub(crate) fn generated_or_stable_resource_id(
+    kind: &str,
+    prefix: &str,
+    name: &str,
+    path: &str,
+) -> String {
+    generated_replay_resource_id(kind, name, path).unwrap_or_else(|| {
+        let mut hash = 0x811c9dc5_u32;
+        for byte in format!("{name}\0{path}").bytes() {
+            hash ^= u32::from(byte);
+            hash = hash.wrapping_mul(0x0100_0193);
+        }
+        format!("{prefix}-{hash:08x}")
+    })
 }
 
 fn topic_yaml_matches_projection(
@@ -2525,6 +2922,61 @@ fn command_to_json_summary(command: &Command) -> Value {
             CommandPayload::DeleteFunction(delete) => {
                 value["delete_function"] = serde_json::json!({ "id": delete.id });
             }
+            CommandPayload::DeleteStartFunction(delete) => {
+                value["delete_start_function"] = serde_json::json!({ "id": delete.id });
+            }
+            CommandPayload::DeleteEndFunction(delete) => {
+                value["delete_end_function"] = serde_json::json!({ "id": delete.id });
+            }
+            CommandPayload::VariableDelete(delete) => {
+                value["variable_delete"] = serde_json::json!({ "id": delete.id });
+            }
+            CommandPayload::VariableCreate(create) => {
+                value["variable_create"] =
+                    variable_command_to_json(&create.id, &create.name, create.references.as_ref());
+            }
+            CommandPayload::VariableUpdate(update) => {
+                value["variable_update"] =
+                    variable_command_to_json(&update.id, &update.name, update.references.as_ref());
+            }
+            CommandPayload::CreateStartFunction(create) => {
+                value["create_start_function"] = special_function_create_to_json(
+                    &create.id,
+                    &create.name,
+                    &create.description,
+                    &create.parameters,
+                    &create.code,
+                    create.archived,
+                    create.references.as_ref().map(|refs| &refs.variables),
+                );
+            }
+            CommandPayload::CreateEndFunction(create) => {
+                value["create_end_function"] = special_function_create_to_json(
+                    &create.id,
+                    &create.name,
+                    &create.description,
+                    &create.parameters,
+                    &create.code,
+                    create.archived,
+                    create.references.as_ref().map(|refs| &refs.variables),
+                );
+            }
+            CommandPayload::UpdateStartFunction(update) => {
+                value["update_start_function"] = special_function_update_to_json(
+                    &update.id,
+                    update.description.as_deref(),
+                    update.code.as_deref(),
+                    update.references.as_ref().map(|refs| &refs.variables),
+                );
+            }
+            CommandPayload::UpdateEndFunction(update) => {
+                value["update_end_function"] = special_function_update_to_json(
+                    &update.id,
+                    update.description.as_deref(),
+                    update.code.as_deref(),
+                    update.references.as_ref().map(|refs| &refs.variables),
+                );
+            }
             CommandPayload::CreateTopic(topic) => {
                 value["create_topic"] = create_topic_to_json(topic);
             }
@@ -2566,6 +3018,135 @@ fn rules_update_to_json(update: &RulesUpdateRules) -> Value {
         {
             value.insert("references".to_string(), references_json);
         }
+    }
+    Value::Object(value)
+}
+
+fn special_function_create_to_json(
+    id: &str,
+    name: &str,
+    description: &str,
+    parameters: &[FunctionParameter],
+    code: &str,
+    archived: Option<bool>,
+    variables: Option<&HashMap<String, bool>>,
+) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert("id".to_string(), Value::String(id.to_string()));
+    value.insert("name".to_string(), Value::String(name.to_string()));
+    if !description.is_empty() {
+        value.insert(
+            "description".to_string(),
+            Value::String(description.to_string()),
+        );
+    }
+    if !parameters.is_empty() {
+        value.insert(
+            "parameters".to_string(),
+            Value::Array(
+                parameters
+                    .iter()
+                    .map(function_parameter_to_json)
+                    .collect::<Vec<_>>(),
+            ),
+        );
+    }
+    value.insert("code".to_string(), Value::String(code.to_string()));
+    if archived == Some(true) {
+        value.insert("archived".to_string(), Value::Bool(true));
+    }
+    let references = special_function_references_to_json(variables);
+    if references
+        .as_object()
+        .is_some_and(|object| !object.is_empty())
+    {
+        value.insert("references".to_string(), references);
+    }
+    Value::Object(value)
+}
+
+fn special_function_update_to_json(
+    id: &str,
+    description: Option<&str>,
+    code: Option<&str>,
+    variables: Option<&HashMap<String, bool>>,
+) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert("id".to_string(), Value::String(id.to_string()));
+    if let Some(description) = description {
+        value.insert(
+            "description".to_string(),
+            Value::String(description.to_string()),
+        );
+    }
+    if let Some(code) = code {
+        value.insert("code".to_string(), Value::String(code.to_string()));
+    }
+    let references = special_function_references_to_json(variables);
+    if references
+        .as_object()
+        .is_some_and(|object| !object.is_empty())
+    {
+        value.insert("references".to_string(), references);
+    }
+    Value::Object(value)
+}
+
+fn variable_command_to_json(
+    id: &str,
+    name: &str,
+    references: Option<&VariableReferences>,
+) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert("id".to_string(), Value::String(id.to_string()));
+    value.insert("name".to_string(), Value::String(name.to_string()));
+    if let Some(references) = references {
+        let references = variable_references_to_json(references);
+        if references
+            .as_object()
+            .is_some_and(|object| !object.is_empty())
+        {
+            value.insert("references".to_string(), references);
+        }
+    }
+    Value::Object(value)
+}
+
+fn variable_references_to_json(references: &VariableReferences) -> Value {
+    let mut value = serde_json::Map::new();
+    insert_bool_map(&mut value, "functions", &references.functions);
+    insert_bool_map(&mut value, "delay_responses", &references.delay_responses);
+    insert_bool_map(&mut value, "flow_steps", &references.flow_steps);
+    insert_bool_map(
+        &mut value,
+        "flow_no_code_steps",
+        &references.flow_no_code_steps,
+    );
+    insert_bool_map(&mut value, "flow_functions", &references.flow_functions);
+    insert_bool_map(&mut value, "topics", &references.topics);
+    insert_bool_map(&mut value, "behaviours", &references.behaviours);
+    insert_bool_map(&mut value, "greetings", &references.greetings);
+    insert_bool_map(&mut value, "roles", &references.roles);
+    insert_bool_map(&mut value, "personalities", &references.personalities);
+    insert_bool_map(&mut value, "sms", &references.sms);
+    insert_bool_map(&mut value, "start_functions", &references.start_functions);
+    insert_bool_map(&mut value, "end_functions", &references.end_functions);
+    Value::Object(value)
+}
+
+fn function_parameter_to_json(parameter: &FunctionParameter) -> Value {
+    serde_json::json!({
+        "id": parameter.id.clone(),
+        "name": parameter.name.clone(),
+        "description": parameter.description.clone(),
+        "type": parameter.r#type.clone(),
+    })
+}
+
+fn special_function_references_to_json(variables: Option<&HashMap<String, bool>>) -> Value {
+    let mut value = serde_json::Map::new();
+    if let Some(variables) = variables {
+        insert_bool_map(&mut value, "variables", variables);
     }
     Value::Object(value)
 }

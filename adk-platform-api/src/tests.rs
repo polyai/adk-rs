@@ -1,4 +1,5 @@
 use super::*;
+use adk_protobuf::channels::ChannelType;
 
 #[test]
 fn builds_create_topic_command_when_remote_missing() {
@@ -231,6 +232,185 @@ fn create_function_infers_description_and_parameters_from_code() {
 }
 
 #[test]
+fn projection_materializes_start_and_end_functions_from_special_functions() {
+    let projection = serde_json::json!({
+        "specialFunctions": {
+            "startFunction": {
+                "id": "start-1",
+                "name": "start_function",
+                "description": "Runs at call start.",
+                "code": "def start_function(conv):\n    return None\n",
+                "archived": false
+            },
+            "endFunction": {
+                "id": "end-1",
+                "name": "end_function",
+                "description": "Runs at call end.",
+                "code": "def end_function(conv):\n    return None\n",
+                "archived": false
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let start = resources
+        .get("functions/start_function.py")
+        .expect("start function resource");
+    let end = resources
+        .get("functions/end_function.py")
+        .expect("end function resource");
+
+    assert_eq!(start.resource_id, "start-1");
+    assert_eq!(end.resource_id, "end-1");
+    assert!(
+        start
+            .payload
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|content| content.contains("@func_description('Runs at call start.')"))
+    );
+    assert!(
+        end.payload
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|content| content.contains("def end_function"))
+    );
+}
+
+#[test]
+fn special_function_paths_emit_start_and_end_commands() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "functions/start_function.py".to_string(),
+        Resource {
+            resource_id: "start-1".to_string(),
+            name: "start_function".to_string(),
+            file_path: "functions/start_function.py".to_string(),
+            payload: serde_json::json!({
+                "content": "@func_description('New start')\ndef start_function(conv):\n    conv.state.ready = True\n"
+            }),
+        },
+    );
+    resources.insert(
+        "functions/end_function.py".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "end_function".to_string(),
+            file_path: "functions/end_function.py".to_string(),
+            payload: serde_json::json!({
+                "content": "def end_function(conv, reason: str):\n    return reason\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "specialFunctions": {
+            "startFunction": {
+                "id": "start-1",
+                "name": "start_function",
+                "description": "Old start",
+                "code": "def start_function(conv):\n    return None\n",
+                "archived": false
+            }
+        }
+    });
+
+    let commands = build_phase1_commands(&resources, &projection);
+    let types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(types, vec!["create_end_function", "update_start_function"]);
+
+    let update = commands
+        .iter()
+        .find(|command| command.r#type == "update_start_function")
+        .expect("start update command");
+    match &update.payload {
+        Some(CommandPayload::UpdateStartFunction(update)) => {
+            assert_eq!(update.id, "start-1");
+            assert_eq!(update.description.as_deref(), Some("New start"));
+            assert!(
+                update
+                    .code
+                    .as_deref()
+                    .is_some_and(|code| code.contains("conv.state.ready"))
+            );
+        }
+        _ => panic!("unexpected start function update payload"),
+    }
+
+    let create = commands
+        .iter()
+        .find(|command| command.r#type == "create_end_function")
+        .expect("end create command");
+    match &create.payload {
+        Some(CommandPayload::CreateEndFunction(create)) => {
+            assert_eq!(create.name, "end_function");
+            assert!(create.parameters.is_empty());
+        }
+        _ => panic!("unexpected end function create payload"),
+    }
+}
+
+#[test]
+fn deleting_local_special_function_files_emits_special_delete_commands() {
+    let projection = serde_json::json!({
+        "specialFunctions": {
+            "startFunction": {
+                "id": "start-1",
+                "name": "start_function",
+                "description": "",
+                "code": "def start_function(conv):\n    return None\n",
+                "archived": false
+            },
+            "endFunction": {
+                "id": "end-1",
+                "name": "end_function",
+                "description": "",
+                "code": "def end_function(conv):\n    return None\n",
+                "archived": false
+            }
+        },
+        "functions": {
+            "functions": {
+                "entities": {
+                    "global-1": {
+                        "name": "regular",
+                        "code": "def regular(conv):\n    return None\n"
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_phase1_commands(&ResourceMap::new(), &projection);
+    let types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        types,
+        vec![
+            "delete_start_function",
+            "delete_end_function",
+            "delete_function"
+        ]
+    );
+    assert!(matches!(
+        commands[0].payload,
+        Some(CommandPayload::DeleteStartFunction(_))
+    ));
+    assert!(matches!(
+        commands[1].payload,
+        Some(CommandPayload::DeleteEndFunction(_))
+    ));
+    assert!(matches!(
+        commands[2].payload,
+        Some(CommandPayload::DeleteFunction(_))
+    ));
+}
+
+#[test]
 fn phase1_plus_extended_appends_variable_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(
@@ -387,21 +567,30 @@ fn projection_to_resource_map_includes_extended_resource_files() {
         "handoff": {"handoffs": {"entities": {"ho-1": {"name": "Sales", "description": "to sales", "active": true, "isDefault": true, "sipConfig": {"invite": {"phoneNumber": "+1555", "outboundEndpoint": "trunk", "outboundEncryption": "tls"}}, "sipHeaders": {"headers": [{"key": "X-Test", "value": "1"}]}}}}},
         "sms": {"templates": {"entities": {"twilio_sms-1": {"name": "Welcome", "text": "hi", "active": true, "envPhoneNumbers": {"sandbox": "+1", "preRelease": "+2", "live": "+3"}}}}},
         "stopKeywords": {"filters": {"entities": {"sk-1": {"title": "HangUp", "description": "end", "regularExpressions": ["^bye$"], "sayPhrase": false, "languageCode": "en-US"}}}},
-        "experimentalConfig": {"experimentalConfigs": {"entities": {"default": {"features": {"foo": true}}}}}
+        "experimentalConfig": {"experimentalConfigs": {"entities": {"default": {"features": {"foo": true}}}}},
+        "channels": {
+            "webChat": {
+                "status": 1,
+                "config": {
+                    "greeting": {"welcomeMessage": "Hello in chat", "languageCode": "en-US"},
+                    "stylePrompt": {"prompt": "Keep chat concise."},
+                    "safetyFilters": {
+                        "type": "azure",
+                        "disabled": false,
+                        "azureConfig": {"violence": {"isActive": true, "precision": "MEDIUM"}}
+                    }
+                }
+            }
+        }
     });
     let map = projection_to_resource_map(&projection).expect("map");
-    assert!(map.contains_key("variables/MyVar"));
     assert!(map.contains_key("config/entities.yaml"));
     assert!(map.contains_key("config/handoffs.yaml"));
     assert!(map.contains_key("config/sms_templates.yaml"));
     assert!(map.contains_key("voice/response_control/phrase_filtering.yaml"));
     assert!(map.contains_key("agent_settings/experimental_config.json"));
-    let variable_content = map
-        .get("variables/MyVar")
-        .and_then(|r| r.payload.get("content"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    assert!(variable_content.contains("\"name\": \"MyVar\""));
+    assert!(map.contains_key("chat/configuration.yaml"));
+    assert!(map.contains_key("chat/safety_filters.yaml"));
     let entities_content = map
         .get("config/entities.yaml")
         .and_then(|r| r.payload.get("content"))
@@ -417,6 +606,14 @@ fn projection_to_resource_map_includes_extended_resource_files() {
     assert!(handoff_content.contains("method: invite"));
     assert!(handoff_content.contains("phone_number: '+1555'"));
     assert!(handoff_content.contains("key: X-Test"));
+
+    let chat_content = map
+        .get("chat/configuration.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(chat_content.contains("Hello in chat"));
+    assert!(chat_content.contains("Keep chat concise."));
 }
 
 #[test]
@@ -611,6 +808,36 @@ disclaimer_messages:
             "barge_in: true\ninteraction_style: balanced\n",
         ),
     );
+    resources.insert(
+        "voice/safety_filters.yaml".to_string(),
+        local_resource(
+            "voice/safety_filters.yaml",
+            "voice_safety_filters",
+            "enabled: true\ncategories:\n  violence:\n    enabled: true\n    level: medium\n",
+        ),
+    );
+    resources.insert(
+        "chat/configuration.yaml".to_string(),
+        local_resource(
+            "chat/configuration.yaml",
+            "chat_configuration",
+            r#"
+greeting:
+  welcome_message: Hello from chat.
+  language_code: en-US
+style_prompt:
+  prompt: Keep webchat compact.
+"#,
+        ),
+    );
+    resources.insert(
+        "chat/safety_filters.yaml".to_string(),
+        local_resource(
+            "chat/safety_filters.yaml",
+            "chat_safety_filters",
+            "enabled: true\ncategories:\n  hate:\n    enabled: true\n    level: medium\n",
+        ),
+    );
 
     let commands = build_phase1_commands(&resources, &serde_json::json!({}));
     let types = commands
@@ -623,6 +850,7 @@ disclaimer_messages:
         "update_content_filter_settings",
         "channel_update_greeting",
         "channel_update_style_prompt",
+        "channel_update_safety_filters",
         "voice_channel_update_disclaimer",
         "voice_channel_update_asr_settings",
     ] {
@@ -650,6 +878,48 @@ disclaimer_messages:
         }
         _ => panic!("unexpected payload variant for voice_channel_update_asr_settings command"),
     }
+
+    let webchat_greeting = commands
+        .iter()
+        .find(|command| {
+            command.r#type == "channel_update_greeting"
+                && matches!(
+                    command.payload.as_ref(),
+                    Some(CommandPayload::ChannelUpdateGreeting(payload))
+                        if payload.channel_type == ChannelType::WebChat as i32
+                )
+        })
+        .expect("webchat greeting update");
+    match &webchat_greeting.payload {
+        Some(CommandPayload::ChannelUpdateGreeting(payload)) => {
+            assert_eq!(payload.channel_type, ChannelType::WebChat as i32);
+            assert_eq!(
+                payload
+                    .greeting
+                    .as_ref()
+                    .and_then(|greeting| greeting.welcome_message.as_deref()),
+                Some("Hello from chat.")
+            );
+        }
+        _ => panic!("unexpected payload variant for webchat greeting command"),
+    }
+
+    assert!(commands.iter().any(|command| {
+        command.r#type == "channel_update_safety_filters"
+            && matches!(
+                command.payload.as_ref(),
+                Some(CommandPayload::ChannelUpdateSafetyFilters(payload))
+                    if payload.channel_type == ChannelType::Voice as i32
+            )
+    }));
+    assert!(commands.iter().any(|command| {
+        command.r#type == "channel_update_safety_filters"
+            && matches!(
+                command.payload.as_ref(),
+                Some(CommandPayload::ChannelUpdateSafetyFilters(payload))
+                    if payload.channel_type == ChannelType::WebChat as i32
+            )
+    }));
 }
 
 #[test]

@@ -1,0 +1,659 @@
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments/active
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:25 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '271'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-b299f25e-a5f4-41ac-b1da-71d25cc2d795
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '140'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 434f403fac66414a1a17eb1be81a9823
+  body: |
+    {"live":{"deployment_id":"","version":""},"pre-release":{"deployment_id":"019e191e-03b9-7041-bfb1-d8be694fe09f","version":"add8dee46e304ab1b0e49572237a47be"},"sandbox":{"deployment_id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","version":"add8dee46e304ab1b0e49572237a47be"}}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments
+  method: GET
+  query_param:
+  - name: client_env
+    value: sandbox
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:25 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '12872'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-e208f76e-fe0e-4943-8118-af82eae91f52
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '70'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 823f957e1b1c45317c9c753c5a6e6977
+  body: |
+    {"deployments":[{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:40 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0a9c-79ee-89ef-c021eab6bf39","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:17 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-2369-79d9-adc5-f31ff69a1da8","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:14 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-1904-781e-9793-fabae9720dac","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:07.979Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:07 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d6-feec-70d6-b040-628aba10bc2a","rag_kb_version":"2026-05-08T18:26:07.979Z","snapshot_id":"59c8f278-d32d-4081-8b51-cffef3e3c4c4","version_hash":"f0f3b3518bdf4dc1ba2c8f338e4b3fbe"},{"artifact_version":"2026-05-08T18:24:08.904Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:08 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2d6b-721a-b7ed-d1c2e18f7f63","rag_kb_version":"2026-05-08T18:24:08.904Z","snapshot_id":"ca351cc6-e1a3-45bd-8eaf-a3c0fa4410d7","version_hash":"cca4f6adf83a43d19accad13e88aaea5"},{"artifact_version":"2026-05-08T18:24:05.852Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2258-718c-bef6-bf277a82d981","rag_kb_version":"2026-05-08T18:24:05.852Z","snapshot_id":"e44e102e-0b46-404f-a525-8c1eb8e0cd98","version_hash":"1ffc8db30da54b208485dede8cac4f7c"},{"artifact_version":"2026-05-08T18:23:58.894Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:58 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-0668-795f-88c6-d906fb5c227a","rag_kb_version":"2026-05-08T18:23:58.894Z","snapshot_id":"41990ffa-ad83-471b-b6a1-4369b2ea6853","version_hash":"030459d9c9c84dd1aff4ffecce763a09"},{"artifact_version":"2026-05-08T18:23:15.767Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:15 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-5e3d-706f-846f-4ebcaa88a1dd","rag_kb_version":"2026-05-08T18:23:15.767Z","snapshot_id":"1094476f-15b6-473b-90ef-1a57909ebfe9","version_hash":"bb87cb54ff524998a59e101d1443b697"},{"artifact_version":"2026-05-08T18:23:09.268Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:09 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-448f-7075-afb2-5b97b6575f40","rag_kb_version":"2026-05-08T18:23:09.268Z","snapshot_id":"d44e3888-ff8b-4502-824a-8a287f2086fc","version_hash":"97f6a08a784e4c9d84d6dc8b7c25260a"},{"artifact_version":"2026-05-08T18:20:05.091Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:20:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording unresolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-74e4-7804-9401-7add7834f25c","rag_kb_version":"2026-05-08T18:20:05.091Z","snapshot_id":"78bde53d-2eaf-4c31-a26b-28211f89306e","version_hash":"a5d778a05b81426096864c37a2071993"},{"artifact_version":"2026-05-08T18:19:39.192Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:19:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording branch merge","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-1040-7beb-84e2-edd710dea388","rag_kb_version":"2026-05-08T18:19:39.192Z","snapshot_id":"9dd8b4d1-19f2-4358-91f1-97060a21a5fe","version_hash":"632be5c855384c0183595f28ae7b7ab0"},{"artifact_version":"2026-03-31T14:14:29.436Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:29 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-f43c-71ab-9281-e29f2fc5e7fe","rag_kb_version":"2026-03-31T14:14:29.436Z","snapshot_id":"f8192880-e181-4f08-8d96-a4b314899f26","version_hash":"a43f1ef472024e778829fee8f7c4bf71"},{"artifact_version":"2026-03-31T14:14:04.151Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:04 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-9148-7c4d-8dc6-cd0c9f0ccec4","rag_kb_version":"2026-03-31T14:14:04.151Z","snapshot_id":"20974432-1d13-4818-a5c4-d44d6ca115f5","version_hash":"011f18e72a0e4285970cf7f8d4c27bd9"},{"artifact_version":"2026-03-20T15:00:26.302Z","client_env":"sandbox","created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"Project initialization","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2e2f-792d-93c4-32f4b47031c7","rag_kb_version":"2026-03-20T15:00:26.302Z","snapshot_id":"019d0bc3-0fc8-7e48-84b0-29331481c3c4","version_hash":"7aeb1cf8c263474782889112399ac312"}]}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments/active
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:25 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '271'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-8d8fc4f9-4d7d-491e-b100-9a42dd218abd
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '61'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 88460f0b011ad81fdc961c348b17c96f
+  body: |
+    {"live":{"deployment_id":"","version":""},"pre-release":{"deployment_id":"019e191e-03b9-7041-bfb1-d8be694fe09f","version":"add8dee46e304ab1b0e49572237a47be"},"sandbox":{"deployment_id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","version":"add8dee46e304ab1b0e49572237a47be"}}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments
+  method: GET
+  query_param:
+  - name: client_env
+    value: sandbox
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:25 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '12872'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-6e7f2031-25e2-4bbb-bb8c-7a694543ee59
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '80'
+  - name: x-kong-proxy-latency
+    value: '0'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 1e4f760d70d86642f1ddc0293326150f
+  body: |
+    {"deployments":[{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:40 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0a9c-79ee-89ef-c021eab6bf39","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:17 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-2369-79d9-adc5-f31ff69a1da8","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:14 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-1904-781e-9793-fabae9720dac","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:07.979Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:07 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d6-feec-70d6-b040-628aba10bc2a","rag_kb_version":"2026-05-08T18:26:07.979Z","snapshot_id":"59c8f278-d32d-4081-8b51-cffef3e3c4c4","version_hash":"f0f3b3518bdf4dc1ba2c8f338e4b3fbe"},{"artifact_version":"2026-05-08T18:24:08.904Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:08 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2d6b-721a-b7ed-d1c2e18f7f63","rag_kb_version":"2026-05-08T18:24:08.904Z","snapshot_id":"ca351cc6-e1a3-45bd-8eaf-a3c0fa4410d7","version_hash":"cca4f6adf83a43d19accad13e88aaea5"},{"artifact_version":"2026-05-08T18:24:05.852Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2258-718c-bef6-bf277a82d981","rag_kb_version":"2026-05-08T18:24:05.852Z","snapshot_id":"e44e102e-0b46-404f-a525-8c1eb8e0cd98","version_hash":"1ffc8db30da54b208485dede8cac4f7c"},{"artifact_version":"2026-05-08T18:23:58.894Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:58 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-0668-795f-88c6-d906fb5c227a","rag_kb_version":"2026-05-08T18:23:58.894Z","snapshot_id":"41990ffa-ad83-471b-b6a1-4369b2ea6853","version_hash":"030459d9c9c84dd1aff4ffecce763a09"},{"artifact_version":"2026-05-08T18:23:15.767Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:15 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-5e3d-706f-846f-4ebcaa88a1dd","rag_kb_version":"2026-05-08T18:23:15.767Z","snapshot_id":"1094476f-15b6-473b-90ef-1a57909ebfe9","version_hash":"bb87cb54ff524998a59e101d1443b697"},{"artifact_version":"2026-05-08T18:23:09.268Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:09 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-448f-7075-afb2-5b97b6575f40","rag_kb_version":"2026-05-08T18:23:09.268Z","snapshot_id":"d44e3888-ff8b-4502-824a-8a287f2086fc","version_hash":"97f6a08a784e4c9d84d6dc8b7c25260a"},{"artifact_version":"2026-05-08T18:20:05.091Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:20:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording unresolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-74e4-7804-9401-7add7834f25c","rag_kb_version":"2026-05-08T18:20:05.091Z","snapshot_id":"78bde53d-2eaf-4c31-a26b-28211f89306e","version_hash":"a5d778a05b81426096864c37a2071993"},{"artifact_version":"2026-05-08T18:19:39.192Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:19:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording branch merge","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-1040-7beb-84e2-edd710dea388","rag_kb_version":"2026-05-08T18:19:39.192Z","snapshot_id":"9dd8b4d1-19f2-4358-91f1-97060a21a5fe","version_hash":"632be5c855384c0183595f28ae7b7ab0"},{"artifact_version":"2026-03-31T14:14:29.436Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:29 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-f43c-71ab-9281-e29f2fc5e7fe","rag_kb_version":"2026-03-31T14:14:29.436Z","snapshot_id":"f8192880-e181-4f08-8d96-a4b314899f26","version_hash":"a43f1ef472024e778829fee8f7c4bf71"},{"artifact_version":"2026-03-31T14:14:04.151Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:04 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-9148-7c4d-8dc6-cd0c9f0ccec4","rag_kb_version":"2026-03-31T14:14:04.151Z","snapshot_id":"20974432-1d13-4818-a5c4-d44d6ca115f5","version_hash":"011f18e72a0e4285970cf7f8d4c27bd9"},{"artifact_version":"2026-03-20T15:00:26.302Z","client_env":"sandbox","created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"Project initialization","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2e2f-792d-93c4-32f4b47031c7","rag_kb_version":"2026-03-20T15:00:26.302Z","snapshot_id":"019d0bc3-0fc8-7e48-84b0-29331481c3c4","version_hash":"7aeb1cf8c263474782889112399ac312"}]}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments/active
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:26 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '271'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-76b43394-f8e4-43c2-b1b7-f314d9fcfaa0
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '82'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 9cd58e067417754ab5a6c00fd3f01008
+  body: |
+    {"live":{"deployment_id":"","version":""},"pre-release":{"deployment_id":"019e191e-03b9-7041-bfb1-d8be694fe09f","version":"add8dee46e304ab1b0e49572237a47be"},"sandbox":{"deployment_id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","version":"add8dee46e304ab1b0e49572237a47be"}}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments
+  method: GET
+  query_param:
+  - name: client_env
+    value: sandbox
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:26 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '12872'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-5c94bb81-4697-4198-ba6e-fe012980efb0
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '68'
+  - name: x-kong-proxy-latency
+    value: '0'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: df0f9222e83cf04223b5627906274813
+  body: |
+    {"deployments":[{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:40 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0a9c-79ee-89ef-c021eab6bf39","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:17 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-2369-79d9-adc5-f31ff69a1da8","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:14 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-1904-781e-9793-fabae9720dac","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:07.979Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:07 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d6-feec-70d6-b040-628aba10bc2a","rag_kb_version":"2026-05-08T18:26:07.979Z","snapshot_id":"59c8f278-d32d-4081-8b51-cffef3e3c4c4","version_hash":"f0f3b3518bdf4dc1ba2c8f338e4b3fbe"},{"artifact_version":"2026-05-08T18:24:08.904Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:08 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2d6b-721a-b7ed-d1c2e18f7f63","rag_kb_version":"2026-05-08T18:24:08.904Z","snapshot_id":"ca351cc6-e1a3-45bd-8eaf-a3c0fa4410d7","version_hash":"cca4f6adf83a43d19accad13e88aaea5"},{"artifact_version":"2026-05-08T18:24:05.852Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2258-718c-bef6-bf277a82d981","rag_kb_version":"2026-05-08T18:24:05.852Z","snapshot_id":"e44e102e-0b46-404f-a525-8c1eb8e0cd98","version_hash":"1ffc8db30da54b208485dede8cac4f7c"},{"artifact_version":"2026-05-08T18:23:58.894Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:58 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-0668-795f-88c6-d906fb5c227a","rag_kb_version":"2026-05-08T18:23:58.894Z","snapshot_id":"41990ffa-ad83-471b-b6a1-4369b2ea6853","version_hash":"030459d9c9c84dd1aff4ffecce763a09"},{"artifact_version":"2026-05-08T18:23:15.767Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:15 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-5e3d-706f-846f-4ebcaa88a1dd","rag_kb_version":"2026-05-08T18:23:15.767Z","snapshot_id":"1094476f-15b6-473b-90ef-1a57909ebfe9","version_hash":"bb87cb54ff524998a59e101d1443b697"},{"artifact_version":"2026-05-08T18:23:09.268Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:09 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-448f-7075-afb2-5b97b6575f40","rag_kb_version":"2026-05-08T18:23:09.268Z","snapshot_id":"d44e3888-ff8b-4502-824a-8a287f2086fc","version_hash":"97f6a08a784e4c9d84d6dc8b7c25260a"},{"artifact_version":"2026-05-08T18:20:05.091Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:20:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording unresolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-74e4-7804-9401-7add7834f25c","rag_kb_version":"2026-05-08T18:20:05.091Z","snapshot_id":"78bde53d-2eaf-4c31-a26b-28211f89306e","version_hash":"a5d778a05b81426096864c37a2071993"},{"artifact_version":"2026-05-08T18:19:39.192Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:19:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording branch merge","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-1040-7beb-84e2-edd710dea388","rag_kb_version":"2026-05-08T18:19:39.192Z","snapshot_id":"9dd8b4d1-19f2-4358-91f1-97060a21a5fe","version_hash":"632be5c855384c0183595f28ae7b7ab0"},{"artifact_version":"2026-03-31T14:14:29.436Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:29 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-f43c-71ab-9281-e29f2fc5e7fe","rag_kb_version":"2026-03-31T14:14:29.436Z","snapshot_id":"f8192880-e181-4f08-8d96-a4b314899f26","version_hash":"a43f1ef472024e778829fee8f7c4bf71"},{"artifact_version":"2026-03-31T14:14:04.151Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:04 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-9148-7c4d-8dc6-cd0c9f0ccec4","rag_kb_version":"2026-03-31T14:14:04.151Z","snapshot_id":"20974432-1d13-4818-a5c4-d44d6ca115f5","version_hash":"011f18e72a0e4285970cf7f8d4c27bd9"},{"artifact_version":"2026-03-20T15:00:26.302Z","client_env":"sandbox","created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"Project initialization","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2e2f-792d-93c4-32f4b47031c7","rag_kb_version":"2026-03-20T15:00:26.302Z","snapshot_id":"019d0bc3-0fc8-7e48-84b0-29331481c3c4","version_hash":"7aeb1cf8c263474782889112399ac312"}]}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments/active
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:26 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '271'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-c236a1c1-3327-48c7-bda2-79343c454af6
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '84'
+  - name: x-kong-proxy-latency
+    value: '0'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 1b58084491abd03825249b1c4b2fc20e
+  body: |
+    {"live":{"deployment_id":"","version":""},"pre-release":{"deployment_id":"019e191e-03b9-7041-bfb1-d8be694fe09f","version":"add8dee46e304ab1b0e49572237a47be"},"sandbox":{"deployment_id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","version":"add8dee46e304ab1b0e49572237a47be"}}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments
+  method: GET
+  query_param:
+  - name: client_env
+    value: sandbox
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:27 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '12872'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-69996398-13b0-48ff-9a60-479204a54e0b
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '60'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: a4f4f56b4920c541a0840f76f032cf14
+  body: |
+    {"deployments":[{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:40 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0a9c-79ee-89ef-c021eab6bf39","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:17 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-2369-79d9-adc5-f31ff69a1da8","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:14 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-1904-781e-9793-fabae9720dac","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:07.979Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:07 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d6-feec-70d6-b040-628aba10bc2a","rag_kb_version":"2026-05-08T18:26:07.979Z","snapshot_id":"59c8f278-d32d-4081-8b51-cffef3e3c4c4","version_hash":"f0f3b3518bdf4dc1ba2c8f338e4b3fbe"},{"artifact_version":"2026-05-08T18:24:08.904Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:08 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2d6b-721a-b7ed-d1c2e18f7f63","rag_kb_version":"2026-05-08T18:24:08.904Z","snapshot_id":"ca351cc6-e1a3-45bd-8eaf-a3c0fa4410d7","version_hash":"cca4f6adf83a43d19accad13e88aaea5"},{"artifact_version":"2026-05-08T18:24:05.852Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2258-718c-bef6-bf277a82d981","rag_kb_version":"2026-05-08T18:24:05.852Z","snapshot_id":"e44e102e-0b46-404f-a525-8c1eb8e0cd98","version_hash":"1ffc8db30da54b208485dede8cac4f7c"},{"artifact_version":"2026-05-08T18:23:58.894Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:58 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-0668-795f-88c6-d906fb5c227a","rag_kb_version":"2026-05-08T18:23:58.894Z","snapshot_id":"41990ffa-ad83-471b-b6a1-4369b2ea6853","version_hash":"030459d9c9c84dd1aff4ffecce763a09"},{"artifact_version":"2026-05-08T18:23:15.767Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:15 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-5e3d-706f-846f-4ebcaa88a1dd","rag_kb_version":"2026-05-08T18:23:15.767Z","snapshot_id":"1094476f-15b6-473b-90ef-1a57909ebfe9","version_hash":"bb87cb54ff524998a59e101d1443b697"},{"artifact_version":"2026-05-08T18:23:09.268Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:09 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-448f-7075-afb2-5b97b6575f40","rag_kb_version":"2026-05-08T18:23:09.268Z","snapshot_id":"d44e3888-ff8b-4502-824a-8a287f2086fc","version_hash":"97f6a08a784e4c9d84d6dc8b7c25260a"},{"artifact_version":"2026-05-08T18:20:05.091Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:20:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording unresolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-74e4-7804-9401-7add7834f25c","rag_kb_version":"2026-05-08T18:20:05.091Z","snapshot_id":"78bde53d-2eaf-4c31-a26b-28211f89306e","version_hash":"a5d778a05b81426096864c37a2071993"},{"artifact_version":"2026-05-08T18:19:39.192Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:19:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording branch merge","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-1040-7beb-84e2-edd710dea388","rag_kb_version":"2026-05-08T18:19:39.192Z","snapshot_id":"9dd8b4d1-19f2-4358-91f1-97060a21a5fe","version_hash":"632be5c855384c0183595f28ae7b7ab0"},{"artifact_version":"2026-03-31T14:14:29.436Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:29 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-f43c-71ab-9281-e29f2fc5e7fe","rag_kb_version":"2026-03-31T14:14:29.436Z","snapshot_id":"f8192880-e181-4f08-8d96-a4b314899f26","version_hash":"a43f1ef472024e778829fee8f7c4bf71"},{"artifact_version":"2026-03-31T14:14:04.151Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:04 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-9148-7c4d-8dc6-cd0c9f0ccec4","rag_kb_version":"2026-03-31T14:14:04.151Z","snapshot_id":"20974432-1d13-4818-a5c4-d44d6ca115f5","version_hash":"011f18e72a0e4285970cf7f8d4c27bd9"},{"artifact_version":"2026-03-20T15:00:26.302Z","client_env":"sandbox","created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"Project initialization","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2e2f-792d-93c4-32f4b47031c7","rag_kb_version":"2026-03-20T15:00:26.302Z","snapshot_id":"019d0bc3-0fc8-7e48-84b0-29331481c3c4","version_hash":"7aeb1cf8c263474782889112399ac312"}]}
+---
+when:
+  path: /v1/agents/PROJECT-JTQKOKLM/deployments/019e191e-0f1c-7e19-9fde-1db2bfe4d862/promote
+  method: POST
+  body: '{"targetEnvironment": "pre-release", "deploymentMessage": "ADK deployment recording promote"}'
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:27 GMT
+  - name: content-type
+    value: application/json; charset=utf-8
+  - name: content-length
+    value: '412'
+  - name: connection
+    value: keep-alive
+  - name: content-security-policy
+    value: 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+  - name: cross-origin-opener-policy
+    value: same-origin
+  - name: cross-origin-resource-policy
+    value: same-origin
+  - name: origin-agent-cluster
+    value: ?1
+  - name: referrer-policy
+    value: no-referrer
+  - name: strict-transport-security
+    value: max-age=31536000; includeSubDomains
+  - name: x-content-type-options
+    value: nosniff
+  - name: x-dns-prefetch-control
+    value: off
+  - name: x-download-options
+    value: noopen
+  - name: x-frame-options
+    value: SAMEORIGIN
+  - name: x-permitted-cross-domain-policies
+    value: none
+  - name: x-xss-protection
+    value: '0'
+  - name: etag
+    value: W/"19c-myIogpFB3uRtqOWYD+EwcJ345Mw"
+  - name: server
+    value: kong/3.12.0.4-enterprise-edition
+  - name: x-polyai-correlation-id
+    value: adk-9d414f18-69ff-4794-8596-9c1d8ecf0ddb
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '220'
+  - name: x-kong-proxy-latency
+    value: '2'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: e9aa432c76bd542daa574927d1f21d00
+  body: '{"deployment":{"id":"019e191e-c41d-7403-a015-4e835fa48dd5","accountId":"ben-ws","agentId":"PROJECT-JTQKOKLM","environment":"pre-release","artifactVersion":"2026-05-08T18:26:17.438Z","version":"add8dee46e304ab1b0e49572237a47be","createdBy":"ben@poly-ai.com","createdAt":"2026-05-11T22:18:27.225Z","metadata":{"deployment_message":"ADK deployment recording promote","deployment_type":"promotion"}},"testRunIds":[]}'
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments/active
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:27 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '271'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-f72c0ed5-57bb-42e8-a57f-d731b321fd73
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '63'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 37d1662fb31cf62c2111490fd4ef414f
+  body: |
+    {"live":{"deployment_id":"","version":""},"pre-release":{"deployment_id":"019e191e-c41d-7403-a015-4e835fa48dd5","version":"add8dee46e304ab1b0e49572237a47be"},"sandbox":{"deployment_id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","version":"add8dee46e304ab1b0e49572237a47be"}}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments
+  method: GET
+  query_param:
+  - name: client_env
+    value: sandbox
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:27 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '12872'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-3614890c-fe7e-4016-873d-a9d5c233339e
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '84'
+  - name: x-kong-proxy-latency
+    value: '0'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 2114cf0960b0e46bd288be5eaaaecc02
+  body: |
+    {"deployments":[{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:40 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0a9c-79ee-89ef-c021eab6bf39","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:17 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-2369-79d9-adc5-f31ff69a1da8","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:14 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-1904-781e-9793-fabae9720dac","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:07.979Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:07 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d6-feec-70d6-b040-628aba10bc2a","rag_kb_version":"2026-05-08T18:26:07.979Z","snapshot_id":"59c8f278-d32d-4081-8b51-cffef3e3c4c4","version_hash":"f0f3b3518bdf4dc1ba2c8f338e4b3fbe"},{"artifact_version":"2026-05-08T18:24:08.904Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:08 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2d6b-721a-b7ed-d1c2e18f7f63","rag_kb_version":"2026-05-08T18:24:08.904Z","snapshot_id":"ca351cc6-e1a3-45bd-8eaf-a3c0fa4410d7","version_hash":"cca4f6adf83a43d19accad13e88aaea5"},{"artifact_version":"2026-05-08T18:24:05.852Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2258-718c-bef6-bf277a82d981","rag_kb_version":"2026-05-08T18:24:05.852Z","snapshot_id":"e44e102e-0b46-404f-a525-8c1eb8e0cd98","version_hash":"1ffc8db30da54b208485dede8cac4f7c"},{"artifact_version":"2026-05-08T18:23:58.894Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:58 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-0668-795f-88c6-d906fb5c227a","rag_kb_version":"2026-05-08T18:23:58.894Z","snapshot_id":"41990ffa-ad83-471b-b6a1-4369b2ea6853","version_hash":"030459d9c9c84dd1aff4ffecce763a09"},{"artifact_version":"2026-05-08T18:23:15.767Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:15 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-5e3d-706f-846f-4ebcaa88a1dd","rag_kb_version":"2026-05-08T18:23:15.767Z","snapshot_id":"1094476f-15b6-473b-90ef-1a57909ebfe9","version_hash":"bb87cb54ff524998a59e101d1443b697"},{"artifact_version":"2026-05-08T18:23:09.268Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:09 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-448f-7075-afb2-5b97b6575f40","rag_kb_version":"2026-05-08T18:23:09.268Z","snapshot_id":"d44e3888-ff8b-4502-824a-8a287f2086fc","version_hash":"97f6a08a784e4c9d84d6dc8b7c25260a"},{"artifact_version":"2026-05-08T18:20:05.091Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:20:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording unresolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-74e4-7804-9401-7add7834f25c","rag_kb_version":"2026-05-08T18:20:05.091Z","snapshot_id":"78bde53d-2eaf-4c31-a26b-28211f89306e","version_hash":"a5d778a05b81426096864c37a2071993"},{"artifact_version":"2026-05-08T18:19:39.192Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:19:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording branch merge","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-1040-7beb-84e2-edd710dea388","rag_kb_version":"2026-05-08T18:19:39.192Z","snapshot_id":"9dd8b4d1-19f2-4358-91f1-97060a21a5fe","version_hash":"632be5c855384c0183595f28ae7b7ab0"},{"artifact_version":"2026-03-31T14:14:29.436Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:29 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-f43c-71ab-9281-e29f2fc5e7fe","rag_kb_version":"2026-03-31T14:14:29.436Z","snapshot_id":"f8192880-e181-4f08-8d96-a4b314899f26","version_hash":"a43f1ef472024e778829fee8f7c4bf71"},{"artifact_version":"2026-03-31T14:14:04.151Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:04 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-9148-7c4d-8dc6-cd0c9f0ccec4","rag_kb_version":"2026-03-31T14:14:04.151Z","snapshot_id":"20974432-1d13-4818-a5c4-d44d6ca115f5","version_hash":"011f18e72a0e4285970cf7f8d4c27bd9"},{"artifact_version":"2026-03-20T15:00:26.302Z","client_env":"sandbox","created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"Project initialization","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2e2f-792d-93c4-32f4b47031c7","rag_kb_version":"2026-03-20T15:00:26.302Z","snapshot_id":"019d0bc3-0fc8-7e48-84b0-29331481c3c4","version_hash":"7aeb1cf8c263474782889112399ac312"}]}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments/active
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:28 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '271'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-8606d298-0346-458d-8bd1-7d1f7cf8230d
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '61'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 4115b2459715bf5aed578a1446cb3306
+  body: |
+    {"live":{"deployment_id":"","version":""},"pre-release":{"deployment_id":"019e191e-c41d-7403-a015-4e835fa48dd5","version":"add8dee46e304ab1b0e49572237a47be"},"sandbox":{"deployment_id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","version":"add8dee46e304ab1b0e49572237a47be"}}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments
+  method: GET
+  query_param:
+  - name: client_env
+    value: sandbox
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:28 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '12872'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-2b1e7486-a92a-47f1-8d63-aa2998c1080f
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '68'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: f03a8446de007c4c28417819da26de01
+  body: |
+    {"deployments":[{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:40 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0a9c-79ee-89ef-c021eab6bf39","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:17 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-2369-79d9-adc5-f31ff69a1da8","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:14 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-1904-781e-9793-fabae9720dac","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:07.979Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:07 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d6-feec-70d6-b040-628aba10bc2a","rag_kb_version":"2026-05-08T18:26:07.979Z","snapshot_id":"59c8f278-d32d-4081-8b51-cffef3e3c4c4","version_hash":"f0f3b3518bdf4dc1ba2c8f338e4b3fbe"},{"artifact_version":"2026-05-08T18:24:08.904Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:08 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2d6b-721a-b7ed-d1c2e18f7f63","rag_kb_version":"2026-05-08T18:24:08.904Z","snapshot_id":"ca351cc6-e1a3-45bd-8eaf-a3c0fa4410d7","version_hash":"cca4f6adf83a43d19accad13e88aaea5"},{"artifact_version":"2026-05-08T18:24:05.852Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2258-718c-bef6-bf277a82d981","rag_kb_version":"2026-05-08T18:24:05.852Z","snapshot_id":"e44e102e-0b46-404f-a525-8c1eb8e0cd98","version_hash":"1ffc8db30da54b208485dede8cac4f7c"},{"artifact_version":"2026-05-08T18:23:58.894Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:58 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-0668-795f-88c6-d906fb5c227a","rag_kb_version":"2026-05-08T18:23:58.894Z","snapshot_id":"41990ffa-ad83-471b-b6a1-4369b2ea6853","version_hash":"030459d9c9c84dd1aff4ffecce763a09"},{"artifact_version":"2026-05-08T18:23:15.767Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:15 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-5e3d-706f-846f-4ebcaa88a1dd","rag_kb_version":"2026-05-08T18:23:15.767Z","snapshot_id":"1094476f-15b6-473b-90ef-1a57909ebfe9","version_hash":"bb87cb54ff524998a59e101d1443b697"},{"artifact_version":"2026-05-08T18:23:09.268Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:09 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-448f-7075-afb2-5b97b6575f40","rag_kb_version":"2026-05-08T18:23:09.268Z","snapshot_id":"d44e3888-ff8b-4502-824a-8a287f2086fc","version_hash":"97f6a08a784e4c9d84d6dc8b7c25260a"},{"artifact_version":"2026-05-08T18:20:05.091Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:20:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording unresolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-74e4-7804-9401-7add7834f25c","rag_kb_version":"2026-05-08T18:20:05.091Z","snapshot_id":"78bde53d-2eaf-4c31-a26b-28211f89306e","version_hash":"a5d778a05b81426096864c37a2071993"},{"artifact_version":"2026-05-08T18:19:39.192Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:19:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording branch merge","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-1040-7beb-84e2-edd710dea388","rag_kb_version":"2026-05-08T18:19:39.192Z","snapshot_id":"9dd8b4d1-19f2-4358-91f1-97060a21a5fe","version_hash":"632be5c855384c0183595f28ae7b7ab0"},{"artifact_version":"2026-03-31T14:14:29.436Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:29 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-f43c-71ab-9281-e29f2fc5e7fe","rag_kb_version":"2026-03-31T14:14:29.436Z","snapshot_id":"f8192880-e181-4f08-8d96-a4b314899f26","version_hash":"a43f1ef472024e778829fee8f7c4bf71"},{"artifact_version":"2026-03-31T14:14:04.151Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:04 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-9148-7c4d-8dc6-cd0c9f0ccec4","rag_kb_version":"2026-03-31T14:14:04.151Z","snapshot_id":"20974432-1d13-4818-a5c4-d44d6ca115f5","version_hash":"011f18e72a0e4285970cf7f8d4c27bd9"},{"artifact_version":"2026-03-20T15:00:26.302Z","client_env":"sandbox","created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"Project initialization","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2e2f-792d-93c4-32f4b47031c7","rag_kb_version":"2026-03-20T15:00:26.302Z","snapshot_id":"019d0bc3-0fc8-7e48-84b0-29331481c3c4","version_hash":"7aeb1cf8c263474782889112399ac312"}]}
+---
+when:
+  path: /v1/agents/PROJECT-JTQKOKLM/deployments/019e191e-0a9c-79ee-89ef-c021eab6bf39/rollback
+  method: POST
+  body: '{"deploymentMessage": "ADK deployment recording rollback"}'
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:28 GMT
+  - name: content-type
+    value: application/json; charset=utf-8
+  - name: content-length
+    value: '325'
+  - name: connection
+    value: keep-alive
+  - name: content-security-policy
+    value: 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+  - name: cross-origin-opener-policy
+    value: same-origin
+  - name: cross-origin-resource-policy
+    value: same-origin
+  - name: origin-agent-cluster
+    value: ?1
+  - name: referrer-policy
+    value: no-referrer
+  - name: strict-transport-security
+    value: max-age=31536000; includeSubDomains
+  - name: x-content-type-options
+    value: nosniff
+  - name: x-dns-prefetch-control
+    value: off
+  - name: x-download-options
+    value: noopen
+  - name: x-frame-options
+    value: SAMEORIGIN
+  - name: x-permitted-cross-domain-policies
+    value: none
+  - name: x-xss-protection
+    value: '0'
+  - name: etag
+    value: W/"145-MN6CtEYFLqOi3NSFK2iqcX5Y7tM"
+  - name: server
+    value: kong/3.12.0.4-enterprise-edition
+  - name: x-polyai-correlation-id
+    value: adk-0f07d4f7-990d-46c7-8140-d03e627b8c21
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '273'
+  - name: x-kong-proxy-latency
+    value: '1'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: d88a490e53b2e93d76fc772684437649
+  body: '{"deployment":{"id":"019e191e-ca97-7afa-a3bf-8ce5950f13a3","accountId":"ben-ws","agentId":"PROJECT-JTQKOKLM","environment":"sandbox","artifactVersion":"2026-05-08T18:26:14.711Z","version":"46c78399935c449c80d7d328a91b52ea","createdBy":"ben@poly-ai.com","createdAt":"2026-05-11T22:18:28.909Z","metadata":null},"testRunIds":[]}'
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments/active
+  method: GET
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:29 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '271'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-e5fa0a67-7d9c-4d68-8f16-035dc2ed0b7a
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '104'
+  - name: x-kong-proxy-latency
+    value: '0'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 328b433699ec9f1f8fe3914c75da8375
+  body: |
+    {"live":{"deployment_id":"","version":""},"pre-release":{"deployment_id":"019e191e-c41d-7403-a015-4e835fa48dd5","version":"add8dee46e304ab1b0e49572237a47be"},"sandbox":{"deployment_id":"019e191e-ca97-7afa-a3bf-8ce5950f13a3","version":"46c78399935c449c80d7d328a91b52ea"}}
+---
+when:
+  path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/deployments
+  method: GET
+  query_param:
+  - name: client_env
+    value: sandbox
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:29 GMT
+  - name: content-type
+    value: application/json
+  - name: content-length
+    value: '13740'
+  - name: connection
+    value: keep-alive
+  - name: server
+    value: gunicorn
+  - name: x-polyai-correlation-id
+    value: adk-d67993b2-0d05-4db9-a135-ed5ebb186179
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '62'
+  - name: x-kong-proxy-latency
+    value: '0'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: aa5ee66c5660a356bb76a54a2c9e7b6b
+  body: |
+    {"deployments":[{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:18:28 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-ca97-7afa-a3bf-8ce5950f13a3","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:40 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0f1c-7e19-9fde-1db2bfe4d862","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Mon, 11 May 2026 22:17:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"rollback"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e191e-0a9c-79ee-89ef-c021eab6bf39","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:17.438Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:17 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-2369-79d9-adc5-f31ff69a1da8","rag_kb_version":"2026-05-08T18:26:17.438Z","snapshot_id":"1669b8ba-a4f6-4307-a1a1-b852109cfaf8","version_hash":"add8dee46e304ab1b0e49572237a47be"},{"artifact_version":"2026-05-08T18:26:14.711Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:14 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d7-1904-781e-9793-fabae9720dac","rag_kb_version":"2026-05-08T18:26:14.711Z","snapshot_id":"1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1","version_hash":"46c78399935c449c80d7d328a91b52ea"},{"artifact_version":"2026-05-08T18:26:07.979Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:26:07 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d6-feec-70d6-b040-628aba10bc2a","rag_kb_version":"2026-05-08T18:26:07.979Z","snapshot_id":"59c8f278-d32d-4081-8b51-cffef3e3c4c4","version_hash":"f0f3b3518bdf4dc1ba2c8f338e4b3fbe"},{"artifact_version":"2026-05-08T18:24:08.904Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:08 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording resolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2d6b-721a-b7ed-d1c2e18f7f63","rag_kb_version":"2026-05-08T18:24:08.904Z","snapshot_id":"ca351cc6-e1a3-45bd-8eaf-a3c0fa4410d7","version_hash":"cca4f6adf83a43d19accad13e88aaea5"},{"artifact_version":"2026-05-08T18:24:05.852Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:24:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-2258-718c-bef6-bf277a82d981","rag_kb_version":"2026-05-08T18:24:05.852Z","snapshot_id":"e44e102e-0b46-404f-a525-8c1eb8e0cd98","version_hash":"1ffc8db30da54b208485dede8cac4f7c"},{"artifact_version":"2026-05-08T18:23:58.894Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:58 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d5-0668-795f-88c6-d906fb5c227a","rag_kb_version":"2026-05-08T18:23:58.894Z","snapshot_id":"41990ffa-ad83-471b-b6a1-4369b2ea6853","version_hash":"030459d9c9c84dd1aff4ffecce763a09"},{"artifact_version":"2026-05-08T18:23:15.767Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:15 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording main-side conflict marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-5e3d-706f-846f-4ebcaa88a1dd","rag_kb_version":"2026-05-08T18:23:15.767Z","snapshot_id":"1094476f-15b6-473b-90ef-1a57909ebfe9","version_hash":"bb87cb54ff524998a59e101d1443b697"},{"artifact_version":"2026-05-08T18:23:09.268Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:23:09 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording conflict base marker","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d4-448f-7075-afb2-5b97b6575f40","rag_kb_version":"2026-05-08T18:23:09.268Z","snapshot_id":"d44e3888-ff8b-4502-824a-8a287f2086fc","version_hash":"97f6a08a784e4c9d84d6dc8b7c25260a"},{"artifact_version":"2026-05-08T18:20:05.091Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:20:05 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording unresolved conflict","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-74e4-7804-9401-7add7834f25c","rag_kb_version":"2026-05-08T18:20:05.091Z","snapshot_id":"78bde53d-2eaf-4c31-a26b-28211f89306e","version_hash":"a5d778a05b81426096864c37a2071993"},{"artifact_version":"2026-05-08T18:19:39.192Z","client_env":"sandbox","created_at":"Fri, 08 May 2026 18:19:39 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"ADK recording branch merge","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019e08d1-1040-7beb-84e2-edd710dea388","rag_kb_version":"2026-05-08T18:19:39.192Z","snapshot_id":"9dd8b4d1-19f2-4358-91f1-97060a21a5fe","version_hash":"632be5c855384c0183595f28ae7b7ab0"},{"artifact_version":"2026-03-31T14:14:29.436Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:29 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-f43c-71ab-9281-e29f2fc5e7fe","rag_kb_version":"2026-03-31T14:14:29.436Z","snapshot_id":"f8192880-e181-4f08-8d96-a4b314899f26","version_hash":"a43f1ef472024e778829fee8f7c4bf71"},{"artifact_version":"2026-03-31T14:14:04.151Z","client_env":"sandbox","created_at":"Tue, 31 Mar 2026 14:14:04 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d443e-9148-7c4d-8dc6-cd0c9f0ccec4","rag_kb_version":"2026-03-31T14:14:04.151Z","snapshot_id":"20974432-1d13-4818-a5c4-d44d6ca115f5","version_hash":"011f18e72a0e4285970cf7f8d4c27bd9"},{"artifact_version":"2026-03-20T15:00:26.302Z","client_env":"sandbox","created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","deleted":false,"deployment_metadata":{"deployment_message":"Project initialization","deployment_type":"publish"},"function_deployment":{"client_env":"sandbox","deleted":false,"deployment_version":"us-1_prod_func_ben-ws_cqcj913n5m:1","function_ids":[],"genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2de5-796d-9376-d63b727b1bfe","version":"Fri, 20 Mar 2026 15:00:33 GMT"},"function_deployment_version":"019d0bc3-2de5-796d-9376-d63b727b1bfe","genai_account_id":"ben-ws","genai_project_id":"PROJECT-JTQKOKLM","id":"019d0bc3-2e2f-792d-93c4-32f4b47031c7","rag_kb_version":"2026-03-20T15:00:26.302Z","snapshot_id":"019d0bc3-0fc8-7e48-84b0-29331481c3c4","version_hash":"7aeb1cf8c263474782889112399ac312"}]}
+---
+when:
+  path: /v1/agents/PROJECT-JTQKOKLM/deployments/019e191e-0f1c-7e19-9fde-1db2bfe4d862/rollback
+  method: POST
+  body: '{"deploymentMessage": "ADK deployment recording restore"}'
+then:
+  status: 200
+  header:
+  - name: date
+    value: Mon, 11 May 2026 22:18:30 GMT
+  - name: content-type
+    value: application/json; charset=utf-8
+  - name: content-length
+    value: '325'
+  - name: connection
+    value: keep-alive
+  - name: content-security-policy
+    value: 'default-src ''self'';base-uri ''self'';font-src ''self'' https: data:;form-action ''self'';frame-ancestors ''self'';img-src ''self'' data:;object-src ''none'';script-src ''self'';script-src-attr ''none'';style-src ''self'' https: ''unsafe-inline'';upgrade-insecure-requests'
+  - name: cross-origin-opener-policy
+    value: same-origin
+  - name: cross-origin-resource-policy
+    value: same-origin
+  - name: origin-agent-cluster
+    value: ?1
+  - name: referrer-policy
+    value: no-referrer
+  - name: strict-transport-security
+    value: max-age=31536000; includeSubDomains
+  - name: x-content-type-options
+    value: nosniff
+  - name: x-dns-prefetch-control
+    value: off
+  - name: x-download-options
+    value: noopen
+  - name: x-frame-options
+    value: SAMEORIGIN
+  - name: x-permitted-cross-domain-policies
+    value: none
+  - name: x-xss-protection
+    value: '0'
+  - name: etag
+    value: W/"145-RWTtlqshgtf2AO7AF2fpezywWS0"
+  - name: server
+    value: kong/3.12.0.4-enterprise-edition
+  - name: x-polyai-correlation-id
+    value: adk-62064fed-19f4-4a4d-a052-6aa44c23de64
+  - name: access-control-allow-origin
+    value: '*'
+  - name: access-control-expose-headers
+    value: '*'
+  - name: x-kong-upstream-latency
+    value: '371'
+  - name: x-kong-proxy-latency
+    value: '0'
+  - name: via
+    value: 1.1 kong/3.12.0.4-enterprise-edition
+  - name: x-kong-request-id
+    value: 4553e169a9fa7c685df51b19cd99f074
+  body: '{"deployment":{"id":"019e191e-cf0c-7417-ae3d-3efd9d71d7c5","accountId":"ben-ws","agentId":"PROJECT-JTQKOKLM","environment":"sandbox","artifactVersion":"2026-05-08T18:26:17.438Z","version":"add8dee46e304ab1b0e49572237a47be","createdBy":"ben@poly-ai.com","createdAt":"2026-05-11T22:18:30.066Z","metadata":null},"testRunIds":[]}'

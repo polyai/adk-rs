@@ -124,6 +124,28 @@ impl PlatformClient for InMemoryPlatformClient {
             .clone())
     }
 
+    fn promote_deployment(
+        &self,
+        deployment_id: &str,
+        target_env: &str,
+        message: &str,
+    ) -> Result<Value, ApiError> {
+        Ok(serde_json::json!({
+            "success": true,
+            "deployment_id": deployment_id,
+            "targetEnvironment": target_env,
+            "deploymentMessage": message,
+        }))
+    }
+
+    fn rollback_deployment(&self, deployment_id: &str, message: &str) -> Result<Value, ApiError> {
+        Ok(serde_json::json!({
+            "success": true,
+            "deployment_id": deployment_id,
+            "deploymentMessage": message,
+        }))
+    }
+
     fn create_chat_session(&self, _payload: Value) -> Result<Value, ApiError> {
         Ok(serde_json::json!({
             "conversation_id": "local-conversation",

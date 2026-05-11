@@ -2,20 +2,23 @@
 
 Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be covered by a Python recording fixture first where practical, then brought to parity in Rust.
 
-- [ ] **Port deployment show/promote/rollback workflows** (`deployments-mutation-parity`)
+- [x] **Port deployment show/promote/rollback workflows** (`deployments-mutation-parity`)
   - Python supports `deployments show`, `deployments promote`, and `deployments rollback`; Rust currently implements only `deployments list`.
   - Add recordings for JSON `show`, `promote --dry-run`, `promote --json --force`, `rollback --dry-run`, and `rollback --json --force`, then implement the missing Rust CLI/platform methods.
   - Acceptance: JSON replay fixtures match Python for deployment selection by 9-character hash prefix, included/reverted deployment calculation from sandbox history, active environment aliases, dry-run payloads, and successful promote/rollback HTTP calls.
+  - Implemented: Rust now supports deployment `show`, `promote`, and `rollback`, including platform-root promote/rollback endpoints, dry-run payloads, active environment aliases, prefix lookup, included/reverted deployment calculation, confirmation prompts, and a real Python recording/replay fixture in `deployments-mutation`.
 
-- [ ] **Handle start/end special functions as first-class resources** (`special-function-parity`)
+- [x] **Handle start/end special functions as first-class resources** (`special-function-parity`)
   - Python treats `functions/start_function.py` and `functions/end_function.py` as `start_function_*` and `end_function_*` commands, not ordinary global functions.
   - Add recordings that pull and push start/end function edits, creates, and deletes.
   - Acceptance: Rust materializes these files from `specialFunctions`, discovers them with the same path convention, and emits `create/update/delete_start_function` or `create/update/delete_end_function` instead of generic function commands.
+  - Implemented: Rust now materializes `functions/start_function.py` and `functions/end_function.py` from `specialFunctions`, discovers `conv.state.*` variables as push-only resources, emits start/end create/update/delete commands with Python-compatible variable reference updates/deletes, and replays the real `special-functions` Python recording.
 
-- [ ] **Complete webchat and channel safety-filter resource parity** (`channel-settings-parity`)
+- [x] **Complete webchat and channel safety-filter resource parity** (`channel-settings-parity`)
   - Python pulls webchat channel resources into `chat/configuration.yaml` and `chat/safety_filters.yaml`, and pushes channel greeting/style/safety filter updates for both voice and webchat.
   - Add recordings for webchat greeting/style/safety-filter pull and push, plus voice safety-filter push.
   - Acceptance: Rust round-trips `channels.webChat.config.greeting`, `stylePrompt`, `safetyFilters`, `channels.voice.config.safetyFilters`, and emits the matching `channel_update_*` command payloads with `VOICE`/`WEB_CHAT` channel types.
+  - Implemented: Rust now materializes webchat configuration and safety-filter resources when the webchat channel is created, pushes voice and webchat safety filters plus webchat greeting/style updates with Python-compatible channel types and ordering, and replays the real `channel-settings` Python recording. The recording establishes a webchat-enabled baseline with `pull --from-projection` before editing so Python exercises update commands rather than unsupported channel setting creates.
 
 - [ ] **Complete update/delete command parity for broad multi-resource families** (`broad-resource-lifecycle-parity`)
   - Rust currently creates several broad resources but does not emit Python-compatible update/delete commands for all lifecycle states.
@@ -52,7 +55,7 @@ Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be co
   - Acceptance: replayable tests cover scripted restart, explicit exit, resumed conversation ID, send-message error handling, and server-side `conversation_ended`.
   - Implemented: chat now has a real loop with human prompts, scripted echoing, `/exit`, `/restart`, end-chat calls, resumed conversation messaging, branch environment messaging, human transcript output, metadata rendering, and multi-conversation JSON collection. Human-output and JSON restart tests cover the core flow.
 
-- [x] **Generate full `_gen` SDK package on init/pull/switch** (`generated-sdk-package`)
+- [x] **Write full Python `_gen` package on init/pull/switch** (`python-gen-package`)
   - Write the Python-compatible `_gen` package, decorator exports, import stubs, and type helper files that Python writes during `init`, `pull`, and branch/environment pulls.
   - Acceptance: recorded pull/init fixture asserts `_gen/__init__.py`, `_gen/decorators.py`, and representative helper modules match Python-compatible import behavior.
   - Implemented: `adk-core` now owns crate-local Python-compatible `_gen` templates and writes them from init and status snapshot paths, including decorator exports and all helper modules. Core tests assert init/pull package contents and stale `.pyi` cleanup.

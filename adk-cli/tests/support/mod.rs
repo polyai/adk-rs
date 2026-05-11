@@ -110,11 +110,13 @@ pub mod python_recordings {
         "basic-readonly",
         "branch-merge-main",
         "branch-update-push",
+        "channel-settings",
         "chat-error-metadata",
         "chat-json",
         "chat-session-controls",
         "cli-diff-edges",
         "create-delete-dryrun",
+        "deployments-mutation",
         "dirty-switch",
         "format-local",
         "interactive-contracts",
@@ -126,6 +128,7 @@ pub mod python_recordings {
         "push-resource-coverage",
         "revert-local",
         "semantic-validation",
+        "special-functions",
         "validation-errors",
     ];
 

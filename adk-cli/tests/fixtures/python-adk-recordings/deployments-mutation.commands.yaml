@@ -1,0 +1,425 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Documents Python deployment show/promote/rollback JSON contracts.
+- The promote and rollback commands mutate the safe real Agent Studio test project.
+- The final rollback command restores sandbox to the newest deployment captured at the start of the fixture.
+httpmock_recording: deployments-mutation.httpmock.yaml
+workflows:
+- name: deployments_mutation
+  description: Record deployment show, dry-run, promote, rollback, and restore workflows against the real project.
+  mutates_real_server: true
+  cleanup:
+  - Sandbox is restored to the newest deployment captured at fixture start.
+  steps:
+  - kind: file_edit
+    name: write project config before deployment mutation workflows
+    operation: write_text
+    path: project.yaml
+    content: |
+      region: us-1
+      account_id: ben-ws
+      project_id: PROJECT-JTQKOKLM
+      branch_id: main
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: deployments list sandbox for mutation hashes
+    argv:
+    - poly
+    - deployments
+    - list
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --env
+    - sandbox
+    - --limit
+    - '5'
+    exit_code: 0
+    stdout_json:
+      active_deployment_hashes:
+        live: ''
+        pre-release: add8dee46e304ab1b0e49572237a47be
+        sandbox: add8dee46e304ab1b0e49572237a47be
+      versions:
+      - artifact_version: 2026-05-08T18:26:17.438Z
+        client_env: sandbox
+        created_at: ${TIMESTAMP}
+        created_by: ben@poly-ai.com
+        deleted: false
+        deployment_metadata:
+          deployment_message: ADK recording resolved conflict
+          deployment_type: rollback
+        function_deployment:
+          client_env: sandbox
+          deleted: false
+          deployment_version: us-1_prod_func_ben-ws_cqcj913n5m:1
+          function_ids: []
+          genai_project_id: PROJECT-JTQKOKLM
+          id: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+          version: Fri, 20 Mar 2026 15:00:33 GMT
+        function_deployment_version: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+        genai_account_id: ben-ws
+        genai_project_id: PROJECT-JTQKOKLM
+        id: 019e191e-0f1c-7e19-9fde-1db2bfe4d862
+        rag_kb_version: 2026-05-08T18:26:17.438Z
+        snapshot_id: 1669b8ba-a4f6-4307-a1a1-b852109cfaf8
+        version_hash: add8dee46e304ab1b0e49572237a47be
+      - artifact_version: 2026-05-08T18:26:14.711Z
+        client_env: sandbox
+        created_at: ${TIMESTAMP}
+        created_by: ben@poly-ai.com
+        deleted: false
+        deployment_metadata:
+          deployment_message: ADK recording main-side conflict marker
+          deployment_type: rollback
+        function_deployment:
+          client_env: sandbox
+          deleted: false
+          deployment_version: us-1_prod_func_ben-ws_cqcj913n5m:1
+          function_ids: []
+          genai_project_id: PROJECT-JTQKOKLM
+          id: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+          version: Fri, 20 Mar 2026 15:00:33 GMT
+        function_deployment_version: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+        genai_account_id: ben-ws
+        genai_project_id: PROJECT-JTQKOKLM
+        id: 019e191e-0a9c-79ee-89ef-c021eab6bf39
+        rag_kb_version: 2026-05-08T18:26:14.711Z
+        snapshot_id: 1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1
+        version_hash: 46c78399935c449c80d7d328a91b52ea
+      - artifact_version: 2026-05-08T18:26:17.438Z
+        client_env: sandbox
+        created_at: ${TIMESTAMP}
+        created_by: ben@poly-ai.com
+        deleted: false
+        deployment_metadata:
+          deployment_message: ADK recording resolved conflict
+          deployment_type: publish
+        function_deployment:
+          client_env: sandbox
+          deleted: false
+          deployment_version: us-1_prod_func_ben-ws_cqcj913n5m:1
+          function_ids: []
+          genai_project_id: PROJECT-JTQKOKLM
+          id: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+          version: Fri, 20 Mar 2026 15:00:33 GMT
+        function_deployment_version: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+        genai_account_id: ben-ws
+        genai_project_id: PROJECT-JTQKOKLM
+        id: 019e08d7-2369-79d9-adc5-f31ff69a1da8
+        rag_kb_version: 2026-05-08T18:26:17.438Z
+        snapshot_id: 1669b8ba-a4f6-4307-a1a1-b852109cfaf8
+        version_hash: add8dee46e304ab1b0e49572237a47be
+      - artifact_version: 2026-05-08T18:26:14.711Z
+        client_env: sandbox
+        created_at: ${TIMESTAMP}
+        created_by: ben@poly-ai.com
+        deleted: false
+        deployment_metadata:
+          deployment_message: ADK recording main-side conflict marker
+          deployment_type: publish
+        function_deployment:
+          client_env: sandbox
+          deleted: false
+          deployment_version: us-1_prod_func_ben-ws_cqcj913n5m:1
+          function_ids: []
+          genai_project_id: PROJECT-JTQKOKLM
+          id: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+          version: Fri, 20 Mar 2026 15:00:33 GMT
+        function_deployment_version: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+        genai_account_id: ben-ws
+        genai_project_id: PROJECT-JTQKOKLM
+        id: 019e08d7-1904-781e-9793-fabae9720dac
+        rag_kb_version: 2026-05-08T18:26:14.711Z
+        snapshot_id: 1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1
+        version_hash: 46c78399935c449c80d7d328a91b52ea
+      - artifact_version: 2026-05-08T18:26:07.979Z
+        client_env: sandbox
+        created_at: ${TIMESTAMP}
+        created_by: ben@poly-ai.com
+        deleted: false
+        deployment_metadata:
+          deployment_message: ADK recording conflict base marker
+          deployment_type: publish
+        function_deployment:
+          client_env: sandbox
+          deleted: false
+          deployment_version: us-1_prod_func_ben-ws_cqcj913n5m:1
+          function_ids: []
+          genai_project_id: PROJECT-JTQKOKLM
+          id: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+          version: Fri, 20 Mar 2026 15:00:33 GMT
+        function_deployment_version: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+        genai_account_id: ben-ws
+        genai_project_id: PROJECT-JTQKOKLM
+        id: 019e08d6-feec-70d6-b040-628aba10bc2a
+        rag_kb_version: 2026-05-08T18:26:07.979Z
+        snapshot_id: 59c8f278-d32d-4081-8b51-cffef3e3c4c4
+        version_hash: f0f3b3518bdf4dc1ba2c8f338e4b3fbe
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: deployments show newest sandbox deployment
+    argv:
+    - poly
+    - deployments
+    - show
+    - add8dee46
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --env
+    - sandbox
+    exit_code: 0
+    stdout_json:
+      active_deployment_hashes:
+        live: ''
+        pre-release: add8dee46e304ab1b0e49572237a47be
+        sandbox: add8dee46e304ab1b0e49572237a47be
+      deployment:
+        artifact_version: 2026-05-08T18:26:17.438Z
+        client_env: sandbox
+        created_at: ${TIMESTAMP}
+        created_by: ben@poly-ai.com
+        deleted: false
+        deployment_metadata:
+          deployment_message: ADK recording resolved conflict
+          deployment_type: rollback
+        function_deployment:
+          client_env: sandbox
+          deleted: false
+          deployment_version: us-1_prod_func_ben-ws_cqcj913n5m:1
+          function_ids: []
+          genai_project_id: PROJECT-JTQKOKLM
+          id: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+          version: Fri, 20 Mar 2026 15:00:33 GMT
+        function_deployment_version: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+        genai_account_id: ben-ws
+        genai_project_id: PROJECT-JTQKOKLM
+        id: 019e191e-0f1c-7e19-9fde-1db2bfe4d862
+        rag_kb_version: 2026-05-08T18:26:17.438Z
+        snapshot_id: 1669b8ba-a4f6-4307-a1a1-b852109cfaf8
+        version_hash: add8dee46e304ab1b0e49572237a47be
+      included_deployments:
+      - artifact_version: 2026-05-08T18:26:17.438Z
+        client_env: sandbox
+        created_at: ${TIMESTAMP}
+        created_by: ben@poly-ai.com
+        deleted: false
+        deployment_metadata:
+          deployment_message: ADK recording resolved conflict
+          deployment_type: rollback
+        function_deployment:
+          client_env: sandbox
+          deleted: false
+          deployment_version: us-1_prod_func_ben-ws_cqcj913n5m:1
+          function_ids: []
+          genai_project_id: PROJECT-JTQKOKLM
+          id: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+          version: Fri, 20 Mar 2026 15:00:33 GMT
+        function_deployment_version: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+        genai_account_id: ben-ws
+        genai_project_id: PROJECT-JTQKOKLM
+        id: 019e191e-0f1c-7e19-9fde-1db2bfe4d862
+        rag_kb_version: 2026-05-08T18:26:17.438Z
+        snapshot_id: 1669b8ba-a4f6-4307-a1a1-b852109cfaf8
+        version_hash: add8dee46e304ab1b0e49572237a47be
+      is_rollback: false
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: deployments promote newest to pre-release dry run
+    argv:
+    - poly
+    - deployments
+    - promote
+    - --from
+    - add8dee46
+    - --to
+    - pre-release
+    - --dry-run
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      dry_run: true
+      from_hash: add8dee46e304ab1b0e49572237a47be
+      included_deployments: []
+      message: ADK recording resolved conflict
+      success: false
+      to_env: pre-release
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: deployments promote newest to pre-release
+    argv:
+    - poly
+    - deployments
+    - promote
+    - --from
+    - add8dee46
+    - --to
+    - pre-release
+    - --message
+    - ADK deployment recording promote
+    - --force
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      from_hash: add8dee46e304ab1b0e49572237a47be
+      included_deployments: []
+      message: ADK deployment recording promote
+      success: true
+      to_env: pre-release
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: deployments rollback sandbox to previous dry run
+    argv:
+    - poly
+    - deployments
+    - rollback
+    - --to
+    - 46c783999
+    - --dry-run
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      dry_run: true
+      message: ADK recording main-side conflict marker
+      reverted_deployments:
+      - artifact_version: 2026-05-08T18:26:17.438Z
+        client_env: sandbox
+        created_at: ${TIMESTAMP}
+        created_by: ben@poly-ai.com
+        deleted: false
+        deployment_metadata:
+          deployment_message: ADK recording resolved conflict
+          deployment_type: rollback
+        function_deployment:
+          client_env: sandbox
+          deleted: false
+          deployment_version: us-1_prod_func_ben-ws_cqcj913n5m:1
+          function_ids: []
+          genai_project_id: PROJECT-JTQKOKLM
+          id: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+          version: Fri, 20 Mar 2026 15:00:33 GMT
+        function_deployment_version: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+        genai_account_id: ben-ws
+        genai_project_id: PROJECT-JTQKOKLM
+        id: 019e191e-0f1c-7e19-9fde-1db2bfe4d862
+        rag_kb_version: 2026-05-08T18:26:17.438Z
+        snapshot_id: 1669b8ba-a4f6-4307-a1a1-b852109cfaf8
+        version_hash: add8dee46e304ab1b0e49572237a47be
+      success: false
+      target_hash: 46c78399935c449c80d7d328a91b52ea
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: deployments rollback sandbox to previous
+    argv:
+    - poly
+    - deployments
+    - rollback
+    - --to
+    - 46c783999
+    - --message
+    - ADK deployment recording rollback
+    - --force
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      message: ADK deployment recording rollback
+      reverted_deployments:
+      - artifact_version: 2026-05-08T18:26:17.438Z
+        client_env: sandbox
+        created_at: ${TIMESTAMP}
+        created_by: ben@poly-ai.com
+        deleted: false
+        deployment_metadata:
+          deployment_message: ADK recording resolved conflict
+          deployment_type: rollback
+        function_deployment:
+          client_env: sandbox
+          deleted: false
+          deployment_version: us-1_prod_func_ben-ws_cqcj913n5m:1
+          function_ids: []
+          genai_project_id: PROJECT-JTQKOKLM
+          id: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+          version: Fri, 20 Mar 2026 15:00:33 GMT
+        function_deployment_version: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+        genai_account_id: ben-ws
+        genai_project_id: PROJECT-JTQKOKLM
+        id: 019e191e-0f1c-7e19-9fde-1db2bfe4d862
+        rag_kb_version: 2026-05-08T18:26:17.438Z
+        snapshot_id: 1669b8ba-a4f6-4307-a1a1-b852109cfaf8
+        version_hash: add8dee46e304ab1b0e49572237a47be
+      success: true
+      target_hash: 46c78399935c449c80d7d328a91b52ea
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: deployments restore sandbox to newest
+    argv:
+    - poly
+    - deployments
+    - rollback
+    - --to
+    - add8dee46
+    - --message
+    - ADK deployment recording restore
+    - --force
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      message: ADK deployment recording restore
+      reverted_deployments:
+      - artifact_version: 2026-05-08T18:26:14.711Z
+        client_env: sandbox
+        created_at: ${TIMESTAMP}
+        created_by: ben@poly-ai.com
+        deleted: false
+        deployment_metadata:
+          deployment_message: ADK recording main-side conflict marker
+          deployment_type: rollback
+        function_deployment:
+          client_env: sandbox
+          deleted: false
+          deployment_version: us-1_prod_func_ben-ws_cqcj913n5m:1
+          function_ids: []
+          genai_project_id: PROJECT-JTQKOKLM
+          id: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+          version: Fri, 20 Mar 2026 15:00:33 GMT
+        function_deployment_version: 019d0bc3-2de5-796d-9376-d63b727b1bfe
+        genai_account_id: ben-ws
+        genai_project_id: PROJECT-JTQKOKLM
+        id: 019e191e-ca97-7afa-a3bf-8ce5950f13a3
+        rag_kb_version: 2026-05-08T18:26:14.711Z
+        snapshot_id: 1ea6e5fa-f2e2-4e67-8b12-284fb3ed18b1
+        version_hash: 46c78399935c449c80d7d328a91b52ea
+      success: true
+      target_hash: add8dee46e304ab1b0e49572237a47be
+    stdout: null
+    stderr: ''

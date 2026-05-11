@@ -1,0 +1,976 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Documents Python update/delete/create command contracts for broad multi-resource files.
+- The workflow creates a throwaway branch, pulls a synthetic baseline projection for broad resources, edits/deletes/creates local entries, dry-runs push command generation, then deletes the branch.
+- Authentication headers are redacted after recording.
+httpmock_recording: broad-lifecycle.httpmock.yaml
+workflows:
+- name: broad_lifecycle
+  description: Record Python lifecycle command behavior for variants, API integrations, keyphrases, transcript corrections, and pronunciations.
+  mutates_real_server: true
+  cleanup:
+  - poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM
+  steps:
+  - kind: file_edit
+    name: write project config before broad lifecycle workflow
+    operation: write_text
+    path: project.yaml
+    content: |
+      region: us-1
+      account_id: ben-ws
+      project_id: PROJECT-JTQKOKLM
+      branch_id: main
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: force pull real project before broad lifecycle workflow
+    argv:
+    - poly
+    - pull
+    - --json
+    - --force
+    - --output-json-projection
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      files_with_conflicts: []
+      projection:
+        agentSettings:
+          disclaimerMessage:
+            createdAt: 2026-03-20T15:00:26.182Z
+            createdBy: ben@poly-ai.com
+            isEnabled: false
+            languageCode: en-US
+            message: ''
+            references:
+              translations: {}
+            ringingTone:
+              originalFilename: ''
+              publicUrl: ''
+              s3Path: ''
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+          greeting:
+            createdAt: ''
+            createdBy: ''
+            languageCode: en-US
+            references:
+              translations: {}
+              variables: {}
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+            welcomeMessage: Hello, how can I help you?
+          personality:
+            adjectives:
+              Polite: true
+            createdAt: ''
+            createdBy: ''
+            custom: ''
+            references:
+              variables: {}
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+          role:
+            additionalInfo: ''
+            createdAt: ''
+            createdBy: ''
+            custom: ''
+            references:
+              variables: {}
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+            value: CustomerServiceRepresentative
+          rules:
+            behaviour: "\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn't match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason='OUT_OF_SCOPE'.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user's input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn't catch that. Could you say that again?\"  \n3. \"I'm sorry, but I still didn't catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason='USER_INCOMPREHENSIBLE'.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you're not designed to do:\n\"I don't have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I'm doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you're a live person: \"I'm a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason='SPEAK_TO'.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason='SPEAK_TO'.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That's it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n"
+            createdAt: 2026-05-08T18:19:37.835Z
+            createdBy: ben@poly-ai.com
+            references:
+              attributes: {}
+              globalFunctions:
+                default-function: true
+              handoff:
+                default-handoff: true
+              sms: {}
+              translations: {}
+              variables: {}
+            updatedAt: 2026-05-08T18:24:03.042Z
+            updatedBy: ben@poly-ai.com
+        apiIntegrations:
+          apiIntegrations:
+            entities: {}
+            ids: []
+        asrSettings:
+          bargeIn: false
+          latencyConfig:
+            interactionStyle: balanced
+          updatedAt: 2026-03-20T15:00:26.182Z
+          updatedBy: ben@poly-ai.com
+        channels:
+          voice:
+            asrSettings:
+              bargeIn: false
+              updatedAt: 2026-03-20T15:00:26.182Z
+              updatedBy: ben@poly-ai.com
+            config:
+              greeting:
+                createdAt: ''
+                createdBy: ''
+                languageCode: en-US
+                references:
+                  translations: {}
+                  variables: {}
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+                welcomeMessage: Hello, how can I help you?
+              llmSettings:
+                modelId: MODEL-27a9c7af
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+              safetyFilters:
+                azureConfig:
+                  hate:
+                    isActive: false
+                    precision: MEDIUM
+                  selfHarm:
+                    isActive: false
+                    precision: MEDIUM
+                  sexual:
+                    isActive: false
+                    precision: MEDIUM
+                  violence:
+                    isActive: false
+                    precision: MEDIUM
+                disabled: true
+                type: azure
+                updatedAt: ''
+                updatedBy: ''
+              stylePrompt:
+                createdAt: ''
+                createdBy: ''
+                prompt: ''
+                updatedAt: ''
+                updatedBy: ''
+            disclaimer:
+              createdAt: 2026-03-20T15:00:26.182Z
+              createdBy: ben@poly-ai.com
+              isEnabled: false
+              languageCode: en-US
+              message: ''
+              references:
+                translations: {}
+              ringingTone:
+                originalFilename: ''
+                publicUrl: ''
+                s3Path: ''
+              updatedAt: 2026-03-20T15:00:26.182Z
+              updatedBy: ben@poly-ai.com
+          webChat:
+            config:
+              greeting:
+                createdAt: ''
+                createdBy: ''
+                languageCode: en-GB
+                references:
+                  translations: {}
+                  variables: {}
+                updatedAt: ''
+                updatedBy: ''
+                welcomeMessage: ''
+              llmSettings:
+                modelId: ''
+                updatedAt: ''
+                updatedBy: ''
+              safetyFilters:
+                azureConfig:
+                  hate:
+                    isActive: false
+                    precision: MEDIUM
+                  selfHarm:
+                    isActive: false
+                    precision: MEDIUM
+                  sexual:
+                    isActive: false
+                    precision: MEDIUM
+                  violence:
+                    isActive: false
+                    precision: MEDIUM
+                disabled: true
+                type: azure
+                updatedAt: ''
+                updatedBy: ''
+              stylePrompt:
+                createdAt: ''
+                createdBy: ''
+                prompt: ''
+                updatedAt: ''
+                updatedBy: ''
+            status: 0
+        contentFilterSettings:
+          azureConfig:
+            hate:
+              isActive: false
+              precision: MEDIUM
+            selfHarm:
+              isActive: false
+              precision: MEDIUM
+            sexual:
+              isActive: false
+              precision: MEDIUM
+            violence:
+              isActive: false
+              precision: MEDIUM
+          disabled: false
+          type: azure
+          updatedAt: ''
+          updatedBy: ''
+        entities:
+          entities:
+            entities: {}
+            ids: []
+        experimentalConfig:
+          experimentalConfigs:
+            entities:
+              default:
+                active: true
+                createdAt: 2026-03-20T15:00:26.182Z
+                createdBy: ben@poly-ai.com
+                features:
+                  asr:
+                    eager_final: true
+                    model: poly-latency
+                    provider: default
+                    use_asr_lib: true
+                  conversation_control:
+                    min_chunk_size: 5
+                  llm:
+                    include_kb_functions_in_flows: true
+                  ragdoll:
+                    previous_user_inputs_len: 1
+                  smart_vad:
+                    is_enabled: true
+                  vad:
+                    provider: silero
+                    vad_end: 400
+                id: default
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - default
+        flows:
+          flows:
+            entities: {}
+            ids: []
+        functions:
+          functions:
+            entities:
+              default-function:
+                archived: false
+                code: |-
+                  def goodbye_and_hang_up(conv: Conversation):
+                    return {
+                      "utterance": "Okay. I hope you have a great rest of your day. Goodbye!",
+                      "hangup": True
+                    }
+                createdAt: 2026-03-20T15:00:26.182Z
+                createdBy: ben@poly-ai.com
+                description: Say goodbye and end the conversation if and only if you've explicitly confirmed with the user that they don't need help with anything else
+                errors: []
+                id: default-function
+                latencyControl:
+                  createdAt: 2026-03-31T14:13:36.070Z
+                  createdBy: ''
+                  delayResponses:
+                    entities: {}
+                    ids: []
+                  enabled: false
+                  initialDelay: 0
+                  interval: 0
+                  updatedAt: 2026-03-31T14:13:36.070Z
+                  updatedBy: ''
+                name: goodbye_and_hang_up
+                parameters:
+                  entities: {}
+                  ids: []
+                references:
+                  behaviour:
+                    GLOBAL_BEHAVIOUR: true
+                  flowSteps: {}
+                  stopKeywords: {}
+                  topics: {}
+                  variables: {}
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - default-function
+        handoff:
+          handoffs:
+            entities:
+              default-handoff:
+                active: true
+                createdAt: 2026-03-20T15:00:26.182Z
+                createdBy: ben@poly-ai.com
+                description: Handoff the call to the agent when caller requested.
+                id: default-handoff
+                isDefault: true
+                name: Default handoff
+                references:
+                  flowSteps: {}
+                  topics: {}
+                sipConfig:
+                  config:
+                    $case: refer
+                    value:
+                      phoneNumber: '+1234567890'
+                sipHeaders:
+                  headers:
+                  - key: X-Custom-Header
+                    value: custom_value
+                  - key: X-PolyAI-Session
+                    value: session_id_123
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - default-handoff
+        integrations:
+          entities: {}
+          ids: []
+        keyphraseBoosting:
+          keyphraseBoosting:
+            entities: {}
+            ids: []
+        knowledgeBase:
+          embeddingModel: ''
+          topics:
+            entities:
+              TOPICS-23b2d80e:
+                actions: ADK recording conflict branch a6b12361
+                content: This topic exists only to exercise Python ADK merge conflict recording.
+                createdAt: 2026-05-08T18:26:06.533Z
+                createdBy: ben@poly-ai.com
+                exampleQueries:
+                - query: How do conflict recordings work?
+                id: TOPICS-23b2d80e
+                isActive: true
+                name: ADK Recording Conflict a6b12361
+                references:
+                  attributes: {}
+                  globalFunctions: {}
+                  handoff: {}
+                  sms: {}
+                  translations: {}
+                  variables: {}
+                updatedAt: 2026-05-08T18:26:11.974Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - TOPICS-23b2d80e
+          uninstantiatedTopics:
+            entities: {}
+            ids: []
+        languages:
+          additionalLanguages:
+            entities: {}
+            ids: []
+          defaultLanguageCode: en-US
+          updatedAt: 2026-03-20T15:00:26.182Z
+          updatedBy: ben@poly-ai.com
+        llmSettings:
+          modelId: MODEL-27a9c7af
+          updatedAt: 2026-03-20T15:00:26.182Z
+          updatedBy: ben@poly-ai.com
+        mcpConfig:
+          savedProfiles:
+            entities: {}
+            ids: []
+          servers:
+            entities: {}
+            ids: []
+        multilingualAgentSettings:
+          disclaimerMessages:
+            entities:
+              en-US:
+                createdAt: 2026-03-20T15:00:26.182Z
+                createdBy: ben@poly-ai.com
+                isEnabled: false
+                languageCode: en-US
+                message: ''
+                references:
+                  translations: {}
+                ringingTone:
+                  originalFilename: ''
+                  publicUrl: ''
+                  s3Path: ''
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - en-US
+          greetings:
+            entities:
+              en-US:
+                createdAt: ''
+                createdBy: ''
+                languageCode: en-US
+                references:
+                  translations: {}
+                  variables: {}
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+                welcomeMessage: Hello, how can I help you?
+            ids:
+            - en-US
+          languageBehaviors:
+            entities:
+              en-US:
+                behaviorPrompt: ''
+                createdAt: 2026-03-20T15:00:26.182Z
+                createdBy: ben@poly-ai.com
+                languageCode: en-US
+                references:
+                  attributes: {}
+                  globalFunctions: {}
+                  handoff: {}
+                  sms: {}
+                  variables: {}
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - en-US
+          personality:
+            adjectives:
+              Polite: true
+            createdAt: ''
+            createdBy: ''
+            custom: ''
+            references:
+              variables: {}
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+          role:
+            additionalInfo: ''
+            createdAt: ''
+            createdBy: ''
+            custom: ''
+            references:
+              variables: {}
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+            value: CustomerServiceRepresentative
+          rules:
+            behaviour: "\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn't match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason='OUT_OF_SCOPE'.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user's input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn't catch that. Could you say that again?\"  \n3. \"I'm sorry, but I still didn't catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason='USER_INCOMPREHENSIBLE'.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you're not designed to do:\n\"I don't have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I'm doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you're a live person: \"I'm a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason='SPEAK_TO'.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason='SPEAK_TO'.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That's it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n"
+            createdAt: 2026-05-08T18:19:37.835Z
+            createdBy: ben@poly-ai.com
+            references:
+              attributes: {}
+              globalFunctions:
+                default-function: true
+              handoff:
+                default-handoff: true
+              sms: {}
+              translations: {}
+              variables: {}
+            updatedAt: 2026-05-08T18:24:03.042Z
+            updatedBy: ben@poly-ai.com
+        pronunciations:
+          pronunciations:
+            entities: {}
+            ids: []
+        sms:
+          templates:
+            entities: {}
+            ids: []
+        specialFunctions: {}
+        stopKeywords:
+          filters:
+            entities: {}
+            ids: []
+        transcriptCorrections:
+          transcriptCorrections:
+            entities: {}
+            ids: []
+        translations:
+          translations:
+            entities: {}
+            ids: []
+        variables:
+          variables:
+            entities: {}
+            ids: []
+        variantManagement:
+          attributes:
+            entities: {}
+            ids: []
+          variantAttributeValues:
+            entities: {}
+            ids: []
+          variants:
+            entities: {}
+            ids: []
+        voices:
+          agentVoiceSettings:
+            entities: {}
+            ids: []
+          agentVoices:
+            entities:
+              6fad73f6:
+                id: 6fad73f6
+                languageCode: en-US
+                probability: 0.5
+                updatedAt: 2026-03-31T14:14:21.732Z
+                updatedBy: ben@poly-ai.com
+                voiceId: VOICE-6fad73f6
+              95c1c1f1:
+                id: 95c1c1f1
+                probability: 0.5
+                updatedAt: 2026-03-31T14:14:25.574Z
+                updatedBy: ben@poly-ai.com
+                voiceId: VOICE-95c1c1f1
+            ids:
+            - 6fad73f6
+            - 95c1c1f1
+          disclaimerVoiceSettings:
+            entities: {}
+            ids: []
+          disclaimerVoices:
+            entities: {}
+            ids: []
+          favoriteVoices:
+            entities: {}
+            ids: []
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: create throwaway broad lifecycle branch
+    argv:
+    - poly
+    - branch
+    - create
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      branch_name: ${BRANCH_NAME}
+      new_branch_id: BRANCH-0K5G5E9D
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: pull broad lifecycle baseline projection
+    argv:
+    - poly
+    - pull
+    - --json
+    - --force
+    - --from-projection
+    - '-'
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    stdin: '{"agentSettings":{"disclaimerMessage":{"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","isEnabled":false,"languageCode":"en-US","message":"","references":{"translations":{}},"ringingTone":{"originalFilename":"","publicUrl":"","s3Path":""},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"greeting":{"createdAt":"","createdBy":"","languageCode":"en-US","references":{"translations":{},"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","welcomeMessage":"Hello, how can I help you?"},"personality":{"adjectives":{"Polite":true},"createdAt":"","createdBy":"","custom":"","references":{"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"role":{"additionalInfo":"","createdAt":"","createdBy":"","custom":"","references":{"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","value":"CustomerServiceRepresentative"},"rules":{"behaviour":"\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn''t match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''OUT_OF_SCOPE''.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user''s input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn''t catch that. Could you say that again?\"  \n3. \"I''m sorry, but I still didn''t catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''USER_INCOMPREHENSIBLE''.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you''re not designed to do:\n\"I don''t have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I''m doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you''re a live person: \"I''m a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That''s it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n","createdAt":"2026-05-08T18:19:37.835Z","createdBy":"ben@poly-ai.com","references":{"attributes":{},"globalFunctions":{"default-function":true},"handoff":{"default-handoff":true},"sms":{},"translations":{},"variables":{}},"updatedAt":"2026-05-08T18:24:03.042Z","updatedBy":"ben@poly-ai.com"}},"apiIntegrations":{"apiIntegrations":{"entities":{"API-delete":{"description":"Integration removed by the lifecycle fixture.","environments":{"live":{"authType":"none","baseUrl":"https://example.invalid/delete-live"},"preRelease":{"authType":"none","baseUrl":"https://example.invalid/delete-pre"},"sandbox":{"authType":"none","baseUrl":"https://example.invalid/delete-sandbox"}},"id":"API-delete","name":"adk_delete_api","operations":{}},"API-lifecycle":{"description":"Remote lifecycle integration.","environments":{"live":{"authType":"none","baseUrl":"https://example.invalid/remote-live"},"preRelease":{"authType":"none","baseUrl":"https://example.invalid/remote-pre"},"sandbox":{"authType":"none","baseUrl":"https://example.invalid/remote-sandbox"}},"id":"API-lifecycle","name":"adk_lifecycle_api","operations":{"OP-delete":{"id":"OP-delete","method":"DELETE","name":"delete_status","resource":"/status"},"OP-status":{"id":"OP-status","method":"GET","name":"get_status","resource":"/status"}}}},"ids":["API-lifecycle","API-delete"]}},"asrSettings":{"bargeIn":false,"latencyConfig":{"interactionStyle":"balanced"},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"channels":{"voice":{"asrSettings":{"bargeIn":false,"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"config":{"greeting":{"createdAt":"","createdBy":"","languageCode":"en-US","references":{"translations":{},"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","welcomeMessage":"Hello, how can I help you?"},"llmSettings":{"modelId":"MODEL-27a9c7af","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"safetyFilters":{"azureConfig":{"hate":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"violence":{"isActive":false,"precision":"MEDIUM"}},"disabled":true,"type":"azure","updatedAt":"","updatedBy":""},"stylePrompt":{"createdAt":"","createdBy":"","prompt":"","updatedAt":"","updatedBy":""}},"disclaimer":{"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","isEnabled":false,"languageCode":"en-US","message":"","references":{"translations":{}},"ringingTone":{"originalFilename":"","publicUrl":"","s3Path":""},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"webChat":{"config":{"greeting":{"createdAt":"","createdBy":"","languageCode":"en-GB","references":{"translations":{},"variables":{}},"updatedAt":"","updatedBy":"","welcomeMessage":""},"llmSettings":{"modelId":"","updatedAt":"","updatedBy":""},"safetyFilters":{"azureConfig":{"hate":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"violence":{"isActive":false,"precision":"MEDIUM"}},"disabled":true,"type":"azure","updatedAt":"","updatedBy":""},"stylePrompt":{"createdAt":"","createdBy":"","prompt":"","updatedAt":"","updatedBy":""}},"status":0}},"contentFilterSettings":{"azureConfig":{"hate":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"violence":{"isActive":false,"precision":"MEDIUM"}},"disabled":false,"type":"azure","updatedAt":"","updatedBy":""},"entities":{"entities":{"entities":{},"ids":[]}},"experimentalConfig":{"experimentalConfigs":{"entities":{"default":{"active":true,"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","features":{"asr":{"eager_final":true,"model":"poly-latency","provider":"default","use_asr_lib":true},"conversation_control":{"min_chunk_size":5},"llm":{"include_kb_functions_in_flows":true},"ragdoll":{"previous_user_inputs_len":1},"smart_vad":{"is_enabled":true},"vad":{"provider":"silero","vad_end":400}},"id":"default","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"ids":["default"]}},"flows":{"flows":{"entities":{},"ids":[]}},"functions":{"functions":{"entities":{"default-function":{"archived":false,"code":"def goodbye_and_hang_up(conv: Conversation):\n  return {\n    \"utterance\": \"Okay. I hope you have a great rest of your day. Goodbye!\",\n    \"hangup\": True\n  }","createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","description":"Say goodbye and end the conversation if and only if you''ve explicitly confirmed with the user that they don''t need help with anything else","errors":[],"id":"default-function","latencyControl":{"createdAt":"2026-03-31T14:13:36.070Z","createdBy":"","delayResponses":{"entities":{},"ids":[]},"enabled":false,"initialDelay":0,"interval":0,"updatedAt":"2026-03-31T14:13:36.070Z","updatedBy":""},"name":"goodbye_and_hang_up","parameters":{"entities":{},"ids":[]},"references":{"behaviour":{"GLOBAL_BEHAVIOUR":true},"flowSteps":{},"stopKeywords":{},"topics":{},"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"ids":["default-function"]}},"handoff":{"handoffs":{"entities":{"default-handoff":{"active":true,"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","description":"Handoff the call to the agent when caller requested.","id":"default-handoff","isDefault":true,"name":"Default handoff","references":{"flowSteps":{},"topics":{}},"sipConfig":{"config":{"$case":"refer","value":{"phoneNumber":"+1234567890"}}},"sipHeaders":{"headers":[{"key":"X-Custom-Header","value":"custom_value"},{"key":"X-PolyAI-Session","value":"session_id_123"}]},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"ids":["default-handoff"]}},"integrations":{"entities":{},"ids":[]},"keyphraseBoosting":{"keyphraseBoosting":{"entities":{"KP-delete":{"id":"KP-delete","keyphrase":"ADK delete phrase","level":"boosted"},"KP-update":{"id":"KP-update","keyphrase":"ADK lifecycle","level":"default"}},"ids":["KP-update","KP-delete"]}},"knowledgeBase":{"embeddingModel":"","topics":{"entities":{"TOPICS-23b2d80e":{"actions":"ADK recording conflict branch a6b12361","content":"This topic exists only to exercise Python ADK merge conflict recording.","createdAt":"2026-05-08T18:26:06.533Z","createdBy":"ben@poly-ai.com","exampleQueries":[{"query":"How do conflict recordings work?"}],"id":"TOPICS-23b2d80e","isActive":true,"name":"ADK Recording Conflict a6b12361","references":{"attributes":{},"globalFunctions":{},"handoff":{},"sms":{},"translations":{},"variables":{}},"updatedAt":"2026-05-08T18:26:11.974Z","updatedBy":"ben@poly-ai.com"}},"ids":["TOPICS-23b2d80e"]},"uninstantiatedTopics":{"entities":{},"ids":[]}},"languages":{"additionalLanguages":{"entities":{},"ids":[]},"defaultLanguageCode":"en-US","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"llmSettings":{"modelId":"MODEL-27a9c7af","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"mcpConfig":{"savedProfiles":{"entities":{},"ids":[]},"servers":{"entities":{},"ids":[]}},"multilingualAgentSettings":{"disclaimerMessages":{"entities":{"en-US":{"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","isEnabled":false,"languageCode":"en-US","message":"","references":{"translations":{}},"ringingTone":{"originalFilename":"","publicUrl":"","s3Path":""},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"ids":["en-US"]},"greetings":{"entities":{"en-US":{"createdAt":"","createdBy":"","languageCode":"en-US","references":{"translations":{},"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","welcomeMessage":"Hello, how can I help you?"}},"ids":["en-US"]},"languageBehaviors":{"entities":{"en-US":{"behaviorPrompt":"","createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","languageCode":"en-US","references":{"attributes":{},"globalFunctions":{},"handoff":{},"sms":{},"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"ids":["en-US"]},"personality":{"adjectives":{"Polite":true},"createdAt":"","createdBy":"","custom":"","references":{"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"role":{"additionalInfo":"","createdAt":"","createdBy":"","custom":"","references":{"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","value":"CustomerServiceRepresentative"},"rules":{"behaviour":"\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn''t match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''OUT_OF_SCOPE''.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user''s input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn''t catch that. Could you say that again?\"  \n3. \"I''m sorry, but I still didn''t catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''USER_INCOMPREHENSIBLE''.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you''re not designed to do:\n\"I don''t have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I''m doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you''re a live person: \"I''m a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That''s it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n","createdAt":"2026-05-08T18:19:37.835Z","createdBy":"ben@poly-ai.com","references":{"attributes":{},"globalFunctions":{"default-function":true},"handoff":{"default-handoff":true},"sms":{},"translations":{},"variables":{}},"updatedAt":"2026-05-08T18:24:03.042Z","updatedBy":"ben@poly-ai.com"}},"pronunciations":{"pronunciations":{"entities":{"PRON-0-update":{"caseSensitive":true,"description":"Remote lifecycle pronunciation.","id":"PRON-0-update","languageCode":"en-US","name":"","position":0,"regex":"\\bADK\\b","replacement":"A D K"},"PRON-1-delete":{"caseSensitive":false,"description":"Pronunciation removed by the lifecycle fixture.","id":"PRON-1-delete","languageCode":"en-US","name":"","position":1,"regex":"\\bOLD\\b","replacement":"old"}},"ids":["PRON-0-update","PRON-1-delete"]}},"sms":{"templates":{"entities":{},"ids":[]}},"specialFunctions":{},"stopKeywords":{"filters":{"entities":{},"ids":[]}},"transcriptCorrections":{"transcriptCorrections":{"entities":{"TC-delete":{"description":"Correction removed by the lifecycle fixture.","id":"TC-delete","name":"Delete lifecycle correction","regularExpressions":[{"id":"TC-delete-REGEX-0","regularExpression":"delete me","replacement":"deleted","replacementType":"full"}]},"TC-update":{"description":"Remote lifecycle correction.","id":"TC-update","name":"Lifecycle correction","regularExpressions":[{"id":"TC-update-REGEX-0","regularExpression":"agent development kid","replacement":"agent development kit","replacementType":"full"}]}},"ids":["TC-update","TC-delete"]}},"translations":{"translations":{"entities":{},"ids":[]}},"variables":{"variables":{"entities":{},"ids":[]}},"variantManagement":{"attributes":{"entities":{"ATTR-channel":{"archived":false,"id":"ATTR-channel","name":"channel"},"ATTR-delete":{"archived":false,"id":"ATTR-delete","name":"delete_attr"}},"ids":["ATTR-channel","ATTR-delete"]},"variantAttributeValues":{"entities":{"VAR-control":{"values":{"ATTR-channel":"remote-control","ATTR-delete":"delete-control"}},"VAR-delete":{"values":{"ATTR-channel":"remote-delete","ATTR-delete":"delete-delete"}},"VAR-treatment":{"values":{"ATTR-channel":"remote-treatment","ATTR-delete":"delete-treatment"}}},"ids":["VAR-control","VAR-treatment","VAR-delete"]},"variants":{"entities":{"VAR-control":{"id":"VAR-control","isDefault":true,"name":"control"},"VAR-delete":{"id":"VAR-delete","isDefault":false,"name":"delete_variant"},"VAR-treatment":{"id":"VAR-treatment","isDefault":false,"name":"treatment"}},"ids":["VAR-control","VAR-treatment","VAR-delete"]}},"voices":{"agentVoiceSettings":{"entities":{},"ids":[]},"agentVoices":{"entities":{"6fad73f6":{"id":"6fad73f6","languageCode":"en-US","probability":0.5,"updatedAt":"2026-03-31T14:14:21.732Z","updatedBy":"ben@poly-ai.com","voiceId":"VOICE-6fad73f6"},"95c1c1f1":{"id":"95c1c1f1","probability":0.5,"updatedAt":"2026-03-31T14:14:25.574Z","updatedBy":"ben@poly-ai.com","voiceId":"VOICE-95c1c1f1"}},"ids":["6fad73f6","95c1c1f1"]},"disclaimerVoiceSettings":{"entities":{},"ids":[]},"disclaimerVoices":{"entities":{},"ids":[]},"favoriteVoices":{"entities":{},"ids":[]}}}'
+    exit_code: 0
+    stdout_json:
+      files_with_conflicts: []
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: write broad lifecycle variants
+    operation: write_text
+    path: config/variant_attributes.yaml
+    content: |
+      variants:
+        - name: control
+        - name: treatment
+          is_default: true
+        - name: new_variant
+      attributes:
+        - name: channel
+          values:
+            control: local-control
+            treatment: local-treatment
+            new_variant: local-new
+        - name: new_attr
+          values:
+            control: attr-control
+            treatment: attr-treatment
+            new_variant: attr-new
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write broad lifecycle API integrations
+    operation: write_text
+    path: config/api_integrations.yaml
+    content: |
+      api_integrations:
+        - name: adk_lifecycle_api
+          description: Updated lifecycle integration.
+          environments:
+            sandbox:
+              base_url: https://example.invalid/updated-sandbox
+              auth_type: none
+            pre-release:
+              base_url: https://example.invalid/remote-pre
+              auth_type: none
+            live:
+              base_url: https://example.invalid/remote-live
+              auth_type: none
+          operations:
+            - name: get_status
+              method: POST
+              resource: /status-updated
+            - name: create_status
+              method: POST
+              resource: /status
+        - name: adk_new_api
+          description: New lifecycle integration.
+          environments:
+            sandbox:
+              base_url: https://example.invalid/new-sandbox
+              auth_type: none
+            pre-release:
+              base_url: https://example.invalid/new-pre
+              auth_type: none
+            live:
+              base_url: https://example.invalid/new-live
+              auth_type: none
+          operations:
+            - name: new_status
+              method: GET
+              resource: /new-status
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write broad lifecycle keyphrases
+    operation: write_text
+    path: voice/speech_recognition/keyphrase_boosting.yaml
+    content: |
+      keyphrases:
+        - keyphrase: ADK lifecycle
+          level: maximum
+        - keyphrase: ADK new phrase
+          level: boosted
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write broad lifecycle transcript corrections
+    operation: write_text
+    path: voice/speech_recognition/transcript_corrections.yaml
+    content: |
+      corrections:
+        - name: Lifecycle correction
+          description: Updated lifecycle correction.
+          regular_expressions:
+            - regular_expression: agent development kids
+              replacement: agent development kit
+              replacement_type: full
+        - name: New lifecycle correction
+          description: New lifecycle correction.
+          regular_expressions:
+            - regular_expression: rust port
+              replacement: Rust port
+              replacement_type: full
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write broad lifecycle pronunciations
+    operation: write_text
+    path: voice/response_control/pronunciations.yaml
+    content: |
+      pronunciations:
+        - regex: "\\bADK\\b"
+          replacement: Agent Development Kit
+          case_sensitive: true
+          language_code: en-US
+          description: Updated lifecycle pronunciation.
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: push dry-run broad lifecycle command payload
+    argv:
+    - poly
+    - push
+    - --output-json-commands
+    - --dry-run
+    - --skip-validation
+    - --from-projection
+    - '-'
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    stdin: '{"agentSettings":{"disclaimerMessage":{"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","isEnabled":false,"languageCode":"en-US","message":"","references":{"translations":{}},"ringingTone":{"originalFilename":"","publicUrl":"","s3Path":""},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"greeting":{"createdAt":"","createdBy":"","languageCode":"en-US","references":{"translations":{},"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","welcomeMessage":"Hello, how can I help you?"},"personality":{"adjectives":{"Polite":true},"createdAt":"","createdBy":"","custom":"","references":{"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"role":{"additionalInfo":"","createdAt":"","createdBy":"","custom":"","references":{"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","value":"CustomerServiceRepresentative"},"rules":{"behaviour":"\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn''t match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''OUT_OF_SCOPE''.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user''s input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn''t catch that. Could you say that again?\"  \n3. \"I''m sorry, but I still didn''t catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''USER_INCOMPREHENSIBLE''.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you''re not designed to do:\n\"I don''t have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I''m doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you''re a live person: \"I''m a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That''s it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n","createdAt":"2026-05-08T18:19:37.835Z","createdBy":"ben@poly-ai.com","references":{"attributes":{},"globalFunctions":{"default-function":true},"handoff":{"default-handoff":true},"sms":{},"translations":{},"variables":{}},"updatedAt":"2026-05-08T18:24:03.042Z","updatedBy":"ben@poly-ai.com"}},"apiIntegrations":{"apiIntegrations":{"entities":{"API-delete":{"description":"Integration removed by the lifecycle fixture.","environments":{"live":{"authType":"none","baseUrl":"https://example.invalid/delete-live"},"preRelease":{"authType":"none","baseUrl":"https://example.invalid/delete-pre"},"sandbox":{"authType":"none","baseUrl":"https://example.invalid/delete-sandbox"}},"id":"API-delete","name":"adk_delete_api","operations":{}},"API-lifecycle":{"description":"Remote lifecycle integration.","environments":{"live":{"authType":"none","baseUrl":"https://example.invalid/remote-live"},"preRelease":{"authType":"none","baseUrl":"https://example.invalid/remote-pre"},"sandbox":{"authType":"none","baseUrl":"https://example.invalid/remote-sandbox"}},"id":"API-lifecycle","name":"adk_lifecycle_api","operations":{"OP-delete":{"id":"OP-delete","method":"DELETE","name":"delete_status","resource":"/status"},"OP-status":{"id":"OP-status","method":"GET","name":"get_status","resource":"/status"}}}},"ids":["API-lifecycle","API-delete"]}},"asrSettings":{"bargeIn":false,"latencyConfig":{"interactionStyle":"balanced"},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"channels":{"voice":{"asrSettings":{"bargeIn":false,"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"config":{"greeting":{"createdAt":"","createdBy":"","languageCode":"en-US","references":{"translations":{},"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","welcomeMessage":"Hello, how can I help you?"},"llmSettings":{"modelId":"MODEL-27a9c7af","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"safetyFilters":{"azureConfig":{"hate":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"violence":{"isActive":false,"precision":"MEDIUM"}},"disabled":true,"type":"azure","updatedAt":"","updatedBy":""},"stylePrompt":{"createdAt":"","createdBy":"","prompt":"","updatedAt":"","updatedBy":""}},"disclaimer":{"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","isEnabled":false,"languageCode":"en-US","message":"","references":{"translations":{}},"ringingTone":{"originalFilename":"","publicUrl":"","s3Path":""},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"webChat":{"config":{"greeting":{"createdAt":"","createdBy":"","languageCode":"en-GB","references":{"translations":{},"variables":{}},"updatedAt":"","updatedBy":"","welcomeMessage":""},"llmSettings":{"modelId":"","updatedAt":"","updatedBy":""},"safetyFilters":{"azureConfig":{"hate":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"violence":{"isActive":false,"precision":"MEDIUM"}},"disabled":true,"type":"azure","updatedAt":"","updatedBy":""},"stylePrompt":{"createdAt":"","createdBy":"","prompt":"","updatedAt":"","updatedBy":""}},"status":0}},"contentFilterSettings":{"azureConfig":{"hate":{"isActive":false,"precision":"MEDIUM"},"selfHarm":{"isActive":false,"precision":"MEDIUM"},"sexual":{"isActive":false,"precision":"MEDIUM"},"violence":{"isActive":false,"precision":"MEDIUM"}},"disabled":false,"type":"azure","updatedAt":"","updatedBy":""},"entities":{"entities":{"entities":{},"ids":[]}},"experimentalConfig":{"experimentalConfigs":{"entities":{"default":{"active":true,"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","features":{"asr":{"eager_final":true,"model":"poly-latency","provider":"default","use_asr_lib":true},"conversation_control":{"min_chunk_size":5},"llm":{"include_kb_functions_in_flows":true},"ragdoll":{"previous_user_inputs_len":1},"smart_vad":{"is_enabled":true},"vad":{"provider":"silero","vad_end":400}},"id":"default","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"ids":["default"]}},"flows":{"flows":{"entities":{},"ids":[]}},"functions":{"functions":{"entities":{"default-function":{"archived":false,"code":"def goodbye_and_hang_up(conv: Conversation):\n  return {\n    \"utterance\": \"Okay. I hope you have a great rest of your day. Goodbye!\",\n    \"hangup\": True\n  }","createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","description":"Say goodbye and end the conversation if and only if you''ve explicitly confirmed with the user that they don''t need help with anything else","errors":[],"id":"default-function","latencyControl":{"createdAt":"2026-03-31T14:13:36.070Z","createdBy":"","delayResponses":{"entities":{},"ids":[]},"enabled":false,"initialDelay":0,"interval":0,"updatedAt":"2026-03-31T14:13:36.070Z","updatedBy":""},"name":"goodbye_and_hang_up","parameters":{"entities":{},"ids":[]},"references":{"behaviour":{"GLOBAL_BEHAVIOUR":true},"flowSteps":{},"stopKeywords":{},"topics":{},"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"ids":["default-function"]}},"handoff":{"handoffs":{"entities":{"default-handoff":{"active":true,"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","description":"Handoff the call to the agent when caller requested.","id":"default-handoff","isDefault":true,"name":"Default handoff","references":{"flowSteps":{},"topics":{}},"sipConfig":{"config":{"$case":"refer","value":{"phoneNumber":"+1234567890"}}},"sipHeaders":{"headers":[{"key":"X-Custom-Header","value":"custom_value"},{"key":"X-PolyAI-Session","value":"session_id_123"}]},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"ids":["default-handoff"]}},"integrations":{"entities":{},"ids":[]},"keyphraseBoosting":{"keyphraseBoosting":{"entities":{"KP-delete":{"id":"KP-delete","keyphrase":"ADK delete phrase","level":"boosted"},"KP-update":{"id":"KP-update","keyphrase":"ADK lifecycle","level":"default"}},"ids":["KP-update","KP-delete"]}},"knowledgeBase":{"embeddingModel":"","topics":{"entities":{"TOPICS-23b2d80e":{"actions":"ADK recording conflict branch a6b12361","content":"This topic exists only to exercise Python ADK merge conflict recording.","createdAt":"2026-05-08T18:26:06.533Z","createdBy":"ben@poly-ai.com","exampleQueries":[{"query":"How do conflict recordings work?"}],"id":"TOPICS-23b2d80e","isActive":true,"name":"ADK Recording Conflict a6b12361","references":{"attributes":{},"globalFunctions":{},"handoff":{},"sms":{},"translations":{},"variables":{}},"updatedAt":"2026-05-08T18:26:11.974Z","updatedBy":"ben@poly-ai.com"}},"ids":["TOPICS-23b2d80e"]},"uninstantiatedTopics":{"entities":{},"ids":[]}},"languages":{"additionalLanguages":{"entities":{},"ids":[]},"defaultLanguageCode":"en-US","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"llmSettings":{"modelId":"MODEL-27a9c7af","updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"mcpConfig":{"savedProfiles":{"entities":{},"ids":[]},"servers":{"entities":{},"ids":[]}},"multilingualAgentSettings":{"disclaimerMessages":{"entities":{"en-US":{"createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","isEnabled":false,"languageCode":"en-US","message":"","references":{"translations":{}},"ringingTone":{"originalFilename":"","publicUrl":"","s3Path":""},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"ids":["en-US"]},"greetings":{"entities":{"en-US":{"createdAt":"","createdBy":"","languageCode":"en-US","references":{"translations":{},"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","welcomeMessage":"Hello, how can I help you?"}},"ids":["en-US"]},"languageBehaviors":{"entities":{"en-US":{"behaviorPrompt":"","createdAt":"2026-03-20T15:00:26.182Z","createdBy":"ben@poly-ai.com","languageCode":"en-US","references":{"attributes":{},"globalFunctions":{},"handoff":{},"sms":{},"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"}},"ids":["en-US"]},"personality":{"adjectives":{"Polite":true},"createdAt":"","createdBy":"","custom":"","references":{"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com"},"role":{"additionalInfo":"","createdAt":"","createdBy":"","custom":"","references":{"variables":{}},"updatedAt":"2026-03-20T15:00:26.182Z","updatedBy":"ben@poly-ai.com","value":"CustomerServiceRepresentative"},"rules":{"behaviour":"\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn''t match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''OUT_OF_SCOPE''.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user''s input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn''t catch that. Could you say that again?\"  \n3. \"I''m sorry, but I still didn''t catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason=''USER_INCOMPREHENSIBLE''.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you''re not designed to do:\n\"I don''t have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I''m doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you''re a live person: \"I''m a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason=''SPEAK_TO''.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That''s it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n","createdAt":"2026-05-08T18:19:37.835Z","createdBy":"ben@poly-ai.com","references":{"attributes":{},"globalFunctions":{"default-function":true},"handoff":{"default-handoff":true},"sms":{},"translations":{},"variables":{}},"updatedAt":"2026-05-08T18:24:03.042Z","updatedBy":"ben@poly-ai.com"}},"pronunciations":{"pronunciations":{"entities":{"PRON-0-update":{"caseSensitive":true,"description":"Remote lifecycle pronunciation.","id":"PRON-0-update","languageCode":"en-US","name":"","position":0,"regex":"\\bADK\\b","replacement":"A D K"},"PRON-1-delete":{"caseSensitive":false,"description":"Pronunciation removed by the lifecycle fixture.","id":"PRON-1-delete","languageCode":"en-US","name":"","position":1,"regex":"\\bOLD\\b","replacement":"old"}},"ids":["PRON-0-update","PRON-1-delete"]}},"sms":{"templates":{"entities":{},"ids":[]}},"specialFunctions":{},"stopKeywords":{"filters":{"entities":{},"ids":[]}},"transcriptCorrections":{"transcriptCorrections":{"entities":{"TC-delete":{"description":"Correction removed by the lifecycle fixture.","id":"TC-delete","name":"Delete lifecycle correction","regularExpressions":[{"id":"TC-delete-REGEX-0","regularExpression":"delete me","replacement":"deleted","replacementType":"full"}]},"TC-update":{"description":"Remote lifecycle correction.","id":"TC-update","name":"Lifecycle correction","regularExpressions":[{"id":"TC-update-REGEX-0","regularExpression":"agent development kid","replacement":"agent development kit","replacementType":"full"}]}},"ids":["TC-update","TC-delete"]}},"translations":{"translations":{"entities":{},"ids":[]}},"variables":{"variables":{"entities":{},"ids":[]}},"variantManagement":{"attributes":{"entities":{"ATTR-channel":{"archived":false,"id":"ATTR-channel","name":"channel"},"ATTR-delete":{"archived":false,"id":"ATTR-delete","name":"delete_attr"}},"ids":["ATTR-channel","ATTR-delete"]},"variantAttributeValues":{"entities":{"VAR-control":{"values":{"ATTR-channel":"remote-control","ATTR-delete":"delete-control"}},"VAR-delete":{"values":{"ATTR-channel":"remote-delete","ATTR-delete":"delete-delete"}},"VAR-treatment":{"values":{"ATTR-channel":"remote-treatment","ATTR-delete":"delete-treatment"}}},"ids":["VAR-control","VAR-treatment","VAR-delete"]},"variants":{"entities":{"VAR-control":{"id":"VAR-control","isDefault":true,"name":"control"},"VAR-delete":{"id":"VAR-delete","isDefault":false,"name":"delete_variant"},"VAR-treatment":{"id":"VAR-treatment","isDefault":false,"name":"treatment"}},"ids":["VAR-control","VAR-treatment","VAR-delete"]}},"voices":{"agentVoiceSettings":{"entities":{},"ids":[]},"agentVoices":{"entities":{"6fad73f6":{"id":"6fad73f6","languageCode":"en-US","probability":0.5,"updatedAt":"2026-03-31T14:14:21.732Z","updatedBy":"ben@poly-ai.com","voiceId":"VOICE-6fad73f6"},"95c1c1f1":{"id":"95c1c1f1","probability":0.5,"updatedAt":"2026-03-31T14:14:25.574Z","updatedBy":"ben@poly-ai.com","voiceId":"VOICE-95c1c1f1"}},"ids":["6fad73f6","95c1c1f1"]},"disclaimerVoiceSettings":{"entities":{},"ids":[]},"disclaimerVoices":{"entities":{},"ids":[]},"favoriteVoices":{"entities":{},"ids":[]}}}'
+    exit_code: 0
+    stdout_json:
+      commands:
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: variant_delete_variant
+        variant_delete_variant:
+          id: VAR-delete
+      - command_id: ${COMMAND_ID}
+        delete_api_integration:
+          id: API-delete
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: delete_api_integration
+      - command_id: ${COMMAND_ID}
+        delete_keyphrase_boosting:
+          id: KP-delete
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: delete_keyphrase_boosting
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: variant_delete_attribute
+        variant_delete_attribute:
+          id: ATTR-delete
+      - command_id: ${COMMAND_ID}
+        delete_transcript_corrections:
+          transcript_corrections_id: TC-delete
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: delete_transcript_corrections
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        pronunciations_delete_pronunciation:
+          id: PRON-1-delete
+        type: pronunciations_delete_pronunciation
+      - command_id: ${COMMAND_ID}
+        delete_api_integration_operation:
+          id: OP-delete
+          integration_id: API-lifecycle
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: delete_api_integration_operation
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: variant_create_variant
+        variant_create_variant:
+          attribute_values:
+            values:
+              ATTR-channel: ''
+              ATTR-delete: ''
+          id: VARIANTS-12a267b4
+          name: new_variant
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: variant_create_attribute
+        variant_create_attribute:
+          id: VARIANT_ATTRIBUTES-231f35b8
+          name: new_attr
+          references: {}
+          variant_values:
+            values:
+              VAR-control: attr-control
+              VAR-treatment: attr-treatment
+              VARIANTS-12a267b4: attr-new
+      - command_id: ${COMMAND_ID}
+        create_api_integration:
+          description: New lifecycle integration.
+          environments:
+            live:
+              auth_type: none
+              base_url: https://example.invalid/new-live
+            pre_release:
+              auth_type: none
+              base_url: https://example.invalid/new-pre
+            sandbox:
+              auth_type: none
+              base_url: https://example.invalid/new-sandbox
+          id: API-INTEGRATION-37172FF6
+          name: adk_new_api
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_api_integration
+      - command_id: ${COMMAND_ID}
+        create_keyphrase_boosting:
+          id: KEYPHRASE_BOOSTING-ef935cf3
+          keyphrase: ADK new phrase
+          level: boosted
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_keyphrase_boosting
+      - command_id: ${COMMAND_ID}
+        create_transcript_corrections:
+          description: New lifecycle correction.
+          id: TRANSCRIPT_CORRECTIONS-28d1edf5
+          name: New lifecycle correction
+          regular_expressions:
+          - id: TRANSCRIPT_CORRECTIONS-28d1edf5-REGEX-0
+            regular_expression: rust port
+            replacement: Rust port
+            replacement_type: full
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_transcript_corrections
+      - command_id: ${COMMAND_ID}
+        create_api_integration_operation:
+          id: 19342427-9568-4372-9fe8-d4b7408ef517
+          integration_id: API-lifecycle
+          method: POST
+          name: create_status
+          resource: /status
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_api_integration_operation
+      - command_id: ${COMMAND_ID}
+        create_api_integration_operation:
+          id: 5eec5b13-1138-4b28-84db-131db2897039
+          integration_id: API-INTEGRATION-37172FF6
+          method: GET
+          name: new_status
+          resource: /new-status
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_api_integration_operation
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: update_api_integration
+        update_api_integration:
+          description: Updated lifecycle integration.
+          id: API-lifecycle
+          name: adk_lifecycle_api
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: variant_set_default_variant
+        variant_set_default_variant:
+          id: VAR-treatment
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: variant_update_attribute
+        variant_update_attribute:
+          id: ATTR-channel
+          name: channel
+          variant_values:
+            values:
+              VAR-control: local-control
+              VAR-treatment: local-treatment
+              VARIANTS-12a267b4: local-new
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: update_keyphrase_boosting
+        update_keyphrase_boosting:
+          id: KP-update
+          keyphrase: ADK lifecycle
+          level: maximum
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: update_transcript_corrections
+        update_transcript_corrections:
+          data:
+            corrections:
+            - description: Updated lifecycle correction.
+              id: TC-update
+              name: Lifecycle correction
+              regular_expressions:
+              - id: TC-update-REGEX-0
+                regular_expression: agent development kids
+                replacement: agent development kit
+                replacement_type: full
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        pronunciations_update_pronunciation:
+          case_sensitive: true
+          description: Updated lifecycle pronunciation.
+          id: PRON-0-update
+          language_code: en-US
+          name: ''
+          position: 0
+          regex: \bADK\b
+          replacement: Agent Development Kit
+        type: pronunciations_update_pronunciation
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: update_api_integration_operation
+        update_api_integration_operation:
+          id: OP-status
+          integration_id: API-lifecycle
+          method: POST
+          name: get_status
+          resource: /status-updated
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: update_api_integration_config
+        update_api_integration_config:
+          auth_type: none
+          base_url: https://example.invalid/updated-sandbox
+          environment: sandbox
+          id: API-lifecycle
+      dry_run: true
+      message: Dry run completed. No changes were pushed.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: delete throwaway broad lifecycle branch
+    argv:
+    - poly
+    - branch
+    - delete
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      success: true
+      switched_to: main
+    stdout: null
+    stderr: ''
