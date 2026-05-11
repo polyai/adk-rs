@@ -9,6 +9,7 @@
 mod support;
 
 use httpmock::prelude::*;
+use httpmock::{HttpMockRequest, HttpMockResponse};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -16,6 +17,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::{Arc, Mutex};
 use support::python_recordings::{
     SCENARIOS, TARGET_ACCOUNT_ID, TARGET_PROJECT_ID, fixture_dir, httpmock_adk_base_url,
     lookup_substitution, maybe_lookup_substitution, replace_all as substitute, substitute_json,
@@ -90,15 +92,18 @@ fn replay_scenario(scenario: &str) {
 
     let tmp = temp_replay_dir(scenario);
     fs::create_dir_all(&tmp).unwrap_or_else(|error| panic!("{scenario}: create tmp dir: {error}"));
-    let playback_cassette_path = write_playback_cassette_without_request_bodies(
-        scenario,
-        &tmp,
-        &manifest.httpmock_recording,
-        &cassette_text,
-    );
-
     let playback_server = MockServer::start();
-    playback_server.playback(playback_cassette_path);
+    if scenario == "chat-session-controls" {
+        install_stateful_playback_server(scenario, &playback_server, &cassette_text);
+    } else {
+        let playback_cassette_path = write_playback_cassette_without_request_bodies(
+            scenario,
+            &tmp,
+            &manifest.httpmock_recording,
+            &cassette_text,
+        );
+        playback_server.playback(playback_cassette_path);
+    }
     let substitutions = substitutions_for(&tmp, &playback_server, &cassette_text, &manifest);
 
     let mut file_seeds = HashMap::new();
@@ -124,6 +129,127 @@ fn replay_scenario(scenario: &str) {
     }
 
     let _ = fs::remove_dir_all(tmp);
+}
+
+#[derive(Debug, Clone)]
+struct CassetteInteraction {
+    method: String,
+    path: String,
+    request_body: Option<String>,
+    status: u16,
+    response_headers: Vec<(String, String)>,
+    response_body: Option<String>,
+}
+
+fn install_stateful_playback_server(scenario: &str, server: &MockServer, cassette_text: &str) {
+    let interactions = parse_cassette_interactions(scenario, cassette_text);
+    let interactions = Arc::new(Mutex::new(interactions));
+    let scenario = scenario.to_string();
+    server.mock(|when, then| {
+        when.any_request();
+        then.respond_with(move |request: &HttpMockRequest| {
+            let mut interactions = interactions.lock().expect("stateful playback lock");
+            let Some(index) = interactions
+                .iter()
+                .position(|interaction| cassette_interaction_matches(interaction, request))
+            else {
+                panic!(
+                    "{scenario}: no stateful cassette response for {} {} body={}",
+                    request.method_str(),
+                    request.uri().path(),
+                    request.body_string()
+                );
+            };
+            let interaction = interactions.remove(index);
+            let mut response = HttpMockResponse::builder().status(interaction.status);
+            for (name, value) in interaction.response_headers {
+                response = response.header(name, value);
+            }
+            if let Some(body) = interaction.response_body {
+                response.body(body).build()
+            } else {
+                response.no_body().build()
+            }
+        });
+    });
+}
+
+fn parse_cassette_interactions(scenario: &str, cassette_text: &str) -> Vec<CassetteInteraction> {
+    serde_yaml::Deserializer::from_str(cassette_text)
+        .map(|document| {
+            let value = Value::deserialize(document).unwrap_or_else(|error| {
+                panic!("{scenario}: parse httpmock cassette document: {error}")
+            });
+            let when = value
+                .get("when")
+                .and_then(Value::as_object)
+                .unwrap_or_else(|| panic!("{scenario}: cassette document missing when"));
+            let then = value
+                .get("then")
+                .and_then(Value::as_object)
+                .unwrap_or_else(|| panic!("{scenario}: cassette document missing then"));
+            CassetteInteraction {
+                method: when
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .unwrap_or_else(|| panic!("{scenario}: cassette document missing method"))
+                    .to_string(),
+                path: when
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_else(|| panic!("{scenario}: cassette document missing path"))
+                    .to_string(),
+                request_body: when
+                    .get("body")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+                status: then
+                    .get("status")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_else(|| panic!("{scenario}: cassette document missing status"))
+                    as u16,
+                response_headers: cassette_response_headers(then),
+                response_body: then
+                    .get("body")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+            }
+        })
+        .collect()
+}
+
+fn cassette_response_headers(then: &serde_json::Map<String, Value>) -> Vec<(String, String)> {
+    then.get("header")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|header| {
+            Some((
+                header.get("name")?.as_str()?.to_string(),
+                header.get("value")?.as_str()?.to_string(),
+            ))
+        })
+        .collect()
+}
+
+fn cassette_interaction_matches(
+    interaction: &CassetteInteraction,
+    request: &HttpMockRequest,
+) -> bool {
+    if interaction.method != request.method_str() || interaction.path != request.uri().path() {
+        return false;
+    }
+    let Some(expected_body) = interaction.request_body.as_deref() else {
+        return true;
+    };
+    let actual_body = request.body_string();
+    match (
+        serde_json::from_str::<Value>(expected_body),
+        serde_json::from_str::<Value>(&actual_body),
+    ) {
+        (Ok(expected), Ok(actual)) => expected == actual,
+        _ => expected_body.trim() == actual_body.trim(),
+    }
 }
 
 fn run_and_check_command(

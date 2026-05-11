@@ -13,7 +13,7 @@ pub use discover::discover_local_resources;
 pub use discover::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 use globset::{Glob, GlobSetBuilder};
 use serde_json::Value;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -24,6 +24,47 @@ use walkdir::WalkDir;
 
 pub const PROJECT_CONFIG_FILE: &str = "project.yaml";
 pub const STATUS_FILE: &str = "_gen/.agent_studio_config";
+const MIGRATED_LEGACY_TOPIC_FILES: &str = "migrated_legacy_topic_files";
+
+const GENERATED_SDK_FILES: &[(&str, &str)] = &[
+    ("__init__.py", include_str!("../generated-sdk/__init__.py")),
+    (
+        "attachment.py",
+        include_str!("../generated-sdk/attachment.py"),
+    ),
+    (
+        "conv_utils.py",
+        include_str!("../generated-sdk/conv_utils.py"),
+    ),
+    (
+        "conversation.py",
+        include_str!("../generated-sdk/conversation.py"),
+    ),
+    (
+        "decorators.py",
+        include_str!("../generated-sdk/decorators.py"),
+    ),
+    (
+        "external_events.py",
+        include_str!("../generated-sdk/external_events.py"),
+    ),
+    ("flow.py", include_str!("../generated-sdk/flow.py")),
+    ("history.py", include_str!("../generated-sdk/history.py")),
+    (
+        "log_utils.py",
+        include_str!("../generated-sdk/log_utils.py"),
+    ),
+    ("memory.py", include_str!("../generated-sdk/memory.py")),
+    (
+        "secret_vault.py",
+        include_str!("../generated-sdk/secret_vault.py"),
+    ),
+    ("sms.py", include_str!("../generated-sdk/sms.py")),
+    (
+        "value_extraction.py",
+        include_str!("../generated-sdk/value_extraction.py"),
+    ),
+];
 
 #[derive(Debug, Error)]
 pub enum CoreError {
@@ -53,18 +94,30 @@ impl AdkService {
         account_id: String,
         project_id: String,
     ) -> Result<ProjectConfig, CoreError> {
+        self.init_project_with_name(base_path, region, account_id, project_id, None)
+    }
+
+    pub fn init_project_with_name(
+        &self,
+        base_path: &Path,
+        region: String,
+        account_id: String,
+        project_id: String,
+        project_name: Option<String>,
+    ) -> Result<ProjectConfig, CoreError> {
         let root = base_path.join(&account_id).join(&project_id);
         fs::create_dir_all(&root)?;
         let config = ProjectConfig {
             region,
             account_id,
             project_id,
-            project_name: None,
+            project_name,
             branch_id: "main".to_string(),
         };
         let serialized =
             serde_yaml::to_string(&config).map_err(|e| DomainError::InvalidData(e.to_string()))?;
         fs::write(root.join(PROJECT_CONFIG_FILE), serialized)?;
+        self.write_generated_sdk_package(&root)?;
         Ok(config)
     }
 
@@ -74,8 +127,10 @@ impl AdkService {
         let config_path = discovered.join(PROJECT_CONFIG_FILE);
         if config_path.exists() {
             let raw = fs::read_to_string(config_path)?;
-            return serde_yaml::from_str(&raw)
-                .map_err(|e| DomainError::InvalidData(e.to_string()).into());
+            let config =
+                serde_yaml::from_str(&raw).map_err(|e| DomainError::InvalidData(e.to_string()))?;
+            self.run_and_persist_project_migrations(&discovered)?;
+            return Ok(config);
         }
 
         let status_path = discovered.join(STATUS_FILE);
@@ -85,7 +140,7 @@ impl AdkService {
                 .decode(encoded)
                 .map_err(|e| DomainError::InvalidData(e.to_string()))?;
             let json: serde_json::Value = serde_json::from_slice(&decoded)?;
-            return Ok(ProjectConfig {
+            let config = ProjectConfig {
                 region: json
                     .get("region")
                     .and_then(serde_json::Value::as_str)
@@ -110,7 +165,9 @@ impl AdkService {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("main")
                     .to_string(),
-            });
+            };
+            self.run_and_persist_project_migrations(&discovered)?;
+            return Ok(config);
         }
 
         Err(DomainError::ConfigNotFound(discovered.to_string_lossy().to_string()).into())
@@ -543,6 +600,7 @@ impl AdkService {
         force: bool,
     ) -> Result<Vec<String>, CoreError> {
         let mut files_with_conflicts = Vec::new();
+        let local_resources_before_force = force.then(|| self.discover_local_resources(root));
         let snapshot_hashes = if force {
             None
         } else {
@@ -587,6 +645,10 @@ impl AdkService {
                 fs::create_dir_all(parent)?;
             }
             fs::write(target, content)?;
+        }
+        if let Some(local_resources) = local_resources_before_force.as_ref() {
+            delete_local_only_resource_files(root, &remote, local_resources)?;
+            delete_empty_subdirectories(&root.join("flows"))?;
         }
         if files_with_conflicts.is_empty() {
             self.write_status_snapshot_from_resources(root, &remote)?;
@@ -845,10 +907,11 @@ impl AdkService {
         check: bool,
     ) -> Result<Vec<String>, CoreError> {
         let resources = self.collect_local_resources(root)?;
+        let file_patterns = normalize_format_file_patterns(root, files);
         let matcher = if files.is_empty() {
             None
         } else {
-            Some(build_file_matcher(files)?)
+            Some(build_file_matcher(&file_patterns)?)
         };
         let mut changed_files = Vec::new();
         for (path, resource) in resources {
@@ -863,10 +926,23 @@ impl AdkService {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
             let formatted = if path.ends_with(".yaml") || path.ends_with(".yml") {
-                let parsed: serde_yaml::Value = serde_yaml::from_str(content)
-                    .map_err(|e| DomainError::InvalidData(format!("{path}: invalid yaml: {e}")))?;
-                serde_yaml::to_string(&parsed)
-                    .map_err(|e| DomainError::InvalidData(format!("{path}: yaml error: {e}")))?
+                match serde_yaml::from_str::<serde_yaml::Value>(content) {
+                    Ok(serde_yaml::Value::Null) | Err(_) => content.to_string(),
+                    Ok(parsed) => serde_yaml::to_string(&parsed).map_err(|e| {
+                        DomainError::InvalidData(format!("{path}: yaml error: {e}"))
+                    })?,
+                }
+            } else if path.ends_with(".json") && !files.is_empty() {
+                match serde_json::from_str::<serde_json::Value>(content) {
+                    Ok(parsed) => {
+                        let mut formatted = serde_json::to_string_pretty(&parsed).map_err(|e| {
+                            DomainError::InvalidData(format!("{path}: json error: {e}"))
+                        })?;
+                        formatted.push('\n');
+                        formatted
+                    }
+                    Err(_) => content.to_string(),
+                }
             } else if path.ends_with(".py") {
                 format_python_content(root.join(&path).as_path(), content)
             } else {
@@ -1083,7 +1159,7 @@ impl AdkService {
         let existing_resource_ids = self.load_status_snapshot_resource_ids(&project_root)?;
         let discovered = self.discover_local_resources(&project_root);
         let mut resources = serde_json::Map::new();
-        let mut file_paths = BTreeSet::new();
+        let mut file_structure_metadata = BTreeMap::new();
 
         for (type_name, paths) in discovered {
             let Some(resource_name) = discover::type_name_to_resource_name(&type_name) else {
@@ -1095,7 +1171,14 @@ impl AdkService {
                 if !baseline_file_paths.contains(&file_path) {
                     continue;
                 }
-                file_paths.insert(file_path.clone());
+                let status_resource_name = resource_suffix
+                    .clone()
+                    .or_else(|| {
+                        baseline
+                            .get(&file_path)
+                            .map(|resource| resource.name.clone())
+                    })
+                    .unwrap_or_else(|| logical_path.clone());
                 let resource_id = existing_resource_ids
                     .get(&logical_path)
                     .cloned()
@@ -1110,6 +1193,14 @@ impl AdkService {
                             .map(|resource| resource.resource_id.clone())
                     })
                     .unwrap_or_else(|| logical_path.clone());
+                file_structure_metadata.insert(
+                    file_path.clone(),
+                    (
+                        resource_name.to_string(),
+                        resource_id.clone(),
+                        status_resource_name,
+                    ),
+                );
                 entries.insert(
                     resource_id.clone(),
                     serde_json::json!({
@@ -1128,33 +1219,115 @@ impl AdkService {
         }
 
         let mut file_structure_info = serde_json::Map::new();
-        for file_path in file_paths {
+        for (file_path, (resource_type, resource_id, resource_name)) in file_structure_metadata {
             let content = fs::read_to_string(project_root.join(&file_path)).unwrap_or_default();
             file_structure_info.insert(
                 file_path.clone(),
                 serde_json::json!({
-                    "type": "unknown",
-                    "resource_id": file_path,
-                    "resource_name": file_path,
+                    "type": resource_type,
+                    "resource_id": resource_id,
+                    "resource_name": resource_name,
                     "hash": compute_hash(&content),
                 }),
             );
         }
 
-        let branch_id = self
-            .load_project_config(&project_root)
-            .map(|cfg| cfg.branch_id)
-            .unwrap_or_else(|_| "main".to_string());
+        let config = self.load_project_config(&project_root).ok();
+        let branch_id = config
+            .as_ref()
+            .map(|cfg| cfg.branch_id.clone())
+            .unwrap_or_else(|| "main".to_string());
+        let migration_flags = self.run_and_persist_project_migrations(&project_root)?;
         let status = serde_json::json!({
+            "region": config.as_ref().map(|cfg| cfg.region.clone()).unwrap_or_default(),
+            "account_id": config.as_ref().map(|cfg| cfg.account_id.clone()).unwrap_or_default(),
+            "project_id": config.as_ref().map(|cfg| cfg.project_id.clone()).unwrap_or_default(),
+            "project_name": config.as_ref().and_then(|cfg| cfg.project_name.clone()),
             "resources": resources,
+            "last_updated": chrono::Utc::now().to_rfc3339(),
             "file_structure_info": file_structure_info,
             "branch_id": branch_id,
+            "migration_flags": migration_flags.into_iter().collect::<Vec<_>>(),
         });
         let encoded =
             base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&status)?);
         let gen_dir = project_root.join("_gen");
-        fs::create_dir_all(&gen_dir)?;
+        self.write_generated_sdk_package(&project_root)?;
         fs::write(gen_dir.join(".agent_studio_config"), encoded)?;
+        Ok(())
+    }
+
+    fn write_generated_sdk_package(&self, project_root: &Path) -> Result<(), CoreError> {
+        let gen_dir = project_root.join("_gen");
+        fs::create_dir_all(&gen_dir)?;
+        for entry in fs::read_dir(&gen_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().is_some_and(|extension| extension == "pyi") {
+                fs::remove_file(path)?;
+            }
+        }
+        for (file_name, contents) in GENERATED_SDK_FILES {
+            fs::write(gen_dir.join(file_name), contents)?;
+        }
+        Ok(())
+    }
+
+    fn run_and_persist_project_migrations(
+        &self,
+        project_root: &Path,
+    ) -> Result<BTreeSet<String>, CoreError> {
+        let mut status = self.load_status_snapshot_json(project_root)?;
+        let mut migration_flags = migration_flags_from_status(&status);
+        if !migration_flags.contains(MIGRATED_LEGACY_TOPIC_FILES) {
+            let had_status_snapshot = project_root.join(STATUS_FILE).exists();
+            let migrated_files = migrate_legacy_topic_files(project_root)?;
+            migration_flags.insert(MIGRATED_LEGACY_TOPIC_FILES.to_string());
+            if had_status_snapshot || migrated_files {
+                status.insert(
+                    "migration_flags".to_string(),
+                    serde_json::Value::Array(
+                        migration_flags
+                            .iter()
+                            .cloned()
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    ),
+                );
+                self.write_generated_sdk_package(project_root)?;
+                self.write_status_snapshot_json(project_root, &status)?;
+            }
+        }
+        Ok(migration_flags)
+    }
+
+    fn load_status_snapshot_json(
+        &self,
+        project_root: &Path,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, CoreError> {
+        let status_path = project_root.join(STATUS_FILE);
+        if !status_path.exists() {
+            return Ok(serde_json::Map::new());
+        }
+        let encoded = fs::read(status_path)?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        let value: serde_json::Value = serde_json::from_slice(&decoded)?;
+        Ok(value.as_object().cloned().unwrap_or_default())
+    }
+
+    fn write_status_snapshot_json(
+        &self,
+        project_root: &Path,
+        status: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), CoreError> {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(status)?);
+        let status_path = project_root.join(STATUS_FILE);
+        if let Some(parent) = status_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(status_path, encoded)?;
         Ok(())
     }
 
@@ -1264,6 +1437,176 @@ fn find_project_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
+fn migration_flags_from_status(
+    status: &serde_json::Map<String, serde_json::Value>,
+) -> BTreeSet<String> {
+    status
+        .get("migration_flags")
+        .and_then(serde_json::Value::as_array)
+        .map(|flags| {
+            flags
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .filter(|flag| *flag == MIGRATED_LEGACY_TOPIC_FILES)
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn migrate_legacy_topic_files(project_root: &Path) -> Result<bool, CoreError> {
+    let topics_dir = project_root.join("topics");
+    if !topics_dir.is_dir() {
+        return Ok(false);
+    }
+
+    let mut migrated_topics: std::collections::BTreeMap<PathBuf, serde_yaml::Value> =
+        std::collections::BTreeMap::new();
+    let mut old_files = Vec::new();
+    let mut old_dirs = BTreeSet::new();
+
+    for entry in WalkDir::new(&topics_dir).into_iter().filter_map(Result::ok) {
+        let topic_path = entry.path();
+        if !topic_path.is_file() || !is_yaml_file(topic_path) {
+            continue;
+        }
+        let raw = fs::read_to_string(topic_path)?;
+        let Ok(parsed) = serde_yaml::from_str::<serde_yaml::Value>(&raw) else {
+            continue;
+        };
+        let serde_yaml::Value::Mapping(existing) = parsed else {
+            continue;
+        };
+        if yaml_mapping_contains_key(&existing, "name") {
+            continue;
+        }
+
+        let rel_path = topic_path.strip_prefix(&topics_dir).unwrap_or(topic_path);
+        let topic_name = rel_path
+            .with_extension("")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let clean_file_name = discover::clean_name(&topic_name, true);
+        let clean_file_path = topics_dir.join(format!("{clean_file_name}.yaml"));
+        if migrated_topics.contains_key(&clean_file_path) {
+            return Err(DomainError::InvalidData(format!(
+                "Can't migrate legacy topic files: multiple topics with the same file name after cleaning: {clean_file_name}"
+            ))
+            .into());
+        }
+
+        let mut updated = serde_yaml::Mapping::new();
+        updated.insert(
+            serde_yaml::Value::String("name".to_string()),
+            serde_yaml::Value::String(topic_name),
+        );
+        for (key, value) in existing {
+            updated.insert(key, value);
+        }
+        migrated_topics.insert(clean_file_path, serde_yaml::Value::Mapping(updated));
+        old_files.push(topic_path.to_path_buf());
+        if topic_path.parent() != Some(topics_dir.as_path())
+            && let Some(parent) = topic_path.parent()
+        {
+            old_dirs.insert(parent.to_path_buf());
+        }
+    }
+
+    for (path, content) in &migrated_topics {
+        let serialized =
+            serde_yaml::to_string(content).map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        fs::write(path, serialized)?;
+    }
+    for old_file in old_files {
+        if !migrated_topics.contains_key(&old_file) {
+            fs::remove_file(old_file)?;
+        }
+    }
+    let mut old_dirs = old_dirs.into_iter().collect::<Vec<_>>();
+    old_dirs.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+    for old_dir in old_dirs {
+        if old_dir.is_dir() && fs::read_dir(&old_dir)?.next().is_none() {
+            fs::remove_dir(old_dir)?;
+        }
+    }
+    Ok(!migrated_topics.is_empty())
+}
+
+fn yaml_mapping_contains_key(mapping: &serde_yaml::Mapping, key: &str) -> bool {
+    mapping
+        .keys()
+        .any(|candidate| candidate.as_str() == Some(key))
+}
+
+fn is_yaml_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| matches!(extension, "yaml" | "yml"))
+}
+
+fn delete_local_only_resource_files(
+    root: &Path,
+    remote: &ResourceMap,
+    local_resources: &DiscoveredResourcePaths,
+) -> Result<(), CoreError> {
+    let remote_file_paths: HashSet<String> = remote
+        .iter()
+        .flat_map(|(path, resource)| [path.clone(), resource.file_path.clone()])
+        .map(|path| parse_multi_resource_path(&path).0)
+        .collect();
+    let mut local_only_files: Vec<String> = flatten_discovered_paths(local_resources)
+        .into_iter()
+        .map(|path| parse_multi_resource_path(&path).0)
+        .filter(|path| !remote_file_paths.contains(path))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    local_only_files.sort_by_key(|path| {
+        std::cmp::Reverse((Path::new(path).components().count(), path.clone()))
+    });
+
+    for rel_path in local_only_files {
+        let path = root.join(rel_path);
+        if path.is_file() {
+            fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+
+fn delete_empty_subdirectories(dir: &Path) -> Result<(), CoreError> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    for entry in WalkDir::new(dir)
+        .contents_first(true)
+        .min_depth(1)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        let path = entry.path();
+        if path.is_dir() && fs::read_dir(path)?.next().is_none() {
+            fs::remove_dir(path)?;
+        }
+    }
+    Ok(())
+}
+
+fn normalize_format_file_patterns(root: &Path, files: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .map(|file| {
+            let path = Path::new(file);
+            let rel = if path.is_absolute() {
+                path.strip_prefix(root).unwrap_or(path).to_path_buf()
+            } else {
+                path.to_path_buf()
+            };
+            rel.to_string_lossy().replace('\\', "/")
+        })
+        .collect()
+}
+
 fn build_file_matcher(patterns: &[String]) -> Result<globset::GlobSet, CoreError> {
     let mut builder = GlobSetBuilder::new();
     for p in patterns {
@@ -1278,15 +1621,30 @@ fn build_file_matcher(patterns: &[String]) -> Result<globset::GlobSet, CoreError
 fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
     match path {
         "config/api_integrations.yaml" => validate_api_integrations(yaml, errors),
+        "config/entities.yaml" => validate_entities(yaml, errors),
+        "config/handoffs.yaml" => {
+            validate_named_sequence(path, yaml, "handoffs", "handoff", errors)
+        }
+        "config/sms_templates.yaml" => {
+            validate_named_sequence(path, yaml, "sms_templates", "SMS template", errors)
+        }
         "config/variant_attributes.yaml" => validate_variant_defaults(yaml, errors),
         "voice/speech_recognition/transcript_corrections.yaml" => {
             validate_transcript_corrections(yaml, errors)
         }
+        _ if path.starts_with("topics/") => validate_topic(path, yaml, errors),
         _ => {}
     }
 }
 
 fn validate_api_integrations(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    validate_named_sequence(
+        "config/api_integrations.yaml",
+        yaml,
+        "api_integrations",
+        "API integration",
+        errors,
+    );
     let Some(items) = yaml
         .get("api_integrations")
         .and_then(serde_yaml::Value::as_sequence)
@@ -1306,6 +1664,44 @@ fn validate_api_integrations(yaml: &serde_yaml::Value, errors: &mut Vec<String>)
     }
 }
 
+fn validate_entities(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    validate_named_sequence("config/entities.yaml", yaml, "entities", "entity", errors);
+    let Some(items) = yaml
+        .get("entities")
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return;
+    };
+    let allowed = [
+        "numeric",
+        "alphanumeric",
+        "enum",
+        "date",
+        "phone_number",
+        "time",
+        "address",
+        "free_text",
+        "name_config",
+    ];
+    for item in items {
+        let name = item
+            .get("name")
+            .and_then(serde_yaml::Value::as_str)
+            .unwrap_or("<missing>");
+        let Some(entity_type) = item.get("entity_type").and_then(serde_yaml::Value::as_str) else {
+            errors.push(format!(
+                "Validation error in config/entities.yaml/entities/{name}: entity_type is required."
+            ));
+            continue;
+        };
+        if !allowed.contains(&entity_type) {
+            errors.push(format!(
+                "Validation error in config/entities.yaml/entities/{name}: unsupported entity_type '{entity_type}'."
+            ));
+        }
+    }
+}
+
 fn validate_variant_defaults(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
     let Some(variants) = yaml
         .get("variants")
@@ -1313,6 +1709,13 @@ fn validate_variant_defaults(yaml: &serde_yaml::Value, errors: &mut Vec<String>)
     else {
         return;
     };
+    validate_duplicate_names(
+        "config/variant_attributes.yaml",
+        "variants",
+        "variant",
+        variants,
+        errors,
+    );
     let default_names = variants
         .iter()
         .filter(|variant| {
@@ -1331,6 +1734,66 @@ fn validate_variant_defaults(yaml: &serde_yaml::Value, errors: &mut Vec<String>)
             .join(", ");
         errors.push(format!(
             "Validation error: Multiple or zero default variants detected: [{names}]. One variant must be set as default."
+        ));
+    }
+}
+
+fn validate_topic(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    if yaml
+        .get("name")
+        .and_then(serde_yaml::Value::as_str)
+        .is_none_or(str::is_empty)
+    {
+        errors.push(format!(
+            "Validation error in {path}: topic name is required."
+        ));
+    }
+}
+
+fn validate_named_sequence(
+    path: &str,
+    yaml: &serde_yaml::Value,
+    key: &str,
+    label: &str,
+    errors: &mut Vec<String>,
+) {
+    let Some(items) = yaml.get(key).and_then(serde_yaml::Value::as_sequence) else {
+        return;
+    };
+    for (idx, item) in items.iter().enumerate() {
+        if item
+            .get("name")
+            .and_then(serde_yaml::Value::as_str)
+            .is_none_or(str::is_empty)
+        {
+            errors.push(format!(
+                "Validation error in {path}/{key}/{idx}: {label} name is required."
+            ));
+        }
+    }
+    validate_duplicate_names(path, key, label, items, errors);
+}
+
+fn validate_duplicate_names(
+    path: &str,
+    key: &str,
+    label: &str,
+    items: &[serde_yaml::Value],
+    errors: &mut Vec<String>,
+) {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut duplicates = std::collections::BTreeSet::new();
+    for item in items {
+        let Some(name) = item.get("name").and_then(serde_yaml::Value::as_str) else {
+            continue;
+        };
+        if !seen.insert(name.to_string()) {
+            duplicates.insert(name.to_string());
+        }
+    }
+    for name in duplicates {
+        errors.push(format!(
+            "Validation error in {path}/{key}/{name}: duplicate {label} name '{name}'."
         ));
     }
 }

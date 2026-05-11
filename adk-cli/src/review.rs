@@ -7,7 +7,7 @@ pub fn emit_review_message(json_mode: bool, message: &str) {
     if json_mode {
         println!("{}", json!({"success": false, "message": message}));
     } else {
-        eprintln!("{message}");
+        crate::console::error(message);
     }
 }
 
@@ -72,7 +72,7 @@ where
 
 pub fn prompt_open_review_gist(gists: &[serde_json::Value]) -> Result<(), String> {
     print_review_gist_choices(gists);
-    print!("Select a gist to open: ");
+    crate::console::prompt("Select a gist to open: ").map_err(|e| e.to_string())?;
     std::io::stdout().flush().map_err(|e| e.to_string())?;
     let mut selection = String::new();
     std::io::stdin()
@@ -99,7 +99,8 @@ pub fn prompt_delete_review_gists(json_mode: bool) -> Result<usize, String> {
         return Err("review delete requires --id when --json is used".to_string());
     }
     print_review_gist_choices(&gists);
-    print!("Select gists to delete (comma-separated numbers or id prefixes): ");
+    crate::console::prompt("Select gists to delete (comma-separated numbers or id prefixes): ")
+        .map_err(|e| e.to_string())?;
     std::io::stdout().flush().map_err(|e| e.to_string())?;
     let mut selection = String::new();
     std::io::stdin()
@@ -199,7 +200,7 @@ fn github_client() -> Result<reqwest::blocking::Client, String> {
 
 fn print_review_gist_choices(gists: &[serde_json::Value]) {
     for (idx, gist) in gists.iter().enumerate() {
-        println!(
+        crate::console::plain(format!(
             "{}. {}  {}",
             idx + 1,
             gist.get("id")
@@ -208,7 +209,7 @@ fn print_review_gist_choices(gists: &[serde_json::Value]) {
             gist.get("description")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("")
-        );
+        ));
     }
 }
 

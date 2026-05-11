@@ -231,23 +231,99 @@ fn validate_json_reports_parse_errors() {
 }
 
 #[test]
-fn format_check_json_ignores_json_files() {
-    let project_dir = make_temp_unformatted_json_project_dir();
-    let output = run_poly(&["format", "--json", "--check", "--path", &project_dir]);
+fn validate_json_reports_duplicate_names_and_invalid_entity_types() {
+    let project_dir = make_temp_project_dir();
+    let root = std::path::PathBuf::from(&project_dir);
+    fs::create_dir_all(root.join("config")).expect("mkdir config");
+    fs::write(
+        root.join("config/entities.yaml"),
+        "entities:\n  - name: customer\n    entity_type: unsupported\n  - name: customer\n    entity_type: enum\n",
+    )
+    .expect("write invalid entities");
+
+    let output = run_poly(&["validate", "--json", "--path", &project_dir]);
+
     assert_eq!(output.status.code(), Some(0));
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(payload.get("valid").and_then(|v| v.as_bool()), Some(false));
+    let errors = payload
+        .get("errors")
+        .and_then(|v| v.as_array())
+        .expect("errors array")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("duplicate entity name 'customer'"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("unsupported entity_type 'unsupported'"))
+    );
+}
+
+#[test]
+fn format_check_json_reports_unformatted_json_files() {
+    let project_dir = make_temp_unformatted_json_project_dir();
+    let output = run_poly(&[
+        "format",
+        "--json",
+        "--check",
+        "--path",
+        &project_dir,
+        "--files",
+        "sample.json",
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(
+        payload.get("success").and_then(|v| v.as_bool()),
+        Some(false)
+    );
     let changed = payload
         .get("affected")
         .and_then(|v| v.as_array())
         .expect("affected array");
-    assert!(changed.is_empty());
+    assert_eq!(changed, &[serde_json::json!("sample.json")]);
     assert_eq!(
         payload.get("check_only").and_then(|v| v.as_bool()),
         Some(true)
     );
     assert!(payload.get("format_errors").is_some());
+}
+
+#[test]
+fn format_files_accepts_absolute_paths_and_formats_json() {
+    let project_dir = make_temp_unformatted_json_project_dir();
+    let json_path = std::path::PathBuf::from(&project_dir).join("sample.json");
+    let json_path_arg = json_path.to_string_lossy().to_string();
+
+    let output = run_poly(&[
+        "format",
+        "--json",
+        "--path",
+        &project_dir,
+        "--files",
+        &json_path_arg,
+    ]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        payload.get("affected").and_then(|v| v.as_array()),
+        Some(&vec![serde_json::json!("sample.json")])
+    );
+    assert_eq!(
+        fs::read_to_string(json_path).expect("formatted json"),
+        "{\n  \"a\": 1,\n  \"b\": 2\n}\n"
+    );
 }
 
 #[test]

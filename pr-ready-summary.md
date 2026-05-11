@@ -55,3 +55,6 @@ Improve Python parity for named-state diffing, command ordering, and remote comm
 - Named-state remote lookup depends on deployment endpoint payload shape differences across environments.
 - Priority ordering is now explicit by command type strings; adding new command families requires updating priority tables/tests.
 - Function metadata inference from local code is best-effort; remote metadata remains authoritative when present.
+
+## Remaining Follow-Ups
+- See `docs/remaining-parity-todos.md` for the concrete post-audit Python parity checklist.

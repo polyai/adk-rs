@@ -18,6 +18,12 @@ Each scenario has a command manifest and a matching raw `httpmock` cassette:
   Create a throwaway branch, edit `agent_settings/rules.txt`, dry-run push
   command generation, perform a real branch push, diff against main, and delete
   the branch.
+- `chat-error-metadata.*`
+  Chat JSON metadata flags plus Python's turn-level JSON error contract for a
+  failed `send_message` call.
+- `chat-session-controls.*`
+  Chat JSON behavior for `/restart`, `/exit`, resumed `--conversation-id`, and
+  server-returned `conversation_ended` metadata.
 - `create-delete-dryrun.*`
   Create a throwaway branch, add a local topic, delete a local function, inspect
   status/diff, dry-run push command generation, and delete the branch.
@@ -36,6 +42,9 @@ Each scenario has a command manifest and a matching raw `httpmock` cassette:
   Use two checkouts of a throwaway branch to push one edit remotely, make a
   conflicting local edit, record pull conflict output, force pull, and delete the
   branch.
+- `pull-force-cleanup.*`
+  Record Python `pull --force` behavior when local-only resources exist on disk
+  and should be removed by the refreshed Agent Studio projection.
 - `revert-local.*`
   Edit a local file, record status, revert that file, and record clean status.
 - `validation-errors.*`
@@ -44,12 +53,10 @@ Each scenario has a command manifest and a matching raw `httpmock` cassette:
 Step-level manifests include command steps plus explicit `file_edit` steps that
 a replay test must apply to the temp checkout.
 
-## Pending Parity Recorders
+## Additional Replay Scenarios
 
-The recorder test also contains ignored scenarios for behavior that is not yet
-enabled in the cheap Rust replay suite. These are TDD fixtures: record Python
-first, bring Rust to parity, then add the scenario name to `SCENARIOS` in
-`tests/support/mod.rs`.
+These fixtures are also included in the cheap Rust replay suite and cover
+focused parity behavior beyond the larger workflows above:
 
 - `pull-resource-coverage.*`
   Documents which settings/channel/ASR files Python `init` and `pull --force`
@@ -72,6 +79,14 @@ first, bring Rust to parity, then add the scenario name to `SCENARIOS` in
 - `cli-diff-edges.*`
   Documents parser edge cases, default path behavior, file-filtered diff/review,
   and `--before main` against a dirty local checkout.
+
+## Recorder-Only TDD Scenarios
+
+When adding future coverage, it is fine for the ignored recorder test to contain
+a scenario before it is enabled in `SCENARIOS`. The intended flow is: record
+Python first, inspect and commit the `*.commands.yaml` and `*.httpmock.yaml`
+files, bring Rust to parity, then add the scenario name to
+`tests/support/mod.rs`.
 
 ## Rust Test Files
 
@@ -130,11 +145,11 @@ cargo test -p adk-cli --test record_python_adk_httpmock_fixtures_test \
   -- --ignored --nocapture
 ```
 
-To record one pending parity fixture while doing TDD:
+To record one recorder-only TDD fixture:
 
 ```bash
 cargo test -p adk-cli --test record_python_adk_httpmock_fixtures_test \
-  record_push_resource_coverage_with_python_adk_and_httpmock \
+  record_chat_session_controls_with_python_adk_and_httpmock \
   -- --ignored --nocapture
 ```
 

@@ -1,0 +1,89 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Replay fixture for chat metadata flags and Python's JSON error-turn contract.
+- The metadata step records --functions/--flows/--state projection in chat JSON output.
+- The invalid --conversation-id step records that Python captures send-message failures as a turn-level error.
+httpmock_recording: chat-error-metadata.httpmock.yaml
+workflows:
+- name: chat_error_metadata
+  description: Record Python chat --json metadata projection and send-message error handling.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: file_edit
+    name: write project config before chat error metadata checks
+    operation: write_text
+    path: project.yaml
+    content: |
+      region: us-1
+      account_id: ben-ws
+      project_id: PROJECT-JTQKOKLM
+      branch_id: main
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: chat json all metadata flags
+    argv:
+    - poly
+    - chat
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --environment
+    - sandbox
+    - --message
+    - Hello from the ADK metadata recording.
+    - --functions
+    - --flows
+    - --state
+    exit_code: 0
+    stdout_json:
+      conversations:
+      - conversation_id: AS_CHAT_afab0001-b7ee-4e71-a349-25e80a6af4b0
+        turns:
+        - conversation_ended: false
+          function_events: []
+          input: null
+          response: Hello, how can I help you?
+        - conversation_ended: false
+          function_events: []
+          input: Hello from the ADK metadata recording.
+          response: Hi there! How can I help you today?
+        url: https://studio.us.poly.ai/ben-ws/PROJECT-JTQKOKLM/conversations/AS_CHAT_afab0001-b7ee-4e71-a349-25e80a6af4b0
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: chat json send-message error is captured in turn
+    argv:
+    - poly
+    - chat
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --environment
+    - sandbox
+    - --conversation-id
+    - AS_CHAT_adk-rs-recording-missing-conversation
+    - --message
+    - This message should record the Python error contract.
+    exit_code: 0
+    stdout_json:
+      conversations:
+      - conversation_id: AS_CHAT_adk-rs-recording-missing-conversation
+        turns:
+        - error: '410 Client Error: Gone for url: ${HTTPMOCK_BASE_URL}/accounts/ben-ws/projects/PROJECT-JTQKOKLM/chat/AS_CHAT_adk-rs-recording-missing-conversation'
+          input: This message should record the Python error contract.
+        url: https://studio.us.poly.ai/ben-ws/PROJECT-JTQKOKLM/conversations/AS_CHAT_adk-rs-recording-missing-conversation
+    stdout: null
+    stderr: ''

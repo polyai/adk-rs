@@ -55,6 +55,22 @@ fn make_temp_project_dir() -> PathBuf {
     dir
 }
 
+fn regular_file_names(dir: &std::path::Path) -> Vec<String> {
+    let mut names = fs::read_dir(dir)
+        .expect("read directory")
+        .map(|entry| {
+            entry
+                .expect("directory entry")
+                .file_name()
+                .to_string_lossy()
+                .to_string()
+        })
+        .filter(|name| !name.starts_with('.'))
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
 fn write_status_snapshot_from_discovered(
     project_root: &std::path::Path,
     discovered: &indexmap::IndexMap<String, Vec<String>>,
@@ -107,6 +123,15 @@ fn write_status_snapshot_from_discovered(
     fs::write(gen_dir.join(".agent_studio_config"), encoded).expect("write status snapshot");
 }
 
+fn read_status_snapshot_json(project_root: &std::path::Path) -> serde_json::Value {
+    let encoded =
+        fs::read(project_root.join("_gen/.agent_studio_config")).expect("read status snapshot");
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .expect("decode status snapshot");
+    serde_json::from_slice(&decoded).expect("status json")
+}
+
 /// Port: `poly/tests/project_test.py` - `InitTest.test_init`
 #[test]
 fn load_project_config_matches_python_project_test_init() {
@@ -119,6 +144,189 @@ fn load_project_config_matches_python_project_test_init() {
     assert_eq!(cfg.account_id, "test_account");
     assert_eq!(cfg.project_id, "test_project");
     assert_eq!(cfg.branch_id, "main");
+}
+
+/// Port: `poly/utils.py` - `export_decorators` and `save_imports`
+#[test]
+fn init_and_pull_write_python_compatible_gen_sdk_package() {
+    let service = service_offline();
+    let base = make_temp_project_dir();
+    service
+        .init_project_with_name(
+            &base,
+            "us-1".to_string(),
+            "test-account".to_string(),
+            "test-project".to_string(),
+            Some("Test Project".to_string()),
+        )
+        .expect("init project");
+
+    let root = base.join("test-account").join("test-project");
+    let gen_dir = root.join("_gen");
+    let init_py = fs::read_to_string(gen_dir.join("__init__.py")).expect("generated __init__");
+    let decorators =
+        fs::read_to_string(gen_dir.join("decorators.py")).expect("generated decorators");
+    let conversation =
+        fs::read_to_string(gen_dir.join("conversation.py")).expect("generated conversation");
+
+    assert!(init_py.contains("from _gen.conversation import ("));
+    assert!(init_py.contains("\"func_latency_control\""));
+    assert!(decorators.contains("def func_description("));
+    assert!(decorators.contains("def func_latency_control("));
+    assert!(conversation.contains("class Conversation"));
+
+    fs::write(gen_dir.join("stale.pyi"), "class Stale: ...\n").expect("write stale pyi");
+    service.pull(&root, true).expect("pull project");
+
+    assert!(!gen_dir.join("stale.pyi").exists());
+    assert!(gen_dir.join(".agent_studio_config").exists());
+    assert!(gen_dir.join("sms.py").exists());
+    let status = read_status_snapshot_json(&root);
+    assert_eq!(
+        status.get("region").and_then(|value| value.as_str()),
+        Some("us-1")
+    );
+    assert_eq!(
+        status.get("account_id").and_then(|value| value.as_str()),
+        Some("test-account")
+    );
+    assert_eq!(
+        status.get("project_id").and_then(|value| value.as_str()),
+        Some("test-project")
+    );
+    assert_eq!(
+        status.get("project_name").and_then(|value| value.as_str()),
+        Some("Test Project")
+    );
+    assert!(
+        status
+            .get("last_updated")
+            .and_then(|value| value.as_str())
+            .is_some()
+    );
+    assert!(
+        status
+            .get("resources")
+            .and_then(serde_json::Value::as_object)
+            .is_some()
+    );
+    assert!(
+        status
+            .get("file_structure_info")
+            .and_then(serde_json::Value::as_object)
+            .is_some()
+    );
+    assert!(
+        status
+            .get("migration_flags")
+            .and_then(serde_json::Value::as_array)
+            .is_some()
+    );
+}
+
+/// Port: `poly/utils.py` - `_gen` package template files
+#[test]
+fn init_gen_sdk_package_matches_synced_python_fixture_files() {
+    let service = service_offline();
+    let base = make_temp_project_dir();
+    service
+        .init_project_with_name(
+            &base,
+            "us-1".to_string(),
+            "test-account".to_string(),
+            "test-project".to_string(),
+            Some("Test Project".to_string()),
+        )
+        .expect("init project");
+
+    let actual_gen = base.join("test-account").join("test-project").join("_gen");
+    let expected_gen = fixture_full_project().join("_gen");
+    let actual_names = regular_file_names(&actual_gen);
+    let expected_names = regular_file_names(&expected_gen);
+    assert_eq!(actual_names, expected_names);
+
+    for file_name in expected_names {
+        let actual = fs::read_to_string(actual_gen.join(&file_name))
+            .unwrap_or_else(|err| panic!("read generated {file_name}: {err}"));
+        let expected = fs::read_to_string(expected_gen.join(&file_name))
+            .unwrap_or_else(|err| panic!("read fixture {file_name}: {err}"));
+        assert_eq!(actual, expected, "{file_name} should match Python fixture");
+    }
+}
+
+/// Port: `poly/tests/migration_test.py` - `TestMigrateLegacyTopicFiles.test_migrates_nested_subdirectory_topics`
+#[test]
+fn load_project_config_migrates_legacy_topic_files_and_persists_flag() {
+    let service = service_offline();
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: us-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project config");
+    fs::create_dir_all(root.join("topics/Billing")).expect("mkdir nested topics");
+    fs::write(
+        root.join("topics/Topic Name.yaml"),
+        "enabled: true\ncontent: hello\n",
+    )
+    .expect("write legacy topic");
+    fs::write(
+        root.join("topics/Billing/Refunds.yaml"),
+        "enabled: false\ncontent: refunds\n",
+    )
+    .expect("write nested legacy topic");
+
+    service
+        .load_project_config(&root)
+        .expect("load project config runs migrations");
+
+    assert!(!root.join("topics/Topic Name.yaml").exists());
+    assert!(!root.join("topics/Billing/Refunds.yaml").exists());
+    assert!(!root.join("topics/Billing").exists());
+
+    let flat_topic =
+        fs::read_to_string(root.join("topics/topic_name.yaml")).expect("migrated flat topic");
+    assert!(flat_topic.contains("name: Topic Name"));
+    assert!(flat_topic.contains("enabled: true"));
+    let nested_topic = fs::read_to_string(root.join("topics/billing_refunds.yaml"))
+        .expect("migrated nested topic");
+    assert!(nested_topic.contains("name: Billing/Refunds"));
+    assert!(nested_topic.contains("enabled: false"));
+
+    let status = read_status_snapshot_json(&root);
+    assert!(
+        status
+            .get("migration_flags")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|flags| flags
+                .iter()
+                .any(|flag| flag.as_str() == Some("migrated_legacy_topic_files")))
+    );
+}
+
+/// Port: `poly/tests/migration_test.py` - `TestMigrateLegacyTopicFiles.test_duplicate_clean_names_raises`
+#[test]
+fn load_project_config_errors_when_legacy_topic_names_clean_to_same_file() {
+    let service = service_offline();
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: us-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project config");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(root.join("topics/Topic-A.yaml"), "enabled: true\n")
+        .expect("write first legacy topic");
+    fs::write(root.join("topics/Topic A.yaml"), "enabled: true\n")
+        .expect("write duplicate legacy topic");
+
+    let error = service
+        .load_project_config(&root)
+        .expect_err("duplicate cleaned topic names should error");
+
+    assert!(error.to_string().contains("topic_a"));
+    assert!(root.join("topics/Topic-A.yaml").exists());
+    assert!(root.join("topics/Topic A.yaml").exists());
 }
 
 /// Port: `poly/tests/project_test.py` - `DiscoverLocalResourcesTest.test_discover_local_resources`
@@ -953,6 +1161,79 @@ fn pull_force_controls_overwrite_of_conflict_files() {
         fs::read_to_string(&target).expect("target"),
         "name: Remote Topic\n"
     );
+    let status = read_status_snapshot_json(&root);
+    assert_eq!(
+        status.get("region").and_then(serde_json::Value::as_str),
+        Some("eu-west-1")
+    );
+    let file_info = status
+        .pointer("/file_structure_info/topics~1topic_1.yaml")
+        .expect("topic file structure info");
+    assert_eq!(
+        file_info.get("type").and_then(serde_json::Value::as_str),
+        Some("topics")
+    );
+    assert_eq!(
+        file_info
+            .get("resource_id")
+            .and_then(serde_json::Value::as_str),
+        Some("TOPIC-topic_1")
+    );
+    assert_eq!(
+        file_info
+            .get("resource_name")
+            .and_then(serde_json::Value::as_str),
+        Some("Topic 1")
+    );
+    assert!(
+        file_info
+            .get("hash")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
+}
+
+#[test]
+fn pull_force_deletes_local_only_resources_and_empty_flow_folders() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::create_dir_all(root.join("flows/old_flow/steps")).expect("mkdir old flow");
+    fs::write(root.join("topics/local_only.yaml"), "name: Local Only\n")
+        .expect("write local-only topic");
+    fs::write(
+        root.join("flows/old_flow/flow_config.yaml"),
+        "name: Old Flow\n",
+    )
+    .expect("write local-only flow");
+    fs::write(
+        root.join("flows/old_flow/steps/start.yaml"),
+        "name: Start\n",
+    )
+    .expect("write local-only step");
+
+    let mut remote: ResourceMap = ResourceMap::new();
+    remote.insert(
+        "topics/remote_topic.yaml".to_string(),
+        Resource {
+            resource_id: "TOPIC-remote".to_string(),
+            name: "Remote Topic".to_string(),
+            file_path: "topics/remote_topic.yaml".to_string(),
+            payload: serde_json::json!({"content": "name: Remote Topic\n"}),
+        },
+    );
+    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(remote)));
+
+    let conflicts = service.pull(root.as_path(), true).expect("pull force");
+
+    assert!(conflicts.is_empty());
+    assert!(root.join("topics/remote_topic.yaml").exists());
+    assert!(!root.join("topics/local_only.yaml").exists());
+    assert!(!root.join("flows/old_flow").exists());
 }
 
 #[test]

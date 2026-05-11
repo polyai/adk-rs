@@ -1,0 +1,150 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Replay fixture for chat control commands and resumed conversations.
+- The restart step records Python's JSON behavior for /restart and /exit in one scripted run.
+- The resume step records that --conversation-id skips session creation and can be ended with /exit.
+- The goodbye step documents the server-side conversation_ended flag as returned by the real project.
+httpmock_recording: chat-session-controls.httpmock.yaml
+workflows:
+- name: chat_session_controls
+  description: Record Python chat --json behavior for /restart, /exit, resumed conversation IDs, and conversation-ended metadata.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: file_edit
+    name: write project config before chat session controls
+    operation: write_text
+    path: project.yaml
+    content: |
+      region: us-1
+      account_id: ben-ws
+      project_id: PROJECT-JTQKOKLM
+      branch_id: main
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: chat json restart starts a new conversation before exit
+    argv:
+    - poly
+    - chat
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --environment
+    - sandbox
+    - --message
+    - Hello before restart.
+    - --message
+    - /restart
+    - --message
+    - Hello after restart.
+    - --message
+    - /exit
+    exit_code: 0
+    stdout_json:
+      conversations:
+      - conversation_id: AS_CHAT_66f69db4-d34f-402e-9a0e-cc4cfe82f5f8
+        turns:
+        - conversation_ended: false
+          input: null
+          response: Hello, how can I help you?
+        - conversation_ended: false
+          input: Hello before restart.
+          response: Would you mind saying that again?
+        url: https://studio.us.poly.ai/ben-ws/PROJECT-JTQKOKLM/conversations/AS_CHAT_66f69db4-d34f-402e-9a0e-cc4cfe82f5f8
+      - conversation_id: AS_CHAT_dce194da-72c8-4304-9b05-13ddb52c3d1d
+        turns:
+        - conversation_ended: false
+          input: null
+          response: Hello, how can I help you?
+        - conversation_ended: false
+          input: Hello after restart.
+          response: Hi there! How can I help you today?
+        url: https://studio.us.poly.ai/ben-ws/PROJECT-JTQKOKLM/conversations/AS_CHAT_dce194da-72c8-4304-9b05-13ddb52c3d1d
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: chat json leaves conversation open for resume
+    argv:
+    - poly
+    - chat
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --environment
+    - sandbox
+    - --message
+    - Hello before resume.
+    exit_code: 0
+    stdout_json:
+      conversations:
+      - conversation_id: AS_CHAT_2bee6479-f4b5-4889-b059-a6a2a4cbc074
+        turns:
+        - conversation_ended: false
+          input: null
+          response: Hello, how can I help you?
+        - conversation_ended: false
+          input: Hello before resume.
+          response: Would you mind saying that again?
+        url: https://studio.us.poly.ai/ben-ws/PROJECT-JTQKOKLM/conversations/AS_CHAT_2bee6479-f4b5-4889-b059-a6a2a4cbc074
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: chat json resumes conversation id and exits
+    argv:
+    - poly
+    - chat
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --environment
+    - sandbox
+    - --conversation-id
+    - AS_CHAT_2bee6479-f4b5-4889-b059-a6a2a4cbc074
+    - --message
+    - /exit
+    exit_code: 0
+    stdout_json:
+      conversations:
+      - conversation_id: AS_CHAT_2bee6479-f4b5-4889-b059-a6a2a4cbc074
+        turns: []
+        url: https://studio.us.poly.ai/ben-ws/PROJECT-JTQKOKLM/conversations/AS_CHAT_2bee6479-f4b5-4889-b059-a6a2a4cbc074
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: chat json records server-side conversation-ended metadata
+    argv:
+    - poly
+    - chat
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    - --environment
+    - sandbox
+    - --message
+    - Goodbye, that is all for now.
+    exit_code: 0
+    stdout_json:
+      conversations:
+      - conversation_id: AS_CHAT_8eba4bf7-3ca8-4a53-b1bb-edce7caf0ae5
+        turns:
+        - conversation_ended: false
+          input: null
+          response: Hello, how can I help you?
+        - conversation_ended: true
+          input: Goodbye, that is all for now.
+          response: Okay. I hope you have a great rest of your day. Goodbye!
+        url: https://studio.us.poly.ai/ben-ws/PROJECT-JTQKOKLM/conversations/AS_CHAT_8eba4bf7-3ca8-4a53-b1bb-edce7caf0ae5
+    stdout: null
+    stderr: ''

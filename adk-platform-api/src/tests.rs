@@ -47,7 +47,7 @@ fn create_topic_uses_local_resource_id_before_synthetic_fallback() {
         .expect("create topic command");
     match &create_cmd.payload {
         Some(CommandPayload::CreateTopic(msg)) => assert_eq!(msg.id, "TOPIC-custom-id"),
-        other => panic!("unexpected payload: {other:?}"),
+        _ => panic!("unexpected payload variant for create topic command"),
     }
 }
 
@@ -198,7 +198,7 @@ fn update_function_uses_remote_metadata_when_available() {
             assert!(msg.errors.as_ref().is_some_and(|e| !e.errors.is_empty()));
             assert_eq!(msg.archived, Some(true));
         }
-        other => panic!("unexpected payload: {other:?}"),
+        _ => panic!("unexpected payload variant for update function command"),
     }
 }
 
@@ -226,7 +226,7 @@ fn create_function_infers_description_and_parameters_from_code() {
             assert_eq!(msg.description, "Create greeting.");
             assert_eq!(msg.parameters.len(), 2);
         }
-        other => panic!("unexpected payload: {other:?}"),
+        _ => panic!("unexpected payload variant for create function command"),
     }
 }
 
@@ -420,6 +420,239 @@ fn projection_to_resource_map_includes_extended_resource_files() {
 }
 
 #[test]
+fn broad_resource_files_emit_real_create_commands() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "config/variant_attributes.yaml".to_string(),
+        local_resource(
+            "config/variant_attributes.yaml",
+            "variant_attributes",
+            r#"
+variants:
+  - name: default
+  - name: treatment
+attributes:
+  - name: adk-recording-cohort
+    values:
+      default: control
+      treatment: treatment
+"#,
+        ),
+    );
+    resources.insert(
+        "config/api_integrations.yaml".to_string(),
+        local_resource(
+            "config/api_integrations.yaml",
+            "api_integrations",
+            r#"
+api_integrations:
+  - name: adk_recording_api
+    description: Recording-only API integration.
+    environments:
+      sandbox:
+        base_url: https://example.invalid/sandbox
+        auth_type: none
+    operations:
+      - name: get_recording_status
+        method: GET
+        resource: /status
+"#,
+        ),
+    );
+    resources.insert(
+        "voice/speech_recognition/keyphrase_boosting.yaml".to_string(),
+        local_resource(
+            "voice/speech_recognition/keyphrase_boosting.yaml",
+            "keyphrase_boosting",
+            "keyphrases:\n  - keyphrase: ADK parity\n    level: boosted\n",
+        ),
+    );
+    resources.insert(
+        "voice/speech_recognition/transcript_corrections.yaml".to_string(),
+        local_resource(
+            "voice/speech_recognition/transcript_corrections.yaml",
+            "transcript_corrections",
+            r#"
+corrections:
+  - name: ADK spelling
+    description: Correct ADK spelling.
+    regular_expressions:
+      - regular_expression: agent development kid
+        replacement: agent development kit
+        replacement_type: full
+"#,
+        ),
+    );
+    resources.insert(
+        "voice/response_control/pronunciations.yaml".to_string(),
+        local_resource(
+            "voice/response_control/pronunciations.yaml",
+            "pronunciations",
+            r#"
+pronunciations:
+  - regex: \bADK\b
+    replacement: Agent Development Kit
+    case_sensitive: true
+    language_code: en-US
+"#,
+        ),
+    );
+
+    let commands = build_phase1_commands(&resources, &serde_json::json!({}));
+    let types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    for expected in [
+        "variant_create_variant",
+        "variant_create_attribute",
+        "create_api_integration",
+        "create_api_integration_operation",
+        "create_keyphrase_boosting",
+        "create_transcript_corrections",
+        "pronunciations_create_pronunciation",
+    ] {
+        assert!(
+            types.contains(&expected),
+            "missing broad create command: {expected}"
+        );
+    }
+
+    let attribute = commands
+        .iter()
+        .find(|command| command.r#type == "variant_create_attribute")
+        .expect("variant_create_attribute command");
+    match &attribute.payload {
+        Some(CommandPayload::VariantCreateAttribute(payload)) => {
+            let values = payload
+                .variant_values
+                .as_ref()
+                .expect("variant values")
+                .values
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
+            assert!(values.contains(&"control".to_string()));
+            assert!(values.contains(&"treatment".to_string()));
+        }
+        _ => panic!("unexpected payload variant for variant_create_attribute command"),
+    }
+
+    let api = commands
+        .iter()
+        .find(|command| command.r#type == "create_api_integration")
+        .expect("create_api_integration command");
+    match &api.payload {
+        Some(CommandPayload::CreateApiIntegration(payload)) => {
+            assert_eq!(payload.name, "adk_recording_api");
+            assert_eq!(
+                payload
+                    .environments
+                    .as_ref()
+                    .and_then(|envs| envs.sandbox.as_ref())
+                    .map(|env| env.base_url.as_str()),
+                Some("https://example.invalid/sandbox")
+            );
+        }
+        _ => panic!("unexpected payload variant for create_api_integration command"),
+    }
+}
+
+#[test]
+fn broad_settings_files_emit_real_update_commands() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "agent_settings/personality.yaml".to_string(),
+        local_resource(
+            "agent_settings/personality.yaml",
+            "personality",
+            "adjectives:\n  Curious: true\ncustom: Recording parity custom personality.\n",
+        ),
+    );
+    resources.insert(
+        "agent_settings/role.yaml".to_string(),
+        local_resource(
+            "agent_settings/role.yaml",
+            "role",
+            "value: CustomerServiceRepresentative\nadditional_info: Recording parity role detail.\ncustom: ''\n",
+        ),
+    );
+    resources.insert(
+        "agent_settings/safety_filters.yaml".to_string(),
+        local_resource(
+            "agent_settings/safety_filters.yaml",
+            "safety_filters",
+            "enabled: true\ncategories:\n  violence:\n    enabled: true\n    level: medium\n",
+        ),
+    );
+    resources.insert(
+        "voice/configuration.yaml".to_string(),
+        local_resource(
+            "voice/configuration.yaml",
+            "voice_configuration",
+            r#"
+greeting:
+  welcome_message: Hello from tests.
+  language_code: en-US
+style_prompt:
+  prompt: Keep it compact.
+disclaimer_messages:
+  enabled: true
+  message: This call may be recorded.
+  language_code: en-US
+"#,
+        ),
+    );
+    resources.insert(
+        "voice/speech_recognition/asr_settings.yaml".to_string(),
+        local_resource(
+            "voice/speech_recognition/asr_settings.yaml",
+            "asr_settings",
+            "barge_in: true\ninteraction_style: balanced\n",
+        ),
+    );
+
+    let commands = build_phase1_commands(&resources, &serde_json::json!({}));
+    let types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    for expected in [
+        "update_personality",
+        "update_role",
+        "update_content_filter_settings",
+        "channel_update_greeting",
+        "channel_update_style_prompt",
+        "voice_channel_update_disclaimer",
+        "voice_channel_update_asr_settings",
+    ] {
+        assert!(
+            types.contains(&expected),
+            "missing broad update command: {expected}"
+        );
+    }
+
+    let asr = commands
+        .iter()
+        .find(|command| command.r#type == "voice_channel_update_asr_settings")
+        .expect("voice_channel_update_asr_settings command");
+    match &asr.payload {
+        Some(CommandPayload::VoiceChannelUpdateAsrSettings(payload)) => {
+            let settings = payload.asr_settings.as_ref().expect("asr settings");
+            assert_eq!(settings.barge_in, Some(true));
+            assert_eq!(
+                settings
+                    .latency_config
+                    .as_ref()
+                    .map(|config| config.interaction_style.as_str()),
+                Some("balanced")
+            );
+        }
+        _ => panic!("unexpected payload variant for voice_channel_update_asr_settings command"),
+    }
+}
+
+#[test]
 fn extract_response_commands_reads_common_response_shapes() {
     let direct = serde_json::json!({
         "commands": [{"type": "create_topic"}]
@@ -435,4 +668,13 @@ fn extract_response_commands_reads_common_response_shapes() {
         "result": {"commands": [{"type": "update_topic"}]}
     });
     assert_eq!(extract_response_commands(&nested_result).len(), 1);
+}
+
+fn local_resource(path: &str, name: &str, content: &str) -> Resource {
+    Resource {
+        resource_id: "local".to_string(),
+        name: name.to_string(),
+        file_path: path.to_string(),
+        payload: serde_json::json!({ "content": content }),
+    }
 }

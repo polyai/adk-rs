@@ -192,7 +192,7 @@ references:
             assert!(refs.variables.get("var-1").copied().unwrap_or(false));
             assert!(refs.translations.get("tr-1").copied().unwrap_or(false));
         }
-        other => panic!("unexpected payload: {other:?}"),
+        _ => panic!("unexpected payload variant for SMS create command"),
     }
 }
 
@@ -236,7 +236,7 @@ references:
             assert_eq!(refs.global_functions.get("fn-one"), Some(&true));
             assert_eq!(refs.global_functions.get("fn-two"), Some(&false));
         }
-        other => panic!("unexpected payload: {other:?}"),
+        _ => panic!("unexpected payload variant for stop keyword create command"),
     }
 }
 
@@ -290,6 +290,6 @@ language_code: en-US
         Some(CommandPayload::ExperimentalConfigUpdateConfig(msg)) => {
             assert_eq!(msg.id, "default")
         }
-        other => panic!("unexpected payload: {other:?}"),
+        _ => panic!("unexpected payload variant for experimental config update command"),
     }
 }

@@ -27,6 +27,7 @@ pub mod sms;
 pub mod snapshot;
 pub mod start_function;
 pub mod stop_keywords;
+pub mod testing;
 pub mod transcript_corrections;
 pub mod translations;
 pub mod variables;

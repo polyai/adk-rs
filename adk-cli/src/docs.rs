@@ -37,7 +37,7 @@ pub(super) fn cmd_docs(args: super::DocsArgs) -> ExitCode {
         match load_docs(doc_name) {
             Ok(content) => parts.push(content),
             Err(error) => {
-                eprintln!("{error}");
+                super::console::error(error);
                 return ExitCode::from(1);
             }
         }
@@ -55,14 +55,17 @@ pub(super) fn cmd_docs(args: super::DocsArgs) -> ExitCode {
         if let Some(parent) = output_path.parent()
             && let Err(error) = fs::create_dir_all(parent)
         {
-            eprintln!("{error}");
+            super::console::error(error.to_string());
             return ExitCode::from(1);
         }
         if let Err(error) = fs::write(&output_path, content) {
-            eprintln!("{error}");
+            super::console::error(error.to_string());
             return ExitCode::from(1);
         }
-        println!("Documentation written to {}", output_path.to_string_lossy());
+        super::console::success(format!(
+            "Documentation written to {}",
+            output_path.to_string_lossy()
+        ));
         ExitCode::SUCCESS
     } else {
         println!("{content}");

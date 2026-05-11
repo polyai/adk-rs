@@ -48,6 +48,12 @@ const INTERACTIVE_CONTRACTS_COMMAND_MANIFEST_FILE: &str = "interactive-contracts
 const INTERACTIVE_CONTRACTS_HTTPMOCK_RECORDING_FILE: &str = "interactive-contracts.httpmock.yaml";
 const CHAT_JSON_COMMAND_MANIFEST_FILE: &str = "chat-json.commands.yaml";
 const CHAT_JSON_HTTPMOCK_RECORDING_FILE: &str = "chat-json.httpmock.yaml";
+const CHAT_SESSION_CONTROLS_COMMAND_MANIFEST_FILE: &str = "chat-session-controls.commands.yaml";
+const CHAT_SESSION_CONTROLS_HTTPMOCK_RECORDING_FILE: &str = "chat-session-controls.httpmock.yaml";
+const PULL_FORCE_CLEANUP_COMMAND_MANIFEST_FILE: &str = "pull-force-cleanup.commands.yaml";
+const PULL_FORCE_CLEANUP_HTTPMOCK_RECORDING_FILE: &str = "pull-force-cleanup.httpmock.yaml";
+const CHAT_ERROR_METADATA_COMMAND_MANIFEST_FILE: &str = "chat-error-metadata.commands.yaml";
+const CHAT_ERROR_METADATA_HTTPMOCK_RECORDING_FILE: &str = "chat-error-metadata.httpmock.yaml";
 const CLI_DIFF_EDGES_COMMAND_MANIFEST_FILE: &str = "cli-diff-edges.commands.yaml";
 const CLI_DIFF_EDGES_HTTPMOCK_RECORDING_FILE: &str = "cli-diff-edges.httpmock.yaml";
 const MUTATING_BRANCH_NAME: &str = "adk-rs-recording-mutating";
@@ -96,6 +102,11 @@ const FORMAT_UNFORMATTED_TOPIC: &str = "name: ADK Format Recording\nenabled: tru
 const FORMAT_UNFORMATTED_FUNCTION: &str =
     "def adk_format_recording( conv ):\n return {'utterance':'hi'}\n";
 const CHAT_INPUT_FILE_TEXT: &str = "Hello from input file\n/exit\n";
+const PULL_FORCE_LOCAL_TOPIC_FILE: &str = "topics/adk_pull_force_local_only.yaml";
+const PULL_FORCE_LOCAL_TOPIC_TEXT: &str = "name: ADK Pull Force Local Only\nenabled: true\nactions: This resource should be deleted by pull --force.\ncontent: Local-only topic used by Python recording tests.\nexample_queries:\n- Should this local topic remain after pull force?\n";
+const PULL_FORCE_LOCAL_FUNCTION_FILE: &str = "functions/adk_pull_force_local_only.py";
+const PULL_FORCE_LOCAL_FUNCTION_TEXT: &str =
+    "def adk_pull_force_local_only(conversation):\n    return {\"utterance\": \"local only\"}\n";
 
 #[derive(Debug, Serialize)]
 struct CommandManifest {
@@ -2296,7 +2307,7 @@ fn record_merge_conflict_resolution_with_python_adk_and_httpmock() {
 }
 
 #[test]
-#[ignore = "records real Agent Studio traffic; pending parity fixture for Python pull resource coverage"]
+#[ignore = "records real Agent Studio traffic; refreshes Python pull resource coverage"]
 fn record_pull_resource_coverage_with_python_adk_and_httpmock() {
     let api_key = api_key_from_env();
     let server = MockServer::start();
@@ -2447,7 +2458,7 @@ fn record_pull_resource_coverage_with_python_adk_and_httpmock() {
 }
 
 #[test]
-#[ignore = "records real Agent Studio traffic; pending parity fixture for Python push resource command coverage"]
+#[ignore = "records real Agent Studio traffic; refreshes Python push resource command coverage"]
 fn record_push_resource_coverage_with_python_adk_and_httpmock() {
     let api_key = api_key_from_env();
     let server = MockServer::start();
@@ -2660,7 +2671,7 @@ fn record_push_resource_coverage_with_python_adk_and_httpmock() {
 }
 
 #[test]
-#[ignore = "records real Agent Studio traffic; pending parity fixture for Python semantic validation"]
+#[ignore = "records real Agent Studio traffic; refreshes Python semantic validation"]
 fn record_semantic_validation_with_python_adk_and_httpmock() {
     let api_key = api_key_from_env();
     let server = MockServer::start();
@@ -2791,7 +2802,7 @@ fn record_semantic_validation_with_python_adk_and_httpmock() {
 }
 
 #[test]
-#[ignore = "records real Agent Studio traffic; pending parity fixture for Python local formatting"]
+#[ignore = "records real Agent Studio traffic; refreshes Python local formatting"]
 fn record_format_local_with_python_adk_and_httpmock() {
     let api_key = api_key_from_env();
     let server = MockServer::start();
@@ -2933,7 +2944,7 @@ fn record_format_local_with_python_adk_and_httpmock() {
 }
 
 #[test]
-#[ignore = "records real Agent Studio traffic; pending parity fixture for Python interactive-adjacent contracts"]
+#[ignore = "records real Agent Studio traffic; refreshes Python interactive-adjacent contracts"]
 fn record_interactive_contracts_with_python_adk_and_httpmock() {
     let api_key = api_key_from_env();
     let server = MockServer::start();
@@ -3075,7 +3086,7 @@ fn record_interactive_contracts_with_python_adk_and_httpmock() {
 }
 
 #[test]
-#[ignore = "records real Agent Studio traffic; pending parity fixture for Python chat JSON behavior"]
+#[ignore = "records real Agent Studio traffic; refreshes Python chat JSON behavior"]
 fn record_chat_json_with_python_adk_and_httpmock() {
     let api_key = api_key_from_env();
     let server = MockServer::start();
@@ -3207,8 +3218,483 @@ fn record_chat_json_with_python_adk_and_httpmock() {
     assert_required_results("chat JSON", &required_results);
 }
 
+fn first_recorded_conversation_id(record: &CommandRecord) -> Option<String> {
+    record
+        .stdout_json
+        .as_ref()
+        .and_then(|json| json.pointer("/conversations/0/conversation_id"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn chat_record_has_error_turn(record: &CommandRecord) -> bool {
+    record
+        .stdout_json
+        .as_ref()
+        .and_then(|json| json.pointer("/conversations/0/turns/0/error"))
+        .is_some()
+}
+
+fn target_project_config() -> String {
+    format!(
+        "region: {TARGET_REGION}\naccount_id: {TARGET_ACCOUNT_ID}\nproject_id: {TARGET_PROJECT_ID}\nbranch_id: main\n"
+    )
+}
+
 #[test]
-#[ignore = "records real Agent Studio traffic; pending parity fixture for Python CLI surface and diff edge behavior"]
+#[ignore = "records real Agent Studio traffic; refreshes chat restart/resume/exit controls"]
+fn record_chat_session_controls_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+
+    let project_config = target_project_config();
+    let config = write_text_file(
+        "write project config before chat session controls",
+        &project_root,
+        "project.yaml",
+        project_config.as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before chat session controls",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let restart_and_exit = run_python_poly_with_options(
+        "chat json restart starts a new conversation before exit",
+        &[
+            "chat",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--environment",
+            "sandbox",
+            "--message",
+            "Hello before restart.",
+            "--message",
+            "/restart",
+            "--message",
+            "Hello after restart.",
+            "--message",
+            "/exit",
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            base_url: PythonBaseUrlMode::AgentStudioRoot,
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "chat json restart starts a new conversation before exit",
+        command_succeeded(&restart_and_exit),
+    ));
+    steps.push(WorkflowStep::Command(restart_and_exit));
+
+    let open_chat = run_python_poly_with_options(
+        "chat json leaves conversation open for resume",
+        &[
+            "chat",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--environment",
+            "sandbox",
+            "--message",
+            "Hello before resume.",
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            base_url: PythonBaseUrlMode::AgentStudioRoot,
+            ..RunPythonOptions::default()
+        },
+    );
+    let resume_id = first_recorded_conversation_id(&open_chat);
+    required_results.push((
+        "chat json leaves conversation open for resume",
+        command_succeeded(&open_chat),
+    ));
+    required_results.push((
+        "extract conversation id for resumed chat",
+        resume_id.is_some(),
+    ));
+    steps.push(WorkflowStep::Command(open_chat));
+
+    if let Some(resume_id) = resume_id {
+        let resumed_exit = run_python_poly_with_options(
+            "chat json resumes conversation id and exits",
+            &[
+                "chat",
+                "--json",
+                "--path",
+                project_path.as_str(),
+                "--environment",
+                "sandbox",
+                "--conversation-id",
+                resume_id.as_str(),
+                "--message",
+                "/exit",
+            ],
+            &server,
+            &replacements,
+            RunPythonOptions {
+                base_url: PythonBaseUrlMode::AgentStudioRoot,
+                ..RunPythonOptions::default()
+            },
+        );
+        required_results.push((
+            "chat json resumes conversation id and exits",
+            command_succeeded(&resumed_exit),
+        ));
+        steps.push(WorkflowStep::Command(resumed_exit));
+    }
+
+    let goodbye = run_python_poly_with_options(
+        "chat json records server-side conversation-ended metadata",
+        &[
+            "chat",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--environment",
+            "sandbox",
+            "--message",
+            "Goodbye, that is all for now.",
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            base_url: PythonBaseUrlMode::AgentStudioRoot,
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "chat json records server-side conversation-ended metadata",
+        command_succeeded(&goodbye),
+    ));
+    steps.push(WorkflowStep::Command(goodbye));
+
+    let recording_path = recording
+        .save("chat-session-controls-python-adk")
+        .expect("save chat session controls recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        CHAT_SESSION_CONTROLS_HTTPMOCK_RECORDING_FILE,
+        CHAT_SESSION_CONTROLS_COMMAND_MANIFEST_FILE,
+        vec![
+            "Replay fixture for chat control commands and resumed conversations.",
+            "The restart step records Python's JSON behavior for /restart and /exit in one scripted run.",
+            "The resume step records that --conversation-id skips session creation and can be ended with /exit.",
+            "The goodbye step documents the server-side conversation_ended flag as returned by the real project.",
+        ],
+        StepWorkflow {
+            name: "chat_session_controls",
+            description: "Record Python chat --json behavior for /restart, /exit, resumed conversation IDs, and conversation-ended metadata.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("chat session controls", &required_results);
+}
+
+#[test]
+#[ignore = "records real Agent Studio traffic; refreshes pull --force local cleanup"]
+fn record_pull_force_cleanup_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+
+    let project_config = target_project_config();
+    let config = write_text_file(
+        "write project config before pull force cleanup",
+        &project_root,
+        "project.yaml",
+        project_config.as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before pull force cleanup",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let topic = write_text_file(
+        "write pull force topic before force pull",
+        &project_root,
+        PULL_FORCE_LOCAL_TOPIC_FILE,
+        PULL_FORCE_LOCAL_TOPIC_TEXT,
+        &replacements,
+    );
+    required_results.push(("write pull force topic before force pull", topic.success));
+    steps.push(WorkflowStep::FileEdit(topic));
+
+    let function = write_text_file(
+        "write pull force function before force pull",
+        &project_root,
+        PULL_FORCE_LOCAL_FUNCTION_FILE,
+        PULL_FORCE_LOCAL_FUNCTION_TEXT,
+        &replacements,
+    );
+    required_results.push((
+        "write pull force function before force pull",
+        function.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(function));
+
+    let dirty_status = run_python_poly(
+        "status reports local-only resources before force pull",
+        &["status", "--json", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "status reports local-only resources before force pull",
+        command_succeeded(&dirty_status),
+    ));
+    steps.push(WorkflowStep::Command(dirty_status));
+
+    let force_pull = run_python_poly(
+        "pull force removes local-only resources",
+        &["pull", "--json", "--force", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "pull force removes local-only resources",
+        command_succeeded(&force_pull),
+    ));
+    steps.push(WorkflowStep::Command(force_pull));
+
+    required_results.push((
+        "pull force removed local-only topic from disk",
+        !project_root.join(PULL_FORCE_LOCAL_TOPIC_FILE).exists(),
+    ));
+    required_results.push((
+        "pull force removed local-only function from disk",
+        !project_root.join(PULL_FORCE_LOCAL_FUNCTION_FILE).exists(),
+    ));
+
+    let clean_status = run_python_poly(
+        "status after force pull is clean",
+        &["status", "--json", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "status after force pull is clean",
+        command_succeeded(&clean_status),
+    ));
+    steps.push(WorkflowStep::Command(clean_status));
+
+    let recording_path = recording
+        .save("pull-force-cleanup-python-adk")
+        .expect("save pull force cleanup recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        PULL_FORCE_CLEANUP_HTTPMOCK_RECORDING_FILE,
+        PULL_FORCE_CLEANUP_COMMAND_MANIFEST_FILE,
+        vec![
+            "Replay fixture for Python pull --force cleanup of local-only resources.",
+            "The manifest records explicit file edits before pull, then asserts Python removes those files from disk.",
+        ],
+        StepWorkflow {
+            name: "pull_force_cleanup",
+            description: "Record Python pull --force behavior when a checkout contains local-only resources absent from Agent Studio.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("pull force cleanup", &required_results);
+}
+
+#[test]
+#[ignore = "records real Agent Studio traffic; refreshes chat errors and metadata"]
+fn record_chat_error_metadata_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+
+    let project_config = target_project_config();
+    let config = write_text_file(
+        "write project config before chat error metadata checks",
+        &project_root,
+        "project.yaml",
+        project_config.as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before chat error metadata checks",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let metadata = run_python_poly_with_options(
+        "chat json all metadata flags",
+        &[
+            "chat",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--environment",
+            "sandbox",
+            "--message",
+            "Hello from the ADK metadata recording.",
+            "--functions",
+            "--flows",
+            "--state",
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            base_url: PythonBaseUrlMode::AgentStudioRoot,
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push(("chat json all metadata flags", command_succeeded(&metadata)));
+    steps.push(WorkflowStep::Command(metadata));
+
+    let invalid_resume = run_python_poly_with_options(
+        "chat json send-message error is captured in turn",
+        &[
+            "chat",
+            "--json",
+            "--path",
+            project_path.as_str(),
+            "--environment",
+            "sandbox",
+            "--conversation-id",
+            "AS_CHAT_adk-rs-recording-missing-conversation",
+            "--message",
+            "This message should record the Python error contract.",
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            base_url: PythonBaseUrlMode::AgentStudioRoot,
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "chat json send-message command completes with JSON error payload",
+        invalid_resume.exit_code == 0,
+    ));
+    required_results.push((
+        "chat json send-message error is captured in turn",
+        chat_record_has_error_turn(&invalid_resume),
+    ));
+    steps.push(WorkflowStep::Command(invalid_resume));
+
+    let recording_path = recording
+        .save("chat-error-metadata-python-adk")
+        .expect("save chat error metadata recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        CHAT_ERROR_METADATA_HTTPMOCK_RECORDING_FILE,
+        CHAT_ERROR_METADATA_COMMAND_MANIFEST_FILE,
+        vec![
+            "Replay fixture for chat metadata flags and Python's JSON error-turn contract.",
+            "The metadata step records --functions/--flows/--state projection in chat JSON output.",
+            "The invalid --conversation-id step records that Python captures send-message failures as a turn-level error.",
+        ],
+        StepWorkflow {
+            name: "chat_error_metadata",
+            description: "Record Python chat --json metadata projection and send-message error handling.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("chat error metadata", &required_results);
+}
+
+#[test]
+#[ignore = "records real Agent Studio traffic; refreshes Python CLI surface and diff edge behavior"]
 fn record_cli_diff_edges_with_python_adk_and_httpmock() {
     let api_key = api_key_from_env();
     let server = MockServer::start();
@@ -3451,11 +3937,28 @@ fn run_python_poly(
     )
 }
 
+#[derive(Clone, Copy, Default)]
+enum PythonBaseUrlMode {
+    #[default]
+    AdkV1,
+    AgentStudioRoot,
+}
+
+impl PythonBaseUrlMode {
+    fn base_url(self, server: &MockServer) -> String {
+        match self {
+            PythonBaseUrlMode::AdkV1 => httpmock_adk_base_url(server),
+            PythonBaseUrlMode::AgentStudioRoot => server.base_url(),
+        }
+    }
+}
+
 #[derive(Default)]
 struct RunPythonOptions<'a> {
     stdin: Option<&'a str>,
     cwd: Option<&'a Path>,
     remove_env: &'a [&'a str],
+    base_url: PythonBaseUrlMode,
 }
 
 fn run_python_poly_with_options(
@@ -3466,11 +3969,12 @@ fn run_python_poly_with_options(
     options: RunPythonOptions<'_>,
 ) -> CommandRecord {
     let replacements = command_replacements(replacements);
+    let base_url = options.base_url.base_url(server);
     let mut command = Command::new(python_adk_bin());
     command
-        .env("POLY_ADK_BASE_URL_US", httpmock_adk_base_url(server))
-        .env("POLY_ADK_BASE_URL_US_1", httpmock_adk_base_url(server))
-        .env("POLY_ADK_BASE_URL", httpmock_adk_base_url(server))
+        .env("POLY_ADK_BASE_URL_US", &base_url)
+        .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .env("POLY_ADK_BASE_URL", &base_url)
         .args(args);
     for key in options.remove_env {
         command.env_remove(key);

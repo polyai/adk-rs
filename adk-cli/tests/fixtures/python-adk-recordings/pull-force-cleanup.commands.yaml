@@ -1,0 +1,108 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Replay fixture for Python pull --force cleanup of local-only resources.
+- The manifest records explicit file edits before pull, then asserts Python removes those files from disk.
+httpmock_recording: pull-force-cleanup.httpmock.yaml
+workflows:
+- name: pull_force_cleanup
+  description: Record Python pull --force behavior when a checkout contains local-only resources absent from Agent Studio.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: file_edit
+    name: write project config before pull force cleanup
+    operation: write_text
+    path: project.yaml
+    content: |
+      region: us-1
+      account_id: ben-ws
+      project_id: PROJECT-JTQKOKLM
+      branch_id: main
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write pull force topic before force pull
+    operation: write_text
+    path: topics/adk_pull_force_local_only.yaml
+    content: |
+      name: ADK Pull Force Local Only
+      enabled: true
+      actions: This resource should be deleted by pull --force.
+      content: Local-only topic used by Python recording tests.
+      example_queries:
+      - Should this local topic remain after pull force?
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write pull force function before force pull
+    operation: write_text
+    path: functions/adk_pull_force_local_only.py
+    content: |
+      def adk_pull_force_local_only(conversation):
+          return {"utterance": "local only"}
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: status reports local-only resources before force pull
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files: []
+      new_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/adk_pull_force_local_only.py
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/topics/adk_pull_force_local_only.yaml
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: pull force removes local-only resources
+    argv:
+    - poly
+    - pull
+    - --json
+    - --force
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      files_with_conflicts: []
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: status after force pull is clean
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files: []
+      new_files: []
+    stdout: null
+    stderr: ''

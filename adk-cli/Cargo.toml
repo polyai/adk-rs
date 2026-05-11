@@ -11,9 +11,11 @@ clap.workspace = true
 clap_complete.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+indexmap.workspace = true
 reqwest.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+rich_rust = { version = "0.2.1", features = ["backtrace"] }
 adk-core = { path = "../adk-core" }
 adk-platform-api = { path = "../adk-platform-api" }
 
