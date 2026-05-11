@@ -110,6 +110,7 @@ pub mod python_recordings {
         "basic-readonly",
         "branch-merge-main",
         "branch-update-push",
+        "broad-lifecycle",
         "channel-settings",
         "chat-error-metadata",
         "chat-json",

@@ -20,10 +20,11 @@ Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be co
   - Acceptance: Rust round-trips `channels.webChat.config.greeting`, `stylePrompt`, `safetyFilters`, `channels.voice.config.safetyFilters`, and emits the matching `channel_update_*` command payloads with `VOICE`/`WEB_CHAT` channel types.
   - Implemented: Rust now materializes webchat configuration and safety-filter resources when the webchat channel is created, pushes voice and webchat safety filters plus webchat greeting/style updates with Python-compatible channel types and ordering, and replays the real `channel-settings` Python recording. The recording establishes a webchat-enabled baseline with `pull --from-projection` before editing so Python exercises update commands rather than unsupported channel setting creates.
 
-- [ ] **Complete update/delete command parity for broad multi-resource families** (`broad-resource-lifecycle-parity`)
+- [x] **Complete update/delete command parity for broad multi-resource families** (`broad-resource-lifecycle-parity`)
   - Rust currently creates several broad resources but does not emit Python-compatible update/delete commands for all lifecycle states.
   - Add recordings that update and delete variants/variant attributes, API integrations/configs/operations, keyphrase boosting entries, transcript corrections, and pronunciations.
   - Acceptance: Rust push matches Python's command types and ordering for create, update, and delete across these families, including nested API integration operation/config commands.
+  - Implemented: Rust now diffs broad multi-resource YAML files against projection data for variant/attribute, API integration/config/operation, keyphrase, transcript correction, and pronunciation create/update/delete lifecycles. The `broad-lifecycle` Python recording documents the command contract and is enabled in the cheap Rust replay suite.
 
 - [x] **Send broad-resource commands on real push** (`push-broad-resources-real`)
   - Extend real `push` command generation, not only dry-run summaries, for variants, API integrations/operations, keyphrase boosting, transcript corrections, pronunciations, voice/channel settings, and other broad resources already documented by dry-run recordings.

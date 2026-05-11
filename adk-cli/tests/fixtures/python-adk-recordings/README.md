@@ -18,6 +18,11 @@ Each scenario has a command manifest and a matching raw `httpmock` cassette:
   Create a throwaway branch, edit `agent_settings/rules.txt`, dry-run push
   command generation, perform a real branch push, diff against main, and delete
   the branch.
+- `broad-lifecycle.*`
+  Create a throwaway branch, pull a synthetic broad-resource baseline, update,
+  create, and delete variants, API integrations, keyphrases, transcript
+  corrections, and pronunciations, dry-run Python command generation, and delete
+  the branch.
 - `channel-settings.*`
   Create a throwaway branch, pull a webchat-enabled baseline projection, write
   voice safety filters plus webchat greeting/style/safety resources, dry-run
