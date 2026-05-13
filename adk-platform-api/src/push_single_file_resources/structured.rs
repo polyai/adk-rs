@@ -1,7 +1,7 @@
-//! Push commands for broad, single-file resource families that are not part of the original
-//! topic/function/entity phase-1 set.
+//! Push commands for structured single-file resource families such as variants, API integrations,
+//! pronunciation data, transcript corrections, keyphrase boosting, and channel settings.
 
-use crate::push_extended::CommandGroups;
+use super::CommandGroups;
 use crate::{
     generated_replay_resource_id, projection_to_resource_map, push_command, random_resource_id,
     yaml_str,
@@ -49,7 +49,7 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
-pub(crate) fn broad_resource_command_groups(
+pub(crate) fn structured_file_resource_command_groups(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,
@@ -1572,6 +1572,7 @@ fn api_environment_items_from_projection(value: &Value) -> HashMap<String, ApiEn
     let mut out = HashMap::new();
     for (source_key, normalized_key) in [
         ("sandbox", "sandbox"),
+        ("pre-release", "pre_release"),
         ("preRelease", "pre_release"),
         ("pre_release", "pre_release"),
         ("live", "live"),
@@ -1811,12 +1812,14 @@ fn transcript_item_with_remote_regex_ids(
     merged.id = remote.id.clone();
     for (idx, regex) in merged.regular_expressions.iter_mut().enumerate() {
         if regex.id.is_empty() {
-            regex.id = remote
+            if let Some(remote_id) = remote
                 .regular_expressions
                 .get(idx)
                 .map(|regex| regex.id.clone())
                 .filter(|id| !id.is_empty())
-                .unwrap_or_else(|| format!("{}-REGEX-{idx}", remote.id));
+            {
+                regex.id = remote_id;
+            }
         }
     }
     merged

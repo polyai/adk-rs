@@ -3,26 +3,14 @@ use adk_domain::{
 };
 use adk_protobuf::agent::{RulesReferences, RulesUpdateRules};
 use adk_protobuf::command::Payload as CommandPayload;
-use adk_protobuf::end_function::{
-    EndFunctionCreate, EndFunctionDelete, EndFunctionReferences, EndFunctionUpdate,
-};
-use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityUpdate};
-use adk_protobuf::functions::{
-    ErrorsUpdate, FunctionCreateFunction, FunctionDeleteFunction, FunctionError, FunctionParameter,
-    FunctionParameterUpdate, FunctionUpdateFunction, ParametersUpdate,
-};
-use adk_protobuf::knowledge_base::{
-    ExampleQueries, KnowledgeBaseCreateTopic, KnowledgeBaseDeleteTopic, KnowledgeBaseUpdateTopic,
-    TopicReferences,
-};
-use adk_protobuf::start_function::{
-    StartFunctionCreate, StartFunctionDelete, StartFunctionReferences, StartFunctionUpdate,
-};
+use adk_protobuf::entities;
+use adk_protobuf::functions::FunctionParameter;
+use adk_protobuf::knowledge_base::{KnowledgeBaseCreateTopic, TopicReferences};
 use adk_protobuf::variables::VariableReferences;
 use adk_protobuf::{Command, CommandBatch, Metadata};
 use prost::Message;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::env;
 use thiserror::Error;
 use uuid::Uuid;
@@ -42,8 +30,11 @@ pub enum ApiError {
 }
 
 mod in_memory;
-mod push_broad;
-mod push_extended;
+mod push_flows;
+mod push_functions;
+mod push_single_file_resources;
+mod push_topics;
+mod push_variables;
 
 pub use in_memory::InMemoryPlatformClient;
 
@@ -150,11 +141,7 @@ impl HttpPlatformClient {
         project_id: &str,
         branch_id: Option<&str>,
     ) -> Result<Self, ApiError> {
-        let api_key = env::var("POLY_ADK_KEY").map_err(|_| {
-            ApiError::MissingConfig(
-                "POLY_ADK_KEY is not set; export POLY_ADK_KEY=<api-key>".to_string(),
-            )
-        })?;
+        let api_key = api_key_for_region(region)?;
         let base_url = base_url_for_region(region)?;
         Ok(Self {
             client: reqwest::blocking::Client::new(),
@@ -219,11 +206,7 @@ impl HttpPlatformClient {
     }
 
     fn request_region_json(region: &str, endpoint: &str) -> Result<Value, ApiError> {
-        let api_key = env::var("POLY_ADK_KEY").map_err(|_| {
-            ApiError::MissingConfig(
-                "POLY_ADK_KEY is not set; export POLY_ADK_KEY=<api-key>".to_string(),
-            )
-        })?;
+        let api_key = api_key_for_region(region)?;
         let base_url = base_url_for_region(region)?;
         let url = format!("{base_url}{endpoint}");
         let response = reqwest::blocking::Client::new()
@@ -987,7 +970,7 @@ impl HttpPlatformClient {
 pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, ApiError> {
     let mut map = ResourceMap::new();
 
-    for (id, topic) in topic_entries(projection) {
+    for (id, topic) in push_topics::topic_entries(projection) {
         let name = topic
             .get("name")
             .and_then(Value::as_str)
@@ -1018,7 +1001,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
         );
     }
 
-    for (id, function) in function_entries(projection) {
+    for (id, function) in push_functions::function_entries(projection) {
         let name = function
             .get("name")
             .and_then(Value::as_str)
@@ -1026,7 +1009,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
             .to_string();
         let file_name = clean_name(&name).to_lowercase();
         let file_path = format!("functions/{file_name}.py");
-        let content = function_raw_content(&function);
+        let content = push_functions::function_raw_content(&function);
         map.insert(
             file_path.clone(),
             Resource {
@@ -1037,11 +1020,14 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
             },
         );
     }
-    for kind in [SpecialFunctionKind::Start, SpecialFunctionKind::End] {
-        if let Some((id, function)) = special_function_entry(projection, kind) {
-            let name = special_function_name(kind).to_string();
+    for kind in [
+        push_functions::SpecialFunctionKind::Start,
+        push_functions::SpecialFunctionKind::End,
+    ] {
+        if let Some((id, function)) = push_functions::special_function_entry(projection, kind) {
+            let name = push_functions::special_function_name(kind).to_string();
             let file_path = format!("functions/{name}.py");
-            let content = function_raw_content(&function);
+            let content = push_functions::function_raw_content(&function);
             map.insert(
                 file_path.clone(),
                 Resource {
@@ -1052,6 +1038,10 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
                 },
             );
         }
+    }
+
+    for (id, flow) in flow_entries(projection) {
+        insert_flow_resources(&mut map, &id, &flow)?;
     }
 
     let mut entity_yaml_list = Vec::new();
@@ -1145,15 +1135,43 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
     }
 
     // phrase filters
+    let global_function_names = push_functions::function_entries(projection)
+        .into_iter()
+        .filter_map(|(id, function)| {
+            Some((
+                id,
+                function
+                    .get("name")?
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            ))
+        })
+        .collect::<HashMap<_, _>>();
     let mut phrase_yaml_list = Vec::new();
     for (_id, pf) in phrase_filter_entries(projection) {
-        phrase_yaml_list.push(serde_json::json!({
-                "name": pf.get("title").and_then(Value::as_str).unwrap_or(""),
-                "description": pf.get("description").and_then(Value::as_str).unwrap_or(""),
-                "regular_expressions": pf.get("regularExpressions").and_then(Value::as_array).cloned().unwrap_or_default(),
-                "say_phrase": pf.get("sayPhrase").and_then(Value::as_bool).unwrap_or(false),
-                "language_code": pf.get("languageCode").and_then(Value::as_str).unwrap_or(""),
-            }));
+        let mut phrase = serde_json::json!({
+            "name": pf.get("title").and_then(Value::as_str).unwrap_or(""),
+            "description": pf.get("description").and_then(Value::as_str).unwrap_or(""),
+            "regular_expressions": pf.get("regularExpressions").and_then(Value::as_array).cloned().unwrap_or_default(),
+            "say_phrase": pf.get("sayPhrase").and_then(Value::as_bool).unwrap_or(false),
+            "language_code": pf.get("languageCode").and_then(Value::as_str).unwrap_or(""),
+        });
+        if let Some(function_id) = pf
+            .pointer("/references/globalFunctions")
+            .or_else(|| pf.pointer("/references/global_functions"))
+            .and_then(Value::as_object)
+            .and_then(|refs| refs.keys().next())
+        {
+            phrase["function"] = Value::String(
+                global_function_names
+                    .get(function_id)
+                    .filter(|name| !name.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| function_id.to_string()),
+            );
+        }
+        phrase_yaml_list.push(phrase);
     }
     if !phrase_yaml_list.is_empty() {
         let content = serde_yaml::to_string(&serde_json::json!({
@@ -1183,6 +1201,56 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
                 payload: serde_json::json!({ "content": content }),
             },
         );
+    }
+
+    if let Some(value) = variant_attributes_yaml(projection) {
+        insert_yaml_resource(
+            &mut map,
+            "config/variant_attributes.yaml",
+            "variant_attributes",
+            "variant_attributes",
+            value,
+        )?;
+    }
+
+    if let Some(value) = api_integrations_yaml(projection) {
+        insert_yaml_resource(
+            &mut map,
+            "config/api_integrations.yaml",
+            "api_integrations",
+            "api_integrations",
+            value,
+        )?;
+    }
+
+    if let Some(value) = keyphrase_boosting_yaml(projection) {
+        insert_yaml_resource(
+            &mut map,
+            "voice/speech_recognition/keyphrase_boosting.yaml",
+            "keyphrase_boosting",
+            "keyphrase_boosting",
+            value,
+        )?;
+    }
+
+    if let Some(value) = transcript_corrections_yaml(projection) {
+        insert_yaml_resource(
+            &mut map,
+            "voice/speech_recognition/transcript_corrections.yaml",
+            "transcript_corrections",
+            "transcript_corrections",
+            value,
+        )?;
+    }
+
+    if let Some(value) = pronunciations_yaml(projection) {
+        insert_yaml_resource(
+            &mut map,
+            "voice/response_control/pronunciations.yaml",
+            "pronunciations",
+            "pronunciations",
+            value,
+        )?;
     }
 
     if let Some(personality) = projection.pointer("/agentSettings/personality") {
@@ -1310,6 +1378,465 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
     Ok(map)
 }
 
+fn insert_flow_resources(
+    map: &mut ResourceMap,
+    flow_id: &str,
+    flow: &Value,
+) -> Result<(), ApiError> {
+    let name = flow
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("flow")
+        .to_string();
+    let folder = clean_name(&name).to_lowercase();
+    let start_step_id = flow.get("startStepId").and_then(Value::as_str);
+    let steps = projection_nested_entities(flow, &["steps"]);
+    let step_names_by_id = steps
+        .iter()
+        .filter_map(|(id, step)| {
+            Some((
+                id.clone(),
+                step.get("name")?.as_str().unwrap_or_default().to_string(),
+            ))
+        })
+        .collect::<HashMap<_, _>>();
+    let start_step = start_step_id
+        .and_then(|id| step_names_by_id.get(id))
+        .cloned()
+        .unwrap_or_default();
+
+    let flow_config = serde_json::json!({
+        "name": name,
+        "description": flow.get("description").and_then(Value::as_str).unwrap_or(""),
+        "start_step": start_step,
+    });
+    let flow_config_path = format!("flows/{folder}/flow_config.yaml");
+    let flow_name = flow_config
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("flow")
+        .to_string();
+    insert_yaml_resource(
+        map,
+        &flow_config_path,
+        flow.get("id").and_then(Value::as_str).unwrap_or(flow_id),
+        &flow_name,
+        flow_config,
+    )?;
+
+    for (id, step) in steps {
+        let step_name = step
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(id.as_str())
+            .to_string();
+        match step.get("type").and_then(Value::as_str).unwrap_or("") {
+            "function_step" => {
+                let function = step.get("function").unwrap_or(&Value::Null);
+                let code = push_functions::function_raw_content(function);
+                let file_path = format!(
+                    "flows/{folder}/function_steps/{}.py",
+                    clean_name(&step_name).to_lowercase()
+                );
+                map.insert(
+                    file_path.clone(),
+                    Resource {
+                        resource_id: id,
+                        name: step_name,
+                        file_path,
+                        payload: serde_json::json!({"content": code}),
+                    },
+                );
+            }
+            "default_step" => insert_flow_step_resource(map, &folder, id, step, true)?,
+            _ => insert_flow_step_resource(map, &folder, id, step, false)?,
+        }
+    }
+
+    Ok(())
+}
+
+fn flow_entries(projection: &Value) -> Vec<(String, Value)> {
+    projection_entities(projection, &["flows", "flows"])
+}
+
+fn projection_entities(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
+    let mut current = root;
+    for key in path {
+        let Some(next) = current.get(*key) else {
+            return Vec::new();
+        };
+        current = next;
+    }
+    projection_entities_at(current)
+}
+
+fn projection_nested_entities(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
+    let mut current = root;
+    for key in path {
+        let Some(next) = current.get(*key) else {
+            return Vec::new();
+        };
+        current = next;
+    }
+    projection_entities_at(current)
+}
+
+fn projection_entities_at(value: &Value) -> Vec<(String, Value)> {
+    let Some(entities) = value.get("entities").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    if let Some(ids) = value.get("ids").and_then(Value::as_array) {
+        for id in ids.iter().filter_map(Value::as_str) {
+            if let Some(entity) = entities.get(id) {
+                out.push((id.to_string(), entity.clone()));
+                seen.insert(id.to_string());
+            }
+        }
+    }
+    let mut remaining = entities
+        .iter()
+        .filter(|(id, _)| !seen.contains(*id))
+        .collect::<Vec<_>>();
+    remaining.sort_by(|(left, _), (right, _)| left.cmp(right));
+    out.extend(
+        remaining
+            .into_iter()
+            .map(|(id, entity)| (id.clone(), entity.clone())),
+    );
+    out
+}
+
+fn variant_attributes_yaml(projection: &Value) -> Option<Value> {
+    let variants = projection_entities(projection, &["variantManagement", "variants"]);
+    let attributes = projection_entities(projection, &["variantManagement", "attributes"]);
+    if variants.is_empty() && attributes.is_empty() {
+        return None;
+    }
+
+    let variant_names_by_id = variants
+        .iter()
+        .filter_map(|(id, variant)| {
+            Some((
+                id.clone(),
+                variant
+                    .get("name")?
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            ))
+        })
+        .collect::<HashMap<_, _>>();
+    let variant_yaml = variants
+        .iter()
+        .filter_map(|(_, variant)| {
+            let name = variant.get("name")?.as_str()?;
+            Some(serde_json::json!({
+                "name": name,
+                "is_default": variant.get("isDefault").or_else(|| variant.get("is_default")).and_then(Value::as_bool).unwrap_or(false),
+            }))
+        })
+        .collect::<Vec<_>>();
+    let values_by_attribute =
+        variant_attribute_values_by_attribute(projection, &variant_names_by_id);
+    let attribute_yaml = attributes
+        .iter()
+        .filter(|(_, attribute)| {
+            !attribute
+                .get("archived")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .filter_map(|(id, attribute)| {
+            let name = attribute.get("name")?.as_str()?;
+            Some(serde_json::json!({
+                "name": name,
+                "values": values_by_attribute.get(id).cloned().unwrap_or_default(),
+            }))
+        })
+        .collect::<Vec<_>>();
+    Some(serde_json::json!({
+        "variants": variant_yaml,
+        "attributes": attribute_yaml,
+    }))
+}
+
+fn variant_attribute_values_by_attribute(
+    projection: &Value,
+    variant_names_by_id: &HashMap<String, String>,
+) -> HashMap<String, HashMap<String, String>> {
+    let mut out: HashMap<String, HashMap<String, String>> = HashMap::new();
+    for (variant_id, values) in
+        projection_entities(projection, &["variantManagement", "variantAttributeValues"])
+    {
+        let Some(variant_name) = variant_names_by_id.get(&variant_id) else {
+            continue;
+        };
+        let Some(values) = values.get("values").and_then(Value::as_object) else {
+            continue;
+        };
+        for (attribute_id, value) in values {
+            out.entry(attribute_id.clone()).or_default().insert(
+                variant_name.clone(),
+                value.as_str().unwrap_or("").to_string(),
+            );
+        }
+    }
+    out
+}
+
+fn api_integrations_yaml(projection: &Value) -> Option<Value> {
+    let integrations = projection_entities(projection, &["apiIntegrations", "apiIntegrations"]);
+    if integrations.is_empty() {
+        return None;
+    }
+    let integrations = integrations
+        .iter()
+        .filter_map(|(_, integration)| {
+            let name = integration.get("name")?.as_str()?;
+            Some(serde_json::json!({
+                "name": name,
+                "description": integration.get("description").and_then(Value::as_str).unwrap_or(""),
+                "environments": api_integration_environments_yaml(integration),
+                "operations": api_integration_operations_yaml(integration),
+            }))
+        })
+        .collect::<Vec<_>>();
+    Some(serde_json::json!({ "api_integrations": integrations }))
+}
+
+fn api_integration_environments_yaml(integration: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for (yaml_key, source_keys) in [
+        ("sandbox", &["sandbox"][..]),
+        (
+            "pre-release",
+            &["pre-release", "preRelease", "pre_release"][..],
+        ),
+        ("live", &["live"][..]),
+    ] {
+        if let Some(env) = source_keys.iter().find_map(|key| {
+            integration
+                .get("environments")
+                .and_then(|envs| envs.get(*key))
+        }) {
+            out.insert(
+                yaml_key.to_string(),
+                serde_json::json!({
+                    "base_url": env.get("baseUrl").or_else(|| env.get("base_url")).and_then(Value::as_str).unwrap_or(""),
+                    "auth_type": env.get("authType").or_else(|| env.get("auth_type")).and_then(Value::as_str).unwrap_or(""),
+                }),
+            );
+        }
+    }
+    Value::Object(out)
+}
+
+fn api_integration_operations_yaml(integration: &Value) -> Value {
+    let operations = integration
+        .get("operations")
+        .map(|value| projection_entities_at(value))
+        .unwrap_or_default();
+    let operations = if operations.is_empty() {
+        integration
+            .get("operations")
+            .and_then(Value::as_object)
+            .map(|object| {
+                let mut items = object
+                    .iter()
+                    .map(|(id, value)| (id.clone(), value.clone()))
+                    .collect::<Vec<_>>();
+                items.sort_by(|(left, _), (right, _)| left.cmp(right));
+                items
+            })
+            .unwrap_or_default()
+    } else {
+        operations
+    };
+    Value::Array(
+        operations
+            .into_iter()
+            .filter_map(|(_, operation)| {
+                let name = operation.get("name")?.as_str()?;
+                Some(serde_json::json!({
+                    "name": name,
+                    "method": operation.get("method").and_then(Value::as_str).unwrap_or(""),
+                    "resource": operation.get("resource").and_then(Value::as_str).unwrap_or(""),
+                }))
+            })
+            .collect(),
+    )
+}
+
+fn keyphrase_boosting_yaml(projection: &Value) -> Option<Value> {
+    let keyphrases = projection_entities(projection, &["keyphraseBoosting", "keyphraseBoosting"]);
+    if keyphrases.is_empty() {
+        return None;
+    }
+    Some(serde_json::json!({
+        "keyphrases": keyphrases
+            .iter()
+            .filter_map(|(_, item)| {
+                Some(serde_json::json!({
+                    "keyphrase": item.get("keyphrase")?.as_str()?,
+                    "level": item.get("level").and_then(Value::as_str).unwrap_or(""),
+                }))
+            })
+            .collect::<Vec<_>>()
+    }))
+}
+
+fn transcript_corrections_yaml(projection: &Value) -> Option<Value> {
+    let corrections = projection_entities(
+        projection,
+        &["transcriptCorrections", "transcriptCorrections"],
+    );
+    if corrections.is_empty() {
+        return None;
+    }
+    Some(serde_json::json!({
+        "corrections": corrections
+            .iter()
+            .filter_map(|(_, correction)| {
+                let name = correction.get("name")?.as_str()?;
+                Some(serde_json::json!({
+                    "name": name,
+                    "description": correction.get("description").and_then(Value::as_str).unwrap_or(""),
+                    "regular_expressions": correction
+                        .get("regularExpressions")
+                        .or_else(|| correction.get("regular_expressions"))
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .map(|regex| serde_json::json!({
+                            "id": regex.get("id").and_then(Value::as_str).unwrap_or(""),
+                            "regular_expression": regex.get("regularExpression").or_else(|| regex.get("regular_expression")).and_then(Value::as_str).unwrap_or(""),
+                            "replacement": regex.get("replacement").and_then(Value::as_str).unwrap_or(""),
+                            "replacement_type": regex.get("replacementType").or_else(|| regex.get("replacement_type")).and_then(Value::as_str).unwrap_or(""),
+                        }))
+                        .collect::<Vec<_>>(),
+                }))
+            })
+            .collect::<Vec<_>>()
+    }))
+}
+
+fn pronunciations_yaml(projection: &Value) -> Option<Value> {
+    let mut pronunciations = projection_entities(projection, &["pronunciations", "pronunciations"]);
+    if pronunciations.is_empty() {
+        return None;
+    }
+    pronunciations
+        .sort_by_key(|(_, item)| item.get("position").and_then(Value::as_i64).unwrap_or(0));
+    Some(serde_json::json!({
+        "pronunciations": pronunciations
+            .iter()
+            .filter_map(|(_, item)| {
+                let regex = item.get("regex")?.as_str()?;
+                Some(serde_json::json!({
+                    "regex": regex,
+                    "replacement": item.get("replacement").and_then(Value::as_str).unwrap_or(""),
+                    "case_sensitive": item.get("caseSensitive").or_else(|| item.get("case_sensitive")).and_then(Value::as_bool).unwrap_or(false),
+                    "language_code": item.get("languageCode").or_else(|| item.get("language_code")).and_then(Value::as_str).unwrap_or(""),
+                    "description": item.get("description").and_then(Value::as_str).unwrap_or(""),
+                    "position": item.get("position").and_then(Value::as_i64).unwrap_or(0),
+                    "name": item.get("name").and_then(Value::as_str).unwrap_or(""),
+                }))
+            })
+            .collect::<Vec<_>>()
+    }))
+}
+
+fn insert_flow_step_resource(
+    map: &mut ResourceMap,
+    folder: &str,
+    id: String,
+    step: Value,
+    is_default: bool,
+) -> Result<(), ApiError> {
+    let name = step
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or(id.as_str())
+        .to_string();
+    let mut value = serde_json::json!({
+        "step_type": if is_default { "default_step" } else { "advanced_step" },
+        "name": name,
+        "prompt": step.get("prompt").and_then(Value::as_str).unwrap_or(""),
+    });
+    if let Some(position) = step.get("position") {
+        value["position"] = position.clone();
+    }
+    if !is_default {
+        value["asr_biasing"] = step
+            .get("asrBiasing")
+            .or_else(|| step.get("asr_biasing"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        value["dtmf_config"] = step
+            .get("dtmfConfig")
+            .or_else(|| step.get("dtmf_config"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+    } else {
+        value["conditions"] = flow_conditions_yaml(&step);
+        value["extracted_entities"] = step
+            .pointer("/references/extractedEntities")
+            .or_else(|| step.pointer("/references/extracted_entities"))
+            .and_then(Value::as_object)
+            .map(|refs| {
+                refs.keys()
+                    .cloned()
+                    .map(Value::String)
+                    .collect::<Vec<Value>>()
+            })
+            .map(Value::Array)
+            .unwrap_or_else(|| Value::Array(vec![]));
+    }
+    let file_path = format!(
+        "flows/{folder}/steps/{}.yaml",
+        clean_name(&name).to_lowercase()
+    );
+    insert_yaml_resource(map, &file_path, &id, &name, value)
+}
+
+fn flow_conditions_yaml(step: &Value) -> Value {
+    let items = step
+        .get("conditions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|condition| {
+            let config = condition.get("config")?;
+            let case = config.get("$case").and_then(Value::as_str).unwrap_or("");
+            if case != "exitFlowCondition" {
+                return None;
+            }
+            let value = config.get("value").unwrap_or(&Value::Null);
+            let details = value.get("details").unwrap_or(&Value::Null);
+            let mut out = serde_json::json!({
+                "name": details.get("label").and_then(Value::as_str).unwrap_or(""),
+                "condition_type": "exit_flow_condition",
+                "description": details.get("description").and_then(Value::as_str).unwrap_or(""),
+                "required_entities": details.get("requiredEntities").and_then(Value::as_array).cloned().unwrap_or_default(),
+            });
+            if let Some(ingress) = details.get("ingressPosition").and_then(Value::as_str) {
+                out["ingress_position"] = Value::String(ingress.to_string());
+            }
+            if let Some(position) = details.get("position") {
+                out["position"] = position.clone();
+            }
+            if let Some(position) = value.get("exitFlowPosition") {
+                out["exit_flow_position"] = position.clone();
+            }
+            Some(out)
+        })
+        .collect::<Vec<_>>();
+    Value::Array(items)
+}
+
 fn web_chat_channel_is_created(channel: Option<&Value>) -> bool {
     let Some(channel) = channel else {
         return false;
@@ -1346,6 +1873,9 @@ fn insert_yaml_resource(
 }
 
 fn projection_entity_config(entity: &Value) -> Value {
+    if let Some(cfg) = entity.pointer("/config/value") {
+        return cfg.clone();
+    }
     if let Some(cfg) = entity.get("config") {
         return cfg.clone();
     }
@@ -1386,6 +1916,22 @@ fn handoff_sip_config_yaml(handoff: &Value) -> Value {
         .or(sip_config)
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(case) = config.get("$case").and_then(Value::as_str) {
+        let value = config.get("value").unwrap_or(&Value::Null);
+        return match case {
+            "invite" => serde_json::json!({
+                "method": "invite",
+                "phone_number": value.get("phoneNumber").and_then(Value::as_str).unwrap_or(""),
+                "outbound_endpoint": value.get("outboundEndpoint").and_then(Value::as_str).unwrap_or(""),
+                "outbound_encryption": value.get("outboundEncryption").and_then(Value::as_str).unwrap_or(""),
+            }),
+            "refer" => serde_json::json!({
+                "method": "refer",
+                "phone_number": value.get("phoneNumber").and_then(Value::as_str).unwrap_or(""),
+            }),
+            _ => serde_json::json!({ "method": "bye" }),
+        };
+    }
     if let Some(invite) = config.get("invite") {
         return serde_json::json!({
             "method": "invite",
@@ -1422,6 +1968,35 @@ fn handoff_sip_headers_yaml(handoff: &Value) -> Value {
     Value::Array(yaml_headers)
 }
 
+fn api_key_for_region(region: &str) -> Result<String, ApiError> {
+    for name in api_key_env_names(region) {
+        if let Ok(value) = env::var(name)
+            && !value.trim().is_empty()
+        {
+            return Ok(value);
+        }
+    }
+    Err(ApiError::MissingConfig(
+        "POLY_ADK_KEY environment variable is not set. Export your API key with: export POLY_ADK_KEY=<your-api-key>"
+            .to_string(),
+    ))
+}
+
+fn api_key_env_names(region: &str) -> Vec<&'static str> {
+    let mut names = Vec::new();
+    match region {
+        "us-1" => names.push("POLY_ADK_KEY_US"),
+        "euw-1" => names.push("POLY_ADK_KEY_EUW"),
+        "uk-1" => names.push("POLY_ADK_KEY_UK"),
+        "studio" => names.push("POLY_ADK_KEY_STUDIO"),
+        "staging" => names.push("POLY_ADK_KEY_STAGING"),
+        "dev" => names.push("POLY_ADK_KEY_DEV"),
+        _ => {}
+    }
+    names.push("POLY_ADK_KEY");
+    names
+}
+
 fn base_url_for_region(region: &str) -> Result<String, ApiError> {
     for name in base_url_env_names(region) {
         if let Ok(value) = env::var(name)
@@ -1438,7 +2013,7 @@ fn base_url_for_region(region: &str) -> Result<String, ApiError> {
         "uk-1" => "https://api.uk.poly.ai/adk/v1",
         "us-1" => "https://api.us.poly.ai/adk/v1",
         "studio" => "https://api.studio.poly.ai/adk/v1",
-        _ => return Err(ApiError::MissingConfig(format!("unknown region: {region}"))),
+        _ => return Err(ApiError::MissingConfig(format!("Unknown region: {region}"))),
     };
     Ok(base_url.to_string())
 }
@@ -1464,13 +2039,16 @@ fn base_url_env_names(region: &str) -> Vec<&'static str> {
         "dev" => names.push("POLY_ADK_BASE_URL_DEV"),
         "staging" => names.push("POLY_ADK_BASE_URL_STAGING"),
         "euw-1" => {
+            names.push("POLY_ADK_BASE_URL_EUW");
             names.push("POLY_ADK_BASE_URL_EUW_1");
-            names.push("POLY_ADK_BASE_URL_EU");
         }
-        "uk-1" => names.push("POLY_ADK_BASE_URL_UK_1"),
+        "uk-1" => {
+            names.push("POLY_ADK_BASE_URL_UK");
+            names.push("POLY_ADK_BASE_URL_UK_1");
+        }
         "us-1" => {
-            names.push("POLY_ADK_BASE_URL_US_1");
             names.push("POLY_ADK_BASE_URL_US");
+            names.push("POLY_ADK_BASE_URL_US_1");
         }
         "studio" => names.push("POLY_ADK_BASE_URL_STUDIO"),
         _ => {}
@@ -1490,13 +2068,12 @@ fn parse_last_known_sequence(value: &Value) -> u64 {
         .unwrap_or(0)
 }
 
-/// Builds protobuf commands for push (topics, functions, entities, variables, handoffs, SMS,
-/// phrase filters / stop keywords, experimental config).
+/// Builds protobuf commands for push by composing the focused resource-family builders.
 ///
 /// **Execution ordering:** Python `SyncClientHandler.queue_resources` applies a strict global
 /// ordering (deletes, creates, updates) plus `PRIORITY_*` lists per resource family. This
-/// implementation builds those phases across the supported phase-1 and extended resource
-/// families, then applies explicit command-type priority lists within each phase.
+/// implementation builds those phases across the resource-family modules, then applies explicit
+/// command-type priority lists within each phase.
 #[cfg(test)]
 fn build_phase1_commands(resources: &ResourceMap, projection: &Value) -> Vec<Command> {
     build_phase1_commands_with_actor(resources, projection, None)
@@ -1508,533 +2085,47 @@ fn build_phase1_commands_with_actor(
     actor: Option<&str>,
 ) -> Vec<Command> {
     let metadata = command_metadata_with_actor(actor);
-    let mut entity_del = Vec::new();
-    let mut function_del = Vec::new();
-    let mut start_function_del = Vec::new();
-    let mut end_function_del = Vec::new();
-    let mut topic_del = Vec::new();
-    let mut entity_create = Vec::new();
-    let mut function_create = Vec::new();
-    let mut start_function_create = Vec::new();
-    let mut end_function_create = Vec::new();
-    let mut topic_create = Vec::new();
-    let mut entity_update = Vec::new();
-    let mut function_update = Vec::new();
-    let mut start_function_update = Vec::new();
-    let mut end_function_update = Vec::new();
-    let mut topic_update = Vec::new();
-    let mut settings_update = Vec::new();
 
-    let remote_topics = topic_entries(projection)
+    let flow_groups = push_flows::flow_resource_command_groups(resources, projection, &metadata);
+    let function_groups =
+        push_functions::function_resource_command_groups(resources, projection, &metadata);
+    let topic_groups = push_topics::topic_resource_command_groups(resources, projection, &metadata);
+    let variable_groups =
+        push_variables::variable_resource_command_groups(resources, projection, &metadata);
+    let single_file_groups = push_single_file_resources::single_file_resource_command_groups(
+        resources, projection, &metadata,
+    );
+    let push_single_file_resources::CommandGroups {
+        deletes: variable_deletes,
+        creates: variable_creates,
+        updates: variable_updates,
+        post_updates: variable_post_updates,
+    } = variable_groups;
+
+    let mut deletes: Vec<Command> = variable_deletes
         .into_iter()
-        .map(|(id, t)| {
-            (
-                t.get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or(id.as_str())
-                    .to_string(),
-                (id, t),
-            )
-        })
-        .collect::<HashMap<_, _>>();
-    let remote_functions = function_entries(projection)
-        .into_iter()
-        .map(|(id, f)| {
-            (
-                f.get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or(id.as_str())
-                    .to_string(),
-                (id, f),
-            )
-        })
-        .collect::<HashMap<_, _>>();
-    let remote_start_function = special_function_entry(projection, SpecialFunctionKind::Start);
-    let remote_end_function = special_function_entry(projection, SpecialFunctionKind::End);
-    let remote_entities = entity_entries(projection)
-        .into_iter()
-        .map(|(id, e)| {
-            (
-                e.get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or(id.as_str())
-                    .to_string(),
-                id,
-            )
-        })
-        .collect::<HashMap<_, _>>();
-
-    let mut local_topic_names = HashSet::new();
-    let mut local_function_names = HashSet::new();
-    let mut has_local_start_function = false;
-    let mut has_local_end_function = false;
-    let mut local_entity_names = HashSet::new();
-
-    for resource in resources.values() {
-        let path = resource.file_path.as_str();
-        let content = resource
-            .payload
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-
-        if path.starts_with("topics/") && path.ends_with(".yaml") {
-            if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) {
-                let name = yaml
-                    .get("name")
-                    .and_then(serde_yaml::Value::as_str)
-                    .unwrap_or(&resource.name)
-                    .to_string();
-                local_topic_names.insert(name.clone());
-                let remote_topic = remote_topics.get(&name);
-                let id = remote_topic
-                    .map(|(id, _)| id.clone())
-                    .or_else(|| {
-                        (!is_synthetic_local_resource_id(&resource.resource_id))
-                            .then_some(resource.resource_id.clone())
-                    })
-                    .or_else(|| generated_replay_resource_id("topic", &name, path))
-                    .unwrap_or_else(|| random_resource_id("TOPICS"));
-                let actions = yaml
-                    .get("actions")
-                    .and_then(serde_yaml::Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                let text = yaml
-                    .get("content")
-                    .and_then(serde_yaml::Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                let enabled = yaml
-                    .get("enabled")
-                    .and_then(serde_yaml::Value::as_bool)
-                    .unwrap_or(true);
-                let example_queries = yaml
-                    .get("example_queries")
-                    .and_then(serde_yaml::Value::as_sequence)
-                    .map(|seq| {
-                        seq.iter()
-                            .filter_map(serde_yaml::Value::as_str)
-                            .map(ToString::to_string)
-                            .collect::<Vec<String>>()
-                    })
-                    .unwrap_or_default();
-
-                if let Some((_, remote_topic)) = remote_topic {
-                    if topic_yaml_matches_projection(
-                        &name,
-                        enabled,
-                        &actions,
-                        &text,
-                        &example_queries,
-                        remote_topic,
-                    ) {
-                        continue;
-                    }
-                    push_command(
-                        &mut topic_update,
-                        &metadata,
-                        "update_topic",
-                        CommandPayload::UpdateTopic(KnowledgeBaseUpdateTopic {
-                            id: id.clone(),
-                            name: Some(name.clone()),
-                            content: Some(text),
-                            actions: Some(actions),
-                            example_queries: Some(ExampleQueries {
-                                queries: example_queries,
-                            }),
-                            references: None,
-                            is_active: Some(enabled),
-                        }),
-                    );
-                } else {
-                    push_command(
-                        &mut topic_create,
-                        &metadata,
-                        "create_topic",
-                        CommandPayload::CreateTopic(KnowledgeBaseCreateTopic {
-                            id: id.clone(),
-                            name: name.clone(),
-                            content: text,
-                            actions,
-                            example_queries: Some(ExampleQueries {
-                                queries: example_queries,
-                            }),
-                            references: None,
-                            is_active: Some(enabled),
-                        }),
-                    );
-                }
-            }
-        } else if path.starts_with("functions/") && path.ends_with(".py") {
-            let name = path
-                .split('/')
-                .next_back()
-                .unwrap_or_default()
-                .trim_end_matches(".py")
-                .to_string();
-            if let Some(kind) = special_function_kind_from_path(path) {
-                match kind {
-                    SpecialFunctionKind::Start => has_local_start_function = true,
-                    SpecialFunctionKind::End => has_local_end_function = true,
-                }
-                let remote_function = match kind {
-                    SpecialFunctionKind::Start => remote_start_function.as_ref(),
-                    SpecialFunctionKind::End => remote_end_function.as_ref(),
-                };
-                let id = remote_function
-                    .map(|(id, _)| id.clone())
-                    .or_else(|| {
-                        (!is_synthetic_local_resource_id(&resource.resource_id))
-                            .then_some(resource.resource_id.clone())
-                    })
-                    .unwrap_or_else(|| {
-                        generated_or_stable_resource_id("function", "FUNCTIONS", &name, path)
-                    });
-                let function_code = function_code_from_local_content(content);
-                let inferred_description = infer_function_description(content);
-                let variable_references =
-                    variable_reference_ids_from_code(&function_code, projection);
-                if let Some((_, remote_function)) = remote_function {
-                    let remote_code = remote_function.get("code").and_then(Value::as_str);
-                    let remote_description =
-                        remote_function.get("description").and_then(Value::as_str);
-                    let description_changed = !inferred_description.is_empty()
-                        && remote_description != Some(inferred_description.as_str());
-                    if remote_code == Some(function_code.as_str()) && !description_changed {
-                        continue;
-                    }
-                    let description = if description_changed {
-                        Some(inferred_description.clone())
-                    } else {
-                        remote_function
-                            .get("description")
-                            .and_then(Value::as_str)
-                            .map(ToString::to_string)
-                            .or_else(|| {
-                                (!inferred_description.is_empty())
-                                    .then_some(inferred_description.clone())
-                            })
-                    };
-                    let errors = function_errors_update_from_projection(remote_function);
-                    match kind {
-                        SpecialFunctionKind::Start => push_command(
-                            &mut start_function_update,
-                            &metadata,
-                            "update_start_function",
-                            CommandPayload::UpdateStartFunction(StartFunctionUpdate {
-                                id: id.clone(),
-                                description,
-                                code: Some(function_code.clone()),
-                                errors,
-                                references: Some(StartFunctionReferences {
-                                    variables: variable_references,
-                                }),
-                            }),
-                        ),
-                        SpecialFunctionKind::End => push_command(
-                            &mut end_function_update,
-                            &metadata,
-                            "update_end_function",
-                            CommandPayload::UpdateEndFunction(EndFunctionUpdate {
-                                id: id.clone(),
-                                description,
-                                code: Some(function_code.clone()),
-                                errors,
-                                references: Some(EndFunctionReferences {
-                                    variables: variable_references,
-                                }),
-                            }),
-                        ),
-                    }
-                } else {
-                    match kind {
-                        SpecialFunctionKind::Start => push_command(
-                            &mut start_function_create,
-                            &metadata,
-                            "create_start_function",
-                            CommandPayload::CreateStartFunction(StartFunctionCreate {
-                                id: id.clone(),
-                                name: name.clone(),
-                                description: inferred_description,
-                                parameters: vec![],
-                                code: function_code,
-                                errors: vec![],
-                                archived: Some(false),
-                                references: Some(StartFunctionReferences {
-                                    variables: variable_references,
-                                }),
-                            }),
-                        ),
-                        SpecialFunctionKind::End => push_command(
-                            &mut end_function_create,
-                            &metadata,
-                            "create_end_function",
-                            CommandPayload::CreateEndFunction(EndFunctionCreate {
-                                id: id.clone(),
-                                name: name.clone(),
-                                description: inferred_description,
-                                parameters: vec![],
-                                code: function_code,
-                                errors: vec![],
-                                archived: Some(false),
-                                references: Some(EndFunctionReferences {
-                                    variables: variable_references,
-                                }),
-                            }),
-                        ),
-                    }
-                }
-                continue;
-            }
-            local_function_names.insert(name.clone());
-            let remote_function = remote_functions.get(&name);
-            let id = remote_functions
-                .get(&name)
-                .map(|(id, _)| id.clone())
-                .or_else(|| {
-                    (!resource.resource_id.trim().is_empty() && resource.resource_id != "local")
-                        .then_some(resource.resource_id.clone())
-                })
-                .unwrap_or_else(|| format!("function-{}", clean_name(&name).to_lowercase()));
-            let function_code = function_code_from_local_content(content);
-            let inferred_description = infer_function_description(content);
-            let inferred_parameters = infer_function_parameters(&function_code);
-            if remote_functions.contains_key(&name) {
-                let remote_code =
-                    remote_function.and_then(|(_, f)| f.get("code").and_then(Value::as_str));
-                let remote_description =
-                    remote_function.and_then(|(_, f)| f.get("description").and_then(Value::as_str));
-                let description_changed = !inferred_description.is_empty()
-                    && remote_description != Some(inferred_description.as_str());
-                if remote_code == Some(function_code.as_str()) && !description_changed {
-                    continue;
-                }
-                let description = if description_changed {
-                    Some(inferred_description.clone())
-                } else {
-                    remote_function
-                        .and_then(|(_, f)| f.get("description").and_then(Value::as_str))
-                        .map(ToString::to_string)
-                        .or_else(|| {
-                            (!inferred_description.is_empty())
-                                .then_some(inferred_description.clone())
-                        })
-                };
-                let parameters = remote_function
-                    .and_then(|(_, f)| function_parameters_update_from_projection(f))
-                    .or_else(|| {
-                        (!inferred_parameters.is_empty()).then_some(ParametersUpdate {
-                            parameters: inferred_parameters.clone(),
-                        })
-                    });
-                let errors =
-                    remote_function.and_then(|(_, f)| function_errors_update_from_projection(f));
-                push_command(
-                    &mut function_update,
-                    &metadata,
-                    "update_function",
-                    CommandPayload::UpdateFunction(FunctionUpdateFunction {
-                        id: id.clone(),
-                        name: Some(name.clone()),
-                        description,
-                        parameters,
-                        code: Some(function_code.clone()),
-                        errors,
-                        references: None,
-                        archived: remote_function
-                            .and_then(|(_, f)| f.get("archived").and_then(Value::as_bool))
-                            .or(Some(false)),
-                    }),
-                );
-            } else {
-                push_command(
-                    &mut function_create,
-                    &metadata,
-                    "create_function",
-                    CommandPayload::CreateFunction(FunctionCreateFunction {
-                        id: id.clone(),
-                        name: name.clone(),
-                        description: inferred_description,
-                        parameters: inferred_parameters,
-                        code: function_code,
-                        errors: vec![],
-                        latency_control: None,
-                        references: None,
-                        archived: Some(false),
-                    }),
-                );
-            }
-        } else if path == "agent_settings/rules.txt" {
-            let remote_behaviour = projection
-                .pointer("/agentSettings/rules/behaviour")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            if content != remote_behaviour {
-                push_command(
-                    &mut settings_update,
-                    &metadata,
-                    "update_rules",
-                    CommandPayload::UpdateRules(RulesUpdateRules {
-                        behaviour: Some(content.to_string()),
-                        references: rules_references_from_behaviour(content)
-                            .or_else(|| rules_references_from_projection(projection)),
-                    }),
-                );
-            }
-        } else if path == "config/entities.yaml"
-            && let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
-            && let Some(items) = yaml
-                .get("entities")
-                .and_then(serde_yaml::Value::as_sequence)
-        {
-            for item in items {
-                let name = item
-                    .get("name")
-                    .and_then(serde_yaml::Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                if name.is_empty() {
-                    continue;
-                }
-                local_entity_names.insert(name.clone());
-                let id = remote_entities
-                    .get(&name)
-                    .cloned()
-                    .or_else(|| {
-                        (!resource.resource_id.trim().is_empty() && resource.resource_id != "local")
-                            .then_some(resource.resource_id.clone())
-                    })
-                    .unwrap_or_else(|| format!("entity-{}", clean_name(&name).to_lowercase()));
-                let entity_type = item
-                    .get("entity_type")
-                    .and_then(serde_yaml::Value::as_str)
-                    .unwrap_or("free_text");
-                let description = item
-                    .get("description")
-                    .and_then(serde_yaml::Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                let config = item.get("config");
-                if remote_entities.contains_key(&name) {
-                    push_command(
-                        &mut entity_update,
-                        &metadata,
-                        "entity_update",
-                        CommandPayload::EntityUpdate(EntityUpdate {
-                            id: id.clone(),
-                            name: name.clone(),
-                            r#type: to_camel_case(entity_type),
-                            description: description.clone(),
-                            references: None,
-                            config: build_entity_update_config(entity_type, config),
-                        }),
-                    );
-                } else {
-                    push_command(
-                        &mut entity_create,
-                        &metadata,
-                        "entity_create",
-                        CommandPayload::EntityCreate(EntityCreate {
-                            id: id.clone(),
-                            name: name.clone(),
-                            r#type: to_camel_case(entity_type),
-                            description: description.clone(),
-                            references: None,
-                            config: build_entity_create_config(entity_type, config),
-                        }),
-                    );
-                }
-            }
-        }
-    }
-
-    for (name, (id, _)) in remote_topics {
-        if !local_topic_names.contains(&name) {
-            push_command(
-                &mut topic_del,
-                &metadata,
-                "delete_topic",
-                CommandPayload::DeleteTopic(KnowledgeBaseDeleteTopic { id }),
-            );
-        }
-    }
-    for (name, (id, _)) in remote_functions {
-        if !local_function_names.contains(&name) {
-            push_command(
-                &mut function_del,
-                &metadata,
-                "delete_function",
-                CommandPayload::DeleteFunction(FunctionDeleteFunction { id }),
-            );
-        }
-    }
-    if let Some((id, _)) = remote_start_function
-        && !has_local_start_function
-    {
-        push_command(
-            &mut start_function_del,
-            &metadata,
-            "delete_start_function",
-            CommandPayload::DeleteStartFunction(StartFunctionDelete { id }),
-        );
-    }
-    if let Some((id, _)) = remote_end_function
-        && !has_local_end_function
-    {
-        push_command(
-            &mut end_function_del,
-            &metadata,
-            "delete_end_function",
-            CommandPayload::DeleteEndFunction(EndFunctionDelete { id }),
-        );
-    }
-    for (name, id) in remote_entities {
-        if !local_entity_names.contains(&name) {
-            push_command(
-                &mut entity_del,
-                &metadata,
-                "entity_delete",
-                CommandPayload::EntityDelete(EntityDelete { id }),
-            );
-        }
-    }
-
-    let ext_groups =
-        push_extended::extended_resource_command_groups(resources, projection, &metadata);
-    let broad_groups = push_broad::broad_resource_command_groups(resources, projection, &metadata);
-
-    let mut deletes: Vec<Command> = entity_del
-        .into_iter()
-        .chain(start_function_del)
-        .chain(end_function_del)
-        .chain(function_del)
-        .chain(topic_del)
-        .chain(ext_groups.deletes)
-        .chain(broad_groups.deletes)
+        .chain(function_groups.deletes)
+        .chain(topic_groups.deletes)
+        .chain(flow_groups.deletes)
+        .chain(single_file_groups.deletes)
         .collect();
     order_commands_with_priority(&mut deletes, &DELETE_COMMAND_PRIORITY);
 
-    let mut creates: Vec<Command> = entity_create
+    let mut creates: Vec<Command> = variable_creates
         .into_iter()
-        .chain(start_function_create)
-        .chain(end_function_create)
-        .chain(function_create)
-        .chain(topic_create)
-        .chain(ext_groups.creates)
-        .chain(broad_groups.creates)
+        .chain(function_groups.creates)
+        .chain(topic_groups.creates)
+        .chain(flow_groups.creates)
+        .chain(single_file_groups.creates)
         .collect();
     order_commands_with_priority(&mut creates, &CREATE_COMMAND_PRIORITY);
 
-    let mut updates: Vec<Command> = entity_update
+    let mut updates: Vec<Command> = variable_updates
         .into_iter()
-        .chain(start_function_update)
-        .chain(end_function_update)
-        .chain(function_update)
-        .chain(topic_update)
-        .chain(settings_update)
-        .chain(ext_groups.updates)
-        .chain(broad_groups.updates)
+        .chain(function_groups.updates)
+        .chain(topic_groups.updates)
+        .chain(flow_groups.updates)
+        .chain(single_file_groups.updates)
         .collect();
     order_commands_with_priority(&mut updates, &UPDATE_COMMAND_PRIORITY);
 
@@ -2042,14 +2133,16 @@ fn build_phase1_commands_with_actor(
     out.extend(deletes);
     out.extend(creates);
     out.extend(updates);
-    out.extend(ext_groups.post_updates);
-    out.extend(broad_groups.post_updates);
+    out.extend(variable_post_updates);
+    out.extend(function_groups.post_updates);
+    out.extend(topic_groups.post_updates);
+    out.extend(flow_groups.post_updates);
+    out.extend(single_file_groups.post_updates);
     out
 }
 
 const DELETE_COMMAND_PRIORITY: &[&str] = &[
     "variable_delete",
-    "entity_delete",
     "delete_start_function",
     "delete_end_function",
     "delete_function",
@@ -2057,6 +2150,7 @@ const DELETE_COMMAND_PRIORITY: &[&str] = &[
     "handoff_delete",
     "sms_delete_template",
     "stop_keywords_delete",
+    "entity_delete",
 ];
 
 const CREATE_COMMAND_PRIORITY: &[&str] = &[
@@ -2068,6 +2162,9 @@ const CREATE_COMMAND_PRIORITY: &[&str] = &[
     "create_end_function",
     "create_function",
     "create_topic",
+    "create_flow",
+    "create_step",
+    "create_no_code_condition",
     "stop_keywords_create",
 ];
 
@@ -2079,8 +2176,8 @@ const UPDATE_COMMAND_PRIORITY: &[&str] = &[
     "update_end_function",
     "update_function",
     "update_topic",
-    "handoff_update",
     "sms_update_template",
+    "handoff_update",
     "stop_keywords_update",
     "experimental_config_update_config",
 ];
@@ -2102,7 +2199,7 @@ fn command_metadata_with_actor(actor: Option<&str>) -> Option<Metadata> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
-        .unwrap_or_else(actor_identity);
+        .unwrap_or_else(default_metadata_created_by);
     Some(Metadata {
         created_at: Some(prost_types::Timestamp {
             seconds: dur.as_secs() as i64,
@@ -2112,23 +2209,8 @@ fn command_metadata_with_actor(actor: Option<&str>) -> Option<Metadata> {
     })
 }
 
-pub(crate) fn actor_identity() -> String {
-    if let Ok(user) = env::var("POLY_ADK_USER")
-        && !user.trim().is_empty()
-    {
-        return user;
-    }
-    if let Ok(user) = env::var("USER")
-        && !user.trim().is_empty()
-    {
-        return user;
-    }
-    if let Ok(user) = env::var("USERNAME")
-        && !user.trim().is_empty()
-    {
-        return user;
-    }
-    "unknown-user".to_string()
+pub(crate) fn default_metadata_created_by() -> String {
+    "sdk-user".to_string()
 }
 
 pub(crate) fn push_command(
@@ -2143,104 +2225,6 @@ pub(crate) fn push_command(
         command_id: Uuid::new_v4().to_string(),
         payload: Some(payload),
     });
-}
-
-fn topic_entries(projection: &Value) -> HashMap<String, Value> {
-    extract_entities_map(projection, &["knowledgeBase", "topics", "entities"])
-}
-
-fn function_entries(projection: &Value) -> HashMap<String, Value> {
-    extract_entities_map(projection, &["functions", "functions", "entities"])
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SpecialFunctionKind {
-    Start,
-    End,
-}
-
-fn special_function_kind_from_path(path: &str) -> Option<SpecialFunctionKind> {
-    match path {
-        "functions/start_function.py" => Some(SpecialFunctionKind::Start),
-        "functions/end_function.py" => Some(SpecialFunctionKind::End),
-        _ => None,
-    }
-}
-
-fn special_function_projection_key(kind: SpecialFunctionKind) -> &'static str {
-    match kind {
-        SpecialFunctionKind::Start => "startFunction",
-        SpecialFunctionKind::End => "endFunction",
-    }
-}
-
-fn special_function_name(kind: SpecialFunctionKind) -> &'static str {
-    match kind {
-        SpecialFunctionKind::Start => "start_function",
-        SpecialFunctionKind::End => "end_function",
-    }
-}
-
-fn special_function_entry(
-    projection: &Value,
-    kind: SpecialFunctionKind,
-) -> Option<(String, Value)> {
-    let function = projection
-        .get("specialFunctions")?
-        .get(special_function_projection_key(kind))?;
-    if function
-        .get("archived")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        return None;
-    }
-    let id = function
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| special_function_name(kind))
-        .to_string();
-    Some((id, function.clone()))
-}
-
-fn function_raw_content(function: &Value) -> String {
-    let code = function
-        .get("code")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let mut content = String::new();
-    if let Some(description) = function.get("description").and_then(Value::as_str)
-        && !description.is_empty()
-    {
-        content.push_str("@func_description(");
-        content.push_str(&python_string_literal(description));
-        content.push_str(")\n");
-    }
-    content.push_str(code);
-    content
-}
-
-fn variable_reference_ids_from_code(code: &str, projection: &Value) -> HashMap<String, bool> {
-    extract_variable_names_from_code(code)
-        .into_iter()
-        .map(|name| {
-            let id = variable_entries(projection)
-                .into_iter()
-                .find_map(|(id, variable)| {
-                    (variable.get("name").and_then(Value::as_str) == Some(name.as_str()))
-                        .then_some(id)
-                })
-                .unwrap_or_else(|| {
-                    generated_or_stable_resource_id(
-                        "variable",
-                        "VARIABLES",
-                        &name,
-                        &format!("variables/{name}"),
-                    )
-                });
-            (id, true)
-        })
-        .collect()
 }
 
 pub(crate) fn extract_variable_names_from_code(code: &str) -> Vec<String> {
@@ -2277,35 +2261,8 @@ pub(crate) fn extract_variable_names_from_code(code: &str) -> Vec<String> {
     names
 }
 
-fn python_string_literal(value: &str) -> String {
-    let quote = if value.contains('\'') && !value.contains('"') {
-        '"'
-    } else {
-        '\''
-    };
-    let mut out = String::new();
-    out.push(quote);
-    for ch in value.chars() {
-        if ch == '\\' || ch == quote {
-            out.push('\\');
-        }
-        match ch {
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            _ => out.push(ch),
-        }
-    }
-    out.push(quote);
-    out
-}
-
-fn entity_entries(projection: &Value) -> HashMap<String, Value> {
+pub(crate) fn entity_entries(projection: &Value) -> HashMap<String, Value> {
     extract_entities_map(projection, &["entities", "entities", "entities"])
-}
-
-fn variable_entries(projection: &Value) -> HashMap<String, Value> {
-    extract_entities_map(projection, &["variables", "variables", "entities"])
 }
 
 fn handoff_entries(projection: &Value) -> HashMap<String, Value> {
@@ -2332,7 +2289,7 @@ fn experimental_features(projection: &Value) -> Option<Value> {
     )
 }
 
-fn rules_references_from_projection(projection: &Value) -> Option<RulesReferences> {
+pub(crate) fn rules_references_from_projection(projection: &Value) -> Option<RulesReferences> {
     let references = projection.pointer("/agentSettings/rules/references")?;
     let refs = RulesReferences {
         sms: json_bool_map(references.get("sms")),
@@ -2359,7 +2316,7 @@ fn rules_references_from_projection(projection: &Value) -> Option<RulesReference
     }
 }
 
-fn rules_references_from_behaviour(behaviour: &str) -> Option<RulesReferences> {
+pub(crate) fn rules_references_from_behaviour(behaviour: &str) -> Option<RulesReferences> {
     let refs = RulesReferences {
         sms: extract_template_references(behaviour, "sms"),
         handoff: extract_template_references(behaviour, "ho"),
@@ -2429,7 +2386,7 @@ pub(crate) fn extract_entities_map(root: &Value, path: &[&str]) -> HashMap<Strin
         .unwrap_or_default()
 }
 
-fn to_camel_case(s: &str) -> String {
+pub(crate) fn to_camel_case(s: &str) -> String {
     let mut out = String::new();
     let mut upper = false;
     for ch in s.chars() {
@@ -2470,7 +2427,7 @@ pub(crate) fn clean_name(s: &str) -> String {
         .collect::<String>()
 }
 
-fn is_synthetic_local_resource_id(resource_id: &str) -> bool {
+pub(crate) fn is_synthetic_local_resource_id(resource_id: &str) -> bool {
     let trimmed = resource_id.trim();
     trimmed.is_empty()
         || trimmed == "local"
@@ -2486,6 +2443,7 @@ pub(crate) fn random_resource_id(prefix: &str) -> String {
 }
 
 pub(crate) fn generated_replay_resource_id(kind: &str, name: &str, path: &str) -> Option<String> {
+    // Replay tests map Python-recorded random IDs onto Rust-generated command payloads.
     let env_name = format!("POLY_ADK_GENERATED_{}_IDS", kind.to_ascii_uppercase());
     let mappings = env::var(env_name).ok()?;
     for raw in mappings.lines() {
@@ -2515,42 +2473,7 @@ pub(crate) fn generated_or_stable_resource_id(
     })
 }
 
-fn topic_yaml_matches_projection(
-    name: &str,
-    enabled: bool,
-    actions: &str,
-    content: &str,
-    example_queries: &[String],
-    topic: &Value,
-) -> bool {
-    let remote_name = topic.get("name").and_then(Value::as_str).unwrap_or(name);
-    let remote_enabled = topic
-        .get("isActive")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
-    let remote_actions = topic.get("actions").and_then(Value::as_str).unwrap_or("");
-    let remote_content = topic.get("content").and_then(Value::as_str).unwrap_or("");
-    let remote_queries = topic
-        .get("exampleQueries")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|item| {
-                    item.get("query")
-                        .and_then(Value::as_str)
-                        .map(ToString::to_string)
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    remote_name == name
-        && remote_enabled == enabled
-        && remote_actions == actions
-        && remote_content == content
-        && remote_queries == example_queries
-}
-
-fn build_entity_create_config(
+pub(crate) fn build_entity_create_config(
     entity_type: &str,
     config: Option<&serde_yaml::Value>,
 ) -> Option<entities::entity_create::Config> {
@@ -2606,193 +2529,7 @@ fn build_entity_create_config(
     }
 }
 
-fn function_code_from_local_content(content: &str) -> String {
-    let mut out = String::new();
-    for line in content.lines() {
-        let trimmed = line.trim_start();
-        if line == "from _gen import *  # <AUTO GENERATED>"
-            || line == "from imports import *  # <AUTO GENERATED>"
-            || trimmed.starts_with("@func_description(")
-            || trimmed.starts_with("@func_parameter(")
-            || trimmed.starts_with("@func_latency_control(")
-        {
-            continue;
-        }
-        out.push_str(line);
-        out.push('\n');
-    }
-    if !content.ends_with('\n') && out.ends_with('\n') {
-        out.pop();
-    }
-    out.trim_start_matches('\n').to_string()
-}
-
-fn infer_function_description(code: &str) -> String {
-    if let Some(description) = function_description_decorator(code) {
-        return description;
-    }
-    let mut in_docstring = false;
-    let mut delimiter = "";
-    for raw in code.lines() {
-        let line = raw.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if !in_docstring && (line.starts_with("\"\"\"") || line.starts_with("'''")) {
-            delimiter = if line.starts_with("\"\"\"") {
-                "\"\"\""
-            } else {
-                "'''"
-            };
-            let stripped = line.trim_start_matches(delimiter).trim();
-            if let Some((first, _)) = stripped.split_once(delimiter) {
-                return first.trim().to_string();
-            }
-            if !stripped.is_empty() {
-                return stripped.to_string();
-            }
-            in_docstring = true;
-            continue;
-        }
-        if in_docstring {
-            if line.contains(delimiter) {
-                return line
-                    .split(delimiter)
-                    .next()
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string();
-            }
-            return line.to_string();
-        }
-    }
-    String::new()
-}
-
-fn function_description_decorator(code: &str) -> Option<String> {
-    for line in code.lines() {
-        let line = line.trim();
-        let Some(rest) = line.strip_prefix("@func_description(") else {
-            continue;
-        };
-        let arg = rest.strip_suffix(')').unwrap_or(rest).trim();
-        return Some(parse_python_string_literal(arg));
-    }
-    None
-}
-
-fn parse_python_string_literal(value: &str) -> String {
-    let mut chars = value.chars();
-    let Some(quote @ ('\'' | '"')) = chars.next() else {
-        return value.to_string();
-    };
-    let mut out = String::new();
-    let mut escaped = false;
-    for ch in chars {
-        if escaped {
-            match ch {
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                other => out.push(other),
-            }
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == quote {
-            break;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
-fn infer_function_parameters(code: &str) -> Vec<FunctionParameterUpdate> {
-    let signature = code
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("def ").map(ToString::to_string));
-    let Some(signature) = signature else {
-        return vec![];
-    };
-    let Some(open) = signature.find('(') else {
-        return vec![];
-    };
-    let Some(close) = signature[open + 1..].find(')') else {
-        return vec![];
-    };
-    let params = &signature[open + 1..open + 1 + close];
-    params
-        .split(',')
-        .map(str::trim)
-        .filter(|p| !p.is_empty() && *p != "self" && *p != "conv")
-        .map(|p| p.split('=').next().unwrap_or_default().trim())
-        .map(|p| p.split(':').next().unwrap_or_default().trim())
-        .filter(|p| !p.is_empty())
-        .map(|name| FunctionParameterUpdate {
-            id: clean_name(name).to_lowercase(),
-            name: name.to_string(),
-            description: String::new(),
-            r#type: "string".to_string(),
-        })
-        .collect()
-}
-
-fn function_parameters_update_from_projection(function: &Value) -> Option<ParametersUpdate> {
-    let parameters = function.get("parameters")?.as_array()?;
-    let updates: Vec<FunctionParameterUpdate> = parameters
-        .iter()
-        .map(|p| FunctionParameterUpdate {
-            id: p
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            name: p
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            description: p
-                .get("description")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            r#type: p
-                .get("type")
-                .or_else(|| p.get("parameterType"))
-                .and_then(Value::as_str)
-                .unwrap_or("string")
-                .to_string(),
-        })
-        .collect();
-    (!updates.is_empty()).then_some(ParametersUpdate {
-        parameters: updates,
-    })
-}
-
-fn function_errors_update_from_projection(function: &Value) -> Option<ErrorsUpdate> {
-    let errors = function.get("errors")?.as_array()?;
-    let updates: Vec<FunctionError> = errors
-        .iter()
-        .map(|e| FunctionError {
-            lineno: e.get("lineno").and_then(Value::as_i64).unwrap_or_default() as i32,
-            message: e
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            text: e
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-        })
-        .collect();
-    (!updates.is_empty()).then_some(ErrorsUpdate { errors: updates })
-}
-
-fn build_entity_update_config(
+pub(crate) fn build_entity_update_config(
     entity_type: &str,
     config: Option<&serde_yaml::Value>,
 ) -> Option<entities::entity_update::Config> {
@@ -2985,7 +2722,12 @@ fn command_to_json_summary(command: &Command) -> Value {
             }
             _ => {}
         }
-        if let Some((key, payload_value)) = push_broad::payload_json_summary(payload) {
+        if let Some((key, payload_value)) =
+            push_single_file_resources::payload_json_summary(payload)
+        {
+            value[key] = payload_value;
+        }
+        if let Some((key, payload_value)) = push_flows::payload_json_summary(payload) {
             value[key] = payload_value;
         }
     }

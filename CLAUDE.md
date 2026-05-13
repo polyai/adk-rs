@@ -3,6 +3,9 @@
 ## Collaboration preferences
 
 - Prioritize Python ADK parity over placeholder compatibility.
+- Always replicate the Python ADK's behavior, even when it looks quirky.
+- If the Python behavior appears buggy, add a comment at the offending Python code before
+  implementing a Rust-side workaround.
 - Avoid dummy/no-op implementations in CLI/core/platform paths.
 - When a behavior is not truly implemented, track it explicitly as a TODO.
 - Keep the PR-ready summary as the final step, after implementation/test work.

@@ -86,6 +86,17 @@ focused parity behavior beyond the larger workflows above:
 - `format-local.*`
   Documents Python formatting for YAML resources, Python function files, and
   observed `--ty` behavior.
+- `flow-resource-coverage.*`
+  Documents Python dry-run command generation for `flow_config`, advanced and
+  default `flow_steps`, `function_steps`, and no-code exit conditions.
+- `resource-materialization.*`
+  Documents Python pull materialization for flow resources, broad multi-resource
+  files, and synthetic interaction/config families using explicit file
+  assertions.
+- `synthetic-lifecycle.*`
+  Documents Python create, update, delete, and default-handoff command contracts
+  for entities, experimental config, SMS templates, handoffs, and phrase
+  filtering.
 - `interactive-contracts.*`
   Documents deterministic interactive-adjacent behavior: stdin-backed branch
   creation and JSON-mode errors for missing interactive arguments.
@@ -179,7 +190,7 @@ cargo test -p adk-cli --test record_python_adk_httpmock_fixtures_test \
 Requirements:
 
 - `poly` is on `PATH`, or `PYTHON_ADK_BIN` points at the Python ADK binary.
-- `POLY_ADK_KEY`, `POLY_ADK_KEY_US`, or `POLY_ADK_KEY_US_1` is set.
+- `POLY_ADK_KEY_US` or `POLY_ADK_KEY` is set.
 - The configured project is readable:
   `us-1 / ben-ws / PROJECT-JTQKOKLM` (`Test`).
 

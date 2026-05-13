@@ -21,45 +21,6 @@ fn flatten(groups: CommandGroups) -> Vec<Command> {
 }
 
 #[test]
-fn variable_create_and_delete_roundtrip_types() {
-    let mut resources = map_with(vec![(
-        "variables/OrderId".into(),
-        Resource {
-            resource_id: "local".into(),
-            name: "OrderId".into(),
-            file_path: "variables/OrderId".into(),
-            payload: serde_json::json!({ "content": "" }),
-        },
-    )]);
-    let projection = serde_json::json!({});
-    let commands = flatten(extended_resource_command_groups(
-        &resources,
-        &projection,
-        &None,
-    ));
-    assert_eq!(commands.len(), 1);
-    assert_eq!(commands[0].r#type, "variable_create");
-    assert!(matches!(
-        commands[0].payload,
-        Some(CommandPayload::VariableCreate(_))
-    ));
-
-    resources.clear();
-    let projection = serde_json::json!({
-        "variables": { "variables": { "entities": {
-            "vrbl-x": { "name": "OrderId" }
-        }}}
-    });
-    let commands = flatten(extended_resource_command_groups(
-        &resources,
-        &projection,
-        &None,
-    ));
-    assert_eq!(commands.len(), 1);
-    assert_eq!(commands[0].r#type, "variable_delete");
-}
-
-#[test]
 fn handoff_create_set_default_and_sms_create() {
     let ho_yaml = r#"
 name: Sales
@@ -98,7 +59,7 @@ env_phone_numbers:
         ),
     ]);
     let projection = serde_json::json!({});
-    let commands = flatten(extended_resource_command_groups(
+    let commands = flatten(interaction_file_resource_command_groups(
         &resources,
         &projection,
         &None,
@@ -119,7 +80,7 @@ fn remote_handoff_without_active_field_is_treated_as_active() {
             name: "Sales".into(),
             file_path: "config/handoffs.yaml/handoffs/Sales".into(),
             payload: serde_json::json!({
-                "content": "name: Sales\ndescription: to sales\n"
+                "content": "name: Sales\ndescription: updated sales route\n"
             }),
         },
     );
@@ -135,7 +96,7 @@ fn remote_handoff_without_active_field_is_treated_as_active() {
             }
         }
     });
-    let commands = flatten(extended_resource_command_groups(
+    let commands = flatten(interaction_file_resource_command_groups(
         &resources,
         &projection,
         &None,
@@ -175,7 +136,7 @@ references:
         },
     )]);
     let projection = serde_json::json!({});
-    let commands = flatten(extended_resource_command_groups(
+    let commands = flatten(interaction_file_resource_command_groups(
         &resources,
         &projection,
         &None,
@@ -221,7 +182,7 @@ references:
         },
     )]);
     let projection = serde_json::json!({});
-    let commands = flatten(extended_resource_command_groups(
+    let commands = flatten(interaction_file_resource_command_groups(
         &resources,
         &projection,
         &None,
@@ -274,7 +235,7 @@ language_code: en-US
         ),
     ]);
     let projection = serde_json::json!({});
-    let commands = flatten(extended_resource_command_groups(
+    let commands = flatten(interaction_file_resource_command_groups(
         &resources,
         &projection,
         &None,

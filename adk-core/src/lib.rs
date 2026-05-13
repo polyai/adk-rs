@@ -278,8 +278,7 @@ impl AdkService {
                             &replacements,
                         )?,
                     );
-                    summary.modified_files.sort();
-                    summary.modified_files.dedup();
+                    stable_dedup(&mut summary.modified_files);
                 }
             } else {
                 for path in local.keys() {
@@ -1186,6 +1185,7 @@ impl AdkService {
     }
 
     fn replay_state_path(&self, root: &Path) -> Result<Option<PathBuf>, CoreError> {
+        // Replay tests persist snapshots between recorded Python workflow steps.
         let Ok(state_dir) = env::var("POLY_ADK_REPLAY_STATE_DIR") else {
             return Ok(None);
         };
@@ -1989,12 +1989,21 @@ fn deleted_status_type_rank(type_name: &str) -> usize {
         "VoiceDisclaimerMessage" => 5,
         "VoiceGreeting" => 6,
         "AsrSettings" => 7,
+        "Entity" => 8,
+        "PhraseFilter" => 9,
+        "Handoff" => 10,
+        "SMSTemplate" => 11,
         other => discover::ordered_type_names()
             .iter()
             .position(|name| *name == other)
             .map(|position| position + 100)
             .unwrap_or(usize::MAX),
     }
+}
+
+fn stable_dedup(items: &mut Vec<String>) {
+    let mut seen = HashSet::new();
+    items.retain(|item| seen.insert(item.clone()));
 }
 
 fn normalize_function_references_in_rules(resources: &mut ResourceMap) {

@@ -1,0 +1,377 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- 'Documents Python command contracts for synthetic multi-resource files: entities, experimental config, SMS templates, handoffs, and phrase filtering.'
+- 'This scenario is local-only: it uses --from-projection - with a synthetic projection for both pull and dry-run push.'
+- The local edits exercise update, create, and delete behavior without mutating Agent Studio.
+httpmock_recording: synthetic-lifecycle.httpmock.yaml
+workflows:
+- name: synthetic_lifecycle
+  description: Pull a synthetic baseline, edit synthetic multi-resource files, then record Python dry-run command generation.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: file_edit
+    name: write project config before synthetic lifecycle
+    operation: write_text
+    path: project.yaml
+    content: |
+      region: us-1
+      account_id: ben-ws
+      project_id: PROJECT-JTQKOKLM
+      branch_id: main
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: pull synthetic lifecycle baseline projection
+    argv:
+    - poly
+    - pull
+    - --json
+    - --force
+    - --from-projection
+    - '-'
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    stdin: '{"apiIntegrations":{"apiIntegrations":{"entities":{"API-recording":{"description":"Recording API integration.","environments":{"live":{"authType":"none","baseUrl":"https://example.invalid/live"},"pre-release":{"authType":"none","baseUrl":"https://example.invalid/pre"},"sandbox":{"authType":"none","baseUrl":"https://example.invalid/sandbox"}},"name":"recording_api","operations":{"OP-status":{"id":"OP-status","method":"GET","name":"get_status","resource":"/status"}}}}}},"entities":{"entities":{"entities":{"ENTITY-age":{"config":{"value":{"has_decimal":false,"has_range":true,"max":120,"min":1}},"description":"Customer age.","name":"Age","type":"numeric"},"ENTITY-legacy":{"config":{"value":{}},"description":"Deleted by lifecycle recording.","name":"Legacy Code","type":"free_text"}}}},"experimentalConfig":{"experimentalConfigs":{"entities":{"default":{"features":{"nested":{"enabled":true},"recording_flag":true}}}}},"flows":{"flows":{"entities":{"FLOW-recording":{"description":"Flow recording baseline.","name":"adk_recording_flow","startStepId":"STEP-start","steps":{"entities":{"STEP-default":{"conditions":[{"config":{"$case":"exitFlowCondition","value":{"details":{"description":"Exit the flow.","ingressPosition":"top","label":"exit","position":{"x":300.0,"y":250.0},"requiredEntities":[]},"exitFlowPosition":{"x":300.0,"y":500.0}}},"id":"COND-exit"}],"name":"default_step","position":{"x":300.0,"y":100.0},"prompt":"What do you need?","references":{"extractedEntities":{"ENTITY-age":true}},"type":"default_step"},"STEP-function":{"function":{"code":"def do_work(conv, flow):\n    return \"done\"\n","id":"FUNCTION-step-do-work","latencyControl":{},"parameters":{"entities":{},"ids":[]}},"name":"do_work","position":{"x":500.0,"y":100.0},"type":"function_step"},"STEP-start":{"asrBiasing":{"isEnabled":false},"dtmfConfig":{"isEnabled":false},"name":"start_step","position":{"x":100.0,"y":100.0},"prompt":"Welcome to the flow recording.","references":{},"type":"advanced_step"}}}}}}},"functions":{"functions":{"entities":{"FUNCTION-recording":{"code":"def recording_handler(conv):\n    return {\"utterance\": \"handled\"}\n","description":"Recording function.","errors":[],"name":"recording_handler","parameters":{"entities":{},"ids":[]}}}}},"handoff":{"handoffs":{"entities":{"HANDOFF-sales":{"active":true,"description":"Route to sales.","isDefault":true,"name":"Sales","sipConfig":{"config":{"$case":"invite","value":{"outboundEncryption":"TLS/SRTP","outboundEndpoint":"sales-trunk","phoneNumber":"+15551234567"}}},"sipHeaders":{"headers":[{"key":"X-Recording","value":"sales"}]}},"HANDOFF-support":{"active":true,"description":"Deleted by lifecycle recording.","isDefault":false,"name":"Support","sipConfig":{"config":{"$case":"bye","value":{}}},"sipHeaders":{"headers":[]}}}}},"keyphraseBoosting":{"keyphraseBoosting":{"entities":{"KEYPHRASE-adk":{"keyphrase":"ADK parity","level":"boosted"}}}},"knowledgeBase":{"topics":{"entities":{"TOPIC-recording":{"actions":"Keep answers concise.","content":"Recording coverage topic.","exampleQueries":[{"query":"What is this recording?"}],"isActive":true,"name":"Recording Topic"}}}},"pronunciations":{"pronunciations":{"entities":{"PRON-adk":{"caseSensitive":true,"description":"Pronounce ADK clearly.","languageCode":"en-US","name":"ADK pronunciation","position":0,"regex":"\\bADK\\b","replacement":"Agent Development Kit"}}}},"sms":{"templates":{"entities":{"SMS-old":{"active":true,"envPhoneNumbers":{"live":"","preRelease":"","sandbox":""},"name":"Old SMS","text":"Old message"},"SMS-welcome":{"active":true,"envPhoneNumbers":{"live":"+15550000003","preRelease":"+15550000002","sandbox":"+15550000001"},"name":"Welcome SMS","text":"Hello {recording_state}"}}}},"stopKeywords":{"filters":{"entities":{"STOP-hangup":{"description":"End the conversation.","languageCode":"en-US","references":{"globalFunctions":{"FUNCTION-recording":true}},"regularExpressions":["(?i)bye"],"sayPhrase":false,"title":"Hang Up"},"STOP-old":{"description":"Deleted by lifecycle recording.","languageCode":"en-US","regularExpressions":["old"],"sayPhrase":false,"title":"Old Filter"}}}},"transcriptCorrections":{"transcriptCorrections":{"entities":{"CORRECTION-adk":{"description":"Correct ADK spelling.","name":"ADK correction","regularExpressions":[{"regularExpression":"agent development kid","replacement":"agent development kit","replacementType":"full"}]}}}},"variantManagement":{"attributes":{"entities":{"ATTR-channel":{"archived":false,"name":"channel"}}},"variantAttributeValues":{"entities":{"VAR-control":{"values":{"ATTR-channel":"voice"}},"VAR-treatment":{"values":{"ATTR-channel":"webchat"}}}},"variants":{"entities":{"VAR-control":{"isDefault":true,"name":"control"},"VAR-treatment":{"isDefault":false,"name":"treatment"}}}}}'
+    exit_code: 0
+    stdout_json:
+      files_with_conflicts: []
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: write lifecycle entities
+    operation: write_text
+    path: config/entities.yaml
+    content: |
+      entities:
+        - name: Age
+          description: Updated customer age.
+          entity_type: numeric
+          config:
+            has_decimal: false
+            has_range: true
+            min: 0
+            max: 130
+        - name: Code
+          description: New recording code.
+          entity_type: alphanumeric
+          config:
+            enabled: true
+            validation_type: regex
+            regular_expression: "^[A-Z]+$"
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write lifecycle experimental config
+    operation: write_text
+    path: agent_settings/experimental_config.json
+    content: |
+      {
+        "nested": {
+          "enabled": false
+        },
+        "recording_flag": false
+      }
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write lifecycle sms templates
+    operation: write_text
+    path: config/sms_templates.yaml
+    content: |
+      sms_templates:
+        - name: Welcome SMS
+          text: "Updated hello {recording_state}"
+          env_phone_numbers:
+            sandbox: "+15550000011"
+            pre_release: "+15550000012"
+            live: "+15550000013"
+        - name: Follow Up SMS
+          text: "New follow up message"
+          env_phone_numbers:
+            sandbox: ""
+            pre_release: ""
+            live: ""
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write lifecycle handoffs
+    operation: write_text
+    path: config/handoffs.yaml
+    content: |
+      handoffs:
+        - name: Sales
+          description: Updated sales route.
+          is_default: true
+          sip_config:
+            method: invite
+            phone_number: "+15551234567"
+            outbound_endpoint: sales-updated
+            outbound_encryption: TLS/SRTP
+          sip_headers:
+            - key: X-Recording
+              value: sales-updated
+        - name: Billing
+          description: New billing route.
+          is_default: false
+          sip_config:
+            method: refer
+            phone_number: "+15557654321"
+          sip_headers: []
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write lifecycle phrase filtering
+    operation: write_text
+    path: voice/response_control/phrase_filtering.yaml
+    content: |
+      phrase_filtering:
+        - name: Hang Up
+          description: Updated end phrase.
+          regular_expressions:
+            - "(?i)goodbye"
+          say_phrase: true
+          language_code: en-US
+        - name: Transfer Request
+          description: New transfer phrase.
+          regular_expressions:
+            - "(?i)transfer me"
+          say_phrase: false
+          language_code: en-US
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: status after synthetic lifecycle edits
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/entities.yaml/entities/Legacy_Code
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/response_control/phrase_filtering.yaml/phrase_filtering/Old_Filter
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/handoffs.yaml/handoffs/Support
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/sms_templates.yaml/sms_templates/Old_SMS
+      files_with_conflicts: []
+      modified_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/entities.yaml/entities/Age
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/agent_settings/experimental_config.json
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/sms_templates.yaml/sms_templates/Welcome_SMS
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/handoffs.yaml/handoffs/Sales
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/response_control/phrase_filtering.yaml/phrase_filtering/Hang_Up
+      new_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/entities.yaml/entities/Code
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/sms_templates.yaml/sms_templates/Follow_Up_SMS
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/config/handoffs.yaml/handoffs/Billing
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/response_control/phrase_filtering.yaml/phrase_filtering/Transfer_Request
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push dry-run synthetic lifecycle command payload
+    argv:
+    - poly
+    - push
+    - --output-json-commands
+    - --dry-run
+    - --skip-validation
+    - --from-projection
+    - '-'
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    stdin: '{"apiIntegrations":{"apiIntegrations":{"entities":{"API-recording":{"description":"Recording API integration.","environments":{"live":{"authType":"none","baseUrl":"https://example.invalid/live"},"pre-release":{"authType":"none","baseUrl":"https://example.invalid/pre"},"sandbox":{"authType":"none","baseUrl":"https://example.invalid/sandbox"}},"name":"recording_api","operations":{"OP-status":{"id":"OP-status","method":"GET","name":"get_status","resource":"/status"}}}}}},"entities":{"entities":{"entities":{"ENTITY-age":{"config":{"value":{"has_decimal":false,"has_range":true,"max":120,"min":1}},"description":"Customer age.","name":"Age","type":"numeric"},"ENTITY-legacy":{"config":{"value":{}},"description":"Deleted by lifecycle recording.","name":"Legacy Code","type":"free_text"}}}},"experimentalConfig":{"experimentalConfigs":{"entities":{"default":{"features":{"nested":{"enabled":true},"recording_flag":true}}}}},"flows":{"flows":{"entities":{"FLOW-recording":{"description":"Flow recording baseline.","name":"adk_recording_flow","startStepId":"STEP-start","steps":{"entities":{"STEP-default":{"conditions":[{"config":{"$case":"exitFlowCondition","value":{"details":{"description":"Exit the flow.","ingressPosition":"top","label":"exit","position":{"x":300.0,"y":250.0},"requiredEntities":[]},"exitFlowPosition":{"x":300.0,"y":500.0}}},"id":"COND-exit"}],"name":"default_step","position":{"x":300.0,"y":100.0},"prompt":"What do you need?","references":{"extractedEntities":{"ENTITY-age":true}},"type":"default_step"},"STEP-function":{"function":{"code":"def do_work(conv, flow):\n    return \"done\"\n","id":"FUNCTION-step-do-work","latencyControl":{},"parameters":{"entities":{},"ids":[]}},"name":"do_work","position":{"x":500.0,"y":100.0},"type":"function_step"},"STEP-start":{"asrBiasing":{"isEnabled":false},"dtmfConfig":{"isEnabled":false},"name":"start_step","position":{"x":100.0,"y":100.0},"prompt":"Welcome to the flow recording.","references":{},"type":"advanced_step"}}}}}}},"functions":{"functions":{"entities":{"FUNCTION-recording":{"code":"def recording_handler(conv):\n    return {\"utterance\": \"handled\"}\n","description":"Recording function.","errors":[],"name":"recording_handler","parameters":{"entities":{},"ids":[]}}}}},"handoff":{"handoffs":{"entities":{"HANDOFF-sales":{"active":true,"description":"Route to sales.","isDefault":true,"name":"Sales","sipConfig":{"config":{"$case":"invite","value":{"outboundEncryption":"TLS/SRTP","outboundEndpoint":"sales-trunk","phoneNumber":"+15551234567"}}},"sipHeaders":{"headers":[{"key":"X-Recording","value":"sales"}]}},"HANDOFF-support":{"active":true,"description":"Deleted by lifecycle recording.","isDefault":false,"name":"Support","sipConfig":{"config":{"$case":"bye","value":{}}},"sipHeaders":{"headers":[]}}}}},"keyphraseBoosting":{"keyphraseBoosting":{"entities":{"KEYPHRASE-adk":{"keyphrase":"ADK parity","level":"boosted"}}}},"knowledgeBase":{"topics":{"entities":{"TOPIC-recording":{"actions":"Keep answers concise.","content":"Recording coverage topic.","exampleQueries":[{"query":"What is this recording?"}],"isActive":true,"name":"Recording Topic"}}}},"pronunciations":{"pronunciations":{"entities":{"PRON-adk":{"caseSensitive":true,"description":"Pronounce ADK clearly.","languageCode":"en-US","name":"ADK pronunciation","position":0,"regex":"\\bADK\\b","replacement":"Agent Development Kit"}}}},"sms":{"templates":{"entities":{"SMS-old":{"active":true,"envPhoneNumbers":{"live":"","preRelease":"","sandbox":""},"name":"Old SMS","text":"Old message"},"SMS-welcome":{"active":true,"envPhoneNumbers":{"live":"+15550000003","preRelease":"+15550000002","sandbox":"+15550000001"},"name":"Welcome SMS","text":"Hello {recording_state}"}}}},"stopKeywords":{"filters":{"entities":{"STOP-hangup":{"description":"End the conversation.","languageCode":"en-US","references":{"globalFunctions":{"FUNCTION-recording":true}},"regularExpressions":["(?i)bye"],"sayPhrase":false,"title":"Hang Up"},"STOP-old":{"description":"Deleted by lifecycle recording.","languageCode":"en-US","regularExpressions":["old"],"sayPhrase":false,"title":"Old Filter"}}}},"transcriptCorrections":{"transcriptCorrections":{"entities":{"CORRECTION-adk":{"description":"Correct ADK spelling.","name":"ADK correction","regularExpressions":[{"regularExpression":"agent development kid","replacement":"agent development kit","replacementType":"full"}]}}}},"variantManagement":{"attributes":{"entities":{"ATTR-channel":{"archived":false,"name":"channel"}}},"variantAttributeValues":{"entities":{"VAR-control":{"values":{"ATTR-channel":"voice"}},"VAR-treatment":{"values":{"ATTR-channel":"webchat"}}}},"variants":{"entities":{"VAR-control":{"isDefault":true,"name":"control"},"VAR-treatment":{"isDefault":false,"name":"treatment"}}}}}'
+    exit_code: 0
+    stdout_json:
+      commands:
+      - command_id: ${COMMAND_ID}
+        handoff_delete:
+          id: HANDOFF-support
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: handoff_delete
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        sms_delete_template:
+          id: SMS-old
+        type: sms_delete_template
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        stop_keywords_delete:
+          id: STOP-old
+        type: stop_keywords_delete
+      - command_id: ${COMMAND_ID}
+        entity_delete:
+          id: ENTITY-legacy
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: entity_delete
+      - command_id: ${COMMAND_ID}
+        entity_create:
+          alphanumeric:
+            enabled: true
+            regular_expression: ^[A-Z]+$
+            validation_type: regex
+          description: New recording code.
+          id: ENTITIES-edd57cd6
+          name: Code
+          references: {}
+          type: alphanumeric
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: entity_create
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        sms_create_template:
+          active: true
+          env_phone_numbers: {}
+          id: SMS_TEMPLATES-da5a7f0e
+          name: Follow Up SMS
+          references: {}
+          text: New follow up message
+        type: sms_create_template
+      - command_id: ${COMMAND_ID}
+        handoff_create:
+          active: true
+          description: New billing route.
+          id: HANDOFFS-7427c3ef
+          name: Billing
+          sip_config:
+            refer:
+              phone_number: '+15557654321'
+          sip_headers: {}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: handoff_create
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        stop_keywords_create:
+          description: New transfer phrase.
+          id: PHRASE_FILTERING-872667f2
+          language_code: en-US
+          references: {}
+          regular_expressions:
+          - (?i)transfer me
+          title: Transfer Request
+        type: stop_keywords_create
+      - command_id: ${COMMAND_ID}
+        entity_update:
+          description: Updated customer age.
+          id: ENTITY-age
+          name: Age
+          numeric:
+            has_range: true
+            max: 130.0
+            min: 0.0
+          type: numeric
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: entity_update
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        sms_update_template:
+          active: true
+          env_phone_numbers:
+            live: '+15550000013'
+            pre_release: '+15550000012'
+            sandbox: '+15550000011'
+          id: SMS-welcome
+          name: Welcome SMS
+          text: Updated hello {recording_state}
+        type: sms_update_template
+      - command_id: ${COMMAND_ID}
+        handoff_update:
+          active: true
+          description: Updated sales route.
+          id: HANDOFF-sales
+          name: Sales
+          sip_config:
+            invite:
+              outbound_encryption: TLS/SRTP
+              outbound_endpoint: sales-updated
+              phone_number: '+15551234567'
+          sip_headers:
+            headers:
+            - key: X-Recording
+              value: sales-updated
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: handoff_update
+      - command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        stop_keywords_update:
+          description: Updated end phrase.
+          id: STOP-hangup
+          language_code: en-US
+          references: {}
+          regular_expressions:
+          - (?i)goodbye
+          say_phrase: true
+          title: Hang Up
+        type: stop_keywords_update
+      - command_id: ${COMMAND_ID}
+        experimental_config_update_config:
+          features:
+            nested:
+              enabled: false
+            recording_flag: false
+          id: default
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: experimental_config_update_config
+      - command_id: ${COMMAND_ID}
+        handoff_set_default:
+          id: HANDOFF-sales
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: handoff_set_default
+      dry_run: true
+      message: Dry run completed. No changes were pushed.
+      success: true
+    stdout: null
+    stderr: ''

@@ -1199,6 +1199,7 @@ fn cmd_push(service: &AdkService, args: PushArgs) -> ExitCode {
 }
 
 fn generated_adk_branch_name() -> String {
+    // Replay tests set this so Rust emits the branch name recorded from Python.
     if let Ok(name) = std::env::var("POLY_ADK_GENERATED_BRANCH_NAME")
         && !name.trim().is_empty()
     {
@@ -3814,6 +3815,7 @@ fn emit_error(json_mode: bool, message: &str) {
     let message = clean_error_message(message);
     if json_mode {
         let mut payload = json!({"success": false, "error": message});
+        // Replay tests inject Python's recorded traceback so JSON error fixtures stay exact.
         if let Ok(traceback) = std::env::var("POLY_ADK_JSON_TRACEBACK") {
             payload["traceback"] = serde_json::Value::String(traceback);
         }

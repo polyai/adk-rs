@@ -48,6 +48,7 @@ enum WorkflowStep {
 enum TaggedWorkflowStep {
     Command(CommandRecord),
     FileEdit(FileEditRecord),
+    FileAssertion(FileAssertionRecord),
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,6 +70,14 @@ struct FileEditRecord {
     target: Option<String>,
     replacement: Option<String>,
     success: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct FileAssertionRecord {
+    name: String,
+    path: String,
+    exists: bool,
+    contains: Vec<String>,
 }
 
 #[test]
@@ -93,7 +102,10 @@ fn replay_scenario(scenario: &str) {
     let tmp = temp_replay_dir(scenario);
     fs::create_dir_all(&tmp).unwrap_or_else(|error| panic!("{scenario}: create tmp dir: {error}"));
     let playback_server = MockServer::start();
-    if matches!(
+    if cassette_text.trim().is_empty() {
+        // Local-only recorder scenarios still use the same manifest/cassette
+        // naming convention, but have no HTTP interactions to play back.
+    } else if matches!(
         scenario,
         "chat-session-controls" | "deployments-mutation" | "special-functions"
     ) {
@@ -126,6 +138,9 @@ fn replay_scenario(scenario: &str) {
                         &substitutions,
                         &mut file_seeds,
                     );
+                }
+                WorkflowStep::Tagged(TaggedWorkflowStep::FileAssertion(record)) => {
+                    apply_file_assertion(scenario, &workflow.name, record, &tmp, &substitutions);
                 }
             }
         }
@@ -399,9 +414,32 @@ fn run_rust_poly(
             "${GENERATED_FUNCTION_IDS}",
             "POLY_ADK_GENERATED_FUNCTION_IDS",
         ),
+        ("${GENERATED_FLOW_IDS}", "POLY_ADK_GENERATED_FLOW_IDS"),
+        (
+            "${GENERATED_FLOW_STEP_IDS}",
+            "POLY_ADK_GENERATED_FLOW_STEP_IDS",
+        ),
+        (
+            "${GENERATED_FUNCTION_STEP_IDS}",
+            "POLY_ADK_GENERATED_FUNCTION_STEP_IDS",
+        ),
+        (
+            "${GENERATED_CONDITION_IDS}",
+            "POLY_ADK_GENERATED_CONDITION_IDS",
+        ),
         (
             "${GENERATED_VARIABLE_IDS}",
             "POLY_ADK_GENERATED_VARIABLE_IDS",
+        ),
+        ("${GENERATED_ENTITY_IDS}", "POLY_ADK_GENERATED_ENTITY_IDS"),
+        (
+            "${GENERATED_SMS_TEMPLATE_IDS}",
+            "POLY_ADK_GENERATED_SMS_TEMPLATE_IDS",
+        ),
+        ("${GENERATED_HANDOFF_IDS}", "POLY_ADK_GENERATED_HANDOFF_IDS"),
+        (
+            "${GENERATED_PHRASE_FILTERING_IDS}",
+            "POLY_ADK_GENERATED_PHRASE_FILTERING_IDS",
         ),
     ] {
         if let Some(value) = maybe_lookup_substitution(placeholder, substitutions) {
@@ -675,6 +713,45 @@ fn apply_file_edit(
     });
 }
 
+fn apply_file_assertion(
+    scenario: &str,
+    workflow: &str,
+    record: &FileAssertionRecord,
+    tmp: &Path,
+    substitutions: &[(String, String)],
+) {
+    let project_root = project_root_for_file_edit(&record.name, tmp);
+    let relative_path = substitute(&record.path, substitutions);
+    let path = project_root.join(&relative_path);
+    let content = fs::read_to_string(&path);
+    assert_eq!(
+        content.is_ok(),
+        record.exists,
+        "{scenario}/{workflow}/{}: file existence mismatch for {}",
+        record.name,
+        path.display()
+    );
+    if !record.exists {
+        return;
+    }
+    let content = content.unwrap_or_else(|error| {
+        panic!(
+            "{scenario}/{workflow}/{}: read {}: {error}",
+            record.name,
+            path.display()
+        )
+    });
+    for needle in &record.contains {
+        let needle = substitute(needle, substitutions);
+        assert!(
+            content.contains(&needle),
+            "{scenario}/{workflow}/{}: {} did not contain expected text {needle:?}\ncontent:\n{content}",
+            record.name,
+            path.display()
+        );
+    }
+}
+
 fn read_or_seed_file(
     scenario: &str,
     workflow: &str,
@@ -814,7 +891,15 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
     let mut transcript_corrections_ids = Vec::new();
     let mut pronunciations_ids = Vec::new();
     let mut function_ids = Vec::new();
+    let mut flow_ids = Vec::new();
+    let mut flow_step_ids = Vec::new();
+    let mut function_step_ids = Vec::new();
+    let mut condition_ids = Vec::new();
     let mut variable_ids = Vec::new();
+    let mut entity_ids = Vec::new();
+    let mut sms_template_ids = Vec::new();
+    let mut handoff_ids = Vec::new();
+    let mut phrase_filtering_ids = Vec::new();
 
     for workflow in &manifest.workflows {
         for step in &workflow.steps {
@@ -892,11 +977,64 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
                     "id",
                     &mut function_ids,
                 );
+                if let Some(flow) = command.get("create_flow") {
+                    push_mapping(Some(flow), "name", "id", &mut flow_ids);
+                    if let Some(steps) = flow.get("steps").and_then(Value::as_array) {
+                        for step in steps {
+                            push_mapping(Some(step), "name", "id", &mut flow_step_ids);
+                        }
+                    }
+                    if let Some(steps) = flow.get("no_code_steps").and_then(Value::as_array) {
+                        for step in steps {
+                            push_mapping(Some(step), "name", "step_id", &mut flow_step_ids);
+                        }
+                    }
+                }
+                if let Some(step) = command
+                    .get("create_step")
+                    .and_then(|payload| payload.get("function_step"))
+                {
+                    push_mapping(Some(step), "name", "id", &mut function_step_ids);
+                    if let Some(function) = step.get("function") {
+                        push_mapping(Some(function), "name", "id", &mut function_ids);
+                    }
+                }
+                if let Some(condition) = command.get("create_no_code_condition") {
+                    if let (Some(label), Some(id)) = (
+                        condition
+                            .get("exit_flow_condition")
+                            .and_then(|exit| exit.get("details"))
+                            .and_then(|details| details.get("label"))
+                            .and_then(Value::as_str),
+                        condition.get("condition_id").and_then(Value::as_str),
+                    ) {
+                        condition_ids.push(format!("{label}={id}"));
+                    }
+                }
                 push_mapping(
                     command.get("variable_create"),
                     "name",
                     "id",
                     &mut variable_ids,
+                );
+                push_mapping(command.get("entity_create"), "name", "id", &mut entity_ids);
+                push_mapping(
+                    command.get("sms_create_template"),
+                    "name",
+                    "id",
+                    &mut sms_template_ids,
+                );
+                push_mapping(
+                    command.get("handoff_create"),
+                    "name",
+                    "id",
+                    &mut handoff_ids,
+                );
+                push_mapping(
+                    command.get("stop_keywords_create"),
+                    "title",
+                    "id",
+                    &mut phrase_filtering_ids,
                 );
             }
         }
@@ -911,7 +1049,15 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
         &mut transcript_corrections_ids,
         &mut pronunciations_ids,
         &mut function_ids,
+        &mut flow_ids,
+        &mut flow_step_ids,
+        &mut function_step_ids,
+        &mut condition_ids,
         &mut variable_ids,
+        &mut entity_ids,
+        &mut sms_template_ids,
+        &mut handoff_ids,
+        &mut phrase_filtering_ids,
     ] {
         mappings.sort();
         mappings.dedup();
@@ -935,7 +1081,15 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
         ),
         ("${GENERATED_PRONUNCIATIONS_IDS}", pronunciations_ids),
         ("${GENERATED_FUNCTION_IDS}", function_ids),
+        ("${GENERATED_FLOW_IDS}", flow_ids),
+        ("${GENERATED_FLOW_STEP_IDS}", flow_step_ids),
+        ("${GENERATED_FUNCTION_STEP_IDS}", function_step_ids),
+        ("${GENERATED_CONDITION_IDS}", condition_ids),
         ("${GENERATED_VARIABLE_IDS}", variable_ids),
+        ("${GENERATED_ENTITY_IDS}", entity_ids),
+        ("${GENERATED_SMS_TEMPLATE_IDS}", sms_template_ids),
+        ("${GENERATED_HANDOFF_IDS}", handoff_ids),
+        ("${GENERATED_PHRASE_FILTERING_IDS}", phrase_filtering_ids),
     ]
 }
 

@@ -2,6 +2,17 @@
 
 Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be covered by a Python recording fixture first where practical, then brought to parity in Rust.
 
+- [ ] **Close resource-family recording coverage gaps** (`resource-family-recording-coverage`)
+  - Our Python recordings are high-fidelity contracts for the workflows they exercise, but they are not yet a complete resource-family coverage matrix.
+  - Add Python recording fixtures for flow resources (`flow_config`, `flow_steps`, `function_steps`) covering pull/init materialization, status/diff detection, dry-run push create/update/delete, and validation errors.
+  - Add pull/init materialization recordings for broad multi-resource files that currently have push coverage but weak pull evidence: `config/api_integrations.yaml`, `config/variant_attributes.yaml`, `voice/speech_recognition/keyphrase_boosting.yaml`, `voice/speech_recognition/transcript_corrections.yaml`, and `voice/response_control/pronunciations.yaml`.
+  - Add Python recording coverage for currently synthetic-only resource families: `entities`, `experimental_config`, `sms_templates`, `handoffs`, and `phrase_filtering`.
+  - Acceptance: every Python `RESOURCE_NAME_TO_CLASS` family has explicit recording evidence for the behavior it supports; Rust replay tests fail if any covered resource family is not materialized, discovered, validated, or translated into Python-compatible commands.
+  - Progress: added and enabled `flow-resource-coverage`, a local-only Python recording for create-flow dry-run command generation across `flow_config`, advanced/default `flow_steps`, `function_steps`, and no-code exit conditions. Rust now emits matching `create_flow`, `create_step`, and `create_no_code_condition` JSON/protobuf commands for this create path.
+  - Progress: added and enabled `resource-materialization`, a local-only Python recording that asserts pull materialization for flows, broad multi-resource files, and synthetic interaction/config families. Rust now materializes the covered flow, variant, API integration, keyphrase, transcript correction, pronunciation, entity, experimental config, SMS, handoff, and phrase-filter files.
+  - Progress: added and enabled `synthetic-lifecycle`, a local-only Python recording for create/update/delete dry-run command generation across `entities`, `experimental_config`, `sms_templates`, `handoffs`, and `phrase_filtering`. Rust replay now matches Python's JSON command contract, including generated ID mapping, update summaries, default handoff post-update behavior, and unchanged transcript-correction suppression.
+  - Remaining: broaden flow coverage beyond the current create-path fixture to include update/delete status, diff, and validation behavior.
+
 - [x] **Port deployment show/promote/rollback workflows** (`deployments-mutation-parity`)
   - Python supports `deployments show`, `deployments promote`, and `deployments rollback`; Rust currently implements only `deployments list`.
   - Add recordings for JSON `show`, `promote --dry-run`, `promote --json --force`, `rollback --dry-run`, and `rollback --json --force`, then implement the missing Rust CLI/platform methods.

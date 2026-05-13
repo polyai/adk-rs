@@ -2,7 +2,7 @@
 //! `poly/tests/test_projects/`. For **in-process** domain tests on the same fixtures (no
 //! subprocess), see `adk-core/tests/project_fixture_test.rs`.
 //!
-//! No network: `POLY_ADK_KEY` is stripped so the CLI falls back to `InMemoryPlatformClient`.
+//! No network: `POLY_ADK_KEY` is stripped and test-only in-memory fallback is enabled.
 //!
 //! Fixture provenance: `adk/src/poly/tests/test_projects/` in the Python ADK repo.
 //!
@@ -14,9 +14,8 @@ mod support;
 use std::path::PathBuf;
 use support::cli::{copy_dir_recursive, poly_offline_command, temp_dir};
 
-/// Without `POLY_ADK_KEY`, `poly` uses `InMemoryPlatformClient` (see `service_for_path`). Tests
-/// remove the key so behavior is deterministic in CI and on developer machines that export API
-/// credentials.
+/// Tests remove real credentials and opt into `InMemoryPlatformClient`, keeping behavior
+/// deterministic in CI and on developer machines that export API credentials.
 fn poly_offline() -> std::process::Command {
     poly_offline_command()
 }

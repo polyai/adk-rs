@@ -108,6 +108,81 @@ fn push_commands_can_use_supplied_projection_and_actor() {
 }
 
 #[test]
+fn push_commands_default_to_python_sdk_user_metadata() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "topics/sample.yaml".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "sample".to_string(),
+            file_path: "topics/sample.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "name: sample\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
+            }),
+        },
+    );
+
+    let commands = build_phase1_commands(&resources, &serde_json::json!({}));
+
+    assert_eq!(
+        commands[0].metadata.as_ref().map(|m| m.created_by.as_str()),
+        Some("sdk-user")
+    );
+}
+
+#[test]
+fn api_key_env_names_match_python_resolution_order() {
+    assert_eq!(
+        api_key_env_names("us-1"),
+        vec!["POLY_ADK_KEY_US", "POLY_ADK_KEY"]
+    );
+    assert_eq!(
+        api_key_env_names("euw-1"),
+        vec!["POLY_ADK_KEY_EUW", "POLY_ADK_KEY"]
+    );
+    assert_eq!(
+        api_key_env_names("uk-1"),
+        vec!["POLY_ADK_KEY_UK", "POLY_ADK_KEY"]
+    );
+}
+
+#[test]
+fn base_url_env_names_match_python_resolution_order() {
+    assert_eq!(
+        base_url_env_names("us-1"),
+        vec![
+            "POLY_ADK_BASE_URL_US",
+            "POLY_ADK_BASE_URL_US_1",
+            "POLY_ADK_BASE_URL"
+        ]
+    );
+    assert_eq!(
+        base_url_env_names("euw-1"),
+        vec![
+            "POLY_ADK_BASE_URL_EUW",
+            "POLY_ADK_BASE_URL_EUW_1",
+            "POLY_ADK_BASE_URL"
+        ]
+    );
+    assert_eq!(
+        base_url_env_names("uk-1"),
+        vec![
+            "POLY_ADK_BASE_URL_UK",
+            "POLY_ADK_BASE_URL_UK_1",
+            "POLY_ADK_BASE_URL"
+        ]
+    );
+}
+
+#[test]
+fn unknown_region_error_matches_python_platform_handler() {
+    let message = base_url_for_region("moon-1")
+        .expect_err("unknown region")
+        .to_string();
+    assert!(message.contains("Unknown region: moon-1"));
+}
+
+#[test]
 fn push_no_changes_uses_python_failure_contract() {
     let client = HttpPlatformClient {
         client: reqwest::blocking::Client::new(),
@@ -411,7 +486,7 @@ fn deleting_local_special_function_files_emits_special_delete_commands() {
 }
 
 #[test]
-fn phase1_plus_extended_appends_variable_commands() {
+fn push_builder_appends_variable_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "topics/sample.yaml".to_string(),
@@ -441,7 +516,7 @@ fn phase1_plus_extended_appends_variable_commands() {
 }
 
 #[test]
-fn phase1_and_extended_follow_global_delete_create_update_order() {
+fn push_builder_follows_global_delete_create_update_order() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "topics/new.yaml".to_string(),
@@ -560,7 +635,7 @@ fn queue_prioritizes_variable_commands_across_all_phases() {
 }
 
 #[test]
-fn projection_to_resource_map_includes_extended_resource_files() {
+fn projection_to_resource_map_includes_single_file_resource_files() {
     let projection = serde_json::json!({
         "variables": {"variables": {"entities": {"vrbl-1": {"name": "MyVar"}}}},
         "entities": {"entities": {"entities": {"ent-1": {"name": "Age", "description": "age", "type": "numeric", "numberConfig": {"min": 1, "max": 120}}}}},
@@ -617,7 +692,7 @@ fn projection_to_resource_map_includes_extended_resource_files() {
 }
 
 #[test]
-fn broad_resource_files_emit_real_create_commands() {
+fn single_file_resource_files_emit_real_create_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "config/variant_attributes.yaml".to_string(),
@@ -711,7 +786,7 @@ pronunciations:
     ] {
         assert!(
             types.contains(&expected),
-            "missing broad create command: {expected}"
+            "missing single-file create command: {expected}"
         );
     }
 
@@ -756,7 +831,7 @@ pronunciations:
 }
 
 #[test]
-fn broad_settings_files_emit_real_update_commands() {
+fn single_file_settings_files_emit_real_update_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "agent_settings/personality.yaml".to_string(),
@@ -856,7 +931,7 @@ style_prompt:
     ] {
         assert!(
             types.contains(&expected),
-            "missing broad update command: {expected}"
+            "missing single-file update command: {expected}"
         );
     }
 

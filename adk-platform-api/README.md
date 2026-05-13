@@ -12,5 +12,6 @@ API boundary crate between core workflows and remote platform operations.
 ## Push Support
 
 The HTTP client implements real calls for projection, deployments, chat, branch,
-and protobuf command-batch push endpoints. The push command builder covers the
-phase-1 resources plus extended settings handled in `push_extended.rs`.
+and protobuf command-batch push endpoints. Push command generation is split by
+resource family across `push_single_file_resources.rs`, `push_topics.rs`,
+`push_functions.rs`, `push_flows.rs`, and `push_variables.rs`.

@@ -64,6 +64,14 @@ const CHANNEL_SETTINGS_COMMAND_MANIFEST_FILE: &str = "channel-settings.commands.
 const CHANNEL_SETTINGS_HTTPMOCK_RECORDING_FILE: &str = "channel-settings.httpmock.yaml";
 const BROAD_LIFECYCLE_COMMAND_MANIFEST_FILE: &str = "broad-lifecycle.commands.yaml";
 const BROAD_LIFECYCLE_HTTPMOCK_RECORDING_FILE: &str = "broad-lifecycle.httpmock.yaml";
+const FLOW_RESOURCE_COVERAGE_COMMAND_MANIFEST_FILE: &str = "flow-resource-coverage.commands.yaml";
+const FLOW_RESOURCE_COVERAGE_HTTPMOCK_RECORDING_FILE: &str = "flow-resource-coverage.httpmock.yaml";
+const RESOURCE_MATERIALIZATION_COMMAND_MANIFEST_FILE: &str =
+    "resource-materialization.commands.yaml";
+const RESOURCE_MATERIALIZATION_HTTPMOCK_RECORDING_FILE: &str =
+    "resource-materialization.httpmock.yaml";
+const SYNTHETIC_LIFECYCLE_COMMAND_MANIFEST_FILE: &str = "synthetic-lifecycle.commands.yaml";
+const SYNTHETIC_LIFECYCLE_HTTPMOCK_RECORDING_FILE: &str = "synthetic-lifecycle.httpmock.yaml";
 const MUTATING_BRANCH_NAME: &str = "adk-rs-recording-mutating";
 const CREATE_DELETE_BRANCH_NAME: &str = "adk-rs-recording-create-delete";
 const DIRTY_SWITCH_BRANCH_NAME: &str = "adk-rs-recording-dirty-switch";
@@ -128,6 +136,17 @@ const BROAD_LIFECYCLE_API_INTEGRATIONS: &str = "api_integrations:\n  - name: adk
 const BROAD_LIFECYCLE_KEYPHRASES: &str = "keyphrases:\n  - keyphrase: ADK lifecycle\n    level: maximum\n  - keyphrase: ADK new phrase\n    level: boosted\n";
 const BROAD_LIFECYCLE_TRANSCRIPT_CORRECTIONS: &str = "corrections:\n  - name: Lifecycle correction\n    description: Updated lifecycle correction.\n    regular_expressions:\n      - regular_expression: agent development kids\n        replacement: agent development kit\n        replacement_type: full\n  - name: New lifecycle correction\n    description: New lifecycle correction.\n    regular_expressions:\n      - regular_expression: rust port\n        replacement: Rust port\n        replacement_type: full\n";
 const BROAD_LIFECYCLE_PRONUNCIATIONS: &str = "pronunciations:\n  - regex: \"\\\\bADK\\\\b\"\n    replacement: Agent Development Kit\n    case_sensitive: true\n    language_code: en-US\n    description: Updated lifecycle pronunciation.\n";
+const FLOW_RESOURCE_FLOW_CONFIG: &str =
+    "name: adk_recording_flow\ndescription: Flow recording baseline.\nstart_step: start_step\n";
+const FLOW_RESOURCE_START_STEP: &str = "step_type: advanced_step\nname: start_step\nprompt: Welcome to the flow recording.\nasr_biasing:\n  is_enabled: false\ndtmf_config:\n  is_enabled: false\n";
+const FLOW_RESOURCE_DEFAULT_STEP: &str = "step_type: default_step\nname: default_step\nprompt: What do you need?\nconditions:\n  - name: exit\n    condition_type: exit_flow_condition\n    description: Exit the flow.\n    required_entities: []\nextracted_entities: []\n";
+const FLOW_RESOURCE_FUNCTION_STEP: &str = "from _gen import *  # <AUTO GENERATED>\n\n\ndef do_work(conv: Conversation, flow: Flow):\n    return \"done\"\n";
+const SYNTHETIC_ENTITIES_LIFECYCLE: &str = "entities:\n  - name: Age\n    description: Updated customer age.\n    entity_type: numeric\n    config:\n      has_decimal: false\n      has_range: true\n      min: 0\n      max: 130\n  - name: Code\n    description: New recording code.\n    entity_type: alphanumeric\n    config:\n      enabled: true\n      validation_type: regex\n      regular_expression: \"^[A-Z]+$\"\n";
+const SYNTHETIC_EXPERIMENTAL_CONFIG_LIFECYCLE: &str =
+    "{\n  \"nested\": {\n    \"enabled\": false\n  },\n  \"recording_flag\": false\n}\n";
+const SYNTHETIC_SMS_LIFECYCLE: &str = "sms_templates:\n  - name: Welcome SMS\n    text: \"Updated hello {recording_state}\"\n    env_phone_numbers:\n      sandbox: \"+15550000011\"\n      pre_release: \"+15550000012\"\n      live: \"+15550000013\"\n  - name: Follow Up SMS\n    text: \"New follow up message\"\n    env_phone_numbers:\n      sandbox: \"\"\n      pre_release: \"\"\n      live: \"\"\n";
+const SYNTHETIC_HANDOFFS_LIFECYCLE: &str = "handoffs:\n  - name: Sales\n    description: Updated sales route.\n    is_default: true\n    sip_config:\n      method: invite\n      phone_number: \"+15551234567\"\n      outbound_endpoint: sales-updated\n      outbound_encryption: TLS/SRTP\n    sip_headers:\n      - key: X-Recording\n        value: sales-updated\n  - name: Billing\n    description: New billing route.\n    is_default: false\n    sip_config:\n      method: refer\n      phone_number: \"+15557654321\"\n    sip_headers: []\n";
+const SYNTHETIC_PHRASE_FILTERING_LIFECYCLE: &str = "phrase_filtering:\n  - name: Hang Up\n    description: Updated end phrase.\n    regular_expressions:\n      - \"(?i)goodbye\"\n    say_phrase: true\n    language_code: en-US\n  - name: Transfer Request\n    description: New transfer phrase.\n    regular_expressions:\n      - \"(?i)transfer me\"\n    say_phrase: false\n    language_code: en-US\n";
 
 #[derive(Debug, Serialize)]
 struct CommandManifest {
@@ -180,6 +199,7 @@ struct StepWorkflow {
 enum WorkflowStep {
     Command(CommandRecord),
     FileEdit(FileEditRecord),
+    FileAssertion(FileAssertionRecord),
 }
 
 #[derive(Debug, Serialize)]
@@ -204,6 +224,14 @@ struct FileEditRecord {
     replacement: Option<String>,
     success: bool,
     error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct FileAssertionRecord {
+    name: &'static str,
+    path: String,
+    exists: bool,
+    contains: Vec<String>,
 }
 
 #[test]
@@ -1386,6 +1414,476 @@ fn record_broad_lifecycle_with_python_adk_and_httpmock() {
 
     let _ = fs::remove_dir_all(&tmp);
     assert_required_results("broad lifecycle", &required_results);
+}
+
+#[test]
+#[ignore = "records local Python flow command generation through httpmock fixture machinery"]
+fn record_flow_resource_coverage_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let mut steps = Vec::new();
+    let project_config = target_project_config();
+
+    for (name, path, content) in [
+        (
+            "write project config before flow resource workflow",
+            "project.yaml",
+            project_config.as_str(),
+        ),
+        (
+            "write flow config",
+            "flows/adk_recording_flow/flow_config.yaml",
+            FLOW_RESOURCE_FLOW_CONFIG,
+        ),
+        (
+            "write flow start step",
+            "flows/adk_recording_flow/steps/start_step.yaml",
+            FLOW_RESOURCE_START_STEP,
+        ),
+        (
+            "write flow default step",
+            "flows/adk_recording_flow/steps/default_step.yaml",
+            FLOW_RESOURCE_DEFAULT_STEP,
+        ),
+        (
+            "write flow function step",
+            "flows/adk_recording_flow/function_steps/do_work.py",
+            FLOW_RESOURCE_FUNCTION_STEP,
+        ),
+    ] {
+        let edit = write_text_file(name, &project_root, path, content, &replacements);
+        required_results.push((name, edit.success));
+        steps.push(WorkflowStep::FileEdit(edit));
+    }
+
+    let dry_run = run_python_poly(
+        "push dry-run flow resource command payload",
+        &[
+            "push",
+            "--output-json-commands",
+            "--dry-run",
+            "--skip-validation",
+            "--from-projection",
+            "{}",
+            "--email",
+            RECORDER_EMAIL,
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "push dry-run flow resource command payload",
+        command_succeeded(&dry_run),
+    ));
+    steps.push(WorkflowStep::Command(dry_run));
+
+    let recording_path = recording
+        .save("flow-resource-coverage-python-adk")
+        .expect("save flow resource coverage recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        FLOW_RESOURCE_COVERAGE_HTTPMOCK_RECORDING_FILE,
+        FLOW_RESOURCE_COVERAGE_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python dry-run command generation for flow_config, flow_steps, function_steps, and no-code exit conditions.",
+            "This scenario is local-only: it uses --from-projection {} so the HTTP cassette is intentionally empty or near-empty.",
+            "Authentication headers are redacted after recording.",
+        ],
+        StepWorkflow {
+            name: "flow_resource_coverage",
+            description: "Record Python create-flow command behavior for advanced steps, no-code steps, function steps, and exit conditions.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("flow resource coverage", &required_results);
+}
+
+#[test]
+#[ignore = "records local Python projection materialization through httpmock fixture machinery"]
+fn record_resource_materialization_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let mut steps = Vec::new();
+
+    let config = write_text_file(
+        "write project config before resource materialization",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before resource materialization",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let projection = resource_family_projection_json();
+    let pull = run_python_poly_with_options(
+        "pull synthetic resource-family projection",
+        &[
+            "pull",
+            "--json",
+            "--force",
+            "--from-projection",
+            "-",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some(&projection),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "pull synthetic resource-family projection",
+        command_succeeded(&pull),
+    ));
+    steps.push(WorkflowStep::Command(pull));
+
+    for (name, path, contains) in [
+        (
+            "assert flow config materialized",
+            "flows/adk_recording_flow/flow_config.yaml",
+            &["name: adk_recording_flow", "Flow recording baseline."][..],
+        ),
+        (
+            "assert flow start step materialized",
+            "flows/adk_recording_flow/steps/start_step.yaml",
+            &["step_type: advanced_step", "Welcome to the flow recording."][..],
+        ),
+        (
+            "assert flow default step materialized",
+            "flows/adk_recording_flow/steps/default_step.yaml",
+            &["step_type: default_step", "exit"][..],
+        ),
+        (
+            "assert flow function step materialized",
+            "flows/adk_recording_flow/function_steps/do_work.py",
+            &["def do_work"][..],
+        ),
+        (
+            "assert entities materialized",
+            "config/entities.yaml",
+            &["Age", "has_range"][..],
+        ),
+        (
+            "assert experimental config materialized",
+            "agent_settings/experimental_config.json",
+            &["recording_flag", "nested"][..],
+        ),
+        (
+            "assert sms templates materialized",
+            "config/sms_templates.yaml",
+            &["Welcome SMS", "Hello {recording_state}"][..],
+        ),
+        (
+            "assert handoffs materialized",
+            "config/handoffs.yaml",
+            &["Sales", "TLS/SRTP"][..],
+        ),
+        (
+            "assert phrase filtering materialized",
+            "voice/response_control/phrase_filtering.yaml",
+            &["Hang Up", "(?i)bye"][..],
+        ),
+        (
+            "assert API integrations materialized",
+            "config/api_integrations.yaml",
+            &["recording_api", "get_status"][..],
+        ),
+        (
+            "assert variants materialized",
+            "config/variant_attributes.yaml",
+            &["control", "channel"][..],
+        ),
+        (
+            "assert keyphrases materialized",
+            "voice/speech_recognition/keyphrase_boosting.yaml",
+            &["ADK parity", "boosted"][..],
+        ),
+        (
+            "assert transcript corrections materialized",
+            "voice/speech_recognition/transcript_corrections.yaml",
+            &["ADK correction", "agent development kid"][..],
+        ),
+        (
+            "assert pronunciations materialized",
+            "voice/response_control/pronunciations.yaml",
+            &["Agent Development Kit", "\\bADK\\b"][..],
+        ),
+    ] {
+        let (assertion, ok) =
+            assert_text_file_contains(name, &project_root, path, contains, &replacements);
+        required_results.push((name, ok));
+        steps.push(WorkflowStep::FileAssertion(assertion));
+    }
+
+    let status = run_python_poly(
+        "status after synthetic resource materialization",
+        &["status", "--json", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "status after synthetic resource materialization",
+        command_succeeded(&status),
+    ));
+    steps.push(WorkflowStep::Command(status));
+
+    let recording_path = recording
+        .save("resource-materialization-python-adk")
+        .expect("save resource materialization recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        RESOURCE_MATERIALIZATION_HTTPMOCK_RECORDING_FILE,
+        RESOURCE_MATERIALIZATION_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python pull materialization for flow, broad, and synthetic resource families.",
+            "This scenario is local-only: it uses --from-projection - with a synthetic projection so the HTTP cassette is intentionally empty or near-empty.",
+            "File assertion steps make replay fail if Rust does not write the same resource-family files Python writes.",
+        ],
+        StepWorkflow {
+            name: "resource_materialization",
+            description: "Pull a synthetic projection and assert Python materializes representative flow, broad, and synthetic resource-family files.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("resource materialization", &required_results);
+}
+
+#[test]
+#[ignore = "records local Python synthetic resource lifecycle through httpmock fixture machinery"]
+fn record_synthetic_lifecycle_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let mut steps = Vec::new();
+
+    let config = write_text_file(
+        "write project config before synthetic lifecycle",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before synthetic lifecycle",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let projection = resource_family_projection_json();
+    let baseline_pull = run_python_poly_with_options(
+        "pull synthetic lifecycle baseline projection",
+        &[
+            "pull",
+            "--json",
+            "--force",
+            "--from-projection",
+            "-",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some(&projection),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "pull synthetic lifecycle baseline projection",
+        command_succeeded(&baseline_pull),
+    ));
+    steps.push(WorkflowStep::Command(baseline_pull));
+
+    for (name, path, content) in [
+        (
+            "write lifecycle entities",
+            "config/entities.yaml",
+            SYNTHETIC_ENTITIES_LIFECYCLE,
+        ),
+        (
+            "write lifecycle experimental config",
+            "agent_settings/experimental_config.json",
+            SYNTHETIC_EXPERIMENTAL_CONFIG_LIFECYCLE,
+        ),
+        (
+            "write lifecycle sms templates",
+            "config/sms_templates.yaml",
+            SYNTHETIC_SMS_LIFECYCLE,
+        ),
+        (
+            "write lifecycle handoffs",
+            "config/handoffs.yaml",
+            SYNTHETIC_HANDOFFS_LIFECYCLE,
+        ),
+        (
+            "write lifecycle phrase filtering",
+            "voice/response_control/phrase_filtering.yaml",
+            SYNTHETIC_PHRASE_FILTERING_LIFECYCLE,
+        ),
+    ] {
+        let edit = write_text_file(name, &project_root, path, content, &replacements);
+        required_results.push((name, edit.success));
+        steps.push(WorkflowStep::FileEdit(edit));
+    }
+
+    let status = run_python_poly(
+        "status after synthetic lifecycle edits",
+        &["status", "--json", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "status after synthetic lifecycle edits",
+        command_succeeded(&status),
+    ));
+    steps.push(WorkflowStep::Command(status));
+
+    let dry_run = run_python_poly_with_options(
+        "push dry-run synthetic lifecycle command payload",
+        &[
+            "push",
+            "--output-json-commands",
+            "--dry-run",
+            "--skip-validation",
+            "--from-projection",
+            "-",
+            "--email",
+            RECORDER_EMAIL,
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some(&projection),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "push dry-run synthetic lifecycle command payload",
+        command_succeeded(&dry_run),
+    ));
+    steps.push(WorkflowStep::Command(dry_run));
+
+    let recording_path = recording
+        .save("synthetic-lifecycle-python-adk")
+        .expect("save synthetic lifecycle recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        SYNTHETIC_LIFECYCLE_HTTPMOCK_RECORDING_FILE,
+        SYNTHETIC_LIFECYCLE_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python command contracts for synthetic multi-resource files: entities, experimental config, SMS templates, handoffs, and phrase filtering.",
+            "This scenario is local-only: it uses --from-projection - with a synthetic projection for both pull and dry-run push.",
+            "The local edits exercise update, create, and delete behavior without mutating Agent Studio.",
+        ],
+        StepWorkflow {
+            name: "synthetic_lifecycle",
+            description: "Pull a synthetic baseline, edit synthetic multi-resource files, then record Python dry-run command generation.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("synthetic lifecycle", &required_results);
 }
 
 #[test]
@@ -4272,6 +4770,287 @@ fn target_project_config() -> String {
     )
 }
 
+fn resource_family_projection_json() -> String {
+    json!({
+        "knowledgeBase": {
+            "topics": {
+                "entities": {
+                    "TOPIC-recording": {
+                        "name": "Recording Topic",
+                        "isActive": true,
+                        "actions": "Keep answers concise.",
+                        "content": "Recording coverage topic.",
+                        "exampleQueries": [{"query": "What is this recording?"}]
+                    }
+                }
+            }
+        },
+        "functions": {
+            "functions": {
+                "entities": {
+                    "FUNCTION-recording": {
+                        "name": "recording_handler",
+                        "description": "Recording function.",
+                        "code": "def recording_handler(conv):\n    return {\"utterance\": \"handled\"}\n",
+                        "parameters": {"entities": {}, "ids": []},
+                        "errors": []
+                    }
+                }
+            }
+        },
+        "entities": {
+            "entities": {
+                "entities": {
+                    "ENTITY-age": {
+                        "name": "Age",
+                        "description": "Customer age.",
+                        "type": "numeric",
+                        "config": {
+                            "value": {
+                                "has_decimal": false,
+                                "has_range": true,
+                                "min": 1,
+                                "max": 120
+                            }
+                        }
+                    },
+                    "ENTITY-legacy": {
+                        "name": "Legacy Code",
+                        "description": "Deleted by lifecycle recording.",
+                        "type": "free_text",
+                        "config": {"value": {}}
+                    }
+                }
+            }
+        },
+        "flows": {
+            "flows": {
+                "entities": {
+                    "FLOW-recording": {
+                        "name": "adk_recording_flow",
+                        "description": "Flow recording baseline.",
+                        "startStepId": "STEP-start",
+                        "steps": {
+                            "entities": {
+                                "STEP-start": {
+                                    "name": "start_step",
+                                    "type": "advanced_step",
+                                    "prompt": "Welcome to the flow recording.",
+                                    "position": {"x": 100.0, "y": 100.0},
+                                    "asrBiasing": {"isEnabled": false},
+                                    "dtmfConfig": {"isEnabled": false},
+                                    "references": {}
+                                },
+                                "STEP-default": {
+                                    "name": "default_step",
+                                    "type": "default_step",
+                                    "prompt": "What do you need?",
+                                    "position": {"x": 300.0, "y": 100.0},
+                                    "references": {"extractedEntities": {"ENTITY-age": true}},
+                                    "conditions": [{
+                                        "id": "COND-exit",
+                                        "config": {
+                                            "$case": "exitFlowCondition",
+                                            "value": {
+                                                "details": {
+                                                    "label": "exit",
+                                                    "description": "Exit the flow.",
+                                                    "requiredEntities": [],
+                                                    "ingressPosition": "top",
+                                                    "position": {"x": 300.0, "y": 250.0}
+                                                },
+                                                "exitFlowPosition": {"x": 300.0, "y": 500.0}
+                                            }
+                                        }
+                                    }]
+                                },
+                                "STEP-function": {
+                                    "name": "do_work",
+                                    "type": "function_step",
+                                    "position": {"x": 500.0, "y": 100.0},
+                                    "function": {
+                                        "id": "FUNCTION-step-do-work",
+                                        "code": "def do_work(conv, flow):\n    return \"done\"\n",
+                                        "parameters": {"entities": {}, "ids": []},
+                                        "latencyControl": {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "experimentalConfig": {
+            "experimentalConfigs": {
+                "entities": {
+                    "default": {
+                        "features": {
+                            "recording_flag": true,
+                            "nested": {"enabled": true}
+                        }
+                    }
+                }
+            }
+        },
+        "sms": {
+            "templates": {
+                "entities": {
+                    "SMS-welcome": {
+                        "name": "Welcome SMS",
+                        "text": "Hello {recording_state}",
+                        "active": true,
+                        "envPhoneNumbers": {
+                            "sandbox": "+15550000001",
+                            "preRelease": "+15550000002",
+                            "live": "+15550000003"
+                        }
+                    },
+                    "SMS-old": {
+                        "name": "Old SMS",
+                        "text": "Old message",
+                        "active": true,
+                        "envPhoneNumbers": {
+                            "sandbox": "",
+                            "preRelease": "",
+                            "live": ""
+                        }
+                    }
+                }
+            }
+        },
+        "handoff": {
+            "handoffs": {
+                "entities": {
+                    "HANDOFF-sales": {
+                        "name": "Sales",
+                        "description": "Route to sales.",
+                        "active": true,
+                        "isDefault": true,
+                        "sipConfig": {
+                            "config": {
+                                "$case": "invite",
+                                "value": {
+                                    "phoneNumber": "+15551234567",
+                                    "outboundEndpoint": "sales-trunk",
+                                    "outboundEncryption": "TLS/SRTP"
+                                }
+                            }
+                        },
+                        "sipHeaders": {
+                            "headers": [{"key": "X-Recording", "value": "sales"}]
+                        }
+                    },
+                    "HANDOFF-support": {
+                        "name": "Support",
+                        "description": "Deleted by lifecycle recording.",
+                        "active": true,
+                        "isDefault": false,
+                        "sipConfig": {"config": {"$case": "bye", "value": {}}},
+                        "sipHeaders": {"headers": []}
+                    }
+                }
+            }
+        },
+        "stopKeywords": {
+            "filters": {
+                "entities": {
+                    "STOP-hangup": {
+                        "title": "Hang Up",
+                        "description": "End the conversation.",
+                        "regularExpressions": ["(?i)bye"],
+                        "sayPhrase": false,
+                        "languageCode": "en-US",
+                        "references": {"globalFunctions": {"FUNCTION-recording": true}}
+                    },
+                    "STOP-old": {
+                        "title": "Old Filter",
+                        "description": "Deleted by lifecycle recording.",
+                        "regularExpressions": ["old"],
+                        "sayPhrase": false,
+                        "languageCode": "en-US"
+                    }
+                }
+            }
+        },
+        "variantManagement": {
+            "variants": {
+                "entities": {
+                    "VAR-control": {"name": "control", "isDefault": true},
+                    "VAR-treatment": {"name": "treatment", "isDefault": false}
+                }
+            },
+            "attributes": {
+                "entities": {
+                    "ATTR-channel": {"name": "channel", "archived": false}
+                }
+            },
+            "variantAttributeValues": {
+                "entities": {
+                    "VAR-control": {"values": {"ATTR-channel": "voice"}},
+                    "VAR-treatment": {"values": {"ATTR-channel": "webchat"}}
+                }
+            }
+        },
+        "apiIntegrations": {
+            "apiIntegrations": {
+                "entities": {
+                    "API-recording": {
+                        "name": "recording_api",
+                        "description": "Recording API integration.",
+                        "environments": {
+                            "sandbox": {"baseUrl": "https://example.invalid/sandbox", "authType": "none"},
+                            "pre-release": {"baseUrl": "https://example.invalid/pre", "authType": "none"},
+                            "live": {"baseUrl": "https://example.invalid/live", "authType": "none"}
+                        },
+                        "operations": {
+                            "OP-status": {"id": "OP-status", "name": "get_status", "method": "GET", "resource": "/status"}
+                        }
+                    }
+                }
+            }
+        },
+        "keyphraseBoosting": {
+            "keyphraseBoosting": {
+                "entities": {
+                    "KEYPHRASE-adk": {"keyphrase": "ADK parity", "level": "boosted"}
+                }
+            }
+        },
+        "transcriptCorrections": {
+            "transcriptCorrections": {
+                "entities": {
+                    "CORRECTION-adk": {
+                        "name": "ADK correction",
+                        "description": "Correct ADK spelling.",
+                        "regularExpressions": [{
+                            "regularExpression": "agent development kid",
+                            "replacement": "agent development kit",
+                            "replacementType": "full"
+                        }]
+                    }
+                }
+            }
+        },
+        "pronunciations": {
+            "pronunciations": {
+                "entities": {
+                    "PRON-adk": {
+                        "name": "ADK pronunciation",
+                        "regex": "\\bADK\\b",
+                        "replacement": "Agent Development Kit",
+                        "caseSensitive": true,
+                        "languageCode": "en-US",
+                        "description": "Pronounce ADK clearly.",
+                        "position": 0
+                    }
+                }
+            }
+        }
+    })
+    .to_string()
+}
+
 fn channel_settings_projection_stdin(record: &CommandRecord) -> Option<String> {
     let mut projection = record.stdout_json.as_ref()?.get("projection")?.clone();
 
@@ -5486,6 +6265,32 @@ fn delete_file(
     }
 }
 
+fn assert_text_file_contains(
+    name: &'static str,
+    project_root: &std::path::Path,
+    relative_path: &str,
+    contains: &[&str],
+    replacements: &[(String, String)],
+) -> (FileAssertionRecord, bool) {
+    let path = project_root.join(relative_path);
+    let content = fs::read_to_string(&path).ok();
+    let ok = content
+        .as_deref()
+        .is_some_and(|content| contains.iter().all(|needle| content.contains(*needle)));
+    (
+        FileAssertionRecord {
+            name,
+            path: normalize_text(relative_path, replacements),
+            exists: true,
+            contains: contains
+                .iter()
+                .map(|needle| normalize_text(needle, replacements))
+                .collect(),
+        },
+        ok,
+    )
+}
+
 fn write_step_recording_fixture(
     api_key: &str,
     recording_path: PathBuf,
@@ -5623,10 +6428,10 @@ fn machine_path_replacements() -> Vec<(String, String)> {
 }
 
 fn api_key_from_env() -> String {
-    ["POLY_ADK_KEY", "POLY_ADK_KEY_US", "POLY_ADK_KEY_US_1"]
+    ["POLY_ADK_KEY_US", "POLY_ADK_KEY"]
         .into_iter()
         .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
-        .expect("POLY_ADK_KEY, POLY_ADK_KEY_US, or POLY_ADK_KEY_US_1 must be set")
+        .expect("POLY_ADK_KEY_US or POLY_ADK_KEY must be set")
 }
 
 fn merge_resolutions_for_conflicts(record: &CommandRecord) -> Option<String> {

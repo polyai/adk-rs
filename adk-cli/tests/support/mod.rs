@@ -120,6 +120,7 @@ pub mod python_recordings {
         "deployments-mutation",
         "dirty-switch",
         "format-local",
+        "flow-resource-coverage",
         "interactive-contracts",
         "main-push",
         "merge-conflict-resolution",
@@ -127,9 +128,11 @@ pub mod python_recordings {
         "pull-force-cleanup",
         "pull-resource-coverage",
         "push-resource-coverage",
+        "resource-materialization",
         "revert-local",
         "semantic-validation",
         "special-functions",
+        "synthetic-lifecycle",
         "validation-errors",
     ];
 

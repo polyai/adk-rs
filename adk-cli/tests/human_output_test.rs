@@ -936,8 +936,9 @@ fn debug_flag_enables_debug_logging() {
 
 fn set_non_us_region_base_urls(command: &mut Command, base_url: &str) {
     for name in [
+        "POLY_ADK_BASE_URL_EUW",
         "POLY_ADK_BASE_URL_EUW_1",
-        "POLY_ADK_BASE_URL_EU",
+        "POLY_ADK_BASE_URL_UK",
         "POLY_ADK_BASE_URL_UK_1",
         "POLY_ADK_BASE_URL_STUDIO",
         "POLY_ADK_BASE_URL_STAGING",
