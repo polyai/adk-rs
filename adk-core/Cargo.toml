@@ -3,7 +3,6 @@ name = "poly-adk-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-authors.workspace = true
 repository.workspace = true
 description = "Core project workflows for the PolyAI ADK."
 readme = "README.md"
