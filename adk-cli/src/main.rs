@@ -2681,11 +2681,11 @@ fn run_ty_check(path: &std::path::Path) -> (Option<i32>, bool) {
     let mut ty = std::process::Command::new("ty");
     ty.arg("check").current_dir(path);
     match output_with_timeout(&mut ty, Duration::from_secs(15)) {
-        Ok((Some(output), false)) => return (Some(output.status.code().unwrap_or(1)), false),
-        Ok((None, true)) => return (None, true),
-        Ok(_) => return (Some(1), false),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (Some(1), false),
-        Err(_) => return (Some(1), false),
+        Ok((Some(output), false)) => (Some(output.status.code().unwrap_or(1)), false),
+        Ok((None, true)) => (None, true),
+        Ok(_) => (Some(1), false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Some(1), false),
+        Err(_) => (Some(1), false),
     }
 }
 
