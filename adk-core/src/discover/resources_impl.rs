@@ -165,6 +165,19 @@ impl DiscoverResources for SettingsRules {
     }
 }
 
+fn flow_start_step_name(flow_dir: &Path) -> Option<String> {
+    let yaml = read_yaml_mapping(&flow_dir.join("flow_config.yaml"))?;
+    yaml.get("start_step")
+        .and_then(|value| value.as_str())
+        .map(|value| value.strip_prefix("STEP-").unwrap_or(value).to_string())
+}
+
+fn step_file_stem(path: &Path) -> Option<String> {
+    path.file_stem()
+        .and_then(|value| value.to_str())
+        .map(ToString::to_string)
+}
+
 // --- FlowStep, FunctionStep, FlowConfig (poly/resources/flows.py) ---
 pub struct FlowStep;
 impl DiscoverResources for FlowStep {
@@ -183,10 +196,24 @@ impl DiscoverResources for FlowStep {
                 }
                 let steps_path = flow_dir.join("steps");
                 if let Some(files) = sorted_read_dir(&steps_path) {
-                    for f in files {
-                        if f.extension().and_then(|e| e.to_str()) == Some("yaml") {
-                            out.push(rel_under_root(base_path, &f));
-                        }
+                    let start_step = flow_start_step_name(&flow_dir);
+                    let mut step_files = files
+                        .into_iter()
+                        .filter(|f| f.extension().and_then(|e| e.to_str()) == Some("yaml"))
+                        .collect::<Vec<_>>();
+                    step_files.sort_by(|left, right| {
+                        let left_is_start = step_file_stem(left)
+                            .as_deref()
+                            .is_some_and(|name| Some(name) == start_step.as_deref());
+                        let right_is_start = step_file_stem(right)
+                            .as_deref()
+                            .is_some_and(|name| Some(name) == start_step.as_deref());
+                        right_is_start
+                            .cmp(&left_is_start)
+                            .then_with(|| left.cmp(right))
+                    });
+                    for f in step_files {
+                        out.push(rel_under_root(base_path, &f));
                     }
                 }
             }

@@ -357,16 +357,24 @@ pub fn find_new_kept_deleted(
             .cloned()
             .unwrap_or_default();
 
-        let discovered_set: BTreeSet<String> = discovered.into_iter().collect();
-        let existing_set: BTreeSet<String> = existing.into_iter().collect();
+        let discovered_set: BTreeSet<String> = discovered.iter().cloned().collect();
+        let existing_set: BTreeSet<String> = existing.iter().cloned().collect();
 
-        let new_paths: Vec<String> = discovered_set.difference(&existing_set).cloned().collect();
-        let kept_paths: Vec<String> = discovered_set
-            .intersection(&existing_set)
+        let new_paths: Vec<String> = discovered
+            .iter()
+            .filter(|path| !existing_set.contains(*path))
             .cloned()
             .collect();
-        let deleted_paths: Vec<String> =
-            existing_set.difference(&discovered_set).cloned().collect();
+        let kept_paths: Vec<String> = discovered
+            .iter()
+            .filter(|path| existing_set.contains(*path))
+            .cloned()
+            .collect();
+        let deleted_paths: Vec<String> = existing
+            .iter()
+            .filter(|path| !discovered_set.contains(*path))
+            .cloned()
+            .collect();
 
         new_resources.insert(resource_type.clone(), new_paths);
         kept_resources.insert(resource_type.clone(), kept_paths);

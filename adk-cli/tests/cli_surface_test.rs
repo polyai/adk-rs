@@ -267,6 +267,34 @@ fn validate_json_reports_duplicate_names_and_invalid_entity_types() {
 }
 
 #[test]
+fn validate_json_reports_python_function_syntax_errors() {
+    let project_dir = make_temp_project_dir();
+    let root = std::path::PathBuf::from(&project_dir);
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+    fs::write(
+        root.join("functions/bad_global.py"),
+        "from _gen import *  # <AUTO GENERATED>\n\n\ndef bad_global(conv: Conversation):\n    if True\n        return None\n",
+    )
+    .expect("write invalid global function");
+
+    let output = run_poly(&["validate", "--json", "--path", &project_dir]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(
+        payload.get("success").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    let error = payload
+        .get("error")
+        .and_then(|v| v.as_str())
+        .expect("error string");
+    assert!(error.contains("Error reading resource bad_global"));
+    assert!(error.contains("functions/bad_global.py"));
+}
+
+#[test]
 fn format_check_json_reports_unformatted_json_files() {
     let project_dir = make_temp_unformatted_json_project_dir();
     let output = run_poly(&[

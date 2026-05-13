@@ -4,6 +4,7 @@ use adk_domain::{
 };
 
 pub mod discover;
+mod python_syntax;
 
 use adk_io::{compute_hash, diff_resources, parse_multi_resource_path};
 use adk_platform_api::{ApiError, PlatformClient};
@@ -12,8 +13,9 @@ use base64::Engine;
 pub use discover::discover_local_resources;
 pub use discover::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 use globset::{Glob, GlobSetBuilder};
+use python_syntax::validate_python_module;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -381,6 +383,8 @@ impl AdkService {
             }
             let mut before_state = self.resolve_named_state(root, &before_name)?;
             let mut after_state = self.resolve_named_state(root, &after_name)?;
+            normalize_flow_resources_for_diff(&mut before_state, None);
+            normalize_flow_resources_for_diff(&mut after_state, Some(&before_state));
             if before_name != "local" {
                 normalize_function_references_in_rules(&mut before_state);
                 normalize_function_references_in_rules(&mut after_state);
@@ -393,7 +397,11 @@ impl AdkService {
             return Ok(diffs);
         }
         let mut local = self.collect_local_resources(root)?;
-        let remote = self.client.pull_resources()?;
+        let remote = if let Some(resources) = self.load_replay_state_resources(root)? {
+            resources
+        } else {
+            self.client.pull_resources()?
+        };
         let mut changed_file_paths = None;
         let mut deleted_file_paths = HashSet::new();
 
@@ -439,6 +447,9 @@ impl AdkService {
             }
         }
 
+        let mut remote = remote;
+        normalize_flow_resources_for_diff(&mut remote, None);
+        normalize_flow_resources_for_diff(&mut local, Some(&remote));
         let mut diffs = diff_resources(&remote, &local);
 
         if let Some(changed_file_paths) = changed_file_paths {
@@ -691,6 +702,7 @@ impl AdkService {
             delete_empty_subdirectories(&root.join("flows"))?;
         }
         if files_with_conflicts.is_empty() {
+            self.save_replay_state_resources(root, &remote)?;
             self.write_status_snapshot_from_resources(root, &remote)?;
         }
         Ok(files_with_conflicts)
@@ -933,7 +945,7 @@ impl AdkService {
     pub fn validate_local_resources(&self, root: &Path) -> Result<Vec<String>, CoreError> {
         let resources = self.collect_local_resources(root)?;
         let mut errors = Vec::new();
-        for (path, resource) in resources {
+        for (path, resource) in &resources {
             let content = resource
                 .payload
                 .get("content")
@@ -949,13 +961,15 @@ impl AdkService {
                         );
                     }
                 };
-                validate_semantic_resource(&path, &yaml, &mut errors);
+                validate_semantic_resource(path, &yaml, &mut errors);
             } else if path.ends_with(".json")
                 && let Err(e) = serde_json::from_str::<serde_json::Value>(content)
             {
                 errors.push(format!("{path}: invalid json: {e}"));
             }
         }
+        validate_python_function_resources(root, &resources)?;
+        validate_flow_resources(root, &resources, &mut errors)?;
         Ok(errors)
     }
 
@@ -1678,6 +1692,415 @@ fn build_file_matcher(patterns: &[String]) -> Result<globset::GlobSet, CoreError
         .map_err(|e| DomainError::InvalidData(e.to_string()).into())
 }
 
+fn validate_flow_resources(
+    root: &Path,
+    resources: &ResourceMap,
+    errors: &mut Vec<String>,
+) -> Result<(), CoreError> {
+    let flow_steps = flow_validation_step_names(resources);
+    let entity_ids = flow_validation_entity_ids(resources);
+
+    let mut step_paths = resources
+        .keys()
+        .filter(|path| {
+            path.starts_with("flows/") && path.contains("/steps/") && path.ends_with(".yaml")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    step_paths.sort();
+    for path in step_paths {
+        let Some(yaml) = resource_yaml_content(resources, &path) else {
+            continue;
+        };
+        validate_flow_step_resource(&path, &yaml, &flow_steps, &entity_ids, errors);
+    }
+
+    let mut function_step_paths = resources
+        .keys()
+        .filter(|path| {
+            path.starts_with("flows/") && path.contains("/function_steps/") && path.ends_with(".py")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    function_step_paths.sort();
+    for path in function_step_paths {
+        let Some(content) = resource_content(resources, &path) else {
+            continue;
+        };
+        validate_flow_function_step_resource(root, &path, content, errors)?;
+    }
+
+    let mut config_paths = resources
+        .keys()
+        .filter(|path| path.starts_with("flows/") && path.ends_with("/flow_config.yaml"))
+        .cloned()
+        .collect::<Vec<_>>();
+    config_paths.sort();
+    for path in config_paths {
+        let Some(yaml) = resource_yaml_content(resources, &path) else {
+            continue;
+        };
+        validate_flow_config_resource(&path, &yaml, &flow_steps, errors);
+    }
+    Ok(())
+}
+
+fn validate_python_function_resources(
+    root: &Path,
+    resources: &ResourceMap,
+) -> Result<(), CoreError> {
+    let mut paths = resources
+        .keys()
+        .filter(|path| is_python_function_resource(path))
+        .cloned()
+        .collect::<Vec<_>>();
+    paths.sort();
+    for path in paths {
+        let Some(content) = resource_content(resources, &path) else {
+            continue;
+        };
+        validate_python_resource_syntax(root, &path, content)?;
+    }
+    Ok(())
+}
+
+fn is_python_function_resource(path: &str) -> bool {
+    ((path.starts_with("functions/") && path.ends_with(".py"))
+        || (path.starts_with("flows/") && path.contains("/functions/") && path.ends_with(".py")))
+        && !path.contains("/function_steps/")
+}
+
+#[derive(Debug, Default)]
+struct FlowValidationNames {
+    by_flow: HashMap<String, BTreeSet<String>>,
+}
+
+impl FlowValidationNames {
+    fn contains(&self, flow_name: &str, step_name: &str) -> bool {
+        self.by_flow
+            .get(flow_name)
+            .is_some_and(|steps| steps.contains(step_name))
+    }
+}
+
+fn flow_validation_step_names(resources: &ResourceMap) -> FlowValidationNames {
+    let mut names = FlowValidationNames::default();
+    for path in resources.keys() {
+        let Some(flow_name) = flow_name_from_resource_path(path) else {
+            continue;
+        };
+        if path.starts_with("flows/") && path.contains("/steps/") && path.ends_with(".yaml") {
+            if let Some(stem) = path
+                .rsplit('/')
+                .next()
+                .and_then(|name| name.strip_suffix(".yaml"))
+            {
+                names
+                    .by_flow
+                    .entry(flow_name.to_string())
+                    .or_default()
+                    .insert(stem.to_string());
+            }
+        } else if path.starts_with("flows/")
+            && path.contains("/function_steps/")
+            && path.ends_with(".py")
+            && let Some(stem) = path
+                .rsplit('/')
+                .next()
+                .and_then(|name| name.strip_suffix(".py"))
+        {
+            names
+                .by_flow
+                .entry(flow_name.to_string())
+                .or_default()
+                .insert(stem.to_string());
+        }
+    }
+    names
+}
+
+fn flow_validation_entity_ids(resources: &ResourceMap) -> BTreeSet<String> {
+    let mut ids = BTreeSet::new();
+    let Some(yaml) = resource_yaml_content(resources, "config/entities.yaml") else {
+        return ids;
+    };
+    let Some(items) = yaml
+        .get("entities")
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return ids;
+    };
+    for item in items {
+        let Some(name) = item.get("name").and_then(serde_yaml::Value::as_str) else {
+            continue;
+        };
+        ids.insert(format!("ENTITY-{name}"));
+        ids.insert(name.to_string());
+    }
+    ids
+}
+
+fn validate_flow_config_resource(
+    path: &str,
+    yaml: &serde_yaml::Value,
+    flow_steps: &FlowValidationNames,
+    errors: &mut Vec<String>,
+) {
+    let flow_name = flow_name_from_resource_path(path).unwrap_or_default();
+    let start_step = yaml
+        .get("start_step")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    if start_step.is_empty() {
+        errors.push(format!(
+            "Validation error in {path}: Start step cannot be empty."
+        ));
+        return;
+    }
+    if !flow_steps.contains(flow_name, start_step) {
+        errors.push(format!(
+            "Validation error in {path}: Start step '{start_step}' not found."
+        ));
+        return;
+    }
+    let description = yaml
+        .get("description")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    if description.is_empty() {
+        errors.push(format!(
+            "Validation error in {path}: Description cannot be empty."
+        ));
+    } else if description != description.trim() {
+        errors.push(format!(
+            "Validation error in {path}: Description cannot contain leading or trailing whitespace."
+        ));
+    }
+}
+
+fn validate_flow_step_resource(
+    path: &str,
+    yaml: &serde_yaml::Value,
+    flow_steps: &FlowValidationNames,
+    entity_ids: &BTreeSet<String>,
+    errors: &mut Vec<String>,
+) {
+    let flow_name = flow_name_from_resource_path(path).unwrap_or_default();
+    let name = yaml
+        .get("name")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    if name.is_empty() {
+        errors.push(format!("Validation error in {path}: Name cannot be empty."));
+        return;
+    }
+    if !valid_flow_step_name(name) {
+        errors.push(format!(
+            "Validation error in {path}: Name must contain only letters (including accented), numbers, and _ & , / . -"
+        ));
+        return;
+    }
+    let prompt = yaml
+        .get("prompt")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    if prompt.trim().is_empty() {
+        errors.push(format!(
+            "Validation error in {path}: Prompt cannot be empty."
+        ));
+        return;
+    }
+    let step_type = yaml
+        .get("step_type")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    if !matches!(
+        step_type,
+        "advanced_step" | "default_step" | "function_step"
+    ) {
+        errors.push(format!(
+            "Validation error in {path}: Invalid step type: {step_type}. Valid types: ['advanced_step', 'default_step', 'function_step']"
+        ));
+        return;
+    }
+    let function_references = prompt_function_references(prompt);
+    if step_type == "default_step" && !function_references.is_empty() {
+        errors.push(format!(
+            "Validation error in {path}: Default steps cannot reference functions. Found function references: [{}]",
+            python_string_list(&function_references)
+        ));
+        return;
+    }
+    if step_type == "default_step"
+        && let Some(conditions) = yaml
+            .get("conditions")
+            .and_then(serde_yaml::Value::as_sequence)
+    {
+        for condition in conditions {
+            validate_flow_condition(path, condition, flow_name, flow_steps, entity_ids, errors);
+        }
+    }
+}
+
+fn validate_flow_condition(
+    path: &str,
+    condition: &serde_yaml::Value,
+    flow_name: &str,
+    flow_steps: &FlowValidationNames,
+    entity_ids: &BTreeSet<String>,
+    errors: &mut Vec<String>,
+) {
+    let name = condition
+        .get("name")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    if name.is_empty() {
+        errors.push(format!(
+            "Validation error in {path}: Condition '{name}': Condition name cannot be empty."
+        ));
+        return;
+    }
+    let condition_type = condition
+        .get("condition_type")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or("exit_flow_condition");
+    if condition_type != "exit_flow_condition" {
+        let child_step = condition
+            .get("child_step")
+            .and_then(serde_yaml::Value::as_str)
+            .unwrap_or_default();
+        if !flow_steps.contains(flow_name, child_step) {
+            errors.push(format!(
+                "Validation error in {path}: Condition '{name}': Step '{child_step}' not found"
+            ));
+            return;
+        }
+    }
+    let missing_entities = condition
+        .get("required_entities")
+        .and_then(serde_yaml::Value::as_sequence)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_yaml::Value::as_str)
+        .filter(|entity| !entity_ids.contains(*entity))
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    if !missing_entities.is_empty() {
+        errors.push(format!(
+            "Validation error in {path}: Condition '{name}': Required entities not found: {{{}}}",
+            python_string_set(&missing_entities)
+        ));
+        return;
+    }
+    let description = condition
+        .get("description")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    if !description.is_empty() && description != description.trim() {
+        errors.push(format!(
+            "Validation error in {path}: Condition '{name}': Description cannot contain leading or trailing whitespace."
+        ));
+    }
+}
+
+fn validate_flow_function_step_resource(
+    root: &Path,
+    path: &str,
+    content: &str,
+    errors: &mut Vec<String>,
+) -> Result<(), CoreError> {
+    validate_python_resource_syntax(root, path, content)?;
+    let Some(file_name) = path
+        .rsplit('/')
+        .next()
+        .and_then(|name| name.strip_suffix(".py"))
+    else {
+        return Ok(());
+    };
+    let expected_typed = format!("def {file_name}(conv: Conversation, flow: Flow)");
+    let expected_untyped = format!("def {file_name}(conv, flow)");
+    if !content.contains(&expected_typed) && !content.contains(&expected_untyped) {
+        errors.push(format!(
+            "Validation error in {path}: Function definition '{expected_typed}' not found in code."
+        ));
+    }
+    Ok(())
+}
+
+fn validate_python_resource_syntax(
+    root: &Path,
+    path: &str,
+    content: &str,
+) -> Result<(), CoreError> {
+    if let Err(error) = validate_python_module(content) {
+        return Err(DomainError::InvalidData(resource_read_error_with_detail(
+            root,
+            path,
+            &error.to_string(),
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn resource_content<'a>(resources: &'a ResourceMap, path: &str) -> Option<&'a str> {
+    resources.get(path)?.payload.get("content")?.as_str()
+}
+
+fn resource_yaml_content(resources: &ResourceMap, path: &str) -> Option<serde_yaml::Value> {
+    serde_yaml::from_str(resource_content(resources, path)?).ok()
+}
+
+fn flow_name_from_resource_path(path: &str) -> Option<&str> {
+    let mut parts = path.split('/');
+    (parts.next()? == "flows").then_some(())?;
+    parts.next()
+}
+
+fn valid_flow_step_name(name: &str) -> bool {
+    name.chars()
+        .all(|ch| ch.is_alphanumeric() || matches!(ch, '_' | ' ' | '&' | ',' | '/' | '.' | '-'))
+}
+
+fn prompt_function_references(prompt: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    let mut rest = prompt;
+    while let Some(index) = rest.find("{{f") {
+        rest = &rest[index + 3..];
+        let Some(prefix_end) = rest.find(':') else {
+            continue;
+        };
+        let prefix = &rest[..prefix_end];
+        if prefix != "n" && prefix != "t" {
+            continue;
+        }
+        let tail = &rest[prefix_end + 1..];
+        let Some(end) = tail.find("}}") else {
+            break;
+        };
+        let name = tail[..end].trim();
+        if !name.is_empty() {
+            refs.push(name.to_string());
+        }
+        rest = &tail[end + 2..];
+    }
+    refs
+}
+
+fn python_string_list(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|value| format!("'{value}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn python_string_set(values: &[String]) -> String {
+    let mut values = values.to_vec();
+    values.sort();
+    python_string_list(&values)
+}
+
 fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
     match path {
         "config/api_integrations.yaml" => validate_api_integrations(yaml, errors),
@@ -2006,6 +2429,291 @@ fn stable_dedup(items: &mut Vec<String>) {
     items.retain(|item| seen.insert(item.clone()));
 }
 
+fn normalize_flow_resources_for_diff(resources: &mut ResourceMap, reference: Option<&ResourceMap>) {
+    let step_ids = reference
+        .map(flow_step_ids_by_folder_and_name)
+        .unwrap_or_default();
+    for (path, resource) in resources.iter_mut() {
+        let Some(content) = resource
+            .payload
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string)
+        else {
+            continue;
+        };
+        let normalized = if path.starts_with("flows/") && path.ends_with("/flow_config.yaml") {
+            canonical_flow_config_for_diff(path, &content, &step_ids)
+        } else if path.starts_with("flows/") && path.contains("/steps/") && path.ends_with(".yaml")
+        {
+            canonical_flow_step_for_diff(&content)
+        } else if path.starts_with("flows/")
+            && path.contains("/function_steps/")
+            && path.ends_with(".py")
+        {
+            Some(strip_generated_flow_function_imports(&content))
+        } else {
+            None
+        };
+        if let Some(normalized) = normalized {
+            resource.payload = serde_json::json!({ "content": normalized });
+        }
+    }
+}
+
+fn flow_step_ids_by_folder_and_name(resources: &ResourceMap) -> HashMap<(String, String), String> {
+    resources
+        .iter()
+        .filter_map(|(path, resource)| {
+            if !(path.starts_with("flows/") && path.contains("/steps/") && path.ends_with(".yaml"))
+            {
+                return None;
+            }
+            let folder = path.split('/').nth(1)?.to_string();
+            let content = resource.payload.get("content")?.as_str()?;
+            let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+            let name = yaml.get("name")?.as_str()?.to_string();
+            Some(((folder, name), resource.resource_id.clone()))
+        })
+        .collect()
+}
+
+fn canonical_flow_config_for_diff(
+    path: &str,
+    content: &str,
+    step_ids: &HashMap<(String, String), String>,
+) -> Option<String> {
+    let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+    let name = yaml
+        .get("name")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let description = yaml
+        .get("description")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let mut start_step = yaml
+        .get("start_step")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+    if !start_step.starts_with("STEP-")
+        && let Some(folder) = path.split('/').nth(1)
+        && let Some(id) = step_ids.get(&(folder.to_string(), start_step.clone()))
+    {
+        start_step = id.clone();
+    }
+    Some(format!(
+        "name: {name}\ndescription: {description}\nstart_step: {start_step}\n"
+    ))
+}
+
+fn canonical_flow_step_for_diff(content: &str) -> Option<String> {
+    let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+    let step_type = yaml
+        .get("step_type")
+        .and_then(|value| value.as_str())
+        .unwrap_or("advanced_step");
+    if step_type == "default_step" {
+        Some(canonical_default_step_for_diff(&yaml))
+    } else {
+        Some(canonical_advanced_step_for_diff(&yaml))
+    }
+}
+
+fn canonical_advanced_step_for_diff(yaml: &serde_yaml::Value) -> String {
+    let name = yaml_string_value(yaml, "name");
+    let prompt = yaml_string_value(yaml, "prompt");
+    let asr = yaml.get("asr_biasing").or_else(|| yaml.get("asrBiasing"));
+    let dtmf = yaml.get("dtmf_config").or_else(|| yaml.get("dtmfConfig"));
+    let mut out = String::new();
+    out.push_str("step_type: advanced_step\n");
+    out.push_str(&format!("name: {name}\n"));
+    out.push_str("asr_biasing:\n");
+    for (key, value) in [
+        (
+            "is_enabled",
+            yaml_bool_value(asr, &["is_enabled", "isEnabled"], false),
+        ),
+        (
+            "alphanumeric",
+            yaml_bool_value(asr, &["alphanumeric"], false),
+        ),
+        (
+            "name_spelling",
+            yaml_bool_value(asr, &["name_spelling", "nameSpelling"], false),
+        ),
+        ("numeric", yaml_bool_value(asr, &["numeric"], false)),
+        (
+            "party_size",
+            yaml_bool_value(asr, &["party_size", "partySize"], false),
+        ),
+        (
+            "precise_date",
+            yaml_bool_value(asr, &["precise_date", "preciseDate"], false),
+        ),
+        (
+            "relative_date",
+            yaml_bool_value(asr, &["relative_date", "relativeDate"], false),
+        ),
+        (
+            "single_number",
+            yaml_bool_value(asr, &["single_number", "singleNumber"], false),
+        ),
+        ("time", yaml_bool_value(asr, &["time"], false)),
+        ("yes_no", yaml_bool_value(asr, &["yes_no", "yesNo"], false)),
+        ("address", yaml_bool_value(asr, &["address"], false)),
+    ] {
+        out.push_str(&format!("  {key}: {value}\n"));
+    }
+    let keywords = yaml_string_sequence(asr.and_then(|value| {
+        value
+            .get("custom_keywords")
+            .or_else(|| value.get("customKeywords"))
+    }));
+    if keywords.is_empty() {
+        out.push_str("  custom_keywords: []\n");
+    } else {
+        out.push_str("  custom_keywords:\n");
+        for keyword in keywords {
+            out.push_str(&format!("  - {keyword}\n"));
+        }
+    }
+    out.push_str("dtmf_config:\n");
+    out.push_str(&format!(
+        "  is_enabled: {}\n",
+        yaml_bool_value(dtmf, &["is_enabled", "isEnabled"], false)
+    ));
+    out.push_str(&format!(
+        "  inter_digit_timeout: {}\n",
+        yaml_i64_value(dtmf, &["inter_digit_timeout", "interDigitTimeout"], 0)
+    ));
+    out.push_str(&format!(
+        "  max_digits: {}\n",
+        yaml_i64_value(dtmf, &["max_digits", "maxDigits"], 0)
+    ));
+    out.push_str(&format!(
+        "  end_key: '{}'\n",
+        yaml_string_value_from(dtmf, &["end_key", "endKey"])
+    ));
+    out.push_str(&format!(
+        "  collect_while_agent_speaking: {}\n",
+        yaml_bool_value(
+            dtmf,
+            &["collect_while_agent_speaking", "collectWhileAgentSpeaking"],
+            false
+        )
+    ));
+    out.push_str(&format!(
+        "  is_pii: {}\n",
+        yaml_bool_value(dtmf, &["is_pii", "isPii"], false)
+    ));
+    out.push_str(&format!("prompt: {prompt}\n"));
+    out
+}
+
+fn canonical_default_step_for_diff(yaml: &serde_yaml::Value) -> String {
+    let name = yaml_string_value(yaml, "name");
+    let prompt = yaml_string_value(yaml, "prompt");
+    let mut out = String::new();
+    out.push_str("step_type: default_step\n");
+    out.push_str(&format!("name: {name}\n"));
+    out.push_str("conditions:\n");
+    if let Some(conditions) = yaml.get("conditions").and_then(|value| value.as_sequence()) {
+        for condition in conditions {
+            out.push_str(&format!(
+                "- name: {}\n",
+                yaml_string_value(condition, "name")
+            ));
+            out.push_str(&format!(
+                "  condition_type: {}\n",
+                yaml_string_value(condition, "condition_type")
+            ));
+            out.push_str(&format!(
+                "  description: {}\n",
+                yaml_string_value(condition, "description")
+            ));
+            let required = yaml_string_sequence(condition.get("required_entities"));
+            if required.is_empty() {
+                out.push_str("  required_entities: []\n");
+            } else {
+                out.push_str("  required_entities:\n");
+                for entity in required {
+                    out.push_str(&format!("  - {entity}\n"));
+                }
+            }
+        }
+    }
+    let extracted = yaml_string_sequence(yaml.get("extracted_entities"));
+    if extracted.is_empty() {
+        out.push_str("extracted_entities: []\n");
+    } else {
+        out.push_str("extracted_entities:\n");
+        for entity in extracted {
+            out.push_str(&format!("- {entity}\n"));
+        }
+    }
+    out.push_str(&format!("prompt: {prompt}\n"));
+    out
+}
+
+fn strip_generated_flow_function_imports(content: &str) -> String {
+    let mut lines = content.lines().collect::<Vec<_>>();
+    while lines
+        .first()
+        .is_some_and(|line| line.trim().is_empty() || line.starts_with("from _gen import"))
+    {
+        lines.remove(0);
+    }
+    format!("{}\n", lines.join("\n"))
+        .trim_end_matches('\n')
+        .to_string()
+}
+
+fn yaml_string_value(yaml: &serde_yaml::Value, key: &str) -> String {
+    yaml.get(key)
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn yaml_string_value_from(yaml: Option<&serde_yaml::Value>, keys: &[&str]) -> String {
+    keys.iter()
+        .find_map(|key| {
+            yaml.and_then(|value| value.get(*key))
+                .and_then(|value| value.as_str())
+        })
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn yaml_bool_value(yaml: Option<&serde_yaml::Value>, keys: &[&str], default: bool) -> bool {
+    keys.iter()
+        .find_map(|key| {
+            yaml.and_then(|value| value.get(*key))
+                .and_then(|value| value.as_bool())
+        })
+        .unwrap_or(default)
+}
+
+fn yaml_i64_value(yaml: Option<&serde_yaml::Value>, keys: &[&str], default: i64) -> i64 {
+    keys.iter()
+        .find_map(|key| {
+            yaml.and_then(|value| value.get(*key))
+                .and_then(|value| value.as_i64())
+        })
+        .unwrap_or(default)
+}
+
+fn yaml_string_sequence(yaml: Option<&serde_yaml::Value>) -> Vec<String> {
+    yaml.and_then(|value| value.as_sequence())
+        .into_iter()
+        .flatten()
+        .filter_map(|value| value.as_str())
+        .map(ToString::to_string)
+        .collect()
+}
+
 fn normalize_function_references_in_rules(resources: &mut ResourceMap) {
     let replacements = resources
         .values()
@@ -2102,13 +2810,16 @@ fn reference_name_from_logical_path(logical_path: &str) -> String {
 
 fn resource_read_error(root: &Path, path: &str) -> String {
     let abs_path = root.join(path).to_string_lossy().to_string();
+    resource_read_error_with_detail(root, path, &format!("Error loading YAML file: {abs_path}"))
+}
+
+fn resource_read_error_with_detail(root: &Path, path: &str, detail: &str) -> String {
+    let abs_path = root.join(path).to_string_lossy().to_string();
     let resource_name = Path::new(path)
         .file_stem()
         .and_then(|name| name.to_str())
         .unwrap_or(path);
-    format!(
-        "Error reading resource {resource_name} at {abs_path}: Error loading YAML file: {abs_path}"
-    )
+    format!("Error reading resource {resource_name} at {abs_path}: {detail}")
 }
 
 fn absolutize_deleted_diff_keys(

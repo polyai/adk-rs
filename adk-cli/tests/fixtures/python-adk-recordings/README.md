@@ -80,15 +80,30 @@ focused parity behavior beyond the larger workflows above:
   pronunciations, transcript corrections, variants, and API integrations.
 - `semantic-validation.*`
   Documents Python semantic validation beyond YAML/JSON parsing.
+- `python-syntax-validation.*`
+  Documents Python `compile()` validation for global functions, start/end
+  special functions, and flow function steps.
 - `special-functions.*`
   Documents Python start/end special-function pull materialization, create,
   update, delete, and related `conv.state.*` variable command behavior.
 - `format-local.*`
   Documents Python formatting for YAML resources, Python function files, and
   observed `--ty` behavior.
+- `flow-validation.*`
+  Documents Python validation errors for invalid flow config, step YAML, and
+  function-step signatures.
+- `flow-deletion.*`
+  Documents Python dry-run command behavior for no-code condition deletion and
+  whole-flow deletion.
+- `flow-lifecycle.*`
+  Documents Python status, diff, and dry-run command behavior for existing flow
+  edits, including `flow_config`, `flow_steps`, and function-step create/delete.
 - `flow-resource-coverage.*`
   Documents Python dry-run command generation for `flow_config`, advanced and
   default `flow_steps`, `function_steps`, and no-code exit conditions.
+- `live-resource-push.*`
+  Documents Python non-dry-run push behavior for a representative flow create
+  plus keyphrase boosting create on a throwaway branch.
 - `resource-materialization.*`
   Documents Python pull materialization for flow resources, broad multi-resource
   files, and synthetic interaction/config families using explicit file

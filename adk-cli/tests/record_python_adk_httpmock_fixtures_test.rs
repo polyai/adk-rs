@@ -40,6 +40,8 @@ const PULL_RESOURCE_COVERAGE_COMMAND_MANIFEST_FILE: &str = "pull-resource-covera
 const PULL_RESOURCE_COVERAGE_HTTPMOCK_RECORDING_FILE: &str = "pull-resource-coverage.httpmock.yaml";
 const PUSH_RESOURCE_COVERAGE_COMMAND_MANIFEST_FILE: &str = "push-resource-coverage.commands.yaml";
 const PUSH_RESOURCE_COVERAGE_HTTPMOCK_RECORDING_FILE: &str = "push-resource-coverage.httpmock.yaml";
+const LIVE_RESOURCE_PUSH_COMMAND_MANIFEST_FILE: &str = "live-resource-push.commands.yaml";
+const LIVE_RESOURCE_PUSH_HTTPMOCK_RECORDING_FILE: &str = "live-resource-push.httpmock.yaml";
 const SEMANTIC_VALIDATION_COMMAND_MANIFEST_FILE: &str = "semantic-validation.commands.yaml";
 const SEMANTIC_VALIDATION_HTTPMOCK_RECORDING_FILE: &str = "semantic-validation.httpmock.yaml";
 const FORMAT_LOCAL_COMMAND_MANIFEST_FILE: &str = "format-local.commands.yaml";
@@ -66,6 +68,16 @@ const BROAD_LIFECYCLE_COMMAND_MANIFEST_FILE: &str = "broad-lifecycle.commands.ya
 const BROAD_LIFECYCLE_HTTPMOCK_RECORDING_FILE: &str = "broad-lifecycle.httpmock.yaml";
 const FLOW_RESOURCE_COVERAGE_COMMAND_MANIFEST_FILE: &str = "flow-resource-coverage.commands.yaml";
 const FLOW_RESOURCE_COVERAGE_HTTPMOCK_RECORDING_FILE: &str = "flow-resource-coverage.httpmock.yaml";
+const FLOW_LIFECYCLE_COMMAND_MANIFEST_FILE: &str = "flow-lifecycle.commands.yaml";
+const FLOW_LIFECYCLE_HTTPMOCK_RECORDING_FILE: &str = "flow-lifecycle.httpmock.yaml";
+const FLOW_VALIDATION_COMMAND_MANIFEST_FILE: &str = "flow-validation.commands.yaml";
+const FLOW_VALIDATION_HTTPMOCK_RECORDING_FILE: &str = "flow-validation.httpmock.yaml";
+const PYTHON_SYNTAX_VALIDATION_COMMAND_MANIFEST_FILE: &str =
+    "python-syntax-validation.commands.yaml";
+const PYTHON_SYNTAX_VALIDATION_HTTPMOCK_RECORDING_FILE: &str =
+    "python-syntax-validation.httpmock.yaml";
+const FLOW_DELETION_COMMAND_MANIFEST_FILE: &str = "flow-deletion.commands.yaml";
+const FLOW_DELETION_HTTPMOCK_RECORDING_FILE: &str = "flow-deletion.httpmock.yaml";
 const RESOURCE_MATERIALIZATION_COMMAND_MANIFEST_FILE: &str =
     "resource-materialization.commands.yaml";
 const RESOURCE_MATERIALIZATION_HTTPMOCK_RECORDING_FILE: &str =
@@ -83,6 +95,7 @@ const INTERACTIVE_BRANCH_NAME: &str = "adk-rs-recording-interactive";
 const SPECIAL_FUNCTIONS_BRANCH_PREFIX: &str = "adk-rs-recording-special";
 const CHANNEL_SETTINGS_BRANCH_PREFIX: &str = "adk-rs-recording-channel";
 const BROAD_LIFECYCLE_BRANCH_PREFIX: &str = "adk-rs-recording-lifecycle";
+const LIVE_RESOURCE_PUSH_BRANCH_PREFIX: &str = "adk-rs-recording-live-push";
 const MUTATING_EDIT_FILE: &str = "agent_settings/rules.txt";
 const MUTATING_EDIT_TEXT: &str = "\n\n# ADK recording branch edit\nThis line was added by the Python ADK httpmock mutating workflow.\n";
 const CREATE_TOPIC_FILE: &str = "topics/adk_recording_topic.yaml";
@@ -141,6 +154,30 @@ const FLOW_RESOURCE_FLOW_CONFIG: &str =
 const FLOW_RESOURCE_START_STEP: &str = "step_type: advanced_step\nname: start_step\nprompt: Welcome to the flow recording.\nasr_biasing:\n  is_enabled: false\ndtmf_config:\n  is_enabled: false\n";
 const FLOW_RESOURCE_DEFAULT_STEP: &str = "step_type: default_step\nname: default_step\nprompt: What do you need?\nconditions:\n  - name: exit\n    condition_type: exit_flow_condition\n    description: Exit the flow.\n    required_entities: []\nextracted_entities: []\n";
 const FLOW_RESOURCE_FUNCTION_STEP: &str = "from _gen import *  # <AUTO GENERATED>\n\n\ndef do_work(conv: Conversation, flow: Flow):\n    return \"done\"\n";
+const LIVE_RESOURCE_PUSH_FLOW_CONFIG: &str =
+    "name: adk_live_push_flow\ndescription: Live push recording flow.\nstart_step: start_step\n";
+const LIVE_RESOURCE_PUSH_START_STEP: &str = "step_type: advanced_step\nname: start_step\nprompt: Welcome to the live push recording flow.\nasr_biasing:\n  is_enabled: false\ndtmf_config:\n  is_enabled: false\n";
+const LIVE_RESOURCE_PUSH_FUNCTION_STEP: &str = "from _gen import *  # <AUTO GENERATED>\n\n\ndef do_live_work(conv: Conversation, flow: Flow):\n    return \"done\"\n";
+const LIVE_RESOURCE_PUSH_KEYPHRASES: &str =
+    "keyphrases:\n  - keyphrase: ADK live push recording\n    level: boosted\n";
+const FLOW_LIFECYCLE_FLOW_CONFIG: &str =
+    "name: adk_recording_flow\ndescription: Flow recording updated.\nstart_step: start_step\n";
+const FLOW_LIFECYCLE_START_STEP: &str = "step_type: advanced_step\nname: start_step\nprompt: Updated welcome to the flow lifecycle recording.\nasr_biasing:\n  is_enabled: true\n  alphanumeric: true\n  custom_keywords:\n    - lifecycle\ndtmf_config:\n  is_enabled: true\n  max_digits: 4\n  end_key: \"#\"\n";
+const FLOW_LIFECYCLE_DEFAULT_STEP: &str = "step_type: default_step\nname: default_step\nprompt: Updated no-code prompt.\nconditions:\n  - name: exit\n    condition_type: exit_flow_condition\n    description: Updated exit the flow.\n    required_entities: []\n";
+const FLOW_LIFECYCLE_NEW_FUNCTION_STEP: &str = "from _gen import *  # <AUTO GENERATED>\n\n\ndef new_work(conv: Conversation, flow: Flow):\n    return \"new\"\n";
+const FLOW_VALIDATION_ENTITIES: &str = "entities:\n  - name: Age\n    description: Age.\n    entity_type: numeric\n    config:\n      has_range: false\n";
+const FLOW_VALIDATION_CONFIG: &str =
+    "name: bad_flow\ndescription: Valid description.\nstart_step: missing_start\n";
+const FLOW_VALIDATION_EMPTY_PROMPT_STEP: &str =
+    "step_type: advanced_step\nname: empty_prompt\nprompt: \"\"\n";
+const FLOW_VALIDATION_DEFAULT_FUNCTION_STEP: &str = "step_type: default_step\nname: default_func\nprompt: \"Use {{fn:recording_handler}}.\"\nconditions: []\n";
+const FLOW_VALIDATION_BAD_CONDITION_STEP: &str = "step_type: default_step\nname: bad_condition\nprompt: Continue.\nconditions:\n  - name: go\n    condition_type: step_condition\n    description: Go.\n    child_step: missing_step\n    required_entities:\n      - ENTITY-missing\n";
+const FLOW_VALIDATION_BAD_FUNCTION_STEP: &str = "from _gen import *  # <AUTO GENERATED>\n\n@func_parameter(\"x\", \"bad\")\ndef bad_func(conv: Conversation, flow: Flow, x: str):\n    return x\n";
+const SYNTAX_VALIDATION_GLOBAL_FUNCTION: &str = "from _gen import *  # <AUTO GENERATED>\n\n\ndef bad_global(conv: Conversation):\n    if True\n        return None\n";
+const SYNTAX_VALIDATION_START_FUNCTION: &str = "from _gen import *  # <AUTO GENERATED>\n\n\ndef start_function(conv: Conversation):\n    return (\n";
+const SYNTAX_VALIDATION_END_FUNCTION: &str = "from _gen import *  # <AUTO GENERATED>\n\n\ndef end_function(conv: Conversation):\n    if True\n        return None\n";
+const SYNTAX_VALIDATION_FLOW_FUNCTION_STEP: &str = "from _gen import *  # <AUTO GENERATED>\n\n\ndef bad_step(conv: Conversation, flow: Flow):\n    if True\n        return None\n";
+const FLOW_DELETION_DEFAULT_STEP: &str = "step_type: default_step\nname: default_step\nprompt: What do you need?\nconditions: []\nextracted_entities:\n  - ENTITY-age\n";
 const SYNTHETIC_ENTITIES_LIFECYCLE: &str = "entities:\n  - name: Age\n    description: Updated customer age.\n    entity_type: numeric\n    config:\n      has_decimal: false\n      has_range: true\n      min: 0\n      max: 130\n  - name: Code\n    description: New recording code.\n    entity_type: alphanumeric\n    config:\n      enabled: true\n      validation_type: regex\n      regular_expression: \"^[A-Z]+$\"\n";
 const SYNTHETIC_EXPERIMENTAL_CONFIG_LIFECYCLE: &str =
     "{\n  \"nested\": {\n    \"enabled\": false\n  },\n  \"recording_flag\": false\n}\n";
@@ -1414,6 +1451,671 @@ fn record_broad_lifecycle_with_python_adk_and_httpmock() {
 
     let _ = fs::remove_dir_all(&tmp);
     assert_required_results("broad lifecycle", &required_results);
+}
+
+#[test]
+#[ignore = "records local Python flow deletion behavior through httpmock fixture machinery"]
+fn record_flow_deletion_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let mut steps = Vec::new();
+
+    let config = write_text_file(
+        "write project config before flow deletion",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push(("write project config before flow deletion", config.success));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let projection = resource_family_projection_json();
+    let baseline_pull = run_python_poly_with_options(
+        "pull flow deletion baseline projection",
+        &[
+            "pull",
+            "--json",
+            "--force",
+            "--from-projection",
+            "-",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some(&projection),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "pull flow deletion baseline projection",
+        command_succeeded(&baseline_pull),
+    ));
+    steps.push(WorkflowStep::Command(baseline_pull));
+
+    let remove_condition = write_text_file(
+        "remove lifecycle default-step condition",
+        &project_root,
+        "flows/adk_recording_flow/steps/default_step.yaml",
+        FLOW_DELETION_DEFAULT_STEP,
+        &replacements,
+    );
+    required_results.push((
+        "remove lifecycle default-step condition",
+        remove_condition.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(remove_condition));
+
+    let condition_delete = run_python_poly_with_options(
+        "push dry-run flow condition deletion command payload",
+        &[
+            "push",
+            "--output-json-commands",
+            "--dry-run",
+            "--skip-validation",
+            "--from-projection",
+            "-",
+            "--email",
+            RECORDER_EMAIL,
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some(&projection),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "push dry-run flow condition deletion command payload",
+        command_succeeded(&condition_delete),
+    ));
+    steps.push(WorkflowStep::Command(condition_delete));
+
+    let reset_pull = run_python_poly_with_options(
+        "reset flow deletion baseline projection",
+        &[
+            "pull",
+            "--json",
+            "--force",
+            "--from-projection",
+            "-",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some(&projection),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "reset flow deletion baseline projection",
+        command_succeeded(&reset_pull),
+    ));
+    steps.push(WorkflowStep::Command(reset_pull));
+
+    for path in [
+        "flows/adk_recording_flow/flow_config.yaml",
+        "flows/adk_recording_flow/steps/start_step.yaml",
+        "flows/adk_recording_flow/steps/default_step.yaml",
+        "flows/adk_recording_flow/function_steps/do_work.py",
+    ] {
+        let delete = delete_file(
+            "delete lifecycle flow file",
+            &project_root,
+            path,
+            &replacements,
+        );
+        required_results.push(("delete lifecycle flow file", delete.success));
+        steps.push(WorkflowStep::FileEdit(delete));
+    }
+
+    let flow_delete = run_python_poly_with_options(
+        "push dry-run whole flow deletion command payload",
+        &[
+            "push",
+            "--output-json-commands",
+            "--dry-run",
+            "--skip-validation",
+            "--from-projection",
+            "-",
+            "--email",
+            RECORDER_EMAIL,
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some(&projection),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "push dry-run whole flow deletion command payload",
+        command_succeeded(&flow_delete),
+    ));
+    steps.push(WorkflowStep::Command(flow_delete));
+
+    let recording_path = recording
+        .save("flow-deletion-python-adk")
+        .expect("save flow deletion recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        FLOW_DELETION_HTTPMOCK_RECORDING_FILE,
+        FLOW_DELETION_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python dry-run command behavior for no-code condition deletion and whole-flow deletion.",
+            "This scenario is local-only: it pulls a synthetic flow projection, removes a condition, dry-runs push, resets, then deletes all local files for that flow and dry-runs push again.",
+        ],
+        StepWorkflow {
+            name: "flow_deletion",
+            description: "Record Python flow deletion command behavior for condition and whole-flow deletions.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("flow deletion", &required_results);
+}
+
+#[test]
+#[ignore = "records local Python flow validation behavior through httpmock fixture machinery"]
+fn record_flow_validation_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let mut steps = Vec::new();
+
+    let config = write_text_file(
+        "write project config before flow validation",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before flow validation",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    for (name, path, content) in [
+        (
+            "write flow validation entity config",
+            "config/entities.yaml",
+            FLOW_VALIDATION_ENTITIES,
+        ),
+        (
+            "write invalid flow config",
+            "flows/bad_flow/flow_config.yaml",
+            FLOW_VALIDATION_CONFIG,
+        ),
+        (
+            "write invalid flow bad condition step",
+            "flows/bad_flow/steps/bad_condition.yaml",
+            FLOW_VALIDATION_BAD_CONDITION_STEP,
+        ),
+        (
+            "write invalid flow default function reference step",
+            "flows/bad_flow/steps/default_func.yaml",
+            FLOW_VALIDATION_DEFAULT_FUNCTION_STEP,
+        ),
+        (
+            "write invalid flow empty prompt step",
+            "flows/bad_flow/steps/empty_prompt.yaml",
+            FLOW_VALIDATION_EMPTY_PROMPT_STEP,
+        ),
+        (
+            "write invalid flow function step",
+            "flows/bad_flow/function_steps/bad_func.py",
+            FLOW_VALIDATION_BAD_FUNCTION_STEP,
+        ),
+    ] {
+        let edit = write_text_file(name, &project_root, path, content, &replacements);
+        required_results.push((name, edit.success));
+        steps.push(WorkflowStep::FileEdit(edit));
+    }
+
+    let validate = run_python_poly(
+        "validate flow resource errors",
+        &["validate", "--json", "--path", project_path.as_str()],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "validate flow resource errors",
+        command_reported_invalid_validation(&validate),
+    ));
+    steps.push(WorkflowStep::Command(validate));
+
+    let push = run_python_poly_with_options(
+        "push dry-run blocks on flow validation errors",
+        &[
+            "push",
+            "--json",
+            "--dry-run",
+            "--from-projection",
+            "-",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some("{}"),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "push dry-run blocks on flow validation errors",
+        command_reported_failure(&push),
+    ));
+    steps.push(WorkflowStep::Command(push));
+
+    let recording_path = recording
+        .save("flow-validation-python-adk")
+        .expect("save flow validation recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        FLOW_VALIDATION_HTTPMOCK_RECORDING_FILE,
+        FLOW_VALIDATION_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python validation output for representative invalid flow resources.",
+            "This scenario is local-only: it writes invalid flow_config, step YAML, and function-step files, then validates and dry-runs push with --from-projection -.",
+            "The invalid resources cover missing start steps, default-step function references, malformed step conditions, empty prompts, and bad function-step signatures.",
+        ],
+        StepWorkflow {
+            name: "flow_validation",
+            description: "Write invalid flow resources and record Python validate plus push dry-run validation errors.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("flow validation", &required_results);
+}
+
+#[test]
+#[ignore = "records local Python syntax validation behavior through httpmock fixture machinery"]
+fn record_python_syntax_validation_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let mut steps = Vec::new();
+
+    let config = write_text_file(
+        "write project config before syntax validation",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before syntax validation",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    for (write_name, validate_name, push_name, delete_name, path, content) in [
+        (
+            "write invalid global function syntax",
+            "validate global function syntax read error",
+            "push dry-run blocks on global function syntax read error",
+            "delete invalid global function syntax",
+            "functions/bad_global.py",
+            SYNTAX_VALIDATION_GLOBAL_FUNCTION,
+        ),
+        (
+            "write invalid start function syntax",
+            "validate start function syntax read error",
+            "push dry-run blocks on start function syntax read error",
+            "delete invalid start function syntax",
+            "functions/start_function.py",
+            SYNTAX_VALIDATION_START_FUNCTION,
+        ),
+        (
+            "write invalid end function syntax",
+            "validate end function syntax read error",
+            "push dry-run blocks on end function syntax read error",
+            "delete invalid end function syntax",
+            "functions/end_function.py",
+            SYNTAX_VALIDATION_END_FUNCTION,
+        ),
+        (
+            "write invalid flow function step syntax",
+            "validate flow function step syntax read error",
+            "push dry-run blocks on flow function step syntax read error",
+            "delete invalid flow function step syntax",
+            "flows/syntax_flow/function_steps/bad_step.py",
+            SYNTAX_VALIDATION_FLOW_FUNCTION_STEP,
+        ),
+    ] {
+        let edit = write_text_file(write_name, &project_root, path, content, &replacements);
+        required_results.push((write_name, edit.success));
+        steps.push(WorkflowStep::FileEdit(edit));
+
+        let validate = run_python_poly(
+            validate_name,
+            &["validate", "--json", "--path", project_path.as_str()],
+            &server,
+            &replacements,
+        );
+        required_results.push((validate_name, command_reported_failure(&validate)));
+        steps.push(WorkflowStep::Command(validate));
+
+        let push = run_python_poly_with_options(
+            push_name,
+            &[
+                "push",
+                "--json",
+                "--dry-run",
+                "--from-projection",
+                "-",
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+            RunPythonOptions {
+                stdin: Some("{}"),
+                ..RunPythonOptions::default()
+            },
+        );
+        required_results.push((push_name, command_reported_failure(&push)));
+        steps.push(WorkflowStep::Command(push));
+
+        let delete = delete_file(delete_name, &project_root, path, &replacements);
+        required_results.push((delete_name, delete.success));
+        steps.push(WorkflowStep::FileEdit(delete));
+    }
+
+    let recording_path = recording
+        .save("python-syntax-validation-python-adk")
+        .expect("save Python syntax validation recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        PYTHON_SYNTAX_VALIDATION_HTTPMOCK_RECORDING_FILE,
+        PYTHON_SYNTAX_VALIDATION_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python syntax read errors for invalid global functions, start/end special functions, and flow function steps.",
+            "This scenario is local-only: it writes one syntax-invalid Python file at a time, then records validate and push --dry-run failure output.",
+            "Rust uses a pure-Rust parser, so replay normalizes parser wording while preserving the Python error contract prefix and affected files.",
+        ],
+        StepWorkflow {
+            name: "python_syntax_validation",
+            description: "Write syntax-invalid Python function resources and record Python validate plus push dry-run validation errors.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("Python syntax validation", &required_results);
+}
+
+#[test]
+#[ignore = "records local Python flow lifecycle behavior through httpmock fixture machinery"]
+fn record_flow_lifecycle_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+    ];
+
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let mut steps = Vec::new();
+
+    let config = write_text_file(
+        "write project config before flow lifecycle",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push(("write project config before flow lifecycle", config.success));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let projection = resource_family_projection_json();
+    let baseline_pull = run_python_poly_with_options(
+        "pull flow lifecycle baseline projection",
+        &[
+            "pull",
+            "--json",
+            "--force",
+            "--from-projection",
+            "-",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some(&projection),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "pull flow lifecycle baseline projection",
+        command_succeeded(&baseline_pull),
+    ));
+    steps.push(WorkflowStep::Command(baseline_pull));
+
+    for (name, path, content) in [
+        (
+            "write lifecycle flow config",
+            "flows/adk_recording_flow/flow_config.yaml",
+            FLOW_LIFECYCLE_FLOW_CONFIG,
+        ),
+        (
+            "write lifecycle flow start step",
+            "flows/adk_recording_flow/steps/start_step.yaml",
+            FLOW_LIFECYCLE_START_STEP,
+        ),
+        (
+            "write lifecycle flow default step",
+            "flows/adk_recording_flow/steps/default_step.yaml",
+            FLOW_LIFECYCLE_DEFAULT_STEP,
+        ),
+        (
+            "write lifecycle new function step",
+            "flows/adk_recording_flow/function_steps/new_work.py",
+            FLOW_LIFECYCLE_NEW_FUNCTION_STEP,
+        ),
+    ] {
+        let edit = write_text_file(name, &project_root, path, content, &replacements);
+        required_results.push((name, edit.success));
+        steps.push(WorkflowStep::FileEdit(edit));
+    }
+
+    let delete_function = delete_file(
+        "delete lifecycle old function step",
+        &project_root,
+        "flows/adk_recording_flow/function_steps/do_work.py",
+        &replacements,
+    );
+    required_results.push((
+        "delete lifecycle old function step",
+        delete_function.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(delete_function));
+
+    for (name, args) in [
+        (
+            "status after flow lifecycle edits",
+            vec!["status", "--json", "--path", project_path.as_str()],
+        ),
+        (
+            "diff after flow lifecycle edits",
+            vec!["diff", "--json", "--path", project_path.as_str()],
+        ),
+    ] {
+        let command = run_python_poly(name, &args, &server, &replacements);
+        required_results.push((name, command_succeeded(&command)));
+        steps.push(WorkflowStep::Command(command));
+    }
+
+    let dry_run = run_python_poly_with_options(
+        "push dry-run flow lifecycle command payload",
+        &[
+            "push",
+            "--output-json-commands",
+            "--dry-run",
+            "--skip-validation",
+            "--from-projection",
+            "-",
+            "--email",
+            RECORDER_EMAIL,
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+        RunPythonOptions {
+            stdin: Some(&projection),
+            ..RunPythonOptions::default()
+        },
+    );
+    required_results.push((
+        "push dry-run flow lifecycle command payload",
+        command_succeeded(&dry_run),
+    ));
+    steps.push(WorkflowStep::Command(dry_run));
+
+    let recording_path = recording
+        .save("flow-lifecycle-python-adk")
+        .expect("save flow lifecycle recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        FLOW_LIFECYCLE_HTTPMOCK_RECORDING_FILE,
+        FLOW_LIFECYCLE_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python status, diff, and dry-run command behavior for existing flow resource edits.",
+            "This scenario is local-only: it pulls a synthetic flow projection, edits flow_config, step YAML, function-step files, and dry-runs push with --from-projection -.",
+            "The local edits exercise flow update and function-step create/delete behavior without mutating Agent Studio.",
+        ],
+        StepWorkflow {
+            name: "flow_lifecycle",
+            description: "Pull a synthetic flow baseline, edit existing flow resources, then record Python status, diff, and dry-run command generation.",
+            mutates_real_server: false,
+            cleanup: vec![],
+            steps,
+        },
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("flow lifecycle", &required_results);
 }
 
 #[test]
@@ -4181,6 +4883,204 @@ fn record_push_resource_coverage_with_python_adk_and_httpmock() {
 }
 
 #[test]
+#[ignore = "records mutating real Agent Studio traffic; live flow/broad resource push workflow"]
+fn record_live_resource_push_with_python_adk_and_httpmock() {
+    let api_key = api_key_from_env();
+    let branch_name = format!("{LIVE_RESOURCE_PUSH_BRANCH_PREFIX}-{}", recording_run_id());
+    let server = MockServer::start();
+    server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+    let recording = server.record(|rule| {
+        rule.filter(|when| {
+            when.any_request();
+        });
+    });
+
+    let tmp = temp_recording_dir();
+    fs::create_dir_all(&tmp).expect("create temp recording dir");
+    let project_root = tmp.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID);
+    let project_path = project_root.to_string_lossy().to_string();
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let replacements = vec![
+        (tmp_path.clone(), "${TMP}".to_string()),
+        (
+            httpmock_adk_base_url(&server),
+            "${HTTPMOCK_BASE_URL}".to_string(),
+        ),
+        (branch_name.clone(), "${BRANCH_NAME}".to_string()),
+    ];
+
+    let mut steps = Vec::new();
+    let mut required_results: Vec<(&'static str, bool)> = Vec::new();
+    let config = write_text_file(
+        "write project config before live resource push",
+        &project_root,
+        "project.yaml",
+        target_project_config().as_str(),
+        &replacements,
+    );
+    required_results.push((
+        "write project config before live resource push",
+        config.success,
+    ));
+    steps.push(WorkflowStep::FileEdit(config));
+
+    let pull = run_python_poly(
+        "force pull real project before live resource push",
+        &[
+            "pull",
+            "--json",
+            "--force",
+            "--output-json-projection",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    required_results.push((
+        "force pull real project before live resource push",
+        command_succeeded(&pull),
+    ));
+    steps.push(WorkflowStep::Command(pull));
+
+    let create_branch = run_python_poly(
+        "create live resource push branch",
+        &[
+            "branch",
+            "create",
+            branch_name.as_str(),
+            "--json",
+            "--path",
+            project_path.as_str(),
+        ],
+        &server,
+        &replacements,
+    );
+    let branch_created = command_succeeded(&create_branch);
+    required_results.push(("create live resource push branch", branch_created));
+    steps.push(WorkflowStep::Command(create_branch));
+
+    if branch_created {
+        for (name, path, content) in [
+            (
+                "write live push flow config",
+                "flows/adk_live_push_flow/flow_config.yaml",
+                LIVE_RESOURCE_PUSH_FLOW_CONFIG,
+            ),
+            (
+                "write live push start step",
+                "flows/adk_live_push_flow/steps/start_step.yaml",
+                LIVE_RESOURCE_PUSH_START_STEP,
+            ),
+            (
+                "write live push function step",
+                "flows/adk_live_push_flow/function_steps/do_live_work.py",
+                LIVE_RESOURCE_PUSH_FUNCTION_STEP,
+            ),
+            (
+                "write live push keyphrase boosting",
+                "voice/speech_recognition/keyphrase_boosting.yaml",
+                LIVE_RESOURCE_PUSH_KEYPHRASES,
+            ),
+        ] {
+            let edit = write_text_file(name, &project_root, path, content, &replacements);
+            required_results.push((name, edit.success));
+            steps.push(WorkflowStep::FileEdit(edit));
+        }
+
+        for (name, args) in [
+            (
+                "status before live resource push",
+                vec!["status", "--json", "--path", project_path.as_str()],
+            ),
+            (
+                "push dry-run live resource command payload",
+                vec![
+                    "push",
+                    "--output-json-commands",
+                    "--dry-run",
+                    "--skip-validation",
+                    "--email",
+                    RECORDER_EMAIL,
+                    "--path",
+                    project_path.as_str(),
+                ],
+            ),
+            (
+                "push live flow and broad resources",
+                vec![
+                    "push",
+                    "--json",
+                    "--force",
+                    "--skip-validation",
+                    "--email",
+                    RECORDER_EMAIL,
+                    "--path",
+                    project_path.as_str(),
+                ],
+            ),
+            (
+                "status after live resource push",
+                vec!["status", "--json", "--path", project_path.as_str()],
+            ),
+        ] {
+            let record = run_python_poly(name, &args, &server, &replacements);
+            required_results.push((name, command_succeeded(&record)));
+            steps.push(WorkflowStep::Command(record));
+        }
+
+        let delete_branch = run_python_poly(
+            "delete live resource push branch",
+            &[
+                "branch",
+                "delete",
+                branch_name.as_str(),
+                "--json",
+                "--path",
+                project_path.as_str(),
+            ],
+            &server,
+            &replacements,
+        );
+        required_results.push((
+            "delete live resource push branch",
+            command_succeeded(&delete_branch),
+        ));
+        steps.push(WorkflowStep::Command(delete_branch));
+    }
+
+    let recording_path = recording
+        .save("live-resource-push-python-adk")
+        .expect("save live resource push recording");
+    write_step_recording_fixture(
+        &api_key,
+        recording_path,
+        LIVE_RESOURCE_PUSH_HTTPMOCK_RECORDING_FILE,
+        LIVE_RESOURCE_PUSH_COMMAND_MANIFEST_FILE,
+        vec![
+            "Documents Python non-dry-run push behavior for representative flow and broad resource creates.",
+            "The workflow creates a throwaway branch, writes a new flow plus keyphrase boosting resource, records dry-run command JSON, performs a real push, checks clean status, then deletes the branch.",
+            "This live fixture complements local-only dry-run recordings; it is intentionally narrow to keep replay cheap and server mutation easy to clean up.",
+        ],
+        StepWorkflow {
+            name: "live_resource_push",
+            description: "Create a real branch, push representative flow and keyphrase resources to Agent Studio, verify status, then clean up the branch.",
+            mutates_real_server: true,
+            cleanup: vec![
+                "poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM",
+            ],
+            steps,
+        },
+    );
+    let _ = fs::remove_dir_all(&tmp);
+    assert_required_results("live resource push", &required_results);
+}
+
+#[test]
 #[ignore = "records real Agent Studio traffic; refreshes Python semantic validation"]
 fn record_semantic_validation_with_python_adk_and_httpmock() {
     let api_key = api_key_from_env();
@@ -6423,6 +7323,9 @@ fn machine_path_replacements() -> Vec<(String, String)> {
     }
     if let Ok(cwd) = std::env::var("PYTHON_ADK_CWD") {
         replacements.push((cwd, "${PYTHON_ADK_ROOT}".to_string()));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        replacements.push((home, "${HOME}".to_string()));
     }
     replacements
 }

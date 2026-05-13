@@ -67,19 +67,16 @@ fn fixed_single_file_resource_command_groups(
     let remote_entities = entity_entries(projection)
         .into_iter()
         .map(|(id, entity)| {
-            (
-                entity
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or(id.as_str())
-                    .to_string(),
-                id,
-            )
+            let name = entity
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(id.as_str())
+                .to_string();
+            (name, (id, entity))
         })
         .collect::<HashMap<_, _>>();
     let mut local_entity_names = HashSet::new();
     let mut groups = CommandGroups::default();
-
     for resource in resources.values() {
         let path = resource.file_path.as_str();
         let content = resource
@@ -121,9 +118,9 @@ fn fixed_single_file_resource_command_groups(
                     continue;
                 }
                 local_entity_names.insert(name.clone());
-                let id = remote_entities
-                    .get(&name)
-                    .cloned()
+                let remote = remote_entities.get(&name);
+                let id = remote
+                    .map(|(id, _)| id.clone())
                     .or_else(|| {
                         (!is_synthetic_local_resource_id(&resource.resource_id))
                             .then_some(resource.resource_id.clone())
@@ -142,7 +139,10 @@ fn fixed_single_file_resource_command_groups(
                     .unwrap_or("")
                     .to_string();
                 let config = item.get("config");
-                if remote_entities.contains_key(&name) {
+                if let Some((_, remote_entity)) = remote {
+                    if entity_item_matches_remote(item, remote_entity) {
+                        continue;
+                    }
                     push_command(
                         &mut groups.updates,
                         metadata,
@@ -175,7 +175,7 @@ fn fixed_single_file_resource_command_groups(
         }
     }
 
-    for (name, id) in remote_entities {
+    for (name, (id, _)) in remote_entities {
         if !local_entity_names.contains(&name) {
             push_command(
                 &mut groups.deletes,
@@ -187,6 +187,75 @@ fn fixed_single_file_resource_command_groups(
     }
 
     groups
+}
+
+fn entity_item_matches_remote(item: &serde_yaml::Value, remote: &Value) -> bool {
+    let local_name = item
+        .get("name")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    let remote_name = remote
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if local_name != remote_name {
+        return false;
+    }
+
+    let local_description = item
+        .get("description")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    let remote_description = remote
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if local_description != remote_description {
+        return false;
+    }
+
+    let local_type = normalize_entity_type(
+        item.get("entity_type")
+            .and_then(serde_yaml::Value::as_str)
+            .unwrap_or("free_text"),
+    );
+    let remote_type =
+        normalize_entity_type(remote.get("type").and_then(Value::as_str).unwrap_or(""));
+    if local_type != remote_type {
+        return false;
+    }
+
+    let local_config = build_entity_update_config(&local_type, item.get("config"));
+    let remote_config_yaml = remote_entity_config_yaml(remote);
+    let remote_config = build_entity_update_config(&remote_type, Some(&remote_config_yaml));
+    entity_update_config_json(local_config.as_ref())
+        == entity_update_config_json(remote_config.as_ref())
+}
+
+fn remote_entity_config_yaml(remote: &Value) -> serde_yaml::Value {
+    let config = remote
+        .pointer("/config/value")
+        .or_else(|| remote.get("config"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    serde_yaml::to_value(config).unwrap_or(serde_yaml::Value::Mapping(Default::default()))
+}
+
+fn normalize_entity_type(value: &str) -> String {
+    let mut out = String::new();
+    for (index, ch) in value.chars().enumerate() {
+        if ch == '-' {
+            out.push('_');
+        } else if ch.is_ascii_uppercase() {
+            if index > 0 && !out.ends_with('_') {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {

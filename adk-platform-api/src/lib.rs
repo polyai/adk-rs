@@ -1391,19 +1391,7 @@ fn insert_flow_resources(
     let folder = clean_name(&name).to_lowercase();
     let start_step_id = flow.get("startStepId").and_then(Value::as_str);
     let steps = projection_nested_entities(flow, &["steps"]);
-    let step_names_by_id = steps
-        .iter()
-        .filter_map(|(id, step)| {
-            Some((
-                id.clone(),
-                step.get("name")?.as_str().unwrap_or_default().to_string(),
-            ))
-        })
-        .collect::<HashMap<_, _>>();
-    let start_step = start_step_id
-        .and_then(|id| step_names_by_id.get(id))
-        .cloned()
-        .unwrap_or_default();
+    let start_step = start_step_id.unwrap_or_default().to_string();
 
     let flow_config = serde_json::json!({
         "name": name,

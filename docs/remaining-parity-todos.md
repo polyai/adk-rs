@@ -2,7 +2,7 @@
 
 Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be covered by a Python recording fixture first where practical, then brought to parity in Rust.
 
-- [ ] **Close resource-family recording coverage gaps** (`resource-family-recording-coverage`)
+- [x] **Close resource-family recording coverage gaps** (`resource-family-recording-coverage`)
   - Our Python recordings are high-fidelity contracts for the workflows they exercise, but they are not yet a complete resource-family coverage matrix.
   - Add Python recording fixtures for flow resources (`flow_config`, `flow_steps`, `function_steps`) covering pull/init materialization, status/diff detection, dry-run push create/update/delete, and validation errors.
   - Add pull/init materialization recordings for broad multi-resource files that currently have push coverage but weak pull evidence: `config/api_integrations.yaml`, `config/variant_attributes.yaml`, `voice/speech_recognition/keyphrase_boosting.yaml`, `voice/speech_recognition/transcript_corrections.yaml`, and `voice/response_control/pronunciations.yaml`.
@@ -11,7 +11,22 @@ Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be co
   - Progress: added and enabled `flow-resource-coverage`, a local-only Python recording for create-flow dry-run command generation across `flow_config`, advanced/default `flow_steps`, `function_steps`, and no-code exit conditions. Rust now emits matching `create_flow`, `create_step`, and `create_no_code_condition` JSON/protobuf commands for this create path.
   - Progress: added and enabled `resource-materialization`, a local-only Python recording that asserts pull materialization for flows, broad multi-resource files, and synthetic interaction/config families. Rust now materializes the covered flow, variant, API integration, keyphrase, transcript correction, pronunciation, entity, experimental config, SMS, handoff, and phrase-filter files.
   - Progress: added and enabled `synthetic-lifecycle`, a local-only Python recording for create/update/delete dry-run command generation across `entities`, `experimental_config`, `sms_templates`, `handoffs`, and `phrase_filtering`. Rust replay now matches Python's JSON command contract, including generated ID mapping, update summaries, default handoff post-update behavior, and unchanged transcript-correction suppression.
-  - Remaining: broaden flow coverage beyond the current create-path fixture to include update/delete status, diff, and validation behavior.
+  - [x] Add a focused flow lifecycle recording for update/delete behavior across `flow_config`, `steps/*.yaml`, `function_steps/*.py`, and no-code conditions, then make Rust dry-run command output match Python.
+  - [x] Add flow status/diff recording coverage for modified, new, and deleted flow files, then align Rust path classification and output ordering.
+  - [x] Add flow validation recording coverage for representative invalid flow resources: missing/unknown start step, malformed condition config, bad references, and malformed function-step shape.
+  - [x] Add focused flow deletion and no-code condition deletion coverage; current enabled recordings cover flow create, flow config update, advanced/default step update, function-step create/delete, and no-code condition create/update/delete.
+  - [x] Add a permanent, narrow non-dry-run live-push fixture for representative broad/flow resources, in addition to the local-only dry-run fixtures.
+  - Progress: added and enabled `flow-lifecycle`, a local-only Python recording for existing flow edits. Rust now matches Python status, diff, and dry-run command output for flow config updates, advanced/default step prompt updates, ASR/DTMF updates, function-step create/delete, and no-code exit-condition updates while suppressing unchanged fixed-file resources.
+  - Progress: added and enabled `flow-validation`, a local-only Python recording for invalid flow resources. Rust now matches Python validate and push dry-run error output for missing start steps, default-step function references, missing child-step conditions, empty prompts, and bad function-step signatures.
+  - Progress: added and enabled `flow-deletion`, a local-only Python recording for no-code condition deletion and whole-flow deletion. Rust now matches Python dry-run command output for `delete_no_code_condition`, no-code step reference updates, and `delete_flow`.
+  - Implemented: added and enabled `live-resource-push`, a real Python recording that creates a throwaway branch, pushes a representative flow plus keyphrase boosting resource to Agent Studio, verifies clean status, and deletes the branch. Replay caught and fixed a Rust JSON parity detail: empty `create_flow.no_code_steps` is now omitted to match Python.
+
+- [x] **Validate Python function syntax without requiring Python** (`python-syntax-validation-parity`)
+  - Python ADK validates function resources with `compile(code, name, "exec")`; Rust currently only checks expected function signatures for flow function steps and does not syntax-check global/start/end functions.
+  - Add Python recording coverage for syntax-invalid global functions, start/end functions, and flow function steps.
+  - Implement pure-Rust syntax validation behind an internal wrapper, preferring the Ruff parser lineage if the vendored crate audit is acceptable, and normalize parser diagnostics to the Python ADK error contract.
+  - Acceptance: `validate --json` and validation-blocked `push --json --dry-run` report syntax errors for the same resources without depending on a Python interpreter being installed.
+  - Implemented: Rust now parses Python function resources with a pure-Rust Ruff-lineage parser wrapper, surfaces syntax failures as Python-compatible read errors for `validate`/validation-blocked `push`, and replays the `python-syntax-validation` fixture covering global, start/end, and flow function-step files. Replay normalizes parser wording while preserving resource names, paths, and JSON error shape.
 
 - [x] **Port deployment show/promote/rollback workflows** (`deployments-mutation-parity`)
   - Python supports `deployments show`, `deployments promote`, and `deployments rollback`; Rust currently implements only `deployments list`.

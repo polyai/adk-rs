@@ -1,0 +1,677 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Documents Python syntax read errors for invalid global functions, start/end special functions, and flow function steps.
+- 'This scenario is local-only: it writes one syntax-invalid Python file at a time, then records validate and push --dry-run failure output.'
+- Rust uses a pure-Rust parser, so replay normalizes parser wording while preserving the Python error contract prefix and affected files.
+httpmock_recording: python-syntax-validation.httpmock.yaml
+workflows:
+- name: python_syntax_validation
+  description: Write syntax-invalid Python function resources and record Python validate plus push dry-run validation errors.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: file_edit
+    name: write project config before syntax validation
+    operation: write_text
+    path: project.yaml
+    content: |
+      region: us-1
+      account_id: ben-ws
+      project_id: PROJECT-JTQKOKLM
+      branch_id: main
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write invalid global function syntax
+    operation: write_text
+    path: functions/bad_global.py
+    content: |
+      from _gen import *  # <AUTO GENERATED>
+
+
+      def bad_global(conv: Conversation):
+          if True
+              return None
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: validate global function syntax read error
+    argv:
+    - poly
+    - validate
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      error: 'Error reading resource bad_global at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/bad_global.py: expected '':'' (<unknown>, line 2)'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2066, in read_local_resource
+            resource = resource_class.read_local_resource(
+                file_path=resource.file_path,
+            ...<3 lines>...
+                **additional_kwargs,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 722, in read_local_resource
+            code, parameters, description, latency_control = cls._extract_decorators(
+                                                             ~~~~~~~~~~~~~~~~~~~~~~~^
+                code, resource_name, known_parameters, known_latency_control
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 575, in _extract_decorators
+            target = Function._get_target_function(code, function_name)
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 546, in _get_target_function
+            module = ast.parse(code)
+          File "${HOME}/.local/share/uv/python/cpython-3.14.0b1-linux-x86_64-gnu/lib/python3.14/ast.py", line 46, in parse
+            return compile(source, filename, mode, flags,
+                           _feature_version=feature_version, optimize=optimize)
+          File "<unknown>", line 2
+            if True
+                   ^
+        SyntaxError: expected ':'
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1186, in _run_command
+            cls.validate_project(args.path, args.json)
+            ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 3123, in validate_project
+            errors = project.validate_project()
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2636, in validate_project
+            local_resource = self.read_local_resource(
+                resource=resource_mapping,
+                resource_mappings=local_resource_mappings,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2074, in read_local_resource
+            raise ValueError(
+                f"Error reading resource {resource.resource_name} at {resource.file_path}: {str(e)}"
+            ) from e
+        ValueError: Error reading resource bad_global at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/bad_global.py: expected ':' (<unknown>, line 2)
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push dry-run blocks on global function syntax read error
+    argv:
+    - poly
+    - push
+    - --json
+    - --dry-run
+    - --from-projection
+    - '-'
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    stdin: '{}'
+    exit_code: 1
+    stdout_json:
+      error: 'Error reading resource bad_global at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/bad_global.py: expected '':'' (<unknown>, line 2)'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2066, in read_local_resource
+            resource = resource_class.read_local_resource(
+                file_path=resource.file_path,
+            ...<3 lines>...
+                **additional_kwargs,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 722, in read_local_resource
+            code, parameters, description, latency_control = cls._extract_decorators(
+                                                             ~~~~~~~~~~~~~~~~~~~~~~~^
+                code, resource_name, known_parameters, known_latency_control
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 575, in _extract_decorators
+            target = Function._get_target_function(code, function_name)
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 546, in _get_target_function
+            module = ast.parse(code)
+          File "${HOME}/.local/share/uv/python/cpython-3.14.0b1-linux-x86_64-gnu/lib/python3.14/ast.py", line 46, in parse
+            return compile(source, filename, mode, flags,
+                           _feature_version=feature_version, optimize=optimize)
+          File "<unknown>", line 2
+            if True
+                   ^
+        SyntaxError: expected ':'
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1061, in _run_command
+            cls.push(
+            ~~~~~~~~^
+                args.path,
+                ^^^^^^^^^^
+            ...<7 lines>...
+                output_commands=args.output_json_commands,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1631, in push
+            push_ok, output, commands = project.push_project(
+                                        ~~~~~~~~~~~~~~~~~~~~^
+                force=force,
+                ^^^^^^^^^^^^
+            ...<4 lines>...
+                projection_json=projection_json,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 1146, in push_project
+            local_resource = self.read_local_resource(
+                resource=resource_mapping,
+                resource_mappings=local_resource_mappings,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2074, in read_local_resource
+            raise ValueError(
+                f"Error reading resource {resource.resource_name} at {resource.file_path}: {str(e)}"
+            ) from e
+        ValueError: Error reading resource bad_global at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/bad_global.py: expected ':' (<unknown>, line 2)
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: delete invalid global function syntax
+    operation: delete_file
+    path: functions/bad_global.py
+    content: null
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write invalid start function syntax
+    operation: write_text
+    path: functions/start_function.py
+    content: |
+      from _gen import *  # <AUTO GENERATED>
+
+
+      def start_function(conv: Conversation):
+          return (
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: validate start function syntax read error
+    argv:
+    - poly
+    - validate
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      error: 'Error reading resource start_function at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/start_function.py: ''('' was never closed (<unknown>, line 2)'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2066, in read_local_resource
+            resource = resource_class.read_local_resource(
+                file_path=resource.file_path,
+            ...<3 lines>...
+                **additional_kwargs,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 722, in read_local_resource
+            code, parameters, description, latency_control = cls._extract_decorators(
+                                                             ~~~~~~~~~~~~~~~~~~~~~~~^
+                code, resource_name, known_parameters, known_latency_control
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 575, in _extract_decorators
+            target = Function._get_target_function(code, function_name)
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 546, in _get_target_function
+            module = ast.parse(code)
+          File "${HOME}/.local/share/uv/python/cpython-3.14.0b1-linux-x86_64-gnu/lib/python3.14/ast.py", line 46, in parse
+            return compile(source, filename, mode, flags,
+                           _feature_version=feature_version, optimize=optimize)
+          File "<unknown>", line 2
+            return (
+                   ^
+        SyntaxError: '(' was never closed
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1186, in _run_command
+            cls.validate_project(args.path, args.json)
+            ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 3123, in validate_project
+            errors = project.validate_project()
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2636, in validate_project
+            local_resource = self.read_local_resource(
+                resource=resource_mapping,
+                resource_mappings=local_resource_mappings,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2074, in read_local_resource
+            raise ValueError(
+                f"Error reading resource {resource.resource_name} at {resource.file_path}: {str(e)}"
+            ) from e
+        ValueError: Error reading resource start_function at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/start_function.py: '(' was never closed (<unknown>, line 2)
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push dry-run blocks on start function syntax read error
+    argv:
+    - poly
+    - push
+    - --json
+    - --dry-run
+    - --from-projection
+    - '-'
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    stdin: '{}'
+    exit_code: 1
+    stdout_json:
+      error: 'Error reading resource start_function at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/start_function.py: ''('' was never closed (<unknown>, line 2)'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2066, in read_local_resource
+            resource = resource_class.read_local_resource(
+                file_path=resource.file_path,
+            ...<3 lines>...
+                **additional_kwargs,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 722, in read_local_resource
+            code, parameters, description, latency_control = cls._extract_decorators(
+                                                             ~~~~~~~~~~~~~~~~~~~~~~~^
+                code, resource_name, known_parameters, known_latency_control
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 575, in _extract_decorators
+            target = Function._get_target_function(code, function_name)
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 546, in _get_target_function
+            module = ast.parse(code)
+          File "${HOME}/.local/share/uv/python/cpython-3.14.0b1-linux-x86_64-gnu/lib/python3.14/ast.py", line 46, in parse
+            return compile(source, filename, mode, flags,
+                           _feature_version=feature_version, optimize=optimize)
+          File "<unknown>", line 2
+            return (
+                   ^
+        SyntaxError: '(' was never closed
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1061, in _run_command
+            cls.push(
+            ~~~~~~~~^
+                args.path,
+                ^^^^^^^^^^
+            ...<7 lines>...
+                output_commands=args.output_json_commands,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1631, in push
+            push_ok, output, commands = project.push_project(
+                                        ~~~~~~~~~~~~~~~~~~~~^
+                force=force,
+                ^^^^^^^^^^^^
+            ...<4 lines>...
+                projection_json=projection_json,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 1146, in push_project
+            local_resource = self.read_local_resource(
+                resource=resource_mapping,
+                resource_mappings=local_resource_mappings,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2074, in read_local_resource
+            raise ValueError(
+                f"Error reading resource {resource.resource_name} at {resource.file_path}: {str(e)}"
+            ) from e
+        ValueError: Error reading resource start_function at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/start_function.py: '(' was never closed (<unknown>, line 2)
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: delete invalid start function syntax
+    operation: delete_file
+    path: functions/start_function.py
+    content: null
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write invalid end function syntax
+    operation: write_text
+    path: functions/end_function.py
+    content: |
+      from _gen import *  # <AUTO GENERATED>
+
+
+      def end_function(conv: Conversation):
+          if True
+              return None
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: validate end function syntax read error
+    argv:
+    - poly
+    - validate
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      error: 'Error reading resource end_function at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/end_function.py: expected '':'' (<unknown>, line 2)'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2066, in read_local_resource
+            resource = resource_class.read_local_resource(
+                file_path=resource.file_path,
+            ...<3 lines>...
+                **additional_kwargs,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 722, in read_local_resource
+            code, parameters, description, latency_control = cls._extract_decorators(
+                                                             ~~~~~~~~~~~~~~~~~~~~~~~^
+                code, resource_name, known_parameters, known_latency_control
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 575, in _extract_decorators
+            target = Function._get_target_function(code, function_name)
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 546, in _get_target_function
+            module = ast.parse(code)
+          File "${HOME}/.local/share/uv/python/cpython-3.14.0b1-linux-x86_64-gnu/lib/python3.14/ast.py", line 46, in parse
+            return compile(source, filename, mode, flags,
+                           _feature_version=feature_version, optimize=optimize)
+          File "<unknown>", line 2
+            if True
+                   ^
+        SyntaxError: expected ':'
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1186, in _run_command
+            cls.validate_project(args.path, args.json)
+            ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 3123, in validate_project
+            errors = project.validate_project()
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2636, in validate_project
+            local_resource = self.read_local_resource(
+                resource=resource_mapping,
+                resource_mappings=local_resource_mappings,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2074, in read_local_resource
+            raise ValueError(
+                f"Error reading resource {resource.resource_name} at {resource.file_path}: {str(e)}"
+            ) from e
+        ValueError: Error reading resource end_function at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/end_function.py: expected ':' (<unknown>, line 2)
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push dry-run blocks on end function syntax read error
+    argv:
+    - poly
+    - push
+    - --json
+    - --dry-run
+    - --from-projection
+    - '-'
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    stdin: '{}'
+    exit_code: 1
+    stdout_json:
+      error: 'Error reading resource end_function at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/end_function.py: expected '':'' (<unknown>, line 2)'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2066, in read_local_resource
+            resource = resource_class.read_local_resource(
+                file_path=resource.file_path,
+            ...<3 lines>...
+                **additional_kwargs,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 722, in read_local_resource
+            code, parameters, description, latency_control = cls._extract_decorators(
+                                                             ~~~~~~~~~~~~~~~~~~~~~~~^
+                code, resource_name, known_parameters, known_latency_control
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 575, in _extract_decorators
+            target = Function._get_target_function(code, function_name)
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 546, in _get_target_function
+            module = ast.parse(code)
+          File "${HOME}/.local/share/uv/python/cpython-3.14.0b1-linux-x86_64-gnu/lib/python3.14/ast.py", line 46, in parse
+            return compile(source, filename, mode, flags,
+                           _feature_version=feature_version, optimize=optimize)
+          File "<unknown>", line 2
+            if True
+                   ^
+        SyntaxError: expected ':'
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1061, in _run_command
+            cls.push(
+            ~~~~~~~~^
+                args.path,
+                ^^^^^^^^^^
+            ...<7 lines>...
+                output_commands=args.output_json_commands,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1631, in push
+            push_ok, output, commands = project.push_project(
+                                        ~~~~~~~~~~~~~~~~~~~~^
+                force=force,
+                ^^^^^^^^^^^^
+            ...<4 lines>...
+                projection_json=projection_json,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 1146, in push_project
+            local_resource = self.read_local_resource(
+                resource=resource_mapping,
+                resource_mappings=local_resource_mappings,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2074, in read_local_resource
+            raise ValueError(
+                f"Error reading resource {resource.resource_name} at {resource.file_path}: {str(e)}"
+            ) from e
+        ValueError: Error reading resource end_function at ${TMP}/ben-ws/PROJECT-JTQKOKLM/functions/end_function.py: expected ':' (<unknown>, line 2)
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: delete invalid end function syntax
+    operation: delete_file
+    path: functions/end_function.py
+    content: null
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write invalid flow function step syntax
+    operation: write_text
+    path: flows/syntax_flow/function_steps/bad_step.py
+    content: |
+      from _gen import *  # <AUTO GENERATED>
+
+
+      def bad_step(conv: Conversation, flow: Flow):
+          if True
+              return None
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: validate flow function step syntax read error
+    argv:
+    - poly
+    - validate
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 1
+    stdout_json:
+      error: 'Error reading resource bad_step at ${TMP}/ben-ws/PROJECT-JTQKOKLM/flows/syntax_flow/function_steps/bad_step.py: expected '':'' (<unknown>, line 2)'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2066, in read_local_resource
+            resource = resource_class.read_local_resource(
+                file_path=resource.file_path,
+            ...<3 lines>...
+                **additional_kwargs,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/flows.py", line 1420, in read_local_resource
+            code, _parameters, _description, latency_control = Function._extract_decorators(
+                                                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+                code, resource_name, [], known_lc
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 575, in _extract_decorators
+            target = Function._get_target_function(code, function_name)
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 546, in _get_target_function
+            module = ast.parse(code)
+          File "${HOME}/.local/share/uv/python/cpython-3.14.0b1-linux-x86_64-gnu/lib/python3.14/ast.py", line 46, in parse
+            return compile(source, filename, mode, flags,
+                           _feature_version=feature_version, optimize=optimize)
+          File "<unknown>", line 2
+            if True
+                   ^
+        SyntaxError: expected ':'
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1186, in _run_command
+            cls.validate_project(args.path, args.json)
+            ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 3123, in validate_project
+            errors = project.validate_project()
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2636, in validate_project
+            local_resource = self.read_local_resource(
+                resource=resource_mapping,
+                resource_mappings=local_resource_mappings,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2074, in read_local_resource
+            raise ValueError(
+                f"Error reading resource {resource.resource_name} at {resource.file_path}: {str(e)}"
+            ) from e
+        ValueError: Error reading resource bad_step at ${TMP}/ben-ws/PROJECT-JTQKOKLM/flows/syntax_flow/function_steps/bad_step.py: expected ':' (<unknown>, line 2)
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push dry-run blocks on flow function step syntax read error
+    argv:
+    - poly
+    - push
+    - --json
+    - --dry-run
+    - --from-projection
+    - '-'
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    stdin: '{}'
+    exit_code: 1
+    stdout_json:
+      error: 'Error reading resource bad_step at ${TMP}/ben-ws/PROJECT-JTQKOKLM/flows/syntax_flow/function_steps/bad_step.py: expected '':'' (<unknown>, line 2)'
+      success: false
+      traceback: |
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2066, in read_local_resource
+            resource = resource_class.read_local_resource(
+                file_path=resource.file_path,
+            ...<3 lines>...
+                **additional_kwargs,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/flows.py", line 1420, in read_local_resource
+            code, _parameters, _description, latency_control = Function._extract_decorators(
+                                                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+                code, resource_name, [], known_lc
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 575, in _extract_decorators
+            target = Function._get_target_function(code, function_name)
+          File "${PYTHON_ADK_ROOT}/src/poly/resources/function.py", line 546, in _get_target_function
+            module = ast.parse(code)
+          File "${HOME}/.local/share/uv/python/cpython-3.14.0b1-linux-x86_64-gnu/lib/python3.14/ast.py", line 46, in parse
+            return compile(source, filename, mode, flags,
+                           _feature_version=feature_version, optimize=optimize)
+          File "<unknown>", line 2
+            if True
+                   ^
+        SyntaxError: expected ':'
+
+        The above exception was the direct cause of the following exception:
+
+        Traceback (most recent call last):
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1061, in _run_command
+            cls.push(
+            ~~~~~~~~^
+                args.path,
+                ^^^^^^^^^^
+            ...<7 lines>...
+                output_commands=args.output_json_commands,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/cli.py", line 1631, in push
+            push_ok, output, commands = project.push_project(
+                                        ~~~~~~~~~~~~~~~~~~~~^
+                force=force,
+                ^^^^^^^^^^^^
+            ...<4 lines>...
+                projection_json=projection_json,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            )
+            ^
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 1146, in push_project
+            local_resource = self.read_local_resource(
+                resource=resource_mapping,
+                resource_mappings=local_resource_mappings,
+            )
+          File "${PYTHON_ADK_ROOT}/src/poly/project.py", line 2074, in read_local_resource
+            raise ValueError(
+                f"Error reading resource {resource.resource_name} at {resource.file_path}: {str(e)}"
+            ) from e
+        ValueError: Error reading resource bad_step at ${TMP}/ben-ws/PROJECT-JTQKOKLM/flows/syntax_flow/function_steps/bad_step.py: expected ':' (<unknown>, line 2)
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: delete invalid flow function step syntax
+    operation: delete_file
+    path: flows/syntax_flow/function_steps/bad_step.py
+    content: null
+    target: null
+    replacement: null
+    success: true
+    error: null

@@ -1,0 +1,779 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-JTQKOKLM
+  project_name: Test
+replay_notes:
+- Documents Python non-dry-run push behavior for representative flow and broad resource creates.
+- The workflow creates a throwaway branch, writes a new flow plus keyphrase boosting resource, records dry-run command JSON, performs a real push, checks clean status, then deletes the branch.
+- This live fixture complements local-only dry-run recordings; it is intentionally narrow to keep replay cheap and server mutation easy to clean up.
+httpmock_recording: live-resource-push.httpmock.yaml
+workflows:
+- name: live_resource_push
+  description: Create a real branch, push representative flow and keyphrase resources to Agent Studio, verify status, then clean up the branch.
+  mutates_real_server: true
+  cleanup:
+  - poly branch delete ${BRANCH_NAME} --json --path ${TMP}/ben-ws/PROJECT-JTQKOKLM
+  steps:
+  - kind: file_edit
+    name: write project config before live resource push
+    operation: write_text
+    path: project.yaml
+    content: |
+      region: us-1
+      account_id: ben-ws
+      project_id: PROJECT-JTQKOKLM
+      branch_id: main
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: force pull real project before live resource push
+    argv:
+    - poly
+    - pull
+    - --json
+    - --force
+    - --output-json-projection
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      files_with_conflicts: []
+      projection:
+        agentSettings:
+          disclaimerMessage:
+            createdAt: 2026-03-20T15:00:26.182Z
+            createdBy: ben@poly-ai.com
+            isEnabled: false
+            languageCode: en-US
+            message: ''
+            references:
+              translations: {}
+            ringingTone:
+              originalFilename: ''
+              publicUrl: ''
+              s3Path: ''
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+          greeting:
+            createdAt: ''
+            createdBy: ''
+            languageCode: en-US
+            references:
+              translations: {}
+              variables: {}
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+            welcomeMessage: Hello, how can I help you?
+          personality:
+            adjectives:
+              Polite: true
+            createdAt: ''
+            createdBy: ''
+            custom: ''
+            references:
+              variables: {}
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+          role:
+            additionalInfo: ''
+            createdAt: ''
+            createdBy: ''
+            custom: ''
+            references:
+              variables: {}
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+            value: CustomerServiceRepresentative
+          rules:
+            behaviour: "\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn't match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason='OUT_OF_SCOPE'.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user's input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn't catch that. Could you say that again?\"  \n3. \"I'm sorry, but I still didn't catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason='USER_INCOMPREHENSIBLE'.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you're not designed to do:\n\"I don't have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I'm doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you're a live person: \"I'm a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason='SPEAK_TO'.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason='SPEAK_TO'.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That's it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n"
+            createdAt: 2026-05-08T18:19:37.835Z
+            createdBy: ben@poly-ai.com
+            references:
+              attributes: {}
+              globalFunctions:
+                default-function: true
+              handoff:
+                default-handoff: true
+              sms: {}
+              translations: {}
+              variables: {}
+            updatedAt: 2026-05-08T18:24:03.042Z
+            updatedBy: ben@poly-ai.com
+        apiIntegrations:
+          apiIntegrations:
+            entities: {}
+            ids: []
+        asrSettings:
+          bargeIn: false
+          latencyConfig:
+            interactionStyle: balanced
+          updatedAt: 2026-03-20T15:00:26.182Z
+          updatedBy: ben@poly-ai.com
+        channels:
+          voice:
+            asrSettings:
+              bargeIn: false
+              updatedAt: 2026-03-20T15:00:26.182Z
+              updatedBy: ben@poly-ai.com
+            config:
+              greeting:
+                createdAt: ''
+                createdBy: ''
+                languageCode: en-US
+                references:
+                  translations: {}
+                  variables: {}
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+                welcomeMessage: Hello, how can I help you?
+              llmSettings:
+                modelId: MODEL-27a9c7af
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+              safetyFilters:
+                azureConfig:
+                  hate:
+                    isActive: false
+                    precision: MEDIUM
+                  selfHarm:
+                    isActive: false
+                    precision: MEDIUM
+                  sexual:
+                    isActive: false
+                    precision: MEDIUM
+                  violence:
+                    isActive: false
+                    precision: MEDIUM
+                disabled: true
+                type: azure
+                updatedAt: ''
+                updatedBy: ''
+              stylePrompt:
+                createdAt: ''
+                createdBy: ''
+                prompt: ''
+                updatedAt: ''
+                updatedBy: ''
+            disclaimer:
+              createdAt: 2026-03-20T15:00:26.182Z
+              createdBy: ben@poly-ai.com
+              isEnabled: false
+              languageCode: en-US
+              message: ''
+              references:
+                translations: {}
+              ringingTone:
+                originalFilename: ''
+                publicUrl: ''
+                s3Path: ''
+              updatedAt: 2026-03-20T15:00:26.182Z
+              updatedBy: ben@poly-ai.com
+          webChat:
+            config:
+              greeting:
+                createdAt: ''
+                createdBy: ''
+                languageCode: en-GB
+                references:
+                  translations: {}
+                  variables: {}
+                updatedAt: ''
+                updatedBy: ''
+                welcomeMessage: ''
+              llmSettings:
+                modelId: ''
+                updatedAt: ''
+                updatedBy: ''
+              safetyFilters:
+                azureConfig:
+                  hate:
+                    isActive: false
+                    precision: MEDIUM
+                  selfHarm:
+                    isActive: false
+                    precision: MEDIUM
+                  sexual:
+                    isActive: false
+                    precision: MEDIUM
+                  violence:
+                    isActive: false
+                    precision: MEDIUM
+                disabled: true
+                type: azure
+                updatedAt: ''
+                updatedBy: ''
+              stylePrompt:
+                createdAt: ''
+                createdBy: ''
+                prompt: ''
+                updatedAt: ''
+                updatedBy: ''
+            status: 0
+        contentFilterSettings:
+          azureConfig:
+            hate:
+              isActive: false
+              precision: MEDIUM
+            selfHarm:
+              isActive: false
+              precision: MEDIUM
+            sexual:
+              isActive: false
+              precision: MEDIUM
+            violence:
+              isActive: false
+              precision: MEDIUM
+          disabled: false
+          type: azure
+          updatedAt: ''
+          updatedBy: ''
+        entities:
+          entities:
+            entities: {}
+            ids: []
+        experimentalConfig:
+          experimentalConfigs:
+            entities:
+              default:
+                active: true
+                createdAt: 2026-03-20T15:00:26.182Z
+                createdBy: ben@poly-ai.com
+                features:
+                  asr:
+                    eager_final: true
+                    model: poly-latency
+                    provider: default
+                    use_asr_lib: true
+                  conversation_control:
+                    min_chunk_size: 5
+                  llm:
+                    include_kb_functions_in_flows: true
+                  ragdoll:
+                    previous_user_inputs_len: 1
+                  smart_vad:
+                    is_enabled: true
+                  vad:
+                    provider: silero
+                    vad_end: 400
+                id: default
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - default
+        flows:
+          flows:
+            entities: {}
+            ids: []
+        functions:
+          functions:
+            entities:
+              default-function:
+                archived: false
+                code: |-
+                  def goodbye_and_hang_up(conv: Conversation):
+                    return {
+                      "utterance": "Okay. I hope you have a great rest of your day. Goodbye!",
+                      "hangup": True
+                    }
+                createdAt: 2026-03-20T15:00:26.182Z
+                createdBy: ben@poly-ai.com
+                description: Say goodbye and end the conversation if and only if you've explicitly confirmed with the user that they don't need help with anything else
+                errors: []
+                id: default-function
+                latencyControl:
+                  createdAt: 2026-03-31T14:13:36.070Z
+                  createdBy: ''
+                  delayResponses:
+                    entities: {}
+                    ids: []
+                  enabled: false
+                  initialDelay: 0
+                  interval: 0
+                  updatedAt: 2026-03-31T14:13:36.070Z
+                  updatedBy: ''
+                name: goodbye_and_hang_up
+                parameters:
+                  entities: {}
+                  ids: []
+                references:
+                  behaviour:
+                    GLOBAL_BEHAVIOUR: true
+                  flowSteps: {}
+                  stopKeywords: {}
+                  topics: {}
+                  variables: {}
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - default-function
+        guardrails:
+          guardrails:
+            AI_IDENTITY:
+              enabled: true
+            EMERGENCY_ESCALATION:
+              enabled: true
+            HALLUCINATION_CONTROL:
+              enabled: true
+            JAILBREAK_DEFENCE:
+              enabled: true
+            TOOL_CALL_INTEGRITY:
+              enabled: true
+          updatedAt: ''
+          updatedBy: ''
+        handoff:
+          handoffs:
+            entities:
+              default-handoff:
+                active: true
+                createdAt: 2026-03-20T15:00:26.182Z
+                createdBy: ben@poly-ai.com
+                description: Handoff the call to the agent when caller requested.
+                id: default-handoff
+                isDefault: true
+                name: Default handoff
+                references:
+                  flowSteps: {}
+                  topics: {}
+                sipConfig:
+                  config:
+                    $case: refer
+                    value:
+                      phoneNumber: '+1234567890'
+                sipHeaders:
+                  headers:
+                  - key: X-Custom-Header
+                    value: custom_value
+                  - key: X-PolyAI-Session
+                    value: session_id_123
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - default-handoff
+        integrations:
+          entities: {}
+          ids: []
+        keyphraseBoosting:
+          keyphraseBoosting:
+            entities: {}
+            ids: []
+        knowledgeBase:
+          embeddingModel: ''
+          topics:
+            entities:
+              TOPICS-23b2d80e:
+                actions: ADK recording conflict branch a6b12361
+                content: This topic exists only to exercise Python ADK merge conflict recording.
+                createdAt: 2026-05-08T18:26:06.533Z
+                createdBy: ben@poly-ai.com
+                exampleQueries:
+                - query: How do conflict recordings work?
+                id: TOPICS-23b2d80e
+                isActive: true
+                name: ADK Recording Conflict a6b12361
+                references:
+                  attributes: {}
+                  globalFunctions: {}
+                  handoff: {}
+                  sms: {}
+                  translations: {}
+                  variables: {}
+                updatedAt: 2026-05-08T18:26:11.974Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - TOPICS-23b2d80e
+          uninstantiatedTopics:
+            entities: {}
+            ids: []
+        languages:
+          additionalLanguages:
+            entities: {}
+            ids: []
+          defaultLanguageCode: en-US
+          updatedAt: 2026-03-20T15:00:26.182Z
+          updatedBy: ben@poly-ai.com
+        llmSettings:
+          modelId: MODEL-27a9c7af
+          updatedAt: 2026-03-20T15:00:26.182Z
+          updatedBy: ben@poly-ai.com
+        mcpConfig:
+          savedProfiles:
+            entities: {}
+            ids: []
+          servers:
+            entities: {}
+            ids: []
+        multilingualAgentSettings:
+          disclaimerMessages:
+            entities:
+              en-US:
+                createdAt: 2026-03-20T15:00:26.182Z
+                createdBy: ben@poly-ai.com
+                isEnabled: false
+                languageCode: en-US
+                message: ''
+                references:
+                  translations: {}
+                ringingTone:
+                  originalFilename: ''
+                  publicUrl: ''
+                  s3Path: ''
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - en-US
+          greetings:
+            entities:
+              en-US:
+                createdAt: ''
+                createdBy: ''
+                languageCode: en-US
+                references:
+                  translations: {}
+                  variables: {}
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+                welcomeMessage: Hello, how can I help you?
+            ids:
+            - en-US
+          languageBehaviors:
+            entities:
+              en-US:
+                behaviorPrompt: ''
+                createdAt: 2026-03-20T15:00:26.182Z
+                createdBy: ben@poly-ai.com
+                languageCode: en-US
+                references:
+                  attributes: {}
+                  globalFunctions: {}
+                  handoff: {}
+                  sms: {}
+                  variables: {}
+                updatedAt: 2026-03-20T15:00:26.182Z
+                updatedBy: ben@poly-ai.com
+            ids:
+            - en-US
+          personality:
+            adjectives:
+              Polite: true
+            createdAt: ''
+            createdBy: ''
+            custom: ''
+            references:
+              variables: {}
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+          role:
+            additionalInfo: ''
+            createdAt: ''
+            createdBy: ''
+            custom: ''
+            references:
+              variables: {}
+            updatedAt: 2026-03-20T15:00:26.182Z
+            updatedBy: ben@poly-ai.com
+            value: CustomerServiceRepresentative
+          rules:
+            behaviour: "\n# TASK AND CONTEXT\nYour task is to assist users with their queries about [Organization/Service].  [Organization] is a [brief description] that specializes in [services/products].\n\n## TOOL CALLS\n\n- You have the ability to call functions when explicitly instructed to do so. \n- Always execute tool calls properly when instructed. Do not output tool calls as text.\n\n## STYLE AND CONVERSATION MANAGEMENT\n\n- Keep answers short and conversational. This is a phone conversation, not a text chat.\n- Format responses as natural conversational paragraphs, not bullet lists. \n- Do not ask more than one question at a time.  \n- Always be polite but assertive. No need to apologize if the user asks for extra information.  \n- If the user asks something unrelated mid-conversation, pause the flow, handle their question, then return to the topic.  \n- Do not assume the conversation is over—always ask if you can help with anything else.\n\n## HANDLING SPECIAL CASES\n\n### OUT OF SCOPE QUESTIONS\n\n> If the user asks a well-formed question that doesn't match any information in your knowledge base:\n\"For help with [USER_QUERY], I’ll need to put you through to one of our team members. Does that sound ok?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason='OUT_OF_SCOPE'.\n\n### ASR MISTRANSCRIPTIONS\n\n> If the user's input is garbled or incomprehensible, use these responses in the following order:\n1. \"Would you mind saying that again?\"  \n2. \"I didn't catch that. Could you say that again?\"  \n3. \"I'm sorry, but I still didn't catch that. Would you like to put you through to someone else?\"\n- If yes, transfer to the user to {{ho:default-handoff}} with reason='USER_INCOMPREHENSIBLE'.\n\n### JAILBREAK ATTEMPTS\n\n> If the user asks you to do something you're not designed to do:\n\"I don't have the ability to [JAILBREAK_REQUEST], but I can help you with questions about [Organization]. What would you like to know?\"\n\n## SMALLTALK BEHAVIOR\n\n- User says hello or hi: \"Hi! How can I help you today?\"\n- User asks how you are: \"I'm doing great, thanks! How can I help?\"\n- User asks if you can hear them: \"I can hear you loud and clear. What can I do for you today?\"\n- User asks who you are or if you're a live person: \"I'm a virtual assistant, here to help. What can I do for you?\"\n\n## CALL TRANSFER AND DEFLECTION\n\n### TRANSFER EARLY IN THE CONVERSATION\n\nASSISTANT: \"Hi! How can I help you today?\"  \nUSER: \"Speak to someone/agent/operator\"  \nASSISTANT: \"I might be able to help you myself. Could you tell me what you need?\"  \nUSER: \"No / speak to someone\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason='SPEAK_TO'.\n\n### TRANSFER MID-CONVERSATION\n\nASSISTANT: \"Is there anything else I can help you with? / Does that sound ok so far?\"\nUSER: \"Yes, I need to speak with someone/agent/operator\"  \n→ TOOL CALL: Transfer the user to {{ho:default-handoff}} with reason='SPEAK_TO'.\n\n## GOODBYE BEHAVIOR\nASSISTANT: \"Is there anything else I can help you with?\"  \nUSER: \"Yes.\"  \nASSISTANT: \"What can I do for you?\"  \nUSER: \"Nothing/That's it\"  \nASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”\nUSER: “Bye” / [silence]\n→ TOOL CALL: Call the {{fn:default-function}} without saying anything else.\n\n\n# ADK recording branch merge 25bb0c4e\nThis line was merged into main by the Python ADK recorder.\n\n\n# ADK recording conflict main 1137f9b0\n\n\n# ADK recording conflict branch 56de8e44\n"
+            createdAt: 2026-05-08T18:19:37.835Z
+            createdBy: ben@poly-ai.com
+            references:
+              attributes: {}
+              globalFunctions:
+                default-function: true
+              handoff:
+                default-handoff: true
+              sms: {}
+              translations: {}
+              variables: {}
+            updatedAt: 2026-05-08T18:24:03.042Z
+            updatedBy: ben@poly-ai.com
+        pronunciations:
+          pronunciations:
+            entities: {}
+            ids: []
+        sms:
+          templates:
+            entities: {}
+            ids: []
+        specialFunctions: {}
+        stopKeywords:
+          filters:
+            entities: {}
+            ids: []
+        testing:
+          testCases:
+            entities: {}
+            ids: []
+        transcriptCorrections:
+          transcriptCorrections:
+            entities: {}
+            ids: []
+        translations:
+          translations:
+            entities: {}
+            ids: []
+        variables:
+          variables:
+            entities: {}
+            ids: []
+        variantManagement:
+          attributes:
+            entities: {}
+            ids: []
+          variantAttributeValues:
+            entities: {}
+            ids: []
+          variants:
+            entities: {}
+            ids: []
+        voices:
+          agentVoiceSettings:
+            entities: {}
+            ids: []
+          agentVoices:
+            entities:
+              6fad73f6:
+                id: 6fad73f6
+                languageCode: en-US
+                probability: 0.5
+                updatedAt: 2026-03-31T14:14:21.732Z
+                updatedBy: ben@poly-ai.com
+                voiceId: VOICE-6fad73f6
+              95c1c1f1:
+                id: 95c1c1f1
+                probability: 0.5
+                updatedAt: 2026-03-31T14:14:25.574Z
+                updatedBy: ben@poly-ai.com
+                voiceId: VOICE-95c1c1f1
+            ids:
+            - 6fad73f6
+            - 95c1c1f1
+          disclaimerVoiceSettings:
+            entities: {}
+            ids: []
+          disclaimerVoices:
+            entities: {}
+            ids: []
+          favoriteVoices:
+            entities: {}
+            ids: []
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: create live resource push branch
+    argv:
+    - poly
+    - branch
+    - create
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      branch_name: ${BRANCH_NAME}
+      new_branch_id: BRANCH-7MDFE9F0
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_edit
+    name: write live push flow config
+    operation: write_text
+    path: flows/adk_live_push_flow/flow_config.yaml
+    content: |
+      name: adk_live_push_flow
+      description: Live push recording flow.
+      start_step: start_step
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write live push start step
+    operation: write_text
+    path: flows/adk_live_push_flow/steps/start_step.yaml
+    content: |
+      step_type: advanced_step
+      name: start_step
+      prompt: Welcome to the live push recording flow.
+      asr_biasing:
+        is_enabled: false
+      dtmf_config:
+        is_enabled: false
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write live push function step
+    operation: write_text
+    path: flows/adk_live_push_flow/function_steps/do_live_work.py
+    content: |
+      from _gen import *  # <AUTO GENERATED>
+
+
+      def do_live_work(conv: Conversation, flow: Flow):
+          return "done"
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: file_edit
+    name: write live push keyphrase boosting
+    operation: write_text
+    path: voice/speech_recognition/keyphrase_boosting.yaml
+    content: |
+      keyphrases:
+        - keyphrase: ADK live push recording
+          level: boosted
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: status before live resource push
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files: []
+      new_files:
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/flows/adk_live_push_flow/steps/start_step.yaml
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/flows/adk_live_push_flow/function_steps/do_live_work.py
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/flows/adk_live_push_flow/flow_config.yaml
+      - ${TMP}/ben-ws/PROJECT-JTQKOKLM/voice/speech_recognition/keyphrase_boosting.yaml/keyphrases/ADK_live_push_recording
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push dry-run live resource command payload
+    argv:
+    - poly
+    - push
+    - --output-json-commands
+    - --dry-run
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      commands:
+      - command_id: ${COMMAND_ID}
+        create_flow:
+          description: Live push recording flow.
+          id: FLOW_CONFIG-247e7249
+          name: adk_live_push_flow
+          start_step_id: FLOW_STEPS-005513d7
+          steps:
+          - asr_biasing: {}
+            dtmf_config:
+              end_key: '#'
+            id: FLOW_STEPS-005513d7
+            name: start_step
+            position: {}
+            prompt: Welcome to the live push recording flow.
+            references: {}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_flow
+      - command_id: ${COMMAND_ID}
+        create_step:
+          flow_id: FLOW_CONFIG-247e7249
+          function_step:
+            function:
+              code: |
+                def do_live_work(conv: Conversation, flow: Flow):
+                    return "done"
+              id: FUNCTION-baa2b303
+              latency_control: {}
+              name: do_live_work
+            id: FUNCTION_STEPS-62986007
+            name: do_live_work
+            position:
+              x: 600.0
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_step
+      - command_id: ${COMMAND_ID}
+        create_keyphrase_boosting:
+          id: KEYPHRASE_BOOSTING-e1f47e16
+          keyphrase: ADK live push recording
+          level: boosted
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: create_keyphrase_boosting
+      dry_run: true
+      message: Dry run completed. No changes were pushed.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: push live flow and broad resources
+    argv:
+    - poly
+    - push
+    - --json
+    - --force
+    - --skip-validation
+    - --email
+    - adk-recorder@example.com
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      dry_run: false
+      message: Resources pushed successfully.
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: status after live resource push
+    argv:
+    - poly
+    - status
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      deleted_files: []
+      files_with_conflicts: []
+      modified_files: []
+      new_files: []
+    stdout: null
+    stderr: ''
+  - kind: command
+    name: delete live resource push branch
+    argv:
+    - poly
+    - branch
+    - delete
+    - ${BRANCH_NAME}
+    - --json
+    - --path
+    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
+    exit_code: 0
+    stdout_json:
+      success: true
+      switched_to: main
+    stdout: null
+    stderr: ''
