@@ -124,18 +124,17 @@ focused parity behavior beyond the larger workflows above:
 
 ## Recorder-Only TDD Scenarios
 
-When adding future coverage, it is fine for the ignored recorder test to contain
-a scenario before it is enabled in `SCENARIOS`. The intended flow is: record
-Python first, inspect and commit the `*.commands.yaml` and `*.httpmock.yaml`
-files, bring Rust to parity, then add the scenario name to
-`tests/support/mod.rs`.
+When adding future coverage, it is fine to commit a manifest and cassette before
+enabling replay in `SCENARIOS`. The intended flow is: record Python first,
+inspect and commit the `*.commands.yaml` and `*.httpmock.yaml` files, bring Rust
+to parity, then add the scenario name to `tests/support/mod.rs`.
 
 ## Rust Test Files
 
-- `record_python_adk_httpmock_fixtures_test.rs`
-  Ignored recorder tests. These run the Python ADK against a forwarding
-  `httpmock` server, call the real Agent Studio API, and overwrite the
-  `*.commands.yaml` plus `*.httpmock.yaml` fixtures.
+- `record_python_adk_from_manifest_test.rs`
+  Ignored manifest-driven recorder test. It runs the Python ADK commands from
+  each `*.commands.yaml` file against a forwarding `httpmock` server, calls the
+  real Agent Studio API, and overwrites the manifest plus matching cassette.
 - `python_adk_recording_fixture_integrity_test.rs`
   Cheap fixture checks. These validate that every scenario has both files, that
   manifests point at the right cassette, and that saved text is portable. They
@@ -156,8 +155,7 @@ files, bring Rust to parity, then add the scenario name to
 ## How Recording Works
 
 The ignored integration test
-`adk-cli/tests/record_python_adk_httpmock_fixtures_test.rs` owns the recording
-flow:
+`adk-cli/tests/record_python_adk_from_manifest_test.rs` owns the recording flow:
 
 1. Start a local `httpmock::MockServer`.
 2. Configure `server.forward_to("https://api.us.poly.ai", ...)`.
@@ -175,30 +173,25 @@ while forwarding only needs the base URL override.
 Regeneration is intentionally opt-in because it calls the real Agent Studio API
 and writes fixture files.
 
-```bash
-cargo test -p adk-cli --test record_python_adk_httpmock_fixtures_test -- --ignored --nocapture
-```
-
-To regenerate only the mutating branch workflow:
+Refresh all enabled scenarios:
 
 ```bash
-cargo test -p adk-cli --test record_python_adk_httpmock_fixtures_test \
-  record_branch_update_push_with_python_adk_and_httpmock \
+cargo test -p adk-cli --test record_python_adk_from_manifest_test \
   -- --ignored --nocapture
 ```
 
-To record one recorder-only TDD fixture:
+To refresh a single scenario:
 
 ```bash
-cargo test -p adk-cli --test record_python_adk_httpmock_fixtures_test \
-  record_chat_session_controls_with_python_adk_and_httpmock \
+PYTHON_ADK_RECORD_SCENARIO=python-syntax-validation \
+  cargo test -p adk-cli --test record_python_adk_from_manifest_test \
   -- --ignored --nocapture
 ```
 
 To regenerate everything deterministically, run ignored tests sequentially:
 
 ```bash
-cargo test -p adk-cli --test record_python_adk_httpmock_fixtures_test \
+cargo test -p adk-cli --test record_python_adk_from_manifest_test \
   -- --ignored --nocapture --test-threads=1
 ```
 

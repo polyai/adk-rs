@@ -111,7 +111,7 @@ workflows:
     - --environment
     - sandbox
     - --conversation-id
-    - AS_CHAT_2bee6479-f4b5-4889-b059-a6a2a4cbc074
+    - ${CHAT_RESUME_CONVERSATION_ID}
     - --message
     - /exit
     exit_code: 0

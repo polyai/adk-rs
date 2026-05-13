@@ -1,7 +1,7 @@
 //! Cheap checks for the saved Python ADK recording fixtures.
 //!
 //! This test does not run the Rust CLI against the recordings. The ignored
-//! `record_python_adk_httpmock_fixtures_test` target regenerates them; the
+//! `record_python_adk_from_manifest_test` target regenerates them; the
 //! `replay_python_adk_httpmock_fixtures_test` target exercises Rust against the
 //! saved cassettes.
 

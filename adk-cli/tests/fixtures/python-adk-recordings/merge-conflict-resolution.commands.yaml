@@ -297,7 +297,7 @@ workflows:
     - ADK recording resolved conflict
     - --json
     - --resolutions
-    - '[{"path":["knowledgeBase","topics","entities","TOPICS-23b2d80e","actions"],"strategy":"theirs"},{"path":["knowledgeBase","topics","entities","TOPICS-23b2d80e","updatedAt"],"strategy":"theirs"}]'
+    - ${MERGE_RESOLUTIONS}
     - --path
     - ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
     exit_code: 0

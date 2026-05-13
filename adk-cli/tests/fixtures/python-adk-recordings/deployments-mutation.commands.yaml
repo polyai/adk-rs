@@ -176,7 +176,7 @@ workflows:
     - poly
     - deployments
     - show
-    - add8dee46
+    - ${DEPLOYMENT_NEWEST_HASH}
     - --json
     - --path
     - ${TMP}/ben-ws/PROJECT-JTQKOKLM
@@ -247,7 +247,7 @@ workflows:
     - deployments
     - promote
     - --from
-    - add8dee46
+    - ${DEPLOYMENT_NEWEST_HASH}
     - --to
     - pre-release
     - --dry-run
@@ -271,7 +271,7 @@ workflows:
     - deployments
     - promote
     - --from
-    - add8dee46
+    - ${DEPLOYMENT_NEWEST_HASH}
     - --to
     - pre-release
     - --message
@@ -296,7 +296,7 @@ workflows:
     - deployments
     - rollback
     - --to
-    - 46c783999
+    - ${DEPLOYMENT_PREVIOUS_HASH}
     - --dry-run
     - --json
     - --path
@@ -340,7 +340,7 @@ workflows:
     - deployments
     - rollback
     - --to
-    - 46c783999
+    - ${DEPLOYMENT_PREVIOUS_HASH}
     - --message
     - ADK deployment recording rollback
     - --force
@@ -385,7 +385,7 @@ workflows:
     - deployments
     - rollback
     - --to
-    - add8dee46
+    - ${DEPLOYMENT_NEWEST_HASH}
     - --message
     - ADK deployment recording restore
     - --force

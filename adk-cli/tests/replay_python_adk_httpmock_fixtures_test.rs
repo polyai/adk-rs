@@ -1,6 +1,6 @@
 //! Replay saved Python ADK httpmock recordings against the Rust `poly` binary.
 //!
-//! The ignored `record_python_adk_httpmock_fixtures_test` target refreshes the
+//! The ignored `record_python_adk_from_manifest_test` target refreshes the
 //! cassettes from the real Agent Studio API. This test is the cheap offline
 //! counterpart: it starts httpmock playback, runs Rust commands from the saved
 //! manifests, applies recorded file edits, and checks that Rust emits the same
@@ -23,62 +23,9 @@ use support::python_recordings::{
     lookup_substitution, maybe_lookup_substitution, replace_all as substitute, substitute_json,
     temp_replay_dir,
 };
-
-#[derive(Debug, Deserialize)]
-struct Manifest {
-    httpmock_recording: String,
-    workflows: Vec<Workflow>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Workflow {
-    name: String,
-    steps: Vec<WorkflowStep>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum WorkflowStep {
-    Tagged(TaggedWorkflowStep),
-    LegacyCommand(CommandRecord),
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum TaggedWorkflowStep {
-    Command(CommandRecord),
-    FileEdit(FileEditRecord),
-    FileAssertion(FileAssertionRecord),
-}
-
-#[derive(Debug, Deserialize)]
-struct CommandRecord {
-    name: String,
-    argv: Vec<String>,
-    stdin: Option<String>,
-    #[serde(rename = "exit_code")]
-    exit_code: i32,
-    stdout_json: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct FileEditRecord {
-    name: String,
-    operation: String,
-    path: String,
-    content: Option<String>,
-    target: Option<String>,
-    replacement: Option<String>,
-    success: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct FileAssertionRecord {
-    name: String,
-    path: String,
-    exists: bool,
-    contains: Vec<String>,
-}
+use support::recording_manifest::{
+    CommandRecord, FileAssertionRecord, FileEditRecord, Manifest, TaggedWorkflowStep, WorkflowStep,
+};
 
 #[test]
 fn rust_cli_replays_saved_python_adk_httpmock_recordings() {
@@ -119,7 +66,8 @@ fn replay_scenario(scenario: &str) {
         );
         playback_server.playback(playback_cassette_path);
     }
-    let substitutions = substitutions_for(&tmp, &playback_server, &cassette_text, &manifest);
+    let substitutions =
+        substitutions_for(scenario, &tmp, &playback_server, &cassette_text, &manifest);
 
     let mut file_seeds = HashMap::new();
     for workflow in &manifest.workflows {
@@ -855,6 +803,7 @@ fn project_root_for_file_edit(name: &str, tmp: &Path) -> PathBuf {
 }
 
 fn substitutions_for(
+    scenario: &str,
     tmp: &Path,
     playback_server: &MockServer,
     cassette_text: &str,
@@ -862,8 +811,10 @@ fn substitutions_for(
 ) -> Vec<(String, String)> {
     let branch_name = extract_recording_branch_name(cassette_text)
         .unwrap_or_else(|| "adk-rs-recording-replay".to_string());
+    let generic_prefix = format!("adk-rs-recording-{scenario}-");
     let run_id = branch_name
-        .strip_prefix("adk-rs-recording-conflict-")
+        .strip_prefix(&generic_prefix)
+        .or_else(|| branch_name.strip_prefix("adk-rs-recording-conflict-"))
         .or_else(|| branch_name.strip_prefix("adk-rs-recording-merge-"))
         .unwrap_or("replay")
         .to_string();
@@ -913,6 +864,27 @@ fn substitutions_for(
             generated_branch_name,
         ));
     }
+    if let Some(conversation_id) = first_recorded_conversation_id(manifest) {
+        substitutions.push((
+            "${CHAT_RESUME_CONVERSATION_ID}".to_string(),
+            conversation_id,
+        ));
+    }
+    if let Some(hash) = deployment_hash_at(manifest, 0) {
+        substitutions.push((
+            "${DEPLOYMENT_NEWEST_HASH}".to_string(),
+            deployment_hash_prefix(&hash),
+        ));
+    }
+    if let Some(hash) = deployment_hash_at(manifest, 1) {
+        substitutions.push((
+            "${DEPLOYMENT_PREVIOUS_HASH}".to_string(),
+            deployment_hash_prefix(&hash),
+        ));
+    }
+    if let Some(resolutions) = merge_resolutions_for_conflicts(manifest) {
+        substitutions.push(("${MERGE_RESOLUTIONS}".to_string(), resolutions));
+    }
     let topic_ids = generated_topic_id_mappings(manifest, cassette_text);
     if !topic_ids.is_empty() {
         substitutions.push(("${GENERATED_TOPIC_IDS}".to_string(), topic_ids));
@@ -923,6 +895,68 @@ fn substitutions_for(
         }
     }
     substitutions
+}
+
+fn first_recorded_conversation_id(manifest: &Manifest) -> Option<String> {
+    find_command(manifest, "chat json leaves conversation open for resume")
+        .and_then(|record| record.stdout_json.as_ref())
+        .and_then(|json| json.pointer("/conversations/0/conversation_id"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn deployment_hash_at(manifest: &Manifest, index: usize) -> Option<String> {
+    let deployment = find_command(manifest, "deployments list sandbox for mutation hashes")?
+        .stdout_json
+        .as_ref()?
+        .get("versions")?
+        .as_array()?
+        .get(index)?;
+    deployment
+        .get("version_hash")
+        .or_else(|| deployment.get("versionHash"))
+        .or_else(|| deployment.get("hash"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn deployment_hash_prefix(hash: &str) -> String {
+    hash.chars().take(9).collect()
+}
+
+fn merge_resolutions_for_conflicts(manifest: &Manifest) -> Option<String> {
+    let conflicts = find_command(manifest, "merge conflict without resolutions")?
+        .stdout_json
+        .as_ref()?
+        .get("conflicts")?
+        .as_array()?;
+    let resolutions = conflicts
+        .iter()
+        .filter_map(|conflict| {
+            let path = conflict.get("path")?.as_array()?.clone();
+            Some(serde_json::json!({
+                "path": path,
+                "strategy": "theirs"
+            }))
+        })
+        .collect::<Vec<_>>();
+    (!resolutions.is_empty())
+        .then(|| serde_json::to_string(&resolutions).ok())
+        .flatten()
+}
+
+fn find_command<'a>(manifest: &'a Manifest, name: &str) -> Option<&'a CommandRecord> {
+    manifest.workflows.iter().find_map(|workflow| {
+        workflow.steps.iter().find_map(|step| match step {
+            WorkflowStep::Tagged(TaggedWorkflowStep::Command(record))
+            | WorkflowStep::LegacyCommand(record)
+                if record.name == name =>
+            {
+                Some(record)
+            }
+            _ => None,
+        })
+    })
 }
 
 fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec<String>)> {

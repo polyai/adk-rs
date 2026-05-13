@@ -96,6 +96,8 @@ pub mod cli {
     }
 }
 
+pub mod recording_manifest;
+
 pub mod python_recordings {
     use super::*;
     use httpmock::MockServer;

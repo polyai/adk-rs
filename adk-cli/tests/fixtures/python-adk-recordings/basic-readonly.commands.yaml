@@ -9,7 +9,7 @@ source:
   project_id: PROJECT-JTQKOKLM
   project_name: Test
 replay_notes:
-- This command manifest was produced by the ignored record_python_adk_httpmock_fixtures_test.
+- This command manifest is refreshed by the ignored record_python_adk_from_manifest_test.
 - The HTTP traffic lives in basic-readonly.httpmock.yaml, saved by httpmock record/playback.
 - Authentication headers are redacted after recording.
 - Substitute ${TMP} with a temporary working directory when replaying command expectations.
