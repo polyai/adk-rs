@@ -378,17 +378,17 @@ fn run_and_check_command(
     }
 
     if let (Some(expected_json), Some(actual_json)) = (&expected.stdout_json, &actual_json) {
-        assert_json_contract(
+        assert_json_contract(JsonContractAssertion {
             scenario,
             workflow,
-            &expected.name,
-            &argv,
-            expected_json,
-            actual_json,
+            command_name: &expected.name,
+            argv: &argv,
+            expected: expected_json,
+            actual: actual_json,
             substitutions,
-            &actual_stdout,
-            &actual_stderr,
-        );
+            actual_stdout: &actual_stdout,
+            actual_stderr: &actual_stderr,
+        });
     }
 }
 
@@ -677,17 +677,30 @@ fn extract_branch_ids(text: &str) -> Vec<String> {
     ids
 }
 
-fn assert_json_contract(
-    scenario: &str,
-    workflow: &str,
-    command_name: &str,
-    argv: &[String],
-    expected: &Value,
-    actual: &Value,
-    substitutions: &[(String, String)],
-    actual_stdout: &str,
-    actual_stderr: &str,
-) {
+struct JsonContractAssertion<'a> {
+    scenario: &'a str,
+    workflow: &'a str,
+    command_name: &'a str,
+    argv: &'a [String],
+    expected: &'a Value,
+    actual: &'a Value,
+    substitutions: &'a [(String, String)],
+    actual_stdout: &'a str,
+    actual_stderr: &'a str,
+}
+
+fn assert_json_contract(assertion: JsonContractAssertion<'_>) {
+    let JsonContractAssertion {
+        scenario,
+        workflow,
+        command_name,
+        argv,
+        expected,
+        actual,
+        substitutions,
+        actual_stdout,
+        actual_stderr,
+    } = assertion;
     let expected = substitute_json(expected, substitutions, Some(actual));
     let actual = actual.clone();
     let (expected, actual) = if scenario == "python-syntax-validation" {
@@ -1198,17 +1211,17 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
                         push_mapping(Some(function), "name", "id", &mut function_ids);
                     }
                 }
-                if let Some(condition) = command.get("create_no_code_condition") {
-                    if let (Some(label), Some(id)) = (
+                if let Some(condition) = command.get("create_no_code_condition")
+                    && let (Some(label), Some(id)) = (
                         condition
                             .get("exit_flow_condition")
                             .and_then(|exit| exit.get("details"))
                             .and_then(|details| details.get("label"))
                             .and_then(Value::as_str),
                         condition.get("condition_id").and_then(Value::as_str),
-                    ) {
-                        condition_ids.push(format!("{label}={id}"));
-                    }
+                    )
+                {
+                    condition_ids.push(format!("{label}={id}"));
                 }
                 push_mapping(
                     command.get("variable_create"),

@@ -94,11 +94,12 @@ fn normalize_parts(path: &str) -> (bool, Vec<String>) {
             continue;
         }
         if raw == ".." {
-            if let Some(last) = parts.last() {
-                if last != ".." && !last.ends_with(':') {
-                    parts.pop();
-                    continue;
-                }
+            if let Some(last) = parts.last()
+                && last != ".."
+                && !last.ends_with(':')
+            {
+                parts.pop();
+                continue;
             }
             parts.push("..".to_string());
             continue;

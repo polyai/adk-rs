@@ -1624,24 +1624,22 @@ fn local_conditions(yaml: &serde_yaml::Value) -> Vec<LocalCondition> {
         .and_then(serde_yaml::Value::as_sequence)
         .into_iter()
         .flatten()
-        .filter_map(|condition| {
-            Some(LocalCondition {
-                name: yaml_str(condition, "name"),
-                description: yaml_str(condition, "description"),
-                condition_type: yaml_str(condition, "condition_type"),
-                required_entities: yaml_string_list(condition.get("required_entities")),
-                ingress: non_empty(
-                    condition
-                        .get("ingress")
-                        .or_else(|| condition.get("ingress_position"))
-                        .and_then(serde_yaml::Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    "top",
-                ),
-                position: step_position(condition.get("position")),
-                exit_flow_position: step_position(condition.get("exit_flow_position")),
-            })
+        .map(|condition| LocalCondition {
+            name: yaml_str(condition, "name"),
+            description: yaml_str(condition, "description"),
+            condition_type: yaml_str(condition, "condition_type"),
+            required_entities: yaml_string_list(condition.get("required_entities")),
+            ingress: non_empty(
+                condition
+                    .get("ingress")
+                    .or_else(|| condition.get("ingress_position"))
+                    .and_then(serde_yaml::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                "top",
+            ),
+            position: step_position(condition.get("position")),
+            exit_flow_position: step_position(condition.get("exit_flow_position")),
         })
         .collect()
 }

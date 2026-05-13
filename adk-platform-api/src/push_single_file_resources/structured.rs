@@ -219,22 +219,22 @@ pub(crate) fn structured_file_resource_command_groups(
             None
         };
 
-    if let Some(yaml) = chat_configuration_yaml.as_ref() {
-        if let Some(greeting) = yaml.get("greeting") {
-            push_command(
-                &mut groups.updates,
-                metadata,
-                "channel_update_greeting",
-                CommandPayload::ChannelUpdateGreeting(ChannelUpdateGreeting {
-                    channel_type: ChannelType::WebChat as i32,
-                    greeting: Some(GreetingUpdateGreeting {
-                        welcome_message: Some(yaml_str(greeting, "welcome_message")),
-                        references: None,
-                        language_code: yaml_str(greeting, "language_code"),
-                    }),
+    if let Some(yaml) = chat_configuration_yaml.as_ref()
+        && let Some(greeting) = yaml.get("greeting")
+    {
+        push_command(
+            &mut groups.updates,
+            metadata,
+            "channel_update_greeting",
+            CommandPayload::ChannelUpdateGreeting(ChannelUpdateGreeting {
+                channel_type: ChannelType::WebChat as i32,
+                greeting: Some(GreetingUpdateGreeting {
+                    welcome_message: Some(yaml_str(greeting, "welcome_message")),
+                    references: None,
+                    language_code: yaml_str(greeting, "language_code"),
                 }),
-            );
-        }
+            }),
+        );
     }
 
     if resource_changed(resources, &remote_resources, "chat/safety_filters.yaml")
@@ -248,20 +248,20 @@ pub(crate) fn structured_file_resource_command_groups(
         );
     }
 
-    if let Some(yaml) = chat_configuration_yaml.as_ref() {
-        if let Some(style_prompt) = yaml.get("style_prompt") {
-            push_command(
-                &mut groups.updates,
-                metadata,
-                "channel_update_style_prompt",
-                CommandPayload::ChannelUpdateStylePrompt(ChannelUpdateStylePrompt {
-                    channel_type: ChannelType::WebChat as i32,
-                    style_prompt: Some(StylePromptUpdateStylePrompt {
-                        prompt: yaml_str(style_prompt, "prompt"),
-                    }),
+    if let Some(yaml) = chat_configuration_yaml.as_ref()
+        && let Some(style_prompt) = yaml.get("style_prompt")
+    {
+        push_command(
+            &mut groups.updates,
+            metadata,
+            "channel_update_style_prompt",
+            CommandPayload::ChannelUpdateStylePrompt(ChannelUpdateStylePrompt {
+                channel_type: ChannelType::WebChat as i32,
+                style_prompt: Some(StylePromptUpdateStylePrompt {
+                    prompt: yaml_str(style_prompt, "prompt"),
                 }),
-            );
-        }
+            }),
+        );
     }
 
     if resource_changed(
@@ -639,8 +639,9 @@ fn api_integration_lifecycle_commands(
         for env_name in ["sandbox", "pre_release", "live"] {
             let local_env = local.environments.get(env_name);
             let remote_env = remote.environments.get(env_name);
-            if local_env.is_some() && local_env != remote_env {
-                let local_env = local_env.expect("checked local env");
+            if let Some(local_env) = local_env
+                && Some(local_env) != remote_env
+            {
                 push_command(
                     &mut commands.config_updates,
                     metadata,
@@ -1331,7 +1332,7 @@ fn projection_entities<'a>(root: &'a Value, path: &[&str]) -> Vec<(String, &'a V
         .iter()
         .filter(|(id, _)| !seen.contains(*id))
         .collect::<Vec<_>>();
-    remaining.sort_by(|(left, _), (right, _)| left.cmp(right));
+    remaining.sort_by_key(|(left, _)| *left);
     ordered.extend(
         remaining
             .into_iter()
@@ -1628,7 +1629,7 @@ fn api_operations_from_projection(integration: &Value) -> Vec<ApiOperationItem> 
             .iter()
             .filter(|(id, _)| !seen.contains(*id))
             .collect::<Vec<_>>();
-        remaining.sort_by(|(left, _), (right, _)| left.cmp(right));
+        remaining.sort_by_key(|(left, _)| *left);
         ordered.extend(
             remaining
                 .into_iter()
@@ -1811,15 +1812,14 @@ fn transcript_item_with_remote_regex_ids(
     let mut merged = local.clone();
     merged.id = remote.id.clone();
     for (idx, regex) in merged.regular_expressions.iter_mut().enumerate() {
-        if regex.id.is_empty() {
-            if let Some(remote_id) = remote
+        if regex.id.is_empty()
+            && let Some(remote_id) = remote
                 .regular_expressions
                 .get(idx)
                 .map(|regex| regex.id.clone())
                 .filter(|id| !id.is_empty())
-            {
-                regex.id = remote_id;
-            }
+        {
+            regex.id = remote_id;
         }
     }
     merged

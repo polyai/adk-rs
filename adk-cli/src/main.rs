@@ -1025,7 +1025,7 @@ fn resolve_base_path(base_path: &str) -> PathBuf {
     let base_arg = PathBuf::from(base_path);
     if base_arg.is_absolute() {
         base_arg
-    } else if base_arg == PathBuf::from(".") {
+    } else if base_arg == Path::new(".") {
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
     } else {
         std::env::current_dir()
@@ -1454,7 +1454,7 @@ fn cmd_review(args: ReviewArgs) -> ExitCode {
         Some(ReviewCommands::Delete(delete)) => {
             let json_mode = args.json || delete.json;
             let delete_result = if let Some(id) = delete.id.as_deref() {
-                github_delete_review_gist(id).map(|deleted| usize::from(deleted))
+                github_delete_review_gist(id).map(usize::from)
             } else {
                 prompt_delete_review_gists(json_mode)
             };
@@ -2262,16 +2262,16 @@ fn prompt_branch_merge_resolutions(
             .and_then(serde_json::Value::as_bool)
             .unwrap_or_else(|| !contains_merge_conflict(&merged));
         let existing_resolution = existing_resolutions.get(&clean_path);
-        print_merge_conflict_prompt_header(
+        print_merge_conflict_prompt_header(MergeConflictPromptHeader {
             conflict,
-            &clean_path,
-            &file_key,
+            clean_path: &clean_path,
+            file_key: &file_key,
             idx,
             total,
             auto_mergeable,
             branch_name,
             existing_resolution,
-        );
+        });
 
         let mut choices = Vec::<(String, String)>::new();
         if existing_resolution.is_some() {
@@ -2338,16 +2338,28 @@ fn prompt_branch_merge_resolutions(
     Some(resolutions)
 }
 
-fn print_merge_conflict_prompt_header(
-    conflict: &serde_json::Value,
-    clean_path: &str,
-    file_key: &str,
+struct MergeConflictPromptHeader<'a> {
+    conflict: &'a serde_json::Value,
+    clean_path: &'a str,
+    file_key: &'a str,
     idx: usize,
     total: u64,
     auto_mergeable: bool,
-    branch_name: &str,
-    existing_resolution: Option<&serde_json::Value>,
-) {
+    branch_name: &'a str,
+    existing_resolution: Option<&'a serde_json::Value>,
+}
+
+fn print_merge_conflict_prompt_header(header: MergeConflictPromptHeader<'_>) {
+    let MergeConflictPromptHeader {
+        conflict,
+        clean_path,
+        file_key,
+        idx,
+        total,
+        auto_mergeable,
+        branch_name,
+        existing_resolution,
+    } = header;
     console::plain("\n[label]Resolve conflict[/label]");
     console::plain(format!("  Field: {clean_path}"));
     if total > 1 {
@@ -3117,31 +3129,30 @@ fn print_chat_metadata_human(
     let Some(metadata) = reply.get("metadata").and_then(serde_json::Value::as_object) else {
         return;
     };
-    if show_functions {
-        if let Some(events) = metadata
+    if show_functions
+        && let Some(events) = metadata
             .get("function_events")
             .and_then(serde_json::Value::as_array)
             .filter(|events| !events.is_empty())
-        {
-            console::plain("[label]Functions:[/label]");
-            for event in events {
-                if let Some(name) = event.get("name").and_then(serde_json::Value::as_str) {
-                    console::plain(format!("  - {name}"));
-                } else {
-                    console::plain(format!("  - {event}"));
-                }
+    {
+        console::plain("[label]Functions:[/label]");
+        for event in events {
+            if let Some(name) = event.get("name").and_then(serde_json::Value::as_str) {
+                console::plain(format!("  - {name}"));
+            } else {
+                console::plain(format!("  - {event}"));
             }
         }
     }
-    if show_flows {
-        if let Some(flow_stack) = metadata.get("flow_stack") {
-            console::plain(format!("[label]Flow:[/label] {flow_stack}"));
-        }
+    if show_flows
+        && let Some(flow_stack) = metadata.get("flow_stack")
+    {
+        console::plain(format!("[label]Flow:[/label] {flow_stack}"));
     }
-    if show_state {
-        if let Some(state) = metadata.get("state") {
-            console::plain(format!("[label]State:[/label] {state}"));
-        }
+    if show_state
+        && let Some(state) = metadata.get("state")
+    {
+        console::plain(format!("[label]State:[/label] {state}"));
     }
 }
 

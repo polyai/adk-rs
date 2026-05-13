@@ -436,146 +436,153 @@ fn phrase_refs_from_yaml(yaml: &serde_yaml::Value) -> Option<StopKeywordReferenc
     }
 }
 
-fn queue_handoff_item(
-    yaml: &serde_yaml::Value,
-    resource_id: &str,
-    projection: &Value,
-    remote_ho: &HashMap<String, String>,
-    metadata: &Option<Metadata>,
-    local_ho_names: &mut HashSet<String>,
-    ho_create: &mut Vec<Command>,
-    ho_update: &mut Vec<Command>,
-) -> Option<String> {
-    let name = yaml_str(yaml, "name");
-    if name.is_empty() {
-        return None;
-    }
-    local_ho_names.insert(name.clone());
-    let id = remote_ho
-        .get(&name)
-        .cloned()
-        .or_else(|| {
-            (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
-        })
-        .unwrap_or_else(|| {
-            generated_replay_resource_id("handoff", &name, "config/handoffs.yaml")
-                .unwrap_or_else(|| random_resource_id("HANDOFFS"))
-        });
-    let description = yaml_str(yaml, "description");
-    let sip_config = handoff_sip_config(yaml);
-    let sip_headers = sip_headers_from_yaml(yaml);
-    if remote_ho.contains_key(&name) {
-        if let Some(remote) = remote_ho.get(&name).and_then(|id| {
-            extract_entities_map(projection, &["handoff", "handoffs", "entities"])
-                .get(id)
-                .cloned()
-        }) && handoff_matches_remote(yaml, &remote)
-        {
+struct HandoffItemQueue<'a> {
+    projection: &'a Value,
+    remote: &'a HashMap<String, String>,
+    metadata: &'a Option<Metadata>,
+    local_names: &'a mut HashSet<String>,
+    creates: &'a mut Vec<Command>,
+    updates: &'a mut Vec<Command>,
+}
+
+impl HandoffItemQueue<'_> {
+    fn queue(&mut self, yaml: &serde_yaml::Value, resource_id: &str) -> Option<String> {
+        let name = yaml_str(yaml, "name");
+        if name.is_empty() {
             return None;
         }
-        push_command(
-            ho_update,
-            metadata,
-            "handoff_update",
-            CommandPayload::HandoffUpdate(HandoffUpdate {
-                id: id.clone(),
-                name: Some(name.clone()),
-                description: Some(description),
-                sip_config: Some(sip_config),
-                sip_headers,
-                active: Some(true),
-                references: None,
-            }),
-        );
-        Some(name)
-    } else {
-        push_command(
-            ho_create,
-            metadata,
-            "handoff_create",
-            CommandPayload::HandoffCreate(HandoffCreate {
-                id: id.clone(),
-                name: name.clone(),
-                description,
-                sip_config: Some(sip_config),
-                sip_headers,
-                active: true,
-                references: None,
-            }),
-        );
-        Some(name)
+        self.local_names.insert(name.clone());
+        let id = self
+            .remote
+            .get(&name)
+            .cloned()
+            .or_else(|| {
+                (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
+            })
+            .unwrap_or_else(|| {
+                generated_replay_resource_id("handoff", &name, "config/handoffs.yaml")
+                    .unwrap_or_else(|| random_resource_id("HANDOFFS"))
+            });
+        let description = yaml_str(yaml, "description");
+        let sip_config = handoff_sip_config(yaml);
+        let sip_headers = sip_headers_from_yaml(yaml);
+        if self.remote.contains_key(&name) {
+            if let Some(remote) = self.remote.get(&name).and_then(|id| {
+                extract_entities_map(self.projection, &["handoff", "handoffs", "entities"])
+                    .get(id)
+                    .cloned()
+            }) && handoff_matches_remote(yaml, &remote)
+            {
+                return None;
+            }
+            push_command(
+                self.updates,
+                self.metadata,
+                "handoff_update",
+                CommandPayload::HandoffUpdate(HandoffUpdate {
+                    id: id.clone(),
+                    name: Some(name.clone()),
+                    description: Some(description),
+                    sip_config: Some(sip_config),
+                    sip_headers,
+                    active: Some(true),
+                    references: None,
+                }),
+            );
+            Some(name)
+        } else {
+            push_command(
+                self.creates,
+                self.metadata,
+                "handoff_create",
+                CommandPayload::HandoffCreate(HandoffCreate {
+                    id: id.clone(),
+                    name: name.clone(),
+                    description,
+                    sip_config: Some(sip_config),
+                    sip_headers,
+                    active: true,
+                    references: None,
+                }),
+            );
+            Some(name)
+        }
     }
 }
 
-fn queue_sms_item(
-    yaml: &serde_yaml::Value,
-    resource_id: &str,
-    projection: &Value,
-    rsms: &HashMap<String, String>,
-    metadata: &Option<Metadata>,
-    local_sms_names: &mut HashSet<String>,
-    sms_create: &mut Vec<Command>,
-    sms_update: &mut Vec<Command>,
-) {
-    let name = yaml_str(yaml, "name");
-    if name.is_empty() {
-        return;
-    }
-    local_sms_names.insert(name.clone());
-    let id = rsms
-        .get(&name)
-        .cloned()
-        .or_else(|| {
-            (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
-        })
-        .unwrap_or_else(|| {
-            generated_replay_resource_id("sms_template", &name, "config/sms_templates.yaml")
-                .unwrap_or_else(|| random_resource_id("SMS_TEMPLATES"))
-        });
-    let text = yaml_str(yaml, "text");
-    let env_create = sms_env_phone_numbers(yaml);
-    let env_up = sms_env_update(yaml);
-    let local_refs = sms_references_from_yaml(yaml);
-    if rsms.contains_key(&name) {
-        let sms_entities = extract_entities_map(projection, &["sms", "templates", "entities"]);
-        let mut remote_template: Option<&Value> = None;
-        if let Some(rid) = rsms.get(&name)
-            && let Some(rem) = sms_entities.get(rid.as_str())
-        {
-            remote_template = Some(rem);
-            if sms_matches_remote(yaml, rem) {
-                return;
-            }
+struct SmsItemQueue<'a> {
+    projection: &'a Value,
+    remote: &'a HashMap<String, String>,
+    metadata: &'a Option<Metadata>,
+    local_names: &'a mut HashSet<String>,
+    creates: &'a mut Vec<Command>,
+    updates: &'a mut Vec<Command>,
+}
+
+impl SmsItemQueue<'_> {
+    fn queue(&mut self, yaml: &serde_yaml::Value, resource_id: &str) {
+        let name = yaml_str(yaml, "name");
+        if name.is_empty() {
+            return;
         }
-        push_command(
-            sms_update,
-            metadata,
-            "sms_update_template",
-            CommandPayload::SmsUpdateTemplate(SmsUpdateTemplate {
-                id: id.clone(),
-                name: Some(name.clone()),
-                text: Some(text),
-                env_phone_numbers: Some(env_up),
-                references: local_refs
-                    .clone()
-                    .or_else(|| sms_references_from_remote(remote_template)),
-                active: Some(true),
-            }),
-        );
-    } else {
-        push_command(
-            sms_create,
-            metadata,
-            "sms_create_template",
-            CommandPayload::SmsCreateTemplate(SmsCreateTemplate {
-                id: id.clone(),
-                name: name.clone(),
-                text,
-                env_phone_numbers: Some(env_create),
-                references: local_refs,
-                active: true,
-            }),
-        );
+        self.local_names.insert(name.clone());
+        let id = self
+            .remote
+            .get(&name)
+            .cloned()
+            .or_else(|| {
+                (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
+            })
+            .unwrap_or_else(|| {
+                generated_replay_resource_id("sms_template", &name, "config/sms_templates.yaml")
+                    .unwrap_or_else(|| random_resource_id("SMS_TEMPLATES"))
+            });
+        let text = yaml_str(yaml, "text");
+        let env_create = sms_env_phone_numbers(yaml);
+        let env_up = sms_env_update(yaml);
+        let local_refs = sms_references_from_yaml(yaml);
+        if self.remote.contains_key(&name) {
+            let sms_entities =
+                extract_entities_map(self.projection, &["sms", "templates", "entities"]);
+            let mut remote_template: Option<&Value> = None;
+            if let Some(rid) = self.remote.get(&name)
+                && let Some(rem) = sms_entities.get(rid.as_str())
+            {
+                remote_template = Some(rem);
+                if sms_matches_remote(yaml, rem) {
+                    return;
+                }
+            }
+            push_command(
+                self.updates,
+                self.metadata,
+                "sms_update_template",
+                CommandPayload::SmsUpdateTemplate(SmsUpdateTemplate {
+                    id: id.clone(),
+                    name: Some(name.clone()),
+                    text: Some(text),
+                    env_phone_numbers: Some(env_up),
+                    references: local_refs
+                        .clone()
+                        .or_else(|| sms_references_from_remote(remote_template)),
+                    active: Some(true),
+                }),
+            );
+        } else {
+            push_command(
+                self.creates,
+                self.metadata,
+                "sms_create_template",
+                CommandPayload::SmsCreateTemplate(SmsCreateTemplate {
+                    id: id.clone(),
+                    name: name.clone(),
+                    text,
+                    env_phone_numbers: Some(env_create),
+                    references: local_refs,
+                    active: true,
+                }),
+            );
+        }
     }
 }
 
@@ -718,104 +725,107 @@ fn json_str(value: &Value, key: &str) -> String {
         .to_string()
 }
 
-fn queue_phrase_filter_item(
-    yaml: &serde_yaml::Value,
-    resource_id: &str,
-    projection: &Value,
-    rpf: &HashMap<String, String>,
-    metadata: &Option<Metadata>,
-    local_pf_titles: &mut HashSet<String>,
-    sk_create: &mut Vec<Command>,
-    sk_update: &mut Vec<Command>,
-) {
-    let title = yaml_str(yaml, "name");
-    if title.is_empty() {
-        return;
-    }
-    local_pf_titles.insert(title.clone());
-    let id = rpf
-        .get(&title)
-        .cloned()
-        .or_else(|| {
-            (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
-        })
-        .unwrap_or_else(|| {
-            generated_replay_resource_id(
-                "phrase_filtering",
-                &title,
-                "voice/response_control/phrase_filtering.yaml",
-            )
-            .unwrap_or_else(|| random_resource_id("PHRASE_FILTERING"))
-        });
-    let description = yaml_str(yaml, "description");
-    let say_phrase = yaml
-        .get("say_phrase")
-        .or_else(|| yaml.get("sayPhrase"))
-        .and_then(serde_yaml::Value::as_bool)
-        .unwrap_or(false);
-    let language_code = yaml_str(yaml, "language_code");
-    let language_code = if language_code.is_empty() {
-        yaml_str(yaml, "languageCode")
-    } else {
-        language_code
-    };
-    let regular_expressions: Vec<String> = yaml
-        .get("regular_expressions")
-        .or_else(|| yaml.get("regularExpressions"))
-        .and_then(serde_yaml::Value::as_sequence)
-        .map(|seq| {
-            seq.iter()
-                .filter_map(serde_yaml::Value::as_str)
-                .map(ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    let references = phrase_refs_from_yaml(yaml).or_else(|| {
-        let function_id = yaml
-            .get("function")
-            .and_then(serde_yaml::Value::as_str)
-            .map(ToString::to_string);
-        phrase_refs(function_id.as_deref())
-    });
+struct PhraseFilterItemQueue<'a> {
+    projection: &'a Value,
+    remote: &'a HashMap<String, String>,
+    metadata: &'a Option<Metadata>,
+    local_titles: &'a mut HashSet<String>,
+    creates: &'a mut Vec<Command>,
+    updates: &'a mut Vec<Command>,
+}
 
-    if rpf.contains_key(&title) {
-        if let Some(remote) = rpf.get(&title).and_then(|id| {
-            extract_entities_map(projection, &["stopKeywords", "filters", "entities"])
-                .get(id)
-                .cloned()
-        }) && phrase_filter_matches_remote(yaml, &remote)
-        {
+impl PhraseFilterItemQueue<'_> {
+    fn queue(&mut self, yaml: &serde_yaml::Value, resource_id: &str) {
+        let title = yaml_str(yaml, "name");
+        if title.is_empty() {
             return;
         }
-        push_command(
-            sk_update,
-            metadata,
-            "stop_keywords_update",
-            CommandPayload::StopKeywordsUpdate(StopKeywordUpdate {
-                id: id.clone(),
-                title: Some(title.clone()),
-                description: Some(description),
-                regular_expressions,
-                say_phrase: Some(say_phrase),
-                references: references.clone(),
-                language_code: Some(language_code),
-            }),
-        );
-    } else {
-        push_command(
-            sk_create,
-            metadata,
-            "stop_keywords_create",
-            CommandPayload::StopKeywordsCreate(StopKeywordCreate {
-                id: id.clone(),
-                title,
-                description,
-                regular_expressions,
-                say_phrase,
-                references,
-                language_code,
-            }),
-        );
+        self.local_titles.insert(title.clone());
+        let id = self
+            .remote
+            .get(&title)
+            .cloned()
+            .or_else(|| {
+                (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
+            })
+            .unwrap_or_else(|| {
+                generated_replay_resource_id(
+                    "phrase_filtering",
+                    &title,
+                    "voice/response_control/phrase_filtering.yaml",
+                )
+                .unwrap_or_else(|| random_resource_id("PHRASE_FILTERING"))
+            });
+        let description = yaml_str(yaml, "description");
+        let say_phrase = yaml
+            .get("say_phrase")
+            .or_else(|| yaml.get("sayPhrase"))
+            .and_then(serde_yaml::Value::as_bool)
+            .unwrap_or(false);
+        let language_code = yaml_str(yaml, "language_code");
+        let language_code = if language_code.is_empty() {
+            yaml_str(yaml, "languageCode")
+        } else {
+            language_code
+        };
+        let regular_expressions: Vec<String> = yaml
+            .get("regular_expressions")
+            .or_else(|| yaml.get("regularExpressions"))
+            .and_then(serde_yaml::Value::as_sequence)
+            .map(|seq| {
+                seq.iter()
+                    .filter_map(serde_yaml::Value::as_str)
+                    .map(ToString::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let references = phrase_refs_from_yaml(yaml).or_else(|| {
+            let function_id = yaml
+                .get("function")
+                .and_then(serde_yaml::Value::as_str)
+                .map(ToString::to_string);
+            phrase_refs(function_id.as_deref())
+        });
+
+        if self.remote.contains_key(&title) {
+            if let Some(remote) = self.remote.get(&title).and_then(|id| {
+                extract_entities_map(self.projection, &["stopKeywords", "filters", "entities"])
+                    .get(id)
+                    .cloned()
+            }) && phrase_filter_matches_remote(yaml, &remote)
+            {
+                return;
+            }
+            push_command(
+                self.updates,
+                self.metadata,
+                "stop_keywords_update",
+                CommandPayload::StopKeywordsUpdate(StopKeywordUpdate {
+                    id: id.clone(),
+                    title: Some(title.clone()),
+                    description: Some(description),
+                    regular_expressions,
+                    say_phrase: Some(say_phrase),
+                    references: references.clone(),
+                    language_code: Some(language_code),
+                }),
+            );
+        } else {
+            push_command(
+                self.creates,
+                self.metadata,
+                "stop_keywords_create",
+                CommandPayload::StopKeywordsCreate(StopKeywordCreate {
+                    id: id.clone(),
+                    title,
+                    description,
+                    regular_expressions,
+                    say_phrase,
+                    references,
+                    language_code,
+                }),
+            );
+        }
     }
 }
 
@@ -903,166 +913,140 @@ pub(crate) fn interaction_file_resource_command_groups(
     let mut local_sms_names = HashSet::new();
     let mut local_pf_titles = HashSet::new();
 
-    for resource in resources.values() {
-        let path = resource.file_path.as_str();
-        let content = resource
-            .payload
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
+    {
+        let mut handoff_queue = HandoffItemQueue {
+            projection,
+            remote: &remote_ho,
+            metadata,
+            local_names: &mut local_ho_names,
+            creates: &mut ho_create,
+            updates: &mut ho_update,
+        };
+        let mut sms_queue = SmsItemQueue {
+            projection,
+            remote: &rsms,
+            metadata,
+            local_names: &mut local_sms_names,
+            creates: &mut sms_create,
+            updates: &mut sms_update,
+        };
+        let mut phrase_filter_queue = PhraseFilterItemQueue {
+            projection,
+            remote: &rpf,
+            metadata,
+            local_titles: &mut local_pf_titles,
+            creates: &mut sk_create,
+            updates: &mut sk_update,
+        };
 
-        if path == "config/handoffs.yaml" {
-            if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
-                && let Some(items) = yaml
-                    .get("handoffs")
-                    .and_then(serde_yaml::Value::as_sequence)
-            {
-                for item in items {
-                    if let Some(name) = queue_handoff_item(
-                        item,
-                        "local",
-                        projection,
-                        &remote_ho,
-                        metadata,
-                        &mut local_ho_names,
-                        &mut ho_create,
-                        &mut ho_update,
-                    ) {
-                        changed_ho_names.insert(name);
+        for resource in resources.values() {
+            let path = resource.file_path.as_str();
+            let content = resource
+                .payload
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+
+            if path == "config/handoffs.yaml" {
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
+                    && let Some(items) = yaml
+                        .get("handoffs")
+                        .and_then(serde_yaml::Value::as_sequence)
+                {
+                    for item in items {
+                        if let Some(name) = handoff_queue.queue(item, "local") {
+                            changed_ho_names.insert(name);
+                        }
                     }
                 }
+                continue;
             }
-            continue;
-        }
 
-        if path.starts_with("config/handoffs.yaml/handoffs/") {
-            if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) {
-                if let Some(name) = queue_handoff_item(
-                    &yaml,
-                    &resource.resource_id,
-                    projection,
-                    &remote_ho,
-                    metadata,
-                    &mut local_ho_names,
-                    &mut ho_create,
-                    &mut ho_update,
-                ) {
+            if path.starts_with("config/handoffs.yaml/handoffs/") {
+                let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) else {
+                    continue;
+                };
+                if let Some(name) = handoff_queue.queue(&yaml, &resource.resource_id) {
                     changed_ho_names.insert(name);
                 }
-            }
-            continue;
-        }
-
-        if path == "config/sms_templates.yaml" {
-            if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
-                && let Some(items) = yaml
-                    .get("sms_templates")
-                    .and_then(serde_yaml::Value::as_sequence)
-            {
-                for item in items {
-                    queue_sms_item(
-                        item,
-                        "local",
-                        projection,
-                        &rsms,
-                        metadata,
-                        &mut local_sms_names,
-                        &mut sms_create,
-                        &mut sms_update,
-                    );
-                }
-            }
-            continue;
-        }
-
-        if path.starts_with("config/sms_templates.yaml/sms_templates/") {
-            if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) {
-                queue_sms_item(
-                    &yaml,
-                    &resource.resource_id,
-                    projection,
-                    &rsms,
-                    metadata,
-                    &mut local_sms_names,
-                    &mut sms_create,
-                    &mut sms_update,
-                );
-            }
-            continue;
-        }
-
-        if path == "voice/response_control/phrase_filtering.yaml" {
-            if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
-                && let Some(items) = yaml
-                    .get("phrase_filtering")
-                    .and_then(serde_yaml::Value::as_sequence)
-            {
-                for item in items {
-                    queue_phrase_filter_item(
-                        item,
-                        "local",
-                        projection,
-                        &rpf,
-                        metadata,
-                        &mut local_pf_titles,
-                        &mut sk_create,
-                        &mut sk_update,
-                    );
-                }
-            }
-            continue;
-        }
-
-        if path.starts_with("voice/response_control/phrase_filtering.yaml/phrase_filtering/") {
-            if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) {
-                queue_phrase_filter_item(
-                    &yaml,
-                    &resource.resource_id,
-                    projection,
-                    &rpf,
-                    metadata,
-                    &mut local_pf_titles,
-                    &mut sk_create,
-                    &mut sk_update,
-                );
-            }
-            continue;
-        }
-
-        if path == "agent_settings/experimental_config.json" {
-            let trimmed = content.trim();
-            if trimmed.is_empty() {
                 continue;
             }
-            let Ok(local_json) = serde_json::from_str::<Value>(trimmed) else {
+
+            if path == "config/sms_templates.yaml" {
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
+                    && let Some(items) = yaml
+                        .get("sms_templates")
+                        .and_then(serde_yaml::Value::as_sequence)
+                {
+                    for item in items {
+                        sms_queue.queue(item, "local");
+                    }
+                }
                 continue;
-            };
-            let remote_f = remote_experimental_features(projection);
-            let needs = match &remote_f {
-                None => true,
-                Some(r) => r != &local_json,
-            };
-            if needs {
-                let id = if !is_synthetic_local_resource_id(&resource.resource_id) {
-                    resource.resource_id.clone()
-                } else {
-                    remote_experimental_config_id(projection)
-                        .unwrap_or_else(|| "default".to_string())
+            }
+
+            if path.starts_with("config/sms_templates.yaml/sms_templates/") {
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) {
+                    sms_queue.queue(&yaml, &resource.resource_id);
+                }
+                continue;
+            }
+
+            if path == "voice/response_control/phrase_filtering.yaml" {
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
+                    && let Some(items) = yaml
+                        .get("phrase_filtering")
+                        .and_then(serde_yaml::Value::as_sequence)
+                {
+                    for item in items {
+                        phrase_filter_queue.queue(item, "local");
+                    }
+                }
+                continue;
+            }
+
+            if path.starts_with("voice/response_control/phrase_filtering.yaml/phrase_filtering/") {
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) {
+                    phrase_filter_queue.queue(&yaml, &resource.resource_id);
+                }
+                continue;
+            }
+
+            if path == "agent_settings/experimental_config.json" {
+                let trimmed = content.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let Ok(local_json) = serde_json::from_str::<Value>(trimmed) else {
+                    continue;
                 };
-                let features = json_to_prost_struct(&local_json);
-                push_command(
-                    &mut exp_update,
-                    metadata,
-                    "experimental_config_update_config",
-                    CommandPayload::ExperimentalConfigUpdateConfig(
-                        ExperimentalConfigUpdateConfig {
-                            id,
-                            features,
-                            updated_at: None,
-                            updated_by: sdk_user(metadata),
-                        },
-                    ),
-                );
+                let remote_f = remote_experimental_features(projection);
+                let needs = match &remote_f {
+                    None => true,
+                    Some(r) => r != &local_json,
+                };
+                if needs {
+                    let id = if !is_synthetic_local_resource_id(&resource.resource_id) {
+                        resource.resource_id.clone()
+                    } else {
+                        remote_experimental_config_id(projection)
+                            .unwrap_or_else(|| "default".to_string())
+                    };
+                    let features = json_to_prost_struct(&local_json);
+                    push_command(
+                        &mut exp_update,
+                        metadata,
+                        "experimental_config_update_config",
+                        CommandPayload::ExperimentalConfigUpdateConfig(
+                            ExperimentalConfigUpdateConfig {
+                                id,
+                                features,
+                                updated_at: None,
+                                updated_by: sdk_user(metadata),
+                            },
+                        ),
+                    );
+                }
             }
         }
     }
@@ -1130,17 +1114,18 @@ pub(crate) fn interaction_file_resource_command_groups(
         }
 
         if path.starts_with("config/handoffs.yaml/handoffs/") {
-            if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) {
-                queue_handoff_default_item(
-                    &yaml,
-                    &resource.resource_id,
-                    projection,
-                    &remote_ho,
-                    &changed_ho_names,
-                    metadata,
-                    &mut defaults,
-                );
-            }
+            let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) else {
+                continue;
+            };
+            queue_handoff_default_item(
+                &yaml,
+                &resource.resource_id,
+                projection,
+                &remote_ho,
+                &changed_ho_names,
+                metadata,
+                &mut defaults,
+            );
         }
     }
     let mut groups = CommandGroups::default();

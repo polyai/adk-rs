@@ -67,30 +67,30 @@ impl DiscoverResources for Function {
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         let flows = base_path.join("flows");
-        if flows.is_dir() {
-            if let Some(flow_dirs) = sorted_read_dir(&flows) {
-                for flow_dir in flow_dirs {
-                    if !flow_dir.is_dir() {
-                        continue;
-                    }
-                    let flow_functions = flow_dir.join("functions");
-                    if let Some(files) = sorted_read_dir(&flow_functions) {
-                        for f in files {
-                            if f.extension().and_then(|e| e.to_str()) == Some("py") {
-                                out.push(rel_under_root(base_path, &f));
-                            }
+        if flows.is_dir()
+            && let Some(flow_dirs) = sorted_read_dir(&flows)
+        {
+            for flow_dir in flow_dirs {
+                if !flow_dir.is_dir() {
+                    continue;
+                }
+                let flow_functions = flow_dir.join("functions");
+                if let Some(files) = sorted_read_dir(&flow_functions) {
+                    for f in files {
+                        if f.extension().and_then(|e| e.to_str()) == Some("py") {
+                            out.push(rel_under_root(base_path, &f));
                         }
                     }
                 }
             }
         }
         let global_functions = base_path.join("functions");
-        if global_functions.is_dir() {
-            if let Some(files) = sorted_read_dir(&global_functions) {
-                for f in files {
-                    if f.extension().and_then(|e| e.to_str()) == Some("py") {
-                        out.push(rel_under_root(base_path, &f));
-                    }
+        if global_functions.is_dir()
+            && let Some(files) = sorted_read_dir(&global_functions)
+        {
+            for f in files {
+                if f.extension().and_then(|e| e.to_str()) == Some("py") {
+                    out.push(rel_under_root(base_path, &f));
                 }
             }
         }
@@ -111,10 +111,10 @@ impl DiscoverResources for Topic {
         let mut out = Vec::new();
         if let Some(files) = sorted_read_dir(&topics) {
             for f in files {
-                if let Some(ext) = f.extension().and_then(|e| e.to_str()) {
-                    if ext == "yaml" || ext == "yml" {
-                        out.push(rel_under_root(base_path, &f));
-                    }
+                if let Some(ext) = f.extension().and_then(|e| e.to_str())
+                    && (ext == "yaml" || ext == "yml")
+                {
+                    out.push(rel_under_root(base_path, &f));
                 }
             }
         }
@@ -488,29 +488,29 @@ impl DiscoverResources for Variable {
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let mut function_files: Vec<PathBuf> = Vec::new();
         let global_functions = base_path.join("functions");
-        if global_functions.is_dir() {
-            if let Some(files) = sorted_read_dir(&global_functions) {
-                for f in files {
-                    if f.extension().and_then(|e| e.to_str()) == Some("py") {
-                        function_files.push(f);
-                    }
+        if global_functions.is_dir()
+            && let Some(files) = sorted_read_dir(&global_functions)
+        {
+            for f in files {
+                if f.extension().and_then(|e| e.to_str()) == Some("py") {
+                    function_files.push(f);
                 }
             }
         }
         let flows_path = base_path.join("flows");
-        if flows_path.is_dir() {
-            if let Some(flow_dirs) = sorted_read_dir(&flows_path) {
-                for flow_dir in flow_dirs {
-                    if !flow_dir.is_dir() {
-                        continue;
-                    }
-                    for sub in ["functions", "function_steps"] {
-                        let d = flow_dir.join(sub);
-                        if let Some(files) = sorted_read_dir(&d) {
-                            for f in files {
-                                if f.extension().and_then(|e| e.to_str()) == Some("py") {
-                                    function_files.push(f);
-                                }
+        if flows_path.is_dir()
+            && let Some(flow_dirs) = sorted_read_dir(&flows_path)
+        {
+            for flow_dir in flow_dirs {
+                if !flow_dir.is_dir() {
+                    continue;
+                }
+                for sub in ["functions", "function_steps"] {
+                    let d = flow_dir.join(sub);
+                    if let Some(files) = sorted_read_dir(&d) {
+                        for f in files {
+                            if f.extension().and_then(|e| e.to_str()) == Some("py") {
+                                function_files.push(f);
                             }
                         }
                     }

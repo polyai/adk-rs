@@ -415,15 +415,14 @@ impl HttpPlatformClient {
                     .take(9)
                     .collect::<String>()
                     .to_lowercase();
-                if hash == prefix {
-                    if let Some(id) = deployment
+                if hash == prefix
+                    && let Some(id) = deployment
                         .get("id")
                         .or_else(|| deployment.get("deployment_id"))
                         .or_else(|| deployment.get("deploymentId"))
                         .and_then(Value::as_str)
-                    {
-                        return Ok(Some(id.to_string()));
-                    }
+                {
+                    return Ok(Some(id.to_string()));
                 }
             }
         }
@@ -1488,7 +1487,7 @@ fn projection_entities_at(value: &Value) -> Vec<(String, Value)> {
         .iter()
         .filter(|(id, _)| !seen.contains(*id))
         .collect::<Vec<_>>();
-    remaining.sort_by(|(left, _), (right, _)| left.cmp(right));
+    remaining.sort_by_key(|(left, _)| *left);
     out.extend(
         remaining
             .into_iter()
@@ -1625,7 +1624,7 @@ fn api_integration_environments_yaml(integration: &Value) -> Value {
 fn api_integration_operations_yaml(integration: &Value) -> Value {
     let operations = integration
         .get("operations")
-        .map(|value| projection_entities_at(value))
+        .map(projection_entities_at)
         .unwrap_or_default();
     let operations = if operations.is_empty() {
         integration
@@ -2097,7 +2096,7 @@ fn build_phase1_commands_with_actor(
         .chain(flow_groups.deletes)
         .chain(single_file_groups.deletes)
         .collect();
-    order_commands_with_priority(&mut deletes, &DELETE_COMMAND_PRIORITY);
+    order_commands_with_priority(&mut deletes, DELETE_COMMAND_PRIORITY);
 
     let mut creates: Vec<Command> = variable_creates
         .into_iter()
@@ -2106,7 +2105,7 @@ fn build_phase1_commands_with_actor(
         .chain(flow_groups.creates)
         .chain(single_file_groups.creates)
         .collect();
-    order_commands_with_priority(&mut creates, &CREATE_COMMAND_PRIORITY);
+    order_commands_with_priority(&mut creates, CREATE_COMMAND_PRIORITY);
 
     let mut updates: Vec<Command> = variable_updates
         .into_iter()
@@ -2115,7 +2114,7 @@ fn build_phase1_commands_with_actor(
         .chain(flow_groups.updates)
         .chain(single_file_groups.updates)
         .collect();
-    order_commands_with_priority(&mut updates, &UPDATE_COMMAND_PRIORITY);
+    order_commands_with_priority(&mut updates, UPDATE_COMMAND_PRIORITY);
 
     let mut out: Vec<Command> = Vec::new();
     out.extend(deletes);
@@ -2170,7 +2169,7 @@ const UPDATE_COMMAND_PRIORITY: &[&str] = &[
     "experimental_config_update_config",
 ];
 
-fn order_commands_with_priority(commands: &mut Vec<Command>, priority: &[&str]) {
+fn order_commands_with_priority(commands: &mut [Command], priority: &[&str]) {
     commands.sort_by_key(|command| {
         priority
             .iter()

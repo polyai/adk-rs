@@ -248,9 +248,11 @@ impl AdkService {
     pub fn status(&self, root: &Path) -> Result<StatusSummary, CoreError> {
         let mut local = self.collect_local_resources(root)?;
         let remote = self.client.pull_resources()?;
-        let mut summary = StatusSummary::default();
-        summary.conflict_detection_available = true;
-        summary.files_with_conflicts = self.detect_conflict_files(root)?;
+        let mut summary = StatusSummary {
+            conflict_detection_available: true,
+            files_with_conflicts: self.detect_conflict_files(root)?,
+            ..StatusSummary::default()
+        };
 
         if let Some(existing_typed) = self.load_status_snapshot_discovered_resources(root)? {
             let discovered_typed = self.discover_local_resources(root);
@@ -375,11 +377,7 @@ impl AdkService {
                     .collect::<String>();
             }
             if after_name.is_empty() {
-                if before_name == "main" {
-                    after_name = "local".to_string();
-                } else {
-                    after_name = "local".to_string();
-                }
+                after_name = "local".to_string();
             }
             let mut before_state = self.resolve_named_state(root, &before_name)?;
             let mut after_state = self.resolve_named_state(root, &after_name)?;
@@ -957,7 +955,7 @@ impl AdkService {
                     Err(e) => {
                         let _ = e;
                         return Err(
-                            DomainError::InvalidData(resource_read_error(root, &path)).into()
+                            DomainError::InvalidData(resource_read_error(root, path)).into()
                         );
                     }
                 };
