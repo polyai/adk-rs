@@ -20,13 +20,13 @@ Each crate also has a short local README.
 
 ## System Dependencies
 
-The full parity test suite expects these executables on `PATH`:
+ADK expects these executables to be available:
 
 - `ruff`: used by `poly format` for Python formatting.
 - `ty`: used by `poly format --ty` for optional Python type checking.
 
-CI installs pinned standalone Astral binaries: `ruff 0.14.2` and `ty 0.0.20`.
-Those versions match the current Python ADK lockfile/recording expectations.
+CI installs pinned standalone Astral binaries: `ruff 0.14.2` and `ty 0.0.35`,
+so local and CI parity behavior stay aligned.
 
 ## Common Commands
 

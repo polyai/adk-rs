@@ -337,19 +337,49 @@ fn projection_materializes_start_and_end_functions_from_special_functions() {
 
     assert_eq!(start.resource_id, "start-1");
     assert_eq!(end.resource_id, "end-1");
-    assert!(
-        start
-            .payload
-            .get("content")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|content| content.contains("@func_description('Runs at call start.')"))
-    );
-    assert!(
-        end.payload
-            .get("content")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|content| content.contains("def end_function"))
-    );
+    let start_content = start
+        .payload
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .expect("start function content");
+    let end_content = end
+        .payload
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .expect("end function content");
+    assert!(start_content.contains("@func_description('Runs at call start.')"));
+    assert!(end_content.contains("def end_function"));
+}
+
+#[test]
+fn projection_materializes_global_functions_as_raw_content() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "name": "lookup_customer",
+                        "description": "Look up a customer.",
+                        "code": "def lookup_customer(conv: Conversation):\n    return {'ok': True}\n"
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let function = resources
+        .get("functions/lookup_customer.py")
+        .expect("function resource");
+    let content = function
+        .payload
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .expect("function content");
+
+    assert!(!content.contains("from _gen import *  # <AUTO GENERATED>"));
+    assert!(content.contains("@func_description('Look up a customer.')"));
+    assert!(content.contains("def lookup_customer(conv: Conversation):"));
 }
 
 #[test]

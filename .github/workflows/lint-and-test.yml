@@ -9,7 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUFF_VERSION: "0.14.2"
-  TY_VERSION: "0.0.20"
+  TY_VERSION: "0.0.35"
 
 jobs:
   lint-and-test:

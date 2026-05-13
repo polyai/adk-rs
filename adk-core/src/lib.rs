@@ -202,8 +202,9 @@ impl AdkService {
             if rel == PROJECT_CONFIG_FILE || rel == STATUS_FILE || rel.starts_with("_gen/") {
                 continue;
             }
+            let content = fs::read_to_string(file.as_path()).unwrap_or_default();
             let payload = serde_json::json!({
-                "content": fs::read_to_string(file.as_path()).unwrap_or_default(),
+                "content": local_resource_content(&rel, &content),
             });
             map.insert(
                 rel.clone(),
@@ -663,6 +664,7 @@ impl AdkService {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
+            let file_content = resource_file_content(path, &content);
             if target.exists() && !force {
                 let existing = fs::read_to_string(&target).unwrap_or_default();
                 if existing.contains("<<<<<<<")
@@ -676,13 +678,13 @@ impl AdkService {
                     snapshot_hashes.as_ref().and_then(|hashes| hashes.get(path))
                 {
                     let local_changed = compute_hash(&existing) != *snapshot_hash;
-                    let incoming_changed = compute_hash(&content) != *snapshot_hash;
+                    let incoming_changed = compute_hash(&file_content) != *snapshot_hash;
                     if local_changed && !incoming_changed {
                         continue;
                     }
-                    if local_changed && incoming_changed && existing != content {
+                    if local_changed && incoming_changed && existing != file_content {
                         let merged = format!(
-                            "<<<<<<< local\n{existing}\n=======\n{content}\n>>>>>>> remote\n"
+                            "<<<<<<< local\n{existing}\n=======\n{file_content}\n>>>>>>> remote\n"
                         );
                         fs::write(&target, merged)?;
                         files_with_conflicts.push(target.to_string_lossy().to_string());
@@ -693,7 +695,7 @@ impl AdkService {
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent)?;
             }
-            fs::write(target, content)?;
+            fs::write(target, file_content)?;
         }
         if let Some(local_resources) = local_resources_before_force.as_ref() {
             delete_local_only_resource_files(root, &remote, local_resources)?;
@@ -733,7 +735,7 @@ impl AdkService {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            fs::write(&target, content)?;
+            fs::write(&target, resource_file_content(&path, &content))?;
             reverted.push(target_abs_str);
         }
         Ok(reverted)
@@ -1022,7 +1024,7 @@ impl AdkService {
             if formatted != content {
                 changed_files.push(path.clone());
                 if !check {
-                    fs::write(root.join(&path), formatted)?;
+                    fs::write(root.join(&path), resource_file_content(&path, &formatted))?;
                 }
             }
         }
@@ -2668,6 +2670,74 @@ fn strip_generated_flow_function_imports(content: &str) -> String {
         .to_string()
 }
 
+const FUNCTION_HEADER: &str = "from _gen import *  # <AUTO GENERATED>\n";
+const LEGACY_FUNCTION_HEADER: &str = "from imports import *  # <AUTO GENERATED>\n";
+
+fn local_resource_content(path: &str, content: &str) -> String {
+    if is_python_function_like_path(path) {
+        raw_function_content(content)
+    } else {
+        content.to_string()
+    }
+}
+
+fn resource_file_content(path: &str, content: &str) -> String {
+    if is_python_function_like_path(path) {
+        pretty_function_content(content)
+    } else {
+        content.to_string()
+    }
+}
+
+fn is_python_function_like_path(path: &str) -> bool {
+    path.ends_with(".py")
+        && ((path.starts_with("functions/"))
+            || (path.starts_with("flows/")
+                && (path.contains("/functions/") || path.contains("/function_steps/"))))
+}
+
+fn raw_function_content(content: &str) -> String {
+    content
+        .replace(FUNCTION_HEADER, "")
+        .replace(LEGACY_FUNCTION_HEADER, "")
+        .trim_start_matches('\n')
+        .to_string()
+}
+
+fn pretty_function_content(content: &str) -> String {
+    if content.contains(FUNCTION_HEADER) || content.contains(LEGACY_FUNCTION_HEADER) {
+        return content.to_string();
+    }
+
+    let content = content.trim_start_matches('\n');
+    if let Some(docstring_end) = module_docstring_end(content) {
+        let before_docstring = &content[..docstring_end];
+        let after_docstring = content[docstring_end..].trim_start_matches('\n');
+        if after_docstring.starts_with("from ") || after_docstring.starts_with("import ") {
+            format!("{before_docstring}\n{FUNCTION_HEADER}{after_docstring}")
+        } else {
+            format!("{before_docstring}\n{FUNCTION_HEADER}\n{after_docstring}")
+        }
+    } else if content.starts_with("from ") || content.starts_with("import ") {
+        format!("{FUNCTION_HEADER}{content}")
+    } else {
+        format!("{FUNCTION_HEADER}\n\n{content}")
+    }
+}
+
+fn module_docstring_end(content: &str) -> Option<usize> {
+    let quote = if content.starts_with("\"\"\"") {
+        "\"\"\""
+    } else if content.starts_with("'''") {
+        "'''"
+    } else {
+        return None;
+    };
+    content[quote.len()..]
+        .find(quote)
+        .map(|index| quote.len() + index + quote.len())
+}
+
 fn yaml_string_value(yaml: &serde_yaml::Value, key: &str) -> String {
     yaml.get(key)
         .and_then(|value| value.as_str())
@@ -2899,4 +2969,30 @@ fn compute_modified_files_against_snapshot_with_replacements(
         kept_resources,
         &modified_file_paths,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn function_file_content_is_pretty_on_disk_and_raw_in_resources() {
+        let raw = "@func_description('Looks up a customer.')\ndef lookup(conv: Conversation):\n    return None\n";
+        let pretty = resource_file_content("functions/lookup.py", raw);
+
+        assert!(pretty.starts_with("from _gen import *  # <AUTO GENERATED>\n\n\n"));
+        assert_eq!(local_resource_content("functions/lookup.py", &pretty), raw);
+    }
+
+    #[test]
+    fn function_header_is_inserted_after_module_docstring() {
+        let raw =
+            "\"\"\"Helpers.\"\"\"\nimport json\n\ndef lookup(conv):\n    return json.dumps({})\n";
+        let pretty = resource_file_content("functions/lookup.py", raw);
+
+        assert!(pretty.starts_with(
+            "\"\"\"Helpers.\"\"\"\nfrom _gen import *  # <AUTO GENERATED>\nimport json\n"
+        ));
+        assert_eq!(local_resource_content("functions/lookup.py", &pretty), raw);
+    }
 }
