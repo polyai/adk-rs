@@ -40,16 +40,16 @@ Improve Python parity for named-state diffing, command ordering, and remote comm
 - Formatting:
   - `cargo fmt`
 - Core parity and behavior:
-  - `cargo test -p adk-core`
+  - `cargo test -p poly-adk-core`
 - Platform command/projection parity:
-  - `cargo test -p adk-platform-api`
+  - `cargo test -p poly-adk-platform-api`
 - CLI contract and surface:
-  - `cargo test -p adk-cli`
+  - `cargo test -p poly-adk-cli`
 - FFI status contract:
-  - `cargo test -p adk-ffi`
+  - `cargo test -p poly-adk-ffi`
 - Supporting crates:
-  - `cargo test -p adk-io`
-  - `cargo test -p adk-domain`
+  - `cargo test -p poly-adk-io`
+  - `cargo test -p poly-adk-domain`
 
 ## Risk Areas
 - Named-state remote lookup depends on deployment endpoint payload shape differences across environments.

@@ -177,7 +177,7 @@ and writes fixture files.
 Refresh all enabled scenarios:
 
 ```bash
-cargo test -p adk-cli --test record_python_adk_from_manifest_test \
+cargo test -p poly-adk-cli --test record_python_adk_from_manifest_test \
   -- --ignored --nocapture
 ```
 
@@ -185,14 +185,14 @@ To refresh a single scenario:
 
 ```bash
 PYTHON_ADK_RECORD_SCENARIO=python-syntax-validation \
-  cargo test -p adk-cli --test record_python_adk_from_manifest_test \
+  cargo test -p poly-adk-cli --test record_python_adk_from_manifest_test \
   -- --ignored --nocapture
 ```
 
 To regenerate everything deterministically, run ignored tests sequentially:
 
 ```bash
-cargo test -p adk-cli --test record_python_adk_from_manifest_test \
+cargo test -p poly-adk-cli --test record_python_adk_from_manifest_test \
   -- --ignored --nocapture --test-threads=1
 ```
 
@@ -247,7 +247,7 @@ can be more flexible, but JSON is treated as a contract.
 To opt into the Python replay check, run:
 
 ```bash
-cargo test -p adk-cli --test replay_python_adk_httpmock_fixtures_test \
+cargo test -p poly-adk-cli --test replay_python_adk_httpmock_fixtures_test \
   python_adk_replays_saved_python_adk_httpmock_recordings \
   -- --ignored --nocapture
 ```
@@ -256,7 +256,7 @@ To check one saved Python scenario:
 
 ```bash
 PYTHON_ADK_REPLAY_SCENARIO=chat-session-controls \
-  cargo test -p adk-cli --test replay_python_adk_httpmock_fixtures_test \
+  cargo test -p poly-adk-cli --test replay_python_adk_httpmock_fixtures_test \
   python_adk_replays_saved_python_adk_httpmock_recordings \
   -- --ignored --nocapture
 ```

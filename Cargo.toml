@@ -11,13 +11,21 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.15.3"
+version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-authors = ["PolyAI"]
 repository = "https://github.com/polyai/adk-rs"
 
 [workspace.dependencies]
+# ADK crates
+adk-cli = { package = "poly-adk-cli", version = "0.1.0", path = "adk-cli" }
+adk-core = { package = "poly-adk-core", version = "0.1.0", path = "adk-core" }
+adk-domain = { package = "poly-adk-domain", version = "0.1.0", path = "adk-domain" }
+adk-ffi = { package = "poly-adk-ffi", version = "0.1.0", path = "adk-ffi" }
+adk-io = { package = "poly-adk-io", version = "0.1.0", path = "adk-io" }
+adk-platform-api = { package = "poly-adk-platform-api", version = "0.1.0", path = "adk-platform-api" }
+adk-protobuf = { package = "poly-adk-protobuf", version = "0.1.0", path = "adk-protobuf" }
+# 3rd-party
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"

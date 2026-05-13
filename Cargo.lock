@@ -12,108 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adk-cli"
-version = "0.15.3"
-dependencies = [
- "adk-core",
- "adk-platform-api",
- "anyhow",
- "clap",
- "clap_complete",
- "httpmock",
- "indexmap",
- "reqwest",
- "rich_rust",
- "serde",
- "serde_json",
- "serde_yaml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "adk-core"
-version = "0.15.3"
-dependencies = [
- "adk-domain",
- "adk-io",
- "adk-platform-api",
- "anyhow",
- "base64",
- "chrono",
- "fancy-regex 0.14.0",
- "globset",
- "indexmap",
- "littrs-ruff-python-parser",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 1.0.69",
- "walkdir",
-]
-
-[[package]]
-name = "adk-domain"
-version = "0.15.3"
-dependencies = [
- "chrono",
- "indexmap",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "adk-ffi"
-version = "0.15.3"
-dependencies = [
- "adk-core",
- "adk-platform-api",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "adk-io"
-version = "0.15.3"
-dependencies = [
- "adk-domain",
- "serde",
- "serde_json",
- "sha2",
- "similar",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "adk-platform-api"
-version = "0.15.3"
-dependencies = [
- "adk-domain",
- "adk-protobuf",
- "indexmap",
- "prost",
- "prost-types",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 1.0.69",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "adk-protobuf"
-version = "0.15.3"
-dependencies = [
- "prost",
- "prost-types",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1723,6 +1621,108 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "poly-adk-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap_complete",
+ "httpmock",
+ "indexmap",
+ "poly-adk-core",
+ "poly-adk-platform-api",
+ "reqwest",
+ "rich_rust",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "poly-adk-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "chrono",
+ "fancy-regex 0.14.0",
+ "globset",
+ "indexmap",
+ "littrs-ruff-python-parser",
+ "poly-adk-domain",
+ "poly-adk-io",
+ "poly-adk-platform-api",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "walkdir",
+]
+
+[[package]]
+name = "poly-adk-domain"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "indexmap",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "poly-adk-ffi"
+version = "0.1.0"
+dependencies = [
+ "poly-adk-core",
+ "poly-adk-platform-api",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "poly-adk-io"
+version = "0.1.0"
+dependencies = [
+ "poly-adk-domain",
+ "serde",
+ "serde_json",
+ "sha2",
+ "similar",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "poly-adk-platform-api"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "poly-adk-domain",
+ "poly-adk-protobuf",
+ "prost",
+ "prost-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "poly-adk-protobuf"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-types",
+]
 
 [[package]]
 name = "potential_utf"

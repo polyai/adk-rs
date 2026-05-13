@@ -1,12 +1,20 @@
 [package]
-name = "adk-ffi"
+name = "poly-adk-ffi"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "FFI-oriented wrappers for embedding the PolyAI ADK."
+readme = "README.md"
+publish = false
+
+[lib]
+name = "adk_ffi"
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-adk-core = { path = "../adk-core" }
-adk-platform-api = { path = "../adk-platform-api" }
+adk-core.workspace = true
+adk-platform-api.workspace = true
