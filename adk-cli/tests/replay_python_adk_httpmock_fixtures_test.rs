@@ -48,6 +48,22 @@ enum ReplaySubject {
     Python,
 }
 
+#[derive(Debug)]
+struct ReplayFixturePaths {
+    manifest: PathBuf,
+    cassette: PathBuf,
+}
+
+impl ReplayFixturePaths {
+    fn diagnostic_lines(&self) -> String {
+        format!(
+            "manifest={}\nhttpmock={}",
+            self.manifest.display(),
+            self.cassette.display()
+        )
+    }
+}
+
 fn selected_python_replay_scenarios() -> Vec<String> {
     match std::env::var("PYTHON_ADK_REPLAY_SCENARIO") {
         Ok(name) if !name.trim().is_empty() => vec![name],
@@ -61,14 +77,30 @@ fn selected_python_replay_scenarios() -> Vec<String> {
 fn replay_scenario(scenario: &str, subject: ReplaySubject) {
     let fixture_dir = fixture_dir();
     let manifest_path = fixture_dir.join(format!("{scenario}.commands.yaml"));
-    let manifest_text = fs::read_to_string(&manifest_path)
-        .unwrap_or_else(|error| panic!("{scenario}: read manifest: {error}"));
-    let manifest: Manifest = serde_yaml::from_str(&manifest_text)
-        .unwrap_or_else(|error| panic!("{scenario}: parse manifest: {error}"));
+    let manifest_text = fs::read_to_string(&manifest_path).unwrap_or_else(|error| {
+        panic!(
+            "{scenario}: read manifest {}: {error}",
+            manifest_path.display()
+        )
+    });
+    let manifest: Manifest = serde_yaml::from_str(&manifest_text).unwrap_or_else(|error| {
+        panic!(
+            "{scenario}: parse manifest {}: {error}",
+            manifest_path.display()
+        )
+    });
 
     let cassette_path = fixture_dir.join(&manifest.httpmock_recording);
-    let cassette_text = fs::read_to_string(&cassette_path)
-        .unwrap_or_else(|error| panic!("{scenario}: read cassette: {error}"));
+    let fixture_paths = ReplayFixturePaths {
+        manifest: manifest_path,
+        cassette: cassette_path,
+    };
+    let cassette_text = fs::read_to_string(&fixture_paths.cassette).unwrap_or_else(|error| {
+        panic!(
+            "{scenario}: read cassette {}: {error}",
+            fixture_paths.cassette.display()
+        )
+    });
 
     let tmp = temp_replay_dir(scenario);
     fs::create_dir_all(&tmp).unwrap_or_else(|error| panic!("{scenario}: create tmp dir: {error}"));
@@ -107,6 +139,7 @@ fn replay_scenario(scenario: &str, subject: ReplaySubject) {
                         record,
                         &substitutions,
                         subject,
+                        &fixture_paths,
                     );
                 }
                 WorkflowStep::Tagged(TaggedWorkflowStep::FileEdit(record)) => {
@@ -117,10 +150,18 @@ fn replay_scenario(scenario: &str, subject: ReplaySubject) {
                         &tmp,
                         &substitutions,
                         &mut file_seeds,
+                        &fixture_paths,
                     );
                 }
                 WorkflowStep::Tagged(TaggedWorkflowStep::FileAssertion(record)) => {
-                    apply_file_assertion(scenario, &workflow.name, record, &tmp, &substitutions);
+                    apply_file_assertion(
+                        scenario,
+                        &workflow.name,
+                        record,
+                        &tmp,
+                        &substitutions,
+                        &fixture_paths,
+                    );
                 }
             }
         }
@@ -341,6 +382,7 @@ fn run_and_check_command(
     expected: &CommandRecord,
     substitutions: &[(String, String)],
     subject: ReplaySubject,
+    fixture_paths: &ReplayFixturePaths,
 ) {
     let argv = expected
         .argv
@@ -364,16 +406,18 @@ fn run_and_check_command(
     assert_eq!(
         output.status.code(),
         Some(expected.exit_code),
-        "{scenario}/{workflow}/{}: exit code mismatch\nargv={argv:?}\nstdout={actual_stdout}\nstderr={actual_stderr}",
-        expected.name
+        "{scenario}/{workflow}/{}: exit code mismatch\n{}\nargv={argv:?}\nstdout={actual_stdout}\nstderr={actual_stderr}",
+        expected.name,
+        fixture_paths.diagnostic_lines()
     );
     let actual_json = serde_json::from_str::<Value>(actual_stdout.trim()).ok();
 
     if expected.stdout_json.is_some() {
         assert!(
             actual_json.is_some(),
-            "{scenario}/{workflow}/{}: expected JSON stdout\nargv={argv:?}\nstdout={actual_stdout}\nstderr={actual_stderr}",
-            expected.name
+            "{scenario}/{workflow}/{}: expected JSON stdout\n{}\nargv={argv:?}\nstdout={actual_stdout}\nstderr={actual_stderr}",
+            expected.name,
+            fixture_paths.diagnostic_lines()
         );
     }
 
@@ -388,6 +432,7 @@ fn run_and_check_command(
             substitutions,
             actual_stdout: &actual_stdout,
             actual_stderr: &actual_stderr,
+            fixture_paths,
         });
     }
 }
@@ -687,6 +732,7 @@ struct JsonContractAssertion<'a> {
     substitutions: &'a [(String, String)],
     actual_stdout: &'a str,
     actual_stderr: &'a str,
+    fixture_paths: &'a ReplayFixturePaths,
 }
 
 fn assert_json_contract(assertion: JsonContractAssertion<'_>) {
@@ -700,6 +746,7 @@ fn assert_json_contract(assertion: JsonContractAssertion<'_>) {
         substitutions,
         actual_stdout,
         actual_stderr,
+        fixture_paths,
     } = assertion;
     let expected = substitute_json(expected, substitutions, Some(actual));
     let actual = actual.clone();
@@ -712,8 +759,10 @@ fn assert_json_contract(assertion: JsonContractAssertion<'_>) {
         (expected, actual)
     };
     assert_eq!(
-        expected, actual,
-        "{scenario}/{workflow}/{command_name}: JSON stdout mismatch\nargv={argv:?}\nexpected={expected}\nactual={actual}\nstdout={actual_stdout}\nstderr={actual_stderr}"
+        expected,
+        actual,
+        "{scenario}/{workflow}/{command_name}: JSON stdout mismatch\n{}\nargv={argv:?}\nexpected={expected}\nactual={actual}\nstdout={actual_stdout}\nstderr={actual_stderr}",
+        fixture_paths.diagnostic_lines()
     );
 }
 
@@ -758,11 +807,13 @@ fn apply_file_edit(
     tmp: &Path,
     substitutions: &[(String, String)],
     file_seeds: &mut HashMap<String, String>,
+    fixture_paths: &ReplayFixturePaths,
 ) {
     assert!(
         record.success,
-        "{scenario}/{workflow}/{}: cannot replay a file edit that failed during recording",
-        record.name
+        "{scenario}/{workflow}/{}: cannot replay a file edit that failed during recording\n{}",
+        record.name,
+        fixture_paths.diagnostic_lines()
     );
     let project_root = project_root_for_file_edit(&record.name, tmp);
     let relative_path = substitute(&record.path, substitutions);
@@ -785,9 +836,10 @@ fn apply_file_edit(
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent).unwrap_or_else(|error| {
                     panic!(
-                        "{scenario}/{workflow}/{}: create {}: {error}",
+                        "{scenario}/{workflow}/{}: create {}: {error}\n{}",
                         record.name,
-                        parent.display()
+                        parent.display(),
+                        fixture_paths.diagnostic_lines()
                     )
                 });
             }
@@ -813,24 +865,27 @@ fn apply_file_edit(
             );
             assert!(
                 existing.contains(&target),
-                "{scenario}/{workflow}/{}: target text not found in {}",
+                "{scenario}/{workflow}/{}: target text not found in {}\n{}",
                 record.name,
-                path.display()
+                path.display(),
+                fixture_paths.diagnostic_lines()
             );
             let updated = existing.replace(&target, &replacement);
             fs::write(&path, updated)
         }
         "delete_file" => fs::remove_file(&path),
         other => panic!(
-            "{scenario}/{workflow}/{}: unsupported file edit operation {other}",
-            record.name
+            "{scenario}/{workflow}/{}: unsupported file edit operation {other}\n{}",
+            record.name,
+            fixture_paths.diagnostic_lines()
         ),
     };
     result.unwrap_or_else(|error| {
         panic!(
-            "{scenario}/{workflow}/{}: apply file edit to {}: {error}",
+            "{scenario}/{workflow}/{}: apply file edit to {}: {error}\n{}",
             record.name,
-            path.display()
+            path.display(),
+            fixture_paths.diagnostic_lines()
         )
     });
 }
@@ -841,6 +896,7 @@ fn apply_file_assertion(
     record: &FileAssertionRecord,
     tmp: &Path,
     substitutions: &[(String, String)],
+    fixture_paths: &ReplayFixturePaths,
 ) {
     let project_root = project_root_for_file_edit(&record.name, tmp);
     let relative_path = substitute(&record.path, substitutions);
@@ -849,27 +905,30 @@ fn apply_file_assertion(
     assert_eq!(
         content.is_ok(),
         record.exists,
-        "{scenario}/{workflow}/{}: file existence mismatch for {}",
+        "{scenario}/{workflow}/{}: file existence mismatch for {}\n{}",
         record.name,
-        path.display()
+        path.display(),
+        fixture_paths.diagnostic_lines()
     );
     if !record.exists {
         return;
     }
     let content = content.unwrap_or_else(|error| {
         panic!(
-            "{scenario}/{workflow}/{}: read {}: {error}",
+            "{scenario}/{workflow}/{}: read {}: {error}\n{}",
             record.name,
-            path.display()
+            path.display(),
+            fixture_paths.diagnostic_lines()
         )
     });
     for needle in &record.contains {
         let needle = substitute(needle, substitutions);
         assert!(
             content.contains(&needle),
-            "{scenario}/{workflow}/{}: {} did not contain expected text {needle:?}\ncontent:\n{content}",
+            "{scenario}/{workflow}/{}: {} did not contain expected text {needle:?}\n{}\ncontent:\n{content}",
             record.name,
-            path.display()
+            path.display(),
+            fixture_paths.diagnostic_lines()
         );
     }
 }

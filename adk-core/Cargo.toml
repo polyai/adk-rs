@@ -17,7 +17,7 @@ walkdir.workspace = true
 globset.workspace = true
 regex.workspace = true
 fancy-regex.workspace = true
-ruff_python_parser = { package = "littrs-ruff-python-parser", version = "0.6.2" }
+ruff_python_parser.workspace = true
 adk-domain = { path = "../adk-domain" }
 adk-io = { path = "../adk-io" }
 adk-platform-api = { path = "../adk-platform-api" }

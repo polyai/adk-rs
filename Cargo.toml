@@ -5,7 +5,8 @@ members = [
   "adk-domain",
   "adk-io",
   "adk-platform-api",
-  "adk-ffi", "adk-protobuf",
+  "adk-ffi",
+  "adk-protobuf",
 ]
 resolver = "2"
 
@@ -40,3 +41,6 @@ regex = "1"
 fancy-regex = "0.14"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 url = "2"
+rich_rust = { version = "0.2.1", features = ["backtrace"] }
+httpmock = { version = "0.8.3", features = ["record"] }
+ruff_python_parser = { package = "littrs-ruff-python-parser", version = "0.6.2" }

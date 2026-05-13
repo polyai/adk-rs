@@ -24,7 +24,7 @@ pub fn clean_name(name: &str, lowercase: bool) -> String {
     name.trim_matches('_').to_string()
 }
 
-/// Same as Python `CONV_STATE_DOT_NAME` (`resource_utils.py`); needs look-around support.
+/// Same as Python `CONV_STATE_DOT_NAME`; uses `fancy-regex` for look-around.
 static CONV_STATE_DOT_NAME: LazyLock<FancyRegex> = LazyLock::new(|| {
     FancyRegex::new(r"(?<![\w.])conv\.state\.([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()")
         .expect("valid regex")

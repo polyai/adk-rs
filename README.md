@@ -36,6 +36,9 @@ The main offline parity suite replays Python ADK recordings against the Rust CLI
 cargo test -p adk-cli --test replay_python_adk_httpmock_fixtures_test
 ```
 
+The `format-local` replay expects `ruff` on `PATH`, matching the Python ADK
+formatter dependency. CI installs the pinned version used by the recordings.
+
 Recording refreshes are ignored by default because they call the real Agent
 Studio API:
 

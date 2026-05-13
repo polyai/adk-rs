@@ -15,12 +15,12 @@ indexmap.workspace = true
 reqwest.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-rich_rust = { version = "0.2.1", features = ["backtrace"] }
+rich_rust.workspace = true
 adk-core = { path = "../adk-core" }
 adk-platform-api = { path = "../adk-platform-api" }
 
 [dev-dependencies]
-httpmock = { version = "0.8.3", features = ["record"] }
+httpmock.workspace = true
 serde_yaml.workspace = true
 
 [[bin]]
