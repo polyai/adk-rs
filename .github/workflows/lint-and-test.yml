@@ -8,6 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUFF_VERSION: "0.14.2"
+  TY_VERSION: "0.0.20"
 
 jobs:
   lint-and-test:
@@ -23,9 +25,10 @@ jobs:
       run: cargo fmt --all -- --check
     - name: Clippy check
       run: cargo clippy --workspace --all-targets -- -D warnings
-    - name: Install ADK parity tools (ruff)
+    - name: Install ADK parity tools
       run: |
-        curl -LsSf https://astral.sh/ruff/0.14.2/install.sh | sh
+        curl -LsSf "https://astral.sh/ruff/${RUFF_VERSION}/install.sh" | sh
+        curl -LsSf "https://astral.sh/ty/${TY_VERSION}/install.sh" | sh
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
     - name: Cargo test
       run: cargo test --workspace

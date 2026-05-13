@@ -14,9 +14,19 @@ Python ADK while making it easier to test and ship the CLI, as well as embed the
 - `adk-io` (`poly-adk-io`): filesystem, hashing, diff, path, and serialization helpers.
 - `adk-protobuf` (`poly-adk-protobuf`): protobuf command definitions used by push.
 - `adk-ffi` (`poly-adk-ffi`): thin FFI-facing wrappers for future library bindings.
-- `docs`: compatibility matrix, release gate, and remaining parity TODOs.
+- `docs`: remaining parity TODOs.
 
 Each crate also has a short local README.
+
+## System Dependencies
+
+The full parity test suite expects these executables on `PATH`:
+
+- `ruff`: used by `poly format` for Python formatting.
+- `ty`: used by `poly format --ty` for optional Python type checking.
+
+CI installs pinned standalone Astral binaries: `ruff 0.14.2` and `ty 0.0.20`.
+Those versions match the current Python ADK lockfile/recording expectations.
 
 ## Common Commands
 
@@ -36,8 +46,8 @@ The main offline parity suite replays Python ADK recordings against the Rust CLI
 cargo test -p poly-adk-cli --test replay_python_adk_httpmock_fixtures_test
 ```
 
-The `format-local` replay expects `ruff` on `PATH`, matching the Python ADK
-formatter dependency. CI installs the pinned version used by the recordings.
+The `format-local` replay exercises both formatting and `--ty`, so it needs
+the system dependencies above.
 
 Recording refreshes are ignored by default because they call the real Agent
 Studio API:

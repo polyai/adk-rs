@@ -24,6 +24,25 @@ fn make_temp_unformatted_json_project_dir() -> String {
     support_temp_unformatted_json_project_dir("adk-rs-cli-test")
 }
 
+#[test]
+fn system_tool_dependencies_are_available() {
+    for (tool, args) in [("ruff", &["--version"][..]), ("ty", &["version"][..])] {
+        let output = std::process::Command::new(tool)
+            .args(args)
+            .output()
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{tool} must be installed on PATH for the full ADK parity test suite: {error}"
+                )
+            });
+        assert!(
+            output.status.success(),
+            "{tool} version check failed with status {:?}",
+            output.status.code()
+        );
+    }
+}
+
 fn sample_projection_json() -> &'static str {
     r#"{"knowledgeBase":{"topics":{"entities":{"topic-1":{"name":"Welcome","isActive":true,"actions":"","content":"Hello there","exampleQueries":[{"query":"hi"}]}}}}}"#
 }
@@ -351,6 +370,78 @@ fn format_files_accepts_absolute_paths_and_formats_json() {
     assert_eq!(
         fs::read_to_string(json_path).expect("formatted json"),
         "{\n  \"a\": 1,\n  \"b\": 2\n}\n"
+    );
+}
+
+#[test]
+fn format_ty_json_runs_type_checker() {
+    let project_dir = make_temp_project_dir();
+    let root = std::path::PathBuf::from(&project_dir);
+    fs::create_dir_all(root.join("functions")).expect("create functions dir");
+    fs::write(
+        root.join("functions/typecheck_ok.py"),
+        "def add(x: int, y: int) -> int:\n    return x + y\n",
+    )
+    .expect("write typed python file");
+
+    let output = run_poly(&[
+        "format",
+        "--json",
+        "--check",
+        "--ty",
+        "--path",
+        &project_dir,
+    ]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(payload.get("ty_ran").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        payload.get("ty_returncode").and_then(|v| v.as_i64()),
+        Some(0)
+    );
+    assert_eq!(
+        payload.get("ty_timed_out").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+}
+
+#[test]
+fn format_ty_json_fails_when_ty_is_not_on_path() {
+    let project_dir = make_temp_project_dir();
+    let empty_path_dir = support::cli::temp_dir("adk-rs-empty-path");
+    fs::create_dir_all(&empty_path_dir).expect("create empty PATH dir");
+
+    let output = support::cli::poly_offline_command()
+        .env("PATH", empty_path_dir)
+        .args([
+            "format",
+            "--json",
+            "--check",
+            "--ty",
+            "--path",
+            &project_dir,
+        ])
+        .output()
+        .expect("run poly format --ty");
+
+    assert_eq!(output.status.code(), Some(1));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(
+        payload.get("success").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    assert_eq!(payload.get("ty_ran").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        payload.get("ty_returncode").and_then(|v| v.as_i64()),
+        Some(1)
+    );
+    assert_eq!(
+        payload.get("ty_timed_out").and_then(|v| v.as_bool()),
+        Some(false)
     );
 }
 

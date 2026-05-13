@@ -2684,25 +2684,8 @@ fn run_ty_check(path: &std::path::Path) -> (Option<i32>, bool) {
         Ok((Some(output), false)) => return (Some(output.status.code().unwrap_or(1)), false),
         Ok((None, true)) => return (None, true),
         Ok(_) => return (Some(1), false),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (Some(1), false),
         Err(_) => return (Some(1), false),
-    }
-
-    let mut python_ty = std::process::Command::new("python3");
-    python_ty.args(["-m", "ty", "check"]).current_dir(path);
-    match output_with_timeout(&mut python_ty, Duration::from_secs(15)) {
-        Ok((Some(output), false)) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if stderr.contains("No module named ty") {
-                (Some(0), false)
-            } else {
-                (Some(output.status.code().unwrap_or(1)), false)
-            }
-        }
-        Ok((None, true)) => (None, true),
-        Ok(_) => (Some(1), false),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Some(0), false),
-        Err(_) => (Some(1), false),
     }
 }
 

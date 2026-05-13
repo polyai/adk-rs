@@ -88,7 +88,7 @@ focused parity behavior beyond the larger workflows above:
   update, delete, and related `conv.state.*` variable command behavior.
 - `format-local.*`
   Documents Python formatting for YAML resources, Python function files, and
-  observed `--ty` behavior.
+  observed `--ty` behavior. Replay needs `ruff` and `ty` on `PATH`.
 - `flow-validation.*`
   Documents Python validation errors for invalid flow config, step YAML, and
   function-step signatures.

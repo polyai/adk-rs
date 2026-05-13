@@ -14,3 +14,9 @@ Command-line interface crate for the Rust ADK port.
 - `src/main.rs`: parser, dispatch, output/exit behavior.
 - `src/bin/poly.rs`: binary entrypoint.
 - `tests/`: CLI surface and Python parity tests.
+
+## System Tools
+
+`poly format` shells out to `ruff` for Python formatting. `poly format --ty`
+also shells out to `ty check`. Keep both on `PATH` when running the full CLI
+test suite.
