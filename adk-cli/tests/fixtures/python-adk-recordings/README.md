@@ -140,10 +140,11 @@ to parity, then add the scenario name to `tests/support/mod.rs`.
   manifests point at the right cassette, and that saved text is portable. They
   do not run the Rust CLI against the recordings.
 - `replay_python_adk_httpmock_fixtures_test.rs`
-  Cheap Rust replay tests. These start an `httpmock` playback server from each
-  saved cassette, run the Rust CLI commands from the matching manifest, apply
-  recorded file edits, and compare Rust JSON output and exit codes exactly
-  against Python's recorded contract.
+  Cheap replay tests. By default these run the Rust CLI against each saved
+  cassette and compare JSON output plus exit codes to Python's recorded
+  contract. The same target also has an ignored Python replay check for
+  verifying that saved cassettes still satisfy Python ADK without regenerating
+  fixtures.
 - `python_adk_direct_cli_parity_test.rs`
   Direct Python-vs-Rust CLI checks for small local cases. This is separate from
   the httpmock recording/replay workflow.
@@ -224,7 +225,7 @@ rg -n "/home/|/Users/|/tmp/|\.venv|POLY_ADK_KEY|x-api-key|Bearer|secret|token" \
 
 ## Replay Details
 
-The replay test:
+The default replay test:
 
 1. Load the scenario's `*.commands.yaml`.
 2. Start an `httpmock` playback server from the matching `*.httpmock.yaml`.
@@ -242,6 +243,26 @@ JSON-mode commands are strict: replay substitutes only explicit placeholders
 such as `${TMP}`, `${COMMAND_ID}`, and `${TIMESTAMP}`, then requires the Rust
 JSON payload and process exit code to match the manifest. Human-readable output
 can be more flexible, but JSON is treated as a contract.
+
+To opt into the Python replay check, run:
+
+```bash
+cargo test -p adk-cli --test replay_python_adk_httpmock_fixtures_test \
+  python_adk_replays_saved_python_adk_httpmock_recordings \
+  -- --ignored --nocapture
+```
+
+To check one saved Python scenario:
+
+```bash
+PYTHON_ADK_REPLAY_SCENARIO=chat-session-controls \
+  cargo test -p adk-cli --test replay_python_adk_httpmock_fixtures_test \
+  python_adk_replays_saved_python_adk_httpmock_recordings \
+  -- --ignored --nocapture
+```
+
+Python replay uses the saved cassettes as a local mock server. It does not call
+Agent Studio and does not rewrite `*.commands.yaml` or `*.httpmock.yaml`.
 
 Replay executes each `file_edit` step before replaying the following command
 step. Supported operations are:

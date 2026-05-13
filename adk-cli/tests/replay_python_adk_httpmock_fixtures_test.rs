@@ -1,10 +1,10 @@
-//! Replay saved Python ADK httpmock recordings against the Rust `poly` binary.
+//! Replay saved ADK recordings against Python ADK.
 //!
 //! The ignored `record_python_adk_from_manifest_test` target refreshes the
-//! cassettes from the real Agent Studio API. This test is the cheap offline
-//! counterpart: it starts httpmock playback, runs Rust commands from the saved
-//! manifests, applies recorded file edits, and checks that Rust emits the same
-//! JSON contract as Python for JSON-mode commands.
+//! cassettes from the real Agent Studio API. The default test replays those
+//! cassettes against Rust. The ignored Python replay is an opt-in sanity check
+//! that runs Python ADK against the saved cassettes without contacting Agent
+//! Studio or rewriting fixtures.
 
 mod support;
 
@@ -20,8 +20,8 @@ use std::process::{Command, Output, Stdio};
 use std::sync::{Arc, Mutex};
 use support::python_recordings::{
     SCENARIOS, TARGET_ACCOUNT_ID, TARGET_PROJECT_ID, fixture_dir, httpmock_adk_base_url,
-    lookup_substitution, maybe_lookup_substitution, replace_all as substitute, substitute_json,
-    temp_replay_dir,
+    lookup_substitution, maybe_lookup_substitution, python_adk_bin, replace_all as substitute,
+    substitute_json, temp_replay_dir,
 };
 use support::recording_manifest::{
     CommandRecord, FileAssertionRecord, FileEditRecord, Manifest, TaggedWorkflowStep, WorkflowStep,
@@ -30,11 +30,35 @@ use support::recording_manifest::{
 #[test]
 fn rust_cli_replays_saved_python_adk_httpmock_recordings() {
     for scenario in SCENARIOS {
-        replay_scenario(scenario);
+        replay_scenario(scenario, ReplaySubject::Rust);
     }
 }
 
-fn replay_scenario(scenario: &str) {
+#[test]
+#[ignore = "runs Python ADK against saved httpmock cassettes without rewriting fixtures"]
+fn python_adk_replays_saved_python_adk_httpmock_recordings() {
+    for scenario in selected_python_replay_scenarios() {
+        replay_scenario(&scenario, ReplaySubject::Python);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReplaySubject {
+    Rust,
+    Python,
+}
+
+fn selected_python_replay_scenarios() -> Vec<String> {
+    match std::env::var("PYTHON_ADK_REPLAY_SCENARIO") {
+        Ok(name) if !name.trim().is_empty() => vec![name],
+        _ => SCENARIOS
+            .iter()
+            .map(|scenario| scenario.to_string())
+            .collect(),
+    }
+}
+
+fn replay_scenario(scenario: &str, subject: ReplaySubject) {
     let fixture_dir = fixture_dir();
     let manifest_path = fixture_dir.join(format!("{scenario}.commands.yaml"));
     let manifest_text = fs::read_to_string(&manifest_path)
@@ -49,7 +73,9 @@ fn replay_scenario(scenario: &str) {
     let tmp = temp_replay_dir(scenario);
     fs::create_dir_all(&tmp).unwrap_or_else(|error| panic!("{scenario}: create tmp dir: {error}"));
     let playback_server = MockServer::start();
-    if cassette_text.trim().is_empty() {
+    if subject == ReplaySubject::Python {
+        install_python_playback_server(scenario, &playback_server, &cassette_text);
+    } else if cassette_text.trim().is_empty() {
         // Local-only recorder scenarios still use the same manifest/cassette
         // naming convention, but have no HTTP interactions to play back.
     } else if matches!(
@@ -75,7 +101,13 @@ fn replay_scenario(scenario: &str) {
             match step {
                 WorkflowStep::Tagged(TaggedWorkflowStep::Command(record))
                 | WorkflowStep::LegacyCommand(record) => {
-                    run_and_check_command(scenario, &workflow.name, record, &substitutions);
+                    run_and_check_command(
+                        scenario,
+                        &workflow.name,
+                        record,
+                        &substitutions,
+                        subject,
+                    );
                 }
                 WorkflowStep::Tagged(TaggedWorkflowStep::FileEdit(record)) => {
                     apply_file_edit(
@@ -97,6 +129,17 @@ fn replay_scenario(scenario: &str) {
     let _ = fs::remove_dir_all(tmp);
 }
 
+fn install_python_playback_server(scenario: &str, server: &MockServer, cassette_text: &str) {
+    if cassette_text.trim().is_empty() {
+        return;
+    }
+    install_stateful_playback_server_with_interactions(
+        scenario,
+        server,
+        parse_cassette_interactions(scenario, cassette_text),
+    );
+}
+
 #[derive(Debug, Clone)]
 struct CassetteInteraction {
     method: String,
@@ -112,6 +155,14 @@ fn install_stateful_playback_server(scenario: &str, server: &MockServer, cassett
     if scenario == "special-functions" {
         add_extra_special_function_pre_push_projection(&mut interactions);
     }
+    install_stateful_playback_server_with_interactions(scenario, server, interactions);
+}
+
+fn install_stateful_playback_server_with_interactions(
+    scenario: &str,
+    server: &MockServer,
+    interactions: Vec<CassetteInteraction>,
+) {
     let interactions = Arc::new(Mutex::new(interactions));
     let scenario = scenario.to_string();
     server.mock(|when, then| {
@@ -243,7 +294,9 @@ fn cassette_interaction_matches(
     interaction: &CassetteInteraction,
     request: &HttpMockRequest,
 ) -> bool {
-    if interaction.method != request.method_str() || interaction.path != request.uri().path() {
+    if interaction.method != request.method_str()
+        || !request_path_matches(&interaction.path, request.uri().path())
+    {
         return false;
     }
     let Some(expected_body) = interaction.request_body.as_deref() else {
@@ -259,11 +312,35 @@ fn cassette_interaction_matches(
     }
 }
 
+fn request_path_matches(recorded_path: &str, actual_path: &str) -> bool {
+    if recorded_path == actual_path {
+        return true;
+    }
+    python_replay_path_aliases(actual_path)
+        .iter()
+        .any(|alias| alias == recorded_path)
+}
+
+fn python_replay_path_aliases(path: &str) -> Vec<String> {
+    let mut aliases = Vec::new();
+    if path.starts_with("/accounts/") {
+        aliases.push(format!("/adk/v1{path}"));
+    }
+    if let Some(rest) = path.strip_prefix("/adk/v1/adk/v1/") {
+        aliases.push(format!("/adk/v1/{rest}"));
+    }
+    if let Some(rest) = path.strip_prefix("/adk/v1/v1/") {
+        aliases.push(format!("/v1/{rest}"));
+    }
+    aliases
+}
+
 fn run_and_check_command(
     scenario: &str,
     workflow: &str,
     expected: &CommandRecord,
     substitutions: &[(String, String)],
+    subject: ReplaySubject,
 ) {
     let argv = expected
         .argv
@@ -271,12 +348,17 @@ fn run_and_check_command(
         .skip(1)
         .map(|arg| substitute(arg, substitutions))
         .collect::<Vec<_>>();
-    let output = run_rust_poly(
-        &argv,
-        expected.stdin.as_deref(),
-        substitutions,
-        expected.stdout_json.as_ref(),
-    );
+    let output = match subject {
+        ReplaySubject::Rust => run_rust_poly(
+            &argv,
+            expected.stdin.as_deref(),
+            substitutions,
+            expected.stdout_json.as_ref(),
+        ),
+        ReplaySubject::Python => {
+            run_python_adk(scenario, &argv, expected.stdin.as_deref(), substitutions)
+        }
+    };
     let actual_stdout = String::from_utf8_lossy(&output.stdout);
     let actual_stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
@@ -308,6 +390,42 @@ fn run_and_check_command(
             &actual_stderr,
         );
     }
+}
+
+fn run_python_adk(
+    _scenario: &str,
+    args: &[String],
+    stdin: Option<&str>,
+    substitutions: &[(String, String)],
+) -> Output {
+    let base_url = lookup_substitution("${HTTPMOCK_ROOT_URL}", substitutions);
+    let mut command = Command::new(python_adk_bin());
+    command.current_dir(lookup_substitution("${TMP}", substitutions));
+    command
+        .env("POLY_ADK_KEY", "<redacted>")
+        .env("POLY_ADK_KEY_US", "<redacted>")
+        .env("POLY_ADK_BASE_URL", &base_url)
+        .env("POLY_ADK_BASE_URL_US", &base_url)
+        .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .env_remove("POLY_ADK_ALLOW_INMEMORY_FALLBACK")
+        .env_remove("GITHUB_ACCESS_TOKEN")
+        .args(args);
+    let Some(stdin) = stdin else {
+        return command.output().expect("run Python ADK");
+    };
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn Python ADK with stdin");
+    child
+        .stdin
+        .as_mut()
+        .expect("Python ADK stdin")
+        .write_all(substitute(stdin, substitutions).as_bytes())
+        .expect("write Python ADK stdin");
+    child.wait_with_output().expect("run Python ADK")
 }
 
 fn run_rust_poly(
@@ -823,6 +941,10 @@ fn substitutions_for(
         (
             "${HTTPMOCK_BASE_URL}".to_string(),
             httpmock_adk_base_url(playback_server),
+        ),
+        (
+            "${HTTPMOCK_ROOT_URL}".to_string(),
+            playback_server.base_url(),
         ),
         (
             "${REPLAY_STATE_DIR}".to_string(),
