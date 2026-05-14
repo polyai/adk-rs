@@ -20,7 +20,7 @@ rust-version = "1.95.0"
 
 [workspace.dependencies]
 # ADK crates
-adk-cli = { package = "poly-adk-cli", version = "0.0.1", path = "adk-cli" }
+adk-cli = { package = "poly-adk", version = "0.0.1", path = "adk-cli" }
 adk-command-gen = { package = "poly-adk-command-gen", version = "0.0.1", path = "adk-command-gen" }
 adk-core = { package = "poly-adk-core", version = "0.0.1", path = "adk-core" }
 adk-ffi = { package = "poly-adk-ffi", version = "0.0.1", path = "adk-ffi" }
@@ -55,3 +55,8 @@ url = "2"
 rich_rust = { version = "0.2.1", features = ["backtrace"] }
 httpmock = { version = "0.8.3", features = ["record"] }
 ruff_python_parser = { package = "littrs-ruff-python-parser", version = "0.6.2" }
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

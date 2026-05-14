@@ -1,5 +1,5 @@
 [package]
-name = "poly-adk-cli"
+name = "poly-adk"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

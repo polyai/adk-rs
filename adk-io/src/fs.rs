@@ -27,6 +27,7 @@ pub trait FileSystem {
     fn remove_dir(&self, path: &Path) -> io::Result<()>;
     fn read_dir(&self, path: &Path) -> io::Result<Vec<PathBuf>>;
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf>;
+    fn current_dir(&self) -> io::Result<PathBuf>;
     fn exists(&self, path: &Path) -> bool;
     fn is_dir(&self, path: &Path) -> bool;
     fn is_file(&self, path: &Path) -> bool;
@@ -72,6 +73,10 @@ impl FileSystem for StdFileSystem {
         std::fs::canonicalize(path)
     }
 
+    fn current_dir(&self) -> io::Result<PathBuf> {
+        std::env::current_dir()
+    }
+
     fn exists(&self, path: &Path) -> bool {
         path.exists()
     }
@@ -88,6 +93,7 @@ impl FileSystem for StdFileSystem {
 #[derive(Clone, Debug)]
 pub struct MemoryFileSystem {
     state: Arc<RwLock<MemoryState>>,
+    current_dir: PathBuf,
 }
 
 #[derive(Debug, Default)]
@@ -102,6 +108,7 @@ impl Default for MemoryFileSystem {
         state.dirs.insert(PathBuf::new());
         Self {
             state: Arc::new(RwLock::new(state)),
+            current_dir: PathBuf::new(),
         }
     }
 }
@@ -109,6 +116,14 @@ impl Default for MemoryFileSystem {
 impl MemoryFileSystem {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_current_dir(path: impl Into<PathBuf>) -> Self {
+        let current_dir = normalize_path(&path.into());
+        Self {
+            current_dir,
+            ..Self::default()
+        }
     }
 
     pub fn file_paths(&self) -> Vec<PathBuf> {
@@ -209,6 +224,10 @@ impl FileSystem for MemoryFileSystem {
         } else {
             Err(not_found(path))
         }
+    }
+
+    fn current_dir(&self) -> io::Result<PathBuf> {
+        Ok(self.current_dir.clone())
     }
 
     fn exists(&self, path: &Path) -> bool {
@@ -316,6 +335,16 @@ mod tests {
 
         let entries = fs.read_dir(Path::new("project/topics")).expect("read dir");
         assert_eq!(entries, vec![PathBuf::from("project/topics/greeting.yaml")]);
+    }
+
+    #[test]
+    fn memory_filesystem_reports_configured_current_dir() {
+        let fs = MemoryFileSystem::with_current_dir("workspace/project");
+
+        assert_eq!(
+            fs.current_dir().expect("current dir"),
+            PathBuf::from("workspace/project")
+        );
     }
 
     #[test]

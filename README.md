@@ -1,6 +1,7 @@
 # adk-rs
 
 [![Tests](https://github.com/polyai/adk-rs/actions/workflows/lint-and-test.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/lint-and-test.yml)
+[![Release](https://github.com/polyai/adk-rs/actions/workflows/release.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/release.yml)
 
 Workspace for the Rust port of PolyAI's ADK. The goal is feature parity with the
 Python ADK while making it easier to test and ship the CLI, as well as embed the tooling itself.
@@ -38,6 +39,21 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo run --bin poly -- --help
 ```
+
+## Releases
+
+Binary releases are managed with `cargo-dist`. Tagged versions such as `v0.0.1`
+build Linux and macOS archives plus a shell installer through GitHub Actions:
+
+```bash
+dist plan
+git tag v0.0.1
+git push origin v0.0.1
+```
+
+The release installer installs the `poly` binary and also provides `adk` as a
+packaging-time alias. Crates.io publishing is still a separate `cargo publish`
+process.
 
 ## Parity Tests
 

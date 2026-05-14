@@ -1130,7 +1130,9 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             let target_abs = if target.is_absolute() {
                 target.clone()
             } else {
-                std::env::current_dir()
+                self.workspace
+                    .fs
+                    .current_dir()
                     .unwrap_or_else(|_| PathBuf::from("."))
                     .join(&target)
             };

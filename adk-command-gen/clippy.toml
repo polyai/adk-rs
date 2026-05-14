@@ -1,5 +1,6 @@
 # Filesystem access in reusable crates must go through adk-io.
 disallowed-methods = [
+  { path = "std::env::current_dir", reason = "use adk-io filesystem abstractions" },
   { path = "std::fs::canonicalize", reason = "use adk-io filesystem abstractions" },
   { path = "std::fs::copy", reason = "use adk-io filesystem abstractions" },
   { path = "std::fs::create_dir", reason = "use adk-io filesystem abstractions" },
