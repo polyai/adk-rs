@@ -1,10 +1,10 @@
-# poly-adk-platform-api
+# adk-platform-api
 
 API boundary crate between core workflows and remote platform operations.
 
 ## Responsibilities
 
-- Defines the `PlatformClient` trait used by `poly-adk-core`.
+- Defines the `PlatformClient` trait used by `adk-core`.
 - Hosts adapter implementations:
   - `HttpPlatformClient`: real Platform API integration (region/account/project scoped).
   - `InMemoryPlatformClient`: deterministic test double for unit/local tests.

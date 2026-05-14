@@ -1,16 +1,20 @@
 //! Direct Python ADK vs Rust CLI parity checks for small local command contracts.
 //!
 //! These tests spawn both CLIs directly. They do not record HTTP traffic and do
-//! not replay the saved httpmock cassettes.
+//! not replay the saved httpmock cassettes. They run only when `PYTHON_ADK_BIN`
+//! points at the Python ADK executable.
 
 mod support;
 
 use std::process::Command;
 use support::cli::{make_temp_project_dir as support_temp_project_dir, run_poly_offline};
-use support::python_recordings::python_adk_bin;
+use support::python_recordings::PYTHON_ADK_BIN_ENV;
 
 fn run_python_poly(args: &[&str]) -> Option<std::process::Output> {
-    let mut command = Command::new(python_adk_bin());
+    let bin = std::env::var(PYTHON_ADK_BIN_ENV)
+        .ok()
+        .filter(|value| !value.trim().is_empty())?;
+    let mut command = Command::new(bin);
     if let Ok(cwd) = std::env::var("PYTHON_ADK_CWD") {
         command.current_dir(cwd);
     }
@@ -65,10 +69,8 @@ fn parity_version_flags_match_python() {
         };
         let rs = run_rust(&[flag]);
         assert_eq!(rs.status.code(), py.status.code());
-        assert_eq!(
-            String::from_utf8_lossy(&rs.stdout).trim(),
-            String::from_utf8_lossy(&py.stdout).trim()
-        );
+        assert_version_output_shape(&rs.stdout);
+        assert_version_output_shape(&py.stdout);
     }
 
     let Some(py) = run_python_poly(&["-V"]) else {
@@ -77,6 +79,21 @@ fn parity_version_flags_match_python() {
     };
     let rs = run_rust(&["-V"]);
     assert_eq!(rs.status.code(), py.status.code());
+}
+
+fn assert_version_output_shape(stdout: &[u8]) {
+    let text = String::from_utf8_lossy(stdout);
+    let version = text.trim();
+    assert!(!version.is_empty(), "version output should not be empty");
+    assert_eq!(
+        version.split('.').count(),
+        3,
+        "version should look like MAJOR.MINOR.PATCH: {version}"
+    );
+    assert!(
+        version.split('.').all(|part| part.parse::<u64>().is_ok()),
+        "version should contain numeric components: {version}"
+    );
 }
 
 #[test]

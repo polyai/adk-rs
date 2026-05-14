@@ -1,4 +1,4 @@
-# poly-adk-io
+# adk-io
 
 Low-level file/content transformation helpers.
 

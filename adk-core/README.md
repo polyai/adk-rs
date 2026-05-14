@@ -1,4 +1,4 @@
-# poly-adk-core
+# adk-core
 
 Core orchestration layer for ADK workflows.
 
@@ -11,5 +11,5 @@ Core orchestration layer for ADK workflows.
 
 ## Design Notes
 
-- Keep business logic here, not in `poly-adk-cli`.
-- Depend on abstractions from `poly-adk-platform-api`, not concrete network code.
+- Keep business logic here, not in `adk-cli`.
+- Depend on abstractions from `adk-platform-api`, not concrete network code.

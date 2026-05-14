@@ -1,4 +1,4 @@
-# poly-adk-cli
+# adk-cli
 
 Command-line interface crate for the Rust ADK port.
 
@@ -6,7 +6,7 @@ Command-line interface crate for the Rust ADK port.
 
 - Defines CLI parser shape and command tree.
 - Exposes the `poly` executable.
-- Routes parsed args to `poly-adk-core`.
+- Routes parsed args to `adk-core`.
 - Handles user-facing output conventions (JSON vs human-readable).
 
 ## Key Paths

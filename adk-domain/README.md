@@ -1,4 +1,4 @@
-# poly-adk-domain
+# adk-domain
 
 Shared domain types used across the workspace.
 
