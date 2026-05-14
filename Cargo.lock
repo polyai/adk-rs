@@ -1653,26 +1653,15 @@ dependencies = [
  "globset",
  "indexmap",
  "littrs-ruff-python-parser",
- "poly-adk-domain",
  "poly-adk-io",
  "poly-adk-platform-api",
+ "poly-adk-types",
  "regex",
  "serde",
  "serde_json",
  "serde_yaml",
  "thiserror 1.0.69",
  "walkdir",
-]
-
-[[package]]
-name = "poly-adk-domain"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "indexmap",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1690,7 +1679,7 @@ dependencies = [
 name = "poly-adk-io"
 version = "0.1.0"
 dependencies = [
- "poly-adk-domain",
+ "poly-adk-types",
  "serde",
  "serde_json",
  "sha2",
@@ -1703,8 +1692,8 @@ name = "poly-adk-platform-api"
 version = "0.1.0"
 dependencies = [
  "indexmap",
- "poly-adk-domain",
  "poly-adk-protobuf",
+ "poly-adk-types",
  "prost",
  "prost-types",
  "reqwest",
@@ -1722,6 +1711,17 @@ version = "0.1.0"
 dependencies = [
  "prost",
  "prost-types",
+]
+
+[[package]]
+name = "poly-adk-types"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "indexmap",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

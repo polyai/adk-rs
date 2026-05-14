@@ -10,7 +10,7 @@ Python ADK while making it easier to test and ship the CLI, as well as embed the
 - `adk-cli`: `poly` binary, CLI parsing, output, and integration tests.
 - `adk-core`: project workflows such as init, pull, push, status, diff, validate, chat, and deployments.
 - `adk-platform-api`: HTTP communication with PolyAI backend (plus in-memory implementation for testing).
-- `adk-domain`: shared domain models and errors.
+- `adk-types`: shared data models and errors.
 - `adk-io`: filesystem, hashing, diff, path, and serialization helpers.
 - `adk-protobuf`: protobuf command definitions used by push.
 - `adk-ffi`: thin FFI-facing wrappers for future library bindings.

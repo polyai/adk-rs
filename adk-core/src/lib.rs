@@ -1,4 +1,4 @@
-use adk_domain::{
+use adk_types::{
     BranchDescriptor, BranchMergeResult, DeploymentList, DiffMap, DomainError, ProjectConfig,
     PushResult, Resource, ResourceMap, StatusSummary,
 };

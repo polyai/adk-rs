@@ -1,5 +1,5 @@
 use super::*;
-use adk_domain::Resource;
+use adk_types::Resource;
 use indexmap::IndexMap;
 
 fn map_with(resources: Vec<(String, Resource)>) -> ResourceMap {

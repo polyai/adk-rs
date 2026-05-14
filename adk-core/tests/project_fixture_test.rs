@@ -12,9 +12,9 @@
 //! real files on disk.
 
 use adk_core::AdkService;
-use adk_domain::{DeploymentList, Resource, ResourceMap};
 use adk_io::{compute_hash, parse_multi_resource_path};
 use adk_platform_api::InMemoryPlatformClient;
+use adk_types::{DeploymentList, Resource, ResourceMap};
 use base64::Engine;
 use std::fs;
 use std::path::PathBuf;

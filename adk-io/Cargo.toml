@@ -16,4 +16,4 @@ serde_json.workspace = true
 thiserror.workspace = true
 sha2.workspace = true
 similar.workspace = true
-adk-domain.workspace = true
+adk-types.workspace = true

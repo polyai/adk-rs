@@ -2,11 +2,11 @@
 members = [
   "adk-cli",
   "adk-core",
-  "adk-domain",
   "adk-io",
   "adk-platform-api",
   "adk-ffi",
   "adk-protobuf",
+  "adk-types",
 ]
 resolver = "2"
 
@@ -20,11 +20,11 @@ repository = "https://github.com/polyai/adk-rs"
 # ADK crates
 adk-cli = { package = "poly-adk-cli", version = "0.1.0", path = "adk-cli" }
 adk-core = { package = "poly-adk-core", version = "0.1.0", path = "adk-core" }
-adk-domain = { package = "poly-adk-domain", version = "0.1.0", path = "adk-domain" }
 adk-ffi = { package = "poly-adk-ffi", version = "0.1.0", path = "adk-ffi" }
 adk-io = { package = "poly-adk-io", version = "0.1.0", path = "adk-io" }
 adk-platform-api = { package = "poly-adk-platform-api", version = "0.1.0", path = "adk-platform-api" }
 adk-protobuf = { package = "poly-adk-protobuf", version = "0.1.0", path = "adk-protobuf" }
+adk-types = { package = "poly-adk-types", version = "0.1.0", path = "adk-types" }
 # 3rd-party
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

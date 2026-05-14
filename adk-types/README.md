@@ -1,6 +1,6 @@
-# adk-domain
+# adk-types
 
-Shared domain types used across the workspace.
+Shared data types used across the workspace.
 
 ## Responsibilities
 

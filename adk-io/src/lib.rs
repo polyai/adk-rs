@@ -1,4 +1,4 @@
-use adk_domain::{DiffMap, ResourceMap};
+use adk_types::{DiffMap, ResourceMap};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use similar::TextDiff;
@@ -40,7 +40,7 @@ pub fn diff_resources(before: &ResourceMap, after: &ResourceMap) -> DiffMap {
     out
 }
 
-fn resource_content(resource: Option<&adk_domain::Resource>) -> String {
+fn resource_content(resource: Option<&adk_types::Resource>) -> String {
     resource
         .and_then(|r| r.payload.get("content").and_then(|v| v.as_str()))
         .unwrap_or_default()
@@ -120,7 +120,7 @@ pub fn normalize_rel_path(root: &Path, target: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adk_domain::Resource;
+    use adk_types::Resource;
 
     #[test]
     fn parses_multi_resource_paths() {

@@ -13,11 +13,11 @@ mod interaction_files;
 #[path = "push_single_file_resources/structured.rs"]
 mod structured;
 
-use adk_domain::ResourceMap;
 use adk_protobuf::agent::RulesUpdateRules;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityUpdate};
 use adk_protobuf::{Command, Metadata};
+use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 

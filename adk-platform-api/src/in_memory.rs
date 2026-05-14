@@ -1,5 +1,5 @@
 use crate::{ApiError, PlatformClient};
-use adk_domain::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
+use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 

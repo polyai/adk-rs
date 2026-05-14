@@ -5,10 +5,10 @@ use crate::{
     extract_entities_map, extract_variable_names_from_code, generated_or_stable_resource_id,
     push_command,
 };
-use adk_domain::{Resource, ResourceMap};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::variables::{VariableCreate, VariableDelete, VariableReferences, VariableUpdate};
+use adk_types::{Resource, ResourceMap};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -294,7 +294,7 @@ fn bool_map_from_json(value: &Value, camel_key: &str, snake_key: &str) -> HashMa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adk_domain::Resource;
+    use adk_types::Resource;
     use indexmap::IndexMap;
 
     fn map_with(resources: Vec<(String, Resource)>) -> ResourceMap {

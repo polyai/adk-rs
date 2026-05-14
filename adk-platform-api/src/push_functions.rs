@@ -5,7 +5,6 @@ use crate::{
     clean_name, extract_entities_map, extract_variable_names_from_code,
     generated_or_stable_resource_id, is_synthetic_local_resource_id, push_command,
 };
-use adk_domain::ResourceMap;
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::end_function::{
@@ -20,6 +19,7 @@ use adk_protobuf::functions::{
 use adk_protobuf::start_function::{
     StartFunctionCreate, StartFunctionDelete, StartFunctionReferences, StartFunctionUpdate,
 };
+use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 

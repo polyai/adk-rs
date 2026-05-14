@@ -11,7 +11,6 @@ use crate::{
     default_metadata_created_by, extract_entities_map, generated_replay_resource_id,
     is_synthetic_local_resource_id, push_command, random_resource_id,
 };
-use adk_domain::ResourceMap;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::experimental_config::ExperimentalConfigUpdateConfig;
 use adk_protobuf::handoff::{
@@ -26,6 +25,7 @@ use adk_protobuf::stop_keywords::{
     StopKeywordCreate, StopKeywordDelete, StopKeywordReferences, StopKeywordUpdate,
 };
 use adk_protobuf::{Command, Metadata};
+use adk_types::ResourceMap;
 use prost_types::value::Kind;
 use prost_types::{ListValue, Struct, Value as ProstValue};
 use serde_json::Value;

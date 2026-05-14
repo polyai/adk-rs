@@ -6,7 +6,6 @@ use crate::{
     generated_replay_resource_id, projection_to_resource_map, push_command, random_resource_id,
     yaml_str,
 };
-use adk_domain::ResourceMap;
 use adk_protobuf::Metadata;
 use adk_protobuf::agent::{
     Adjectives, DisclaimerMessageUpdateDisclaimerMessage, GreetingUpdateGreeting,
@@ -45,6 +44,7 @@ use adk_protobuf::variant::{
     VariantDeleteAttribute, VariantDeleteVariant, VariantSetDefaultVariant, VariantUpdateAttribute,
     VariantValues,
 };
+use adk_types::ResourceMap;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;

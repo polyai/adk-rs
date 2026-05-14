@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Protobuf command definitions for PolyAI ADK push operations."
 readme = "README.md"
 exclude = ["CLAUDE.md"]
+publish = false
 
 [lib]
 name = "adk_protobuf"

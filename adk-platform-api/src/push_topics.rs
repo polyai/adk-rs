@@ -5,12 +5,12 @@ use crate::{
     extract_entities_map, generated_replay_resource_id, is_synthetic_local_resource_id,
     push_command, random_resource_id,
 };
-use adk_domain::ResourceMap;
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::knowledge_base::{
     ExampleQueries, KnowledgeBaseCreateTopic, KnowledgeBaseDeleteTopic, KnowledgeBaseUpdateTopic,
 };
+use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 

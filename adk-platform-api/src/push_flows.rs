@@ -9,7 +9,6 @@ use crate::push_functions::{
 };
 use crate::push_single_file_resources::CommandGroups;
 use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
-use adk_domain::{Resource, ResourceMap};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
     ConditionDetails, CreateAdvancedStep, CreateFunctionStep, CreateFunctionStepDefinition,
@@ -25,6 +24,7 @@ use adk_protobuf::flows::{
 };
 use adk_protobuf::functions::{FunctionCreateLatencyControl, FunctionUpdateLatencyControl};
 use adk_protobuf::{Command, Metadata};
+use adk_types::{Resource, ResourceMap};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 

@@ -1,6 +1,3 @@
-use adk_domain::{
-    BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, Resource, ResourceMap,
-};
 use adk_protobuf::agent::{RulesReferences, RulesUpdateRules};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::entities;
@@ -8,6 +5,9 @@ use adk_protobuf::functions::{FunctionParameter, FunctionUpdateLatencyControl};
 use adk_protobuf::knowledge_base::{KnowledgeBaseCreateTopic, TopicReferences};
 use adk_protobuf::variables::VariableReferences;
 use adk_protobuf::{Command, CommandBatch, Metadata};
+use adk_types::{
+    BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, Resource, ResourceMap,
+};
 use prost::Message;
 use serde_json::Value;
 use std::collections::HashMap;
