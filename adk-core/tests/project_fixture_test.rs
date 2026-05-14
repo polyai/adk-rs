@@ -11,6 +11,8 @@
 //! (per-type lists keyed by Python class names). `collect_local_resources()` remains a flat walk of
 //! real files on disk.
 
+#![allow(clippy::disallowed_methods)]
+
 use adk_api_client::InMemoryPlatformClient;
 use adk_core::AdkService;
 use adk_io::{compute_hash, parse_multi_resource_path};
@@ -37,8 +39,8 @@ fn fixture_empty_project() -> PathBuf {
         .expect("missing test_empty_project fixture")
 }
 
-fn service_offline() -> AdkService {
-    AdkService::new(Box::new(InMemoryPlatformClient::default()))
+fn service_offline() -> AdkService<InMemoryPlatformClient> {
+    AdkService::new(InMemoryPlatformClient::default())
 }
 
 fn discovered_total_count(map: &indexmap::IndexMap<String, Vec<String>>) -> usize {
@@ -934,7 +936,7 @@ fn diff_named_state_local_vs_remote_reports_changes() {
             }),
         },
     );
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(remote)));
+    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
     let diffs = service
         .diff(
             root.as_path(),
@@ -986,7 +988,7 @@ fn diff_named_state_with_file_filter_applies_glob() {
             payload: serde_json::json!({"content": "def test(conv):\n    return 'remote'\n"}),
         },
     );
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(remote)));
+    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
     let diffs = service
         .diff(
             root.as_path(),
@@ -1035,7 +1037,7 @@ fn revert_changes_restores_remote_content_for_selected_files() {
             payload: serde_json::json!({"content": "def test(conv):\n    return 'remote'\n"}),
         },
     );
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(remote)));
+    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
     let selected = vec![
         root.join("topics/topic_1.yaml")
             .to_string_lossy()
@@ -1073,7 +1075,7 @@ fn push_dry_run_and_validation_flags_are_respected() {
     )
     .expect("write invalid yaml");
 
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let service = AdkService::new(InMemoryPlatformClient::default());
     let dry_run = service
         .push(root.as_path(), false, true, true)
         .expect("dry run push");
@@ -1103,7 +1105,7 @@ fn push_force_bypasses_conflict_marker_guard() {
     )
     .expect("write conflicted file");
 
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let service = AdkService::new(InMemoryPlatformClient::default());
     let blocked = service
         .push(root.as_path(), false, true, false)
         .expect("push result");
@@ -1142,7 +1144,7 @@ fn pull_force_controls_overwrite_of_conflict_files() {
             payload: serde_json::json!({"content": "name: Remote Topic\n"}),
         },
     );
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(remote)));
+    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
 
     let conflicts = service
         .pull(root.as_path(), false)
@@ -1226,7 +1228,7 @@ fn pull_force_deletes_local_only_resources_and_empty_flow_folders() {
             payload: serde_json::json!({"content": "name: Remote Topic\n"}),
         },
     );
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(remote)));
+    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
 
     let conflicts = service.pull(root.as_path(), true).expect("pull force");
 
@@ -1278,11 +1280,11 @@ fn diff_after_only_uses_previous_deployment_version() {
         ],
         active_deployment_hashes: indexmap::IndexMap::new(),
     };
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_named_resources(
+    let service = AdkService::new(InMemoryPlatformClient::with_named_resources(
         ResourceMap::new(),
         named,
         deployments,
-    )));
+    ));
     let diffs = service
         .diff(root.as_path(), &[], None, Some(current_hash.to_string()))
         .expect("diff");
@@ -1301,11 +1303,11 @@ fn diff_after_only_errors_when_previous_version_missing() {
         versions: vec![serde_json::json!({"version_hash": "abcdef123456"})],
         active_deployment_hashes: indexmap::IndexMap::new(),
     };
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_named_resources(
+    let service = AdkService::new(InMemoryPlatformClient::with_named_resources(
         ResourceMap::new(),
         indexmap::IndexMap::new(),
         deployments,
-    )));
+    ));
     let error = service
         .diff(root.as_path(), &[], None, Some("abcdef123".to_string()))
         .expect_err("should fail with no previous deployment");

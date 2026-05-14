@@ -13,6 +13,7 @@ use crate::discover::resources_impl::{
     SettingsRole, SettingsRules, Topic, TranscriptCorrection, Variable, Variant, VariantAttribute,
     VoiceDisclaimerMessage, VoiceGreeting, VoiceSafetyFilters, VoiceStylePrompt,
 };
+use adk_io::{FileSystem, StdFileSystem};
 use indexmap::{IndexMap, IndexSet};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -287,7 +288,9 @@ pub fn build_typed_resource_lifecycle(
 
 /// Same iteration order as `RESOURCE_NAME_TO_CLASS` in `poly/project.py`.
 pub fn discover_local_resources(root: &Path) -> DiscoveredResourcePaths {
-    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let root = StdFileSystem
+        .canonicalize(root)
+        .unwrap_or_else(|_| root.to_path_buf());
 
     let mut map = IndexMap::new();
 

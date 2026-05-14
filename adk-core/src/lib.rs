@@ -7,7 +7,7 @@ pub mod discover;
 mod python_syntax;
 
 use adk_api_client::{ApiError, PlatformClient};
-use adk_io::{compute_hash, diff_resources, parse_multi_resource_path};
+use adk_io::{FileSystem, StdFileSystem, compute_hash, diff_resources, parse_multi_resource_path};
 use anyhow::Result;
 use base64::Engine;
 pub use discover::discover_local_resources;
@@ -17,7 +17,6 @@ use python_syntax::validate_python_module;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
-use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -89,19 +88,26 @@ pub enum CoreError {
     Json(#[from] serde_json::Error),
 }
 
-pub struct AdkService {
-    client: Box<dyn PlatformClient>,
+/// Local project workspace operations that do not require a platform client.
+pub struct ProjectWorkspace<Fs = StdFileSystem> {
+    fs: Fs,
 }
 
-pub struct PullOutcome {
-    pub files_with_conflicts: Vec<String>,
-    pub new_branch_name: Option<String>,
-    pub new_branch_id: Option<String>,
+impl ProjectWorkspace<StdFileSystem> {
+    pub fn new() -> Self {
+        Self::with_file_system(StdFileSystem)
+    }
 }
 
-impl AdkService {
-    pub fn new(client: Box<dyn PlatformClient>) -> Self {
-        Self { client }
+impl Default for ProjectWorkspace<StdFileSystem> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Fs: FileSystem> ProjectWorkspace<Fs> {
+    pub fn with_file_system(fs: Fs) -> Self {
+        Self { fs }
     }
 
     pub fn init_project(
@@ -123,7 +129,7 @@ impl AdkService {
         project_name: Option<String>,
     ) -> Result<ProjectConfig, CoreError> {
         let root = base_path.join(&account_id).join(&project_id);
-        fs::create_dir_all(&root)?;
+        self.fs.create_dir_all(&root)?;
         let config = ProjectConfig {
             region,
             account_id,
@@ -133,17 +139,18 @@ impl AdkService {
         };
         let serialized =
             serde_yaml::to_string(&config).map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        fs::write(root.join(PROJECT_CONFIG_FILE), serialized)?;
+        self.fs
+            .write_string(&root.join(PROJECT_CONFIG_FILE), &serialized)?;
         self.write_python_gen_package(&root)?;
         Ok(config)
     }
 
     pub fn load_project_config(&self, base_path: &Path) -> Result<ProjectConfig, CoreError> {
-        let discovered = find_project_root(base_path)
+        let discovered = find_project_root_with_fs(&self.fs, base_path)
             .ok_or_else(|| DomainError::ConfigNotFound(base_path.to_string_lossy().to_string()))?;
         let config_path = discovered.join(PROJECT_CONFIG_FILE);
-        if config_path.exists() {
-            let raw = fs::read_to_string(config_path)?;
+        if self.fs.exists(&config_path) {
+            let raw = self.fs.read_to_string(&config_path)?;
             let config =
                 serde_yaml::from_str(&raw).map_err(|e| DomainError::InvalidData(e.to_string()))?;
             self.run_and_persist_project_migrations(&discovered)?;
@@ -151,8 +158,8 @@ impl AdkService {
         }
 
         let status_path = discovered.join(STATUS_FILE);
-        if status_path.exists() {
-            let encoded = fs::read(status_path)?;
+        if self.fs.exists(&status_path) {
+            let encoded = self.fs.read(&status_path)?;
             let decoded = base64::engine::general_purpose::STANDARD
                 .decode(encoded)
                 .map_err(|e| DomainError::InvalidData(e.to_string()))?;
@@ -190,16 +197,91 @@ impl AdkService {
         Err(DomainError::ConfigNotFound(discovered.to_string_lossy().to_string()).into())
     }
 
-    pub fn collect_local_resources(&self, root: &Path) -> Result<ResourceMap, CoreError> {
-        let mut map = ResourceMap::new();
-        let mut files = Vec::new();
-        for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
-            if entry.file_type().is_file() {
-                files.push(entry.path().to_path_buf());
+    fn write_python_gen_package(&self, project_root: &Path) -> Result<(), CoreError> {
+        let gen_dir = project_root.join("_gen");
+        self.fs.create_dir_all(&gen_dir)?;
+        for path in self.fs.read_dir(&gen_dir)? {
+            if path.extension().is_some_and(|extension| extension == "pyi") {
+                self.fs.remove_file(&path)?;
             }
         }
-        files.sort();
-        for file in files {
+        for (file_name, contents) in PYTHON_GEN_TEMPLATE_FILES {
+            self.fs.write_string(&gen_dir.join(file_name), contents)?;
+        }
+        Ok(())
+    }
+
+    fn run_and_persist_project_migrations(
+        &self,
+        project_root: &Path,
+    ) -> Result<BTreeSet<String>, CoreError> {
+        let mut status = self.load_status_snapshot_json(project_root)?;
+        let mut migration_flags = migration_flags_from_status(&status);
+        if !migration_flags.contains(MIGRATED_LEGACY_TOPIC_FILES) {
+            let had_status_snapshot = self.fs.exists(&project_root.join(STATUS_FILE));
+            let migrated_files = migrate_legacy_topic_files(&self.fs, project_root)?;
+            migration_flags.insert(MIGRATED_LEGACY_TOPIC_FILES.to_string());
+            if had_status_snapshot || migrated_files {
+                status.insert(
+                    "migration_flags".to_string(),
+                    serde_json::Value::Array(
+                        migration_flags
+                            .iter()
+                            .cloned()
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    ),
+                );
+                self.write_python_gen_package(project_root)?;
+                self.write_status_snapshot_json(project_root, &status)?;
+            }
+        }
+        Ok(migration_flags)
+    }
+
+    fn load_status_snapshot_json(
+        &self,
+        project_root: &Path,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, CoreError> {
+        let status_path = project_root.join(STATUS_FILE);
+        if !self.fs.exists(&status_path) {
+            return Ok(serde_json::Map::new());
+        }
+        let encoded = self.fs.read(&status_path)?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        let value: serde_json::Value = serde_json::from_slice(&decoded)?;
+        Ok(value.as_object().cloned().unwrap_or_default())
+    }
+
+    fn write_status_snapshot_json(
+        &self,
+        project_root: &Path,
+        status: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), CoreError> {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(status)?);
+        let status_path = project_root.join(STATUS_FILE);
+        if let Some(parent) = status_path.parent() {
+            self.fs.create_dir_all(parent)?;
+        }
+        self.fs.write_string(&status_path, &encoded)?;
+        Ok(())
+    }
+
+    fn write_project_config(&self, root: &Path, cfg: &ProjectConfig) -> Result<(), CoreError> {
+        let project_root = find_project_root_with_fs(&self.fs, root)
+            .ok_or_else(|| DomainError::ConfigNotFound(root.to_string_lossy().to_string()))?;
+        let serialized =
+            serde_yaml::to_string(cfg).map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        self.fs
+            .write_string(&project_root.join(PROJECT_CONFIG_FILE), &serialized)?;
+        Ok(())
+    }
+
+    pub fn collect_local_resources(&self, root: &Path) -> Result<ResourceMap, CoreError> {
+        let mut map = ResourceMap::new();
+        for file in recursive_file_paths(&self.fs, root)? {
             let rel = file
                 .strip_prefix(root)
                 .unwrap_or(file.as_path())
@@ -208,7 +290,7 @@ impl AdkService {
             if rel == PROJECT_CONFIG_FILE || rel == STATUS_FILE || rel.starts_with("_gen/") {
                 continue;
             }
-            let content = fs::read_to_string(file.as_path()).unwrap_or_default();
+            let content = self.fs.read_to_string(file.as_path()).unwrap_or_default();
             let payload = serde_json::json!({
                 "content": local_resource_content(&rel, &content),
             });
@@ -225,8 +307,7 @@ impl AdkService {
         Ok(map)
     }
 
-    /// Typed discovery matching Python `AgentStudioProject.discover_local_resources()`:
-    /// logical paths per resource type, keyed by Python class name (`Topic`, `Entity`, ...).
+    /// Typed discovery matching Python `AgentStudioProject.discover_local_resources()`.
     pub fn discover_local_resources(&self, root: &Path) -> indexmap::IndexMap<String, Vec<String>> {
         discover::discover_local_resources(root)
     }
@@ -253,73 +334,288 @@ impl AdkService {
     }
 
     pub fn status(&self, root: &Path) -> Result<StatusSummary, CoreError> {
+        self.load_project_config(root)?;
         let mut local = self.collect_local_resources(root)?;
-        let remote = self.client.pull_resources()?;
         let mut summary = StatusSummary {
             conflict_detection_available: true,
             files_with_conflicts: self.detect_conflict_files(root)?,
             ..StatusSummary::default()
         };
 
-        if let Some(existing_typed) = self.load_status_snapshot_discovered_resources(root)? {
-            let discovered_typed = self.discover_local_resources(root);
-            let typed_changes = self.find_new_kept_deleted(&discovered_typed, &existing_typed);
-            summary.new_files =
-                flatten_discovered_paths_by_type_order(&typed_changes.new_resources);
-            summary.deleted_files =
-                flatten_deleted_discovered_paths(&typed_changes.deleted_resources);
+        let existing_typed = self
+            .load_status_snapshot_discovered_resources(root)?
+            .unwrap_or_else(discover::empty_discovered_resource_paths);
+        let discovered_typed = self.discover_local_resources(root);
+        let typed_changes = self.find_new_kept_deleted(&discovered_typed, &existing_typed);
+        summary.new_files = flatten_discovered_paths_by_type_order(&typed_changes.new_resources);
+        summary.deleted_files = flatten_deleted_discovered_paths(&typed_changes.deleted_resources);
 
-            if let Some(snapshot_hashes) = self.load_status_snapshot_file_hashes(root)? {
-                summary.modified_files = compute_modified_files_against_snapshot(
-                    root,
-                    &typed_changes.kept_resources,
-                    &snapshot_hashes,
-                )?;
-                let replacements = self.deleted_resource_reference_replacements(
-                    root,
-                    &typed_changes.deleted_resources,
-                )?;
-                if !replacements.is_empty() {
-                    apply_reference_name_replacements(&mut local, &replacements);
-                    summary.modified_files.extend(
-                        compute_modified_files_against_snapshot_with_replacements(
-                            root,
-                            &typed_changes.kept_resources,
-                            &snapshot_hashes,
-                            &replacements,
-                        )?,
-                    );
-                    stable_dedup(&mut summary.modified_files);
-                }
-            } else {
-                for path in local.keys() {
-                    if let (Some(l), Some(r)) = (local.get(path), remote.get(path))
-                        && l.payload != r.payload
-                    {
-                        summary.modified_files.push(path.clone());
-                    }
-                }
+        if let Some(snapshot_hashes) = self.load_status_snapshot_file_hashes(root)? {
+            summary.modified_files = compute_modified_files_against_snapshot(
+                root,
+                &typed_changes.kept_resources,
+                &snapshot_hashes,
+            )?;
+            let replacements = self
+                .deleted_resource_reference_replacements(root, &typed_changes.deleted_resources)?;
+            if !replacements.is_empty() {
+                apply_reference_name_replacements(&mut local, &replacements);
+                summary.modified_files.extend(
+                    compute_modified_files_against_snapshot_with_replacements(
+                        root,
+                        &typed_changes.kept_resources,
+                        &snapshot_hashes,
+                        &replacements,
+                    )?,
+                );
+                stable_dedup(&mut summary.modified_files);
             }
         } else {
-            for path in local.keys() {
-                if !remote.contains_key(path) {
-                    summary.new_files.push(path.clone());
-                }
+            summary.modified_files =
+                flatten_discovered_paths_by_type_order(&typed_changes.kept_resources);
+        }
+
+        Ok(summary)
+    }
+
+    fn load_status_snapshot_discovered_resources(
+        &self,
+        root: &Path,
+    ) -> Result<Option<DiscoveredResourcePaths>, CoreError> {
+        let status_path = root.join(STATUS_FILE);
+        if !self.fs.exists(&status_path) {
+            return Ok(None);
+        }
+        let encoded = self.fs.read(&status_path)?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
+
+        let resources = match status_json.get("resources").and_then(|v| v.as_object()) {
+            Some(r) => r,
+            None => return Ok(Some(discover::empty_discovered_resource_paths())),
+        };
+
+        let mut discovered = discover::empty_discovered_resource_paths();
+        for (resource_name, resource_entries) in resources {
+            let Some(type_name) = discover::resource_name_to_type_name(resource_name) else {
+                continue;
+            };
+            let Some(entries) = resource_entries.as_object() else {
+                continue;
+            };
+            let mut paths = Vec::new();
+            for resource_data in entries.values() {
+                let Some(file_path) = resource_data.get("file_path").and_then(|v| v.as_str())
+                else {
+                    continue;
+                };
+                paths.push(file_path.replace('\\', "/"));
             }
-            for path in remote.keys() {
-                if !local.contains_key(path) {
-                    summary.deleted_files.push(path.clone());
-                }
-            }
-            for path in local.keys() {
-                if let (Some(l), Some(r)) = (local.get(path), remote.get(path))
-                    && l.payload != r.payload
-                {
-                    summary.modified_files.push(path.clone());
+            paths.sort();
+            paths.dedup();
+            discovered.insert(type_name.to_string(), paths);
+        }
+        Ok(Some(discovered))
+    }
+
+    fn deleted_resource_reference_replacements(
+        &self,
+        root: &Path,
+        deleted_resources: &DiscoveredResourcePaths,
+    ) -> Result<Vec<ReferenceNameReplacement>, CoreError> {
+        let existing_resource_ids = self.load_status_snapshot_resource_ids(root)?;
+        let mut replacements = Vec::new();
+        for (type_name, paths) in deleted_resources {
+            let Some(prefix) = discover::type_name_to_resource_prefix(type_name) else {
+                continue;
+            };
+            for logical_path in paths {
+                let Some(resource_id) = existing_resource_ids.get(logical_path) else {
+                    continue;
+                };
+                let name = reference_name_from_logical_path(logical_path);
+                if !resource_id.is_empty() && !name.is_empty() && resource_id != &name {
+                    replacements.push(ReferenceNameReplacement {
+                        prefix: prefix.to_string(),
+                        id: resource_id.clone(),
+                        name,
+                    });
                 }
             }
         }
-        Ok(summary)
+        Ok(replacements)
+    }
+
+    fn detect_conflict_files(&self, root: &Path) -> Result<Vec<String>, CoreError> {
+        let mut conflicts = Vec::new();
+        for path in recursive_file_paths(&self.fs, root)? {
+            let content = match self.fs.read_to_string(&path) {
+                Ok(content) => content,
+                Err(_) => continue,
+            };
+            if content.contains("<<<<<<<")
+                && content.contains("=======")
+                && content.contains(">>>>>>>")
+            {
+                conflicts.push(path.to_string_lossy().to_string());
+            }
+        }
+        Ok(conflicts)
+    }
+
+    fn load_status_snapshot_file_hashes(
+        &self,
+        root: &Path,
+    ) -> Result<Option<indexmap::IndexMap<String, String>>, CoreError> {
+        let status_path = root.join(STATUS_FILE);
+        if !self.fs.exists(&status_path) {
+            return Ok(None);
+        }
+        let encoded = self.fs.read(&status_path)?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
+        let Some(file_structure_info) = status_json
+            .get("file_structure_info")
+            .and_then(|v| v.as_object())
+        else {
+            return Ok(None);
+        };
+        let mut out = indexmap::IndexMap::new();
+        for (file_path, info) in file_structure_info {
+            let Some(hash) = info.get("hash").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            out.insert(file_path.replace('\\', "/"), hash.to_string());
+        }
+        Ok(Some(out))
+    }
+
+    fn load_status_snapshot_resource_ids(
+        &self,
+        root: &Path,
+    ) -> Result<indexmap::IndexMap<String, String>, CoreError> {
+        let status_path = root.join(STATUS_FILE);
+        if !self.fs.exists(&status_path) {
+            return Ok(indexmap::IndexMap::new());
+        }
+        let encoded = self.fs.read(&status_path)?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
+        let Some(resources) = status_json.get("resources").and_then(|v| v.as_object()) else {
+            return Ok(indexmap::IndexMap::new());
+        };
+        let mut ids = indexmap::IndexMap::new();
+        for entries in resources.values() {
+            let Some(entries) = entries.as_object() else {
+                continue;
+            };
+            for payload in entries.values() {
+                let Some(path) = payload.get("file_path").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let Some(id) = payload.get("resource_id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                ids.insert(path.replace('\\', "/"), id.to_string());
+            }
+        }
+        Ok(ids)
+    }
+}
+
+/// ADK operations backed by a concrete platform client.
+pub struct AdkService<C, Fs = StdFileSystem> {
+    client: C,
+    workspace: ProjectWorkspace<Fs>,
+}
+
+pub struct PullOutcome {
+    pub files_with_conflicts: Vec<String>,
+    pub new_branch_name: Option<String>,
+    pub new_branch_id: Option<String>,
+}
+
+impl<C: PlatformClient> AdkService<C, StdFileSystem> {
+    pub fn new(client: C) -> Self {
+        Self::with_file_system(client, StdFileSystem)
+    }
+}
+
+impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
+    pub fn with_file_system(client: C, fs: Fs) -> Self {
+        Self {
+            client,
+            workspace: ProjectWorkspace::with_file_system(fs),
+        }
+    }
+
+    pub fn init_project(
+        &self,
+        base_path: &Path,
+        region: String,
+        account_id: String,
+        project_id: String,
+    ) -> Result<ProjectConfig, CoreError> {
+        self.workspace
+            .init_project(base_path, region, account_id, project_id)
+    }
+
+    pub fn init_project_with_name(
+        &self,
+        base_path: &Path,
+        region: String,
+        account_id: String,
+        project_id: String,
+        project_name: Option<String>,
+    ) -> Result<ProjectConfig, CoreError> {
+        self.workspace.init_project_with_name(
+            base_path,
+            region,
+            account_id,
+            project_id,
+            project_name,
+        )
+    }
+
+    pub fn load_project_config(&self, base_path: &Path) -> Result<ProjectConfig, CoreError> {
+        self.workspace.load_project_config(base_path)
+    }
+
+    pub fn collect_local_resources(&self, root: &Path) -> Result<ResourceMap, CoreError> {
+        self.workspace.collect_local_resources(root)
+    }
+
+    /// Typed discovery matching Python `AgentStudioProject.discover_local_resources()`:
+    /// logical paths per resource type, keyed by Python class name (`Topic`, `Entity`, ...).
+    pub fn discover_local_resources(&self, root: &Path) -> indexmap::IndexMap<String, Vec<String>> {
+        self.workspace.discover_local_resources(root)
+    }
+
+    /// Typed parity helper matching Python `find_new_kept_deleted` semantics at path level.
+    pub fn find_new_kept_deleted(
+        &self,
+        discovered_resources: &DiscoveredResourcePaths,
+        existing_resources: &DiscoveredResourcePaths,
+    ) -> DiscoveredResourceChanges {
+        self.workspace
+            .find_new_kept_deleted(discovered_resources, existing_resources)
+    }
+
+    pub fn typed_resource_lifecycle(
+        &self,
+        root: &Path,
+    ) -> Result<Vec<TypedResourceLifecycle>, CoreError> {
+        self.workspace.typed_resource_lifecycle(root)
+    }
+
+    pub fn status(&self, root: &Path) -> Result<StatusSummary, CoreError> {
+        self.workspace.status(root)
     }
 
     pub fn diff(
@@ -760,8 +1056,12 @@ impl AdkService {
                 .unwrap_or_default()
                 .to_string();
             let file_content = resource_file_content(path, &content);
-            if target.exists() && !force {
-                let existing = fs::read_to_string(&target).unwrap_or_default();
+            if self.workspace.fs.exists(&target) && !force {
+                let existing = self
+                    .workspace
+                    .fs
+                    .read_to_string(&target)
+                    .unwrap_or_default();
                 if existing.contains("<<<<<<<")
                     && existing.contains("=======")
                     && existing.contains(">>>>>>>")
@@ -781,16 +1081,16 @@ impl AdkService {
                         let merged = format!(
                             "<<<<<<< local\n{existing}\n=======\n{file_content}\n>>>>>>> remote\n"
                         );
-                        fs::write(&target, merged)?;
+                        self.workspace.fs.write_string(&target, &merged)?;
                         files_with_conflicts.push(target.to_string_lossy().to_string());
                         continue;
                     }
                 }
             }
             if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)?;
+                self.workspace.fs.create_dir_all(parent)?;
             }
-            fs::write(target, file_content)?;
+            self.workspace.fs.write_string(&target, &file_content)?;
             written_paths.push(path.clone());
         }
         if let Some(local_resources) = local_resources_before_force.as_ref() {
@@ -805,7 +1105,8 @@ impl AdkService {
                     if let Some(resource) = snapshot_resources.get_mut(path)
                         && let Some(payload) = resource.payload.as_object_mut()
                     {
-                        let formatted_content = fs::read_to_string(root.join(path))?;
+                        let formatted_content =
+                            self.workspace.fs.read_to_string(&root.join(path))?;
                         payload.insert(
                             "content".to_string(),
                             Value::String(local_resource_content(path, &formatted_content)),
@@ -838,7 +1139,7 @@ impl AdkService {
                 continue;
             }
             if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)?;
+                self.workspace.fs.create_dir_all(parent)?;
             }
             let content = resource
                 .payload
@@ -846,7 +1147,9 @@ impl AdkService {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            fs::write(&target, resource_file_content(&path, &content))?;
+            self.workspace
+                .fs
+                .write_string(&target, &resource_file_content(&path, &content))?;
             reverted.push(target_abs_str);
         }
         Ok(reverted)
@@ -1133,7 +1436,10 @@ impl AdkService {
             if formatted != content {
                 changed_files.push(path.clone());
                 if !check {
-                    fs::write(root.join(&path), resource_file_content(&path, &formatted))?;
+                    self.workspace.fs.write_string(
+                        &root.join(&path),
+                        &resource_file_content(&path, &formatted),
+                    )?;
                 }
             }
         }
@@ -1175,42 +1481,8 @@ impl AdkService {
         &self,
         root: &Path,
     ) -> Result<Option<DiscoveredResourcePaths>, CoreError> {
-        let status_path = root.join(STATUS_FILE);
-        if !status_path.exists() {
-            return Ok(None);
-        }
-        let encoded = fs::read(status_path)?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
-
-        let resources = match status_json.get("resources").and_then(|v| v.as_object()) {
-            Some(r) => r,
-            None => return Ok(Some(discover::empty_discovered_resource_paths())),
-        };
-
-        let mut discovered = discover::empty_discovered_resource_paths();
-        for (resource_name, resource_entries) in resources {
-            let Some(type_name) = discover::resource_name_to_type_name(resource_name) else {
-                continue;
-            };
-            let Some(entries) = resource_entries.as_object() else {
-                continue;
-            };
-            let mut paths = Vec::new();
-            for resource_data in entries.values() {
-                let Some(file_path) = resource_data.get("file_path").and_then(|v| v.as_str())
-                else {
-                    continue;
-                };
-                paths.push(file_path.replace('\\', "/"));
-            }
-            paths.sort();
-            paths.dedup();
-            discovered.insert(type_name.to_string(), paths);
-        }
-        Ok(Some(discovered))
+        self.workspace
+            .load_status_snapshot_discovered_resources(root)
     }
 
     fn resolve_named_state(&self, root: &Path, name: &str) -> Result<ResourceMap, CoreError> {
@@ -1258,37 +1530,18 @@ impl AdkService {
         root: &Path,
         deleted_resources: &DiscoveredResourcePaths,
     ) -> Result<Vec<ReferenceNameReplacement>, CoreError> {
-        let existing_resource_ids = self.load_status_snapshot_resource_ids(root)?;
-        let mut replacements = Vec::new();
-        for (type_name, paths) in deleted_resources {
-            let Some(prefix) = discover::type_name_to_resource_prefix(type_name) else {
-                continue;
-            };
-            for logical_path in paths {
-                let Some(resource_id) = existing_resource_ids.get(logical_path) else {
-                    continue;
-                };
-                let name = reference_name_from_logical_path(logical_path);
-                if !resource_id.is_empty() && !name.is_empty() && resource_id != &name {
-                    replacements.push(ReferenceNameReplacement {
-                        prefix: prefix.to_string(),
-                        id: resource_id.clone(),
-                        name,
-                    });
-                }
-            }
-        }
-        Ok(replacements)
+        self.workspace
+            .deleted_resource_reference_replacements(root, deleted_resources)
     }
 
     fn load_replay_state_resources(&self, root: &Path) -> Result<Option<ResourceMap>, CoreError> {
         let Some(path) = self.replay_state_path(root)? else {
             return Ok(None);
         };
-        if !path.exists() {
+        if !self.workspace.fs.exists(&path) {
             return Ok(None);
         }
-        let raw = fs::read_to_string(path)?;
+        let raw = self.workspace.fs.read_to_string(&path)?;
         Ok(Some(serde_json::from_str(&raw)?))
     }
 
@@ -1301,9 +1554,11 @@ impl AdkService {
             return Ok(());
         };
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            self.workspace.fs.create_dir_all(parent)?;
         }
-        fs::write(path, serde_json::to_string(resources)?)?;
+        self.workspace
+            .fs
+            .write_string(&path, &serde_json::to_string(resources)?)?;
         Ok(())
     }
 
@@ -1403,7 +1658,11 @@ impl AdkService {
 
         let mut file_structure_info = serde_json::Map::new();
         for (file_path, (resource_type, resource_id, resource_name)) in file_structure_metadata {
-            let content = fs::read_to_string(project_root.join(&file_path)).unwrap_or_default();
+            let content = self
+                .workspace
+                .fs
+                .read_to_string(&project_root.join(&file_path))
+                .unwrap_or_default();
             file_structure_info.insert(
                 file_path.clone(),
                 serde_json::json!({
@@ -1436,182 +1695,55 @@ impl AdkService {
             base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&status)?);
         let gen_dir = project_root.join("_gen");
         self.write_python_gen_package(&project_root)?;
-        fs::write(gen_dir.join(".agent_studio_config"), encoded)?;
+        self.workspace
+            .fs
+            .write_string(&gen_dir.join(".agent_studio_config"), &encoded)?;
         Ok(())
     }
 
     fn write_python_gen_package(&self, project_root: &Path) -> Result<(), CoreError> {
-        let gen_dir = project_root.join("_gen");
-        fs::create_dir_all(&gen_dir)?;
-        for entry in fs::read_dir(&gen_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().is_some_and(|extension| extension == "pyi") {
-                fs::remove_file(path)?;
-            }
-        }
-        for (file_name, contents) in PYTHON_GEN_TEMPLATE_FILES {
-            fs::write(gen_dir.join(file_name), contents)?;
-        }
-        Ok(())
+        self.workspace.write_python_gen_package(project_root)
     }
 
     fn run_and_persist_project_migrations(
         &self,
         project_root: &Path,
     ) -> Result<BTreeSet<String>, CoreError> {
-        let mut status = self.load_status_snapshot_json(project_root)?;
-        let mut migration_flags = migration_flags_from_status(&status);
-        if !migration_flags.contains(MIGRATED_LEGACY_TOPIC_FILES) {
-            let had_status_snapshot = project_root.join(STATUS_FILE).exists();
-            let migrated_files = migrate_legacy_topic_files(project_root)?;
-            migration_flags.insert(MIGRATED_LEGACY_TOPIC_FILES.to_string());
-            if had_status_snapshot || migrated_files {
-                status.insert(
-                    "migration_flags".to_string(),
-                    serde_json::Value::Array(
-                        migration_flags
-                            .iter()
-                            .cloned()
-                            .map(serde_json::Value::String)
-                            .collect(),
-                    ),
-                );
-                self.write_python_gen_package(project_root)?;
-                self.write_status_snapshot_json(project_root, &status)?;
-            }
-        }
-        Ok(migration_flags)
-    }
-
-    fn load_status_snapshot_json(
-        &self,
-        project_root: &Path,
-    ) -> Result<serde_json::Map<String, serde_json::Value>, CoreError> {
-        let status_path = project_root.join(STATUS_FILE);
-        if !status_path.exists() {
-            return Ok(serde_json::Map::new());
-        }
-        let encoded = fs::read(status_path)?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        let value: serde_json::Value = serde_json::from_slice(&decoded)?;
-        Ok(value.as_object().cloned().unwrap_or_default())
-    }
-
-    fn write_status_snapshot_json(
-        &self,
-        project_root: &Path,
-        status: &serde_json::Map<String, serde_json::Value>,
-    ) -> Result<(), CoreError> {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(status)?);
-        let status_path = project_root.join(STATUS_FILE);
-        if let Some(parent) = status_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(status_path, encoded)?;
-        Ok(())
+        self.workspace
+            .run_and_persist_project_migrations(project_root)
     }
 
     fn write_project_config(&self, root: &Path, cfg: &ProjectConfig) -> Result<(), CoreError> {
-        let project_root = find_project_root(root)
-            .ok_or_else(|| DomainError::ConfigNotFound(root.to_string_lossy().to_string()))?;
-        let serialized =
-            serde_yaml::to_string(cfg).map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        fs::write(project_root.join(PROJECT_CONFIG_FILE), serialized)?;
-        Ok(())
+        self.workspace.write_project_config(root, cfg)
     }
 
     fn detect_conflict_files(&self, root: &Path) -> Result<Vec<String>, CoreError> {
-        let mut conflicts = Vec::new();
-        for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            let content = match fs::read_to_string(path) {
-                Ok(content) => content,
-                Err(_) => continue,
-            };
-            if content.contains("<<<<<<<")
-                && content.contains("=======")
-                && content.contains(">>>>>>>")
-            {
-                conflicts.push(path.to_string_lossy().to_string());
-            }
-        }
-        Ok(conflicts)
+        self.workspace.detect_conflict_files(root)
     }
 
     fn load_status_snapshot_file_hashes(
         &self,
         root: &Path,
     ) -> Result<Option<indexmap::IndexMap<String, String>>, CoreError> {
-        let status_path = root.join(STATUS_FILE);
-        if !status_path.exists() {
-            return Ok(None);
-        }
-        let encoded = fs::read(status_path)?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
-        let Some(file_structure_info) = status_json
-            .get("file_structure_info")
-            .and_then(|v| v.as_object())
-        else {
-            return Ok(None);
-        };
-        let mut out = indexmap::IndexMap::new();
-        for (file_path, info) in file_structure_info {
-            let Some(hash) = info.get("hash").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            out.insert(file_path.replace('\\', "/"), hash.to_string());
-        }
-        Ok(Some(out))
+        self.workspace.load_status_snapshot_file_hashes(root)
     }
 
     fn load_status_snapshot_resource_ids(
         &self,
         root: &Path,
     ) -> Result<indexmap::IndexMap<String, String>, CoreError> {
-        let status_path = root.join(STATUS_FILE);
-        if !status_path.exists() {
-            return Ok(indexmap::IndexMap::new());
-        }
-        let encoded = fs::read(status_path)?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
-        let Some(resources) = status_json.get("resources").and_then(|v| v.as_object()) else {
-            return Ok(indexmap::IndexMap::new());
-        };
-        let mut ids = indexmap::IndexMap::new();
-        for entries in resources.values() {
-            let Some(entries) = entries.as_object() else {
-                continue;
-            };
-            for payload in entries.values() {
-                let Some(path) = payload.get("file_path").and_then(|v| v.as_str()) else {
-                    continue;
-                };
-                let Some(id) = payload.get("resource_id").and_then(|v| v.as_str()) else {
-                    continue;
-                };
-                ids.insert(path.replace('\\', "/"), id.to_string());
-            }
-        }
-        Ok(ids)
+        self.workspace.load_status_snapshot_resource_ids(root)
     }
 }
 
 fn find_project_root(start: &Path) -> Option<PathBuf> {
+    find_project_root_with_fs(&StdFileSystem, start)
+}
+
+fn find_project_root_with_fs<Fs: FileSystem>(fs: &Fs, start: &Path) -> Option<PathBuf> {
     let mut current = start.to_path_buf();
     loop {
-        if current.join(PROJECT_CONFIG_FILE).exists() || current.join(STATUS_FILE).exists() {
+        if fs.exists(&current.join(PROJECT_CONFIG_FILE)) || fs.exists(&current.join(STATUS_FILE)) {
             return Some(current);
         }
         if !current.pop() {
@@ -1637,9 +1769,12 @@ fn migration_flags_from_status(
         .unwrap_or_default()
 }
 
-fn migrate_legacy_topic_files(project_root: &Path) -> Result<bool, CoreError> {
+fn migrate_legacy_topic_files<Fs: FileSystem>(
+    fs: &Fs,
+    project_root: &Path,
+) -> Result<bool, CoreError> {
     let topics_dir = project_root.join("topics");
-    if !topics_dir.is_dir() {
+    if !fs.is_dir(&topics_dir) {
         return Ok(false);
     }
 
@@ -1648,12 +1783,11 @@ fn migrate_legacy_topic_files(project_root: &Path) -> Result<bool, CoreError> {
     let mut old_files = Vec::new();
     let mut old_dirs = BTreeSet::new();
 
-    for entry in WalkDir::new(&topics_dir).into_iter().filter_map(Result::ok) {
-        let topic_path = entry.path();
-        if !topic_path.is_file() || !is_yaml_file(topic_path) {
+    for topic_path in recursive_file_paths(fs, &topics_dir)? {
+        if !is_yaml_file(&topic_path) {
             continue;
         }
-        let raw = fs::read_to_string(topic_path)?;
+        let raw = fs.read_to_string(&topic_path)?;
         let Ok(parsed) = serde_yaml::from_str::<serde_yaml::Value>(&raw) else {
             continue;
         };
@@ -1664,7 +1798,7 @@ fn migrate_legacy_topic_files(project_root: &Path) -> Result<bool, CoreError> {
             continue;
         }
 
-        let rel_path = topic_path.strip_prefix(&topics_dir).unwrap_or(topic_path);
+        let rel_path = topic_path.strip_prefix(&topics_dir).unwrap_or(&topic_path);
         let topic_name = rel_path
             .with_extension("")
             .to_string_lossy()
@@ -1698,21 +1832,37 @@ fn migrate_legacy_topic_files(project_root: &Path) -> Result<bool, CoreError> {
     for (path, content) in &migrated_topics {
         let serialized =
             serde_yaml::to_string(content).map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        fs::write(path, serialized)?;
+        fs.write_string(path, &serialized)?;
     }
     for old_file in old_files {
         if !migrated_topics.contains_key(&old_file) {
-            fs::remove_file(old_file)?;
+            fs.remove_file(&old_file)?;
         }
     }
     let mut old_dirs = old_dirs.into_iter().collect::<Vec<_>>();
     old_dirs.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
     for old_dir in old_dirs {
-        if old_dir.is_dir() && fs::read_dir(&old_dir)?.next().is_none() {
-            fs::remove_dir(old_dir)?;
+        if fs.is_dir(&old_dir) && fs.read_dir(&old_dir)?.is_empty() {
+            fs.remove_dir(&old_dir)?;
         }
     }
     Ok(!migrated_topics.is_empty())
+}
+
+fn recursive_file_paths<Fs: FileSystem>(fs: &Fs, root: &Path) -> Result<Vec<PathBuf>, CoreError> {
+    let mut files = Vec::new();
+    if !fs.is_dir(root) {
+        return Ok(files);
+    }
+    for path in fs.read_dir(root)? {
+        if fs.is_dir(&path) {
+            files.extend(recursive_file_paths(fs, &path)?);
+        } else if fs.is_file(&path) {
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
 }
 
 fn yaml_mapping_contains_key(mapping: &serde_yaml::Mapping, key: &str) -> bool {
@@ -1750,15 +1900,15 @@ fn delete_local_only_resource_files(
 
     for rel_path in local_only_files {
         let path = root.join(rel_path);
-        if path.is_file() {
-            fs::remove_file(path)?;
+        if StdFileSystem.is_file(&path) {
+            StdFileSystem.remove_file(&path)?;
         }
     }
     Ok(())
 }
 
 fn delete_empty_subdirectories(dir: &Path) -> Result<(), CoreError> {
-    if !dir.is_dir() {
+    if !StdFileSystem.is_dir(dir) {
         return Ok(());
     }
     for entry in WalkDir::new(dir)
@@ -1768,8 +1918,8 @@ fn delete_empty_subdirectories(dir: &Path) -> Result<(), CoreError> {
         .filter_map(Result::ok)
     {
         let path = entry.path();
-        if path.is_dir() && fs::read_dir(path)?.next().is_none() {
-            fs::remove_dir(path)?;
+        if StdFileSystem.is_dir(path) && StdFileSystem.read_dir(path)?.is_empty() {
+            StdFileSystem.remove_dir(path)?;
         }
     }
     Ok(())
@@ -3262,7 +3412,9 @@ fn compute_modified_files_against_snapshot(
             continue;
         };
         let current_path = root.join(&rel_path);
-        let current_content = fs::read_to_string(&current_path).unwrap_or_default();
+        let current_content = StdFileSystem
+            .read_to_string(&current_path)
+            .unwrap_or_default();
         let current_hash = compute_hash(&current_content);
         if &current_hash != expected_hash {
             modified_file_paths.insert(rel_path);
@@ -3293,7 +3445,9 @@ fn compute_modified_files_against_snapshot_with_replacements(
             continue;
         };
         let current_path = root.join(&rel_path);
-        let current_content = fs::read_to_string(&current_path).unwrap_or_default();
+        let current_content = StdFileSystem
+            .read_to_string(&current_path)
+            .unwrap_or_default();
         let normalized_content = replace_reference_ids_with_names(&current_content, replacements);
         if normalized_content == current_content {
             continue;
@@ -3332,5 +3486,66 @@ mod tests {
             "\"\"\"Helpers.\"\"\"\nfrom _gen import *  # <AUTO GENERATED>\nimport json\n"
         ));
         assert_eq!(local_resource_content("functions/lookup.py", &pretty), raw);
+    }
+
+    #[test]
+    fn init_and_load_project_can_use_memory_filesystem() {
+        let fs = adk_io::MemoryFileSystem::new();
+        let service = AdkService::with_file_system(
+            adk_api_client::InMemoryPlatformClient::default(),
+            fs.clone(),
+        );
+        let base = Path::new("workspace");
+
+        let config = service
+            .init_project(
+                base,
+                "dev".to_string(),
+                "acct".to_string(),
+                "proj".to_string(),
+            )
+            .expect("init project");
+
+        let root = base.join("acct").join("proj");
+        assert_eq!(config.branch_id, "main");
+        assert!(fs.is_file(&root.join(PROJECT_CONFIG_FILE)));
+        assert!(fs.is_file(&root.join("_gen/decorators.py")));
+
+        let loaded = service
+            .load_project_config(&root.join("functions"))
+            .expect("load project config from nested path");
+        assert_eq!(loaded.account_id, "acct");
+        assert_eq!(loaded.project_id, "proj");
+        assert_eq!(loaded.region, "dev");
+    }
+
+    #[test]
+    fn project_migrations_use_memory_filesystem() {
+        let fs = adk_io::MemoryFileSystem::new();
+        fs.write_string(
+            Path::new("workspace/project.yaml"),
+            "region: dev\naccount_id: acct\nproject_id: proj\nbranch_id: main\n",
+        )
+        .expect("write config");
+        fs.write_string(
+            Path::new("workspace/topics/nested/Hello Topic.yaml"),
+            "content: Hello\n",
+        )
+        .expect("write legacy topic");
+
+        let service = AdkService::with_file_system(
+            adk_api_client::InMemoryPlatformClient::default(),
+            fs.clone(),
+        );
+        service
+            .load_project_config(Path::new("workspace"))
+            .expect("load project config");
+
+        let migrated = Path::new("workspace/topics/nested_hello_topic.yaml");
+        assert!(fs.is_file(migrated));
+        let migrated_content = fs.read_to_string(migrated).expect("read migrated topic");
+        assert!(migrated_content.contains("name: nested/Hello Topic"));
+        assert!(!fs.exists(Path::new("workspace/topics/nested/Hello Topic.yaml")));
+        assert!(!fs.exists(Path::new("workspace/topics/nested")));
     }
 }

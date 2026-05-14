@@ -24,6 +24,7 @@ mod push_single_file_resources;
 mod push_topics;
 mod push_variables;
 
+// Define mapping from projection to resources in file system.
 pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, CommandGenError> {
     let mut map = ResourceMap::new();
 

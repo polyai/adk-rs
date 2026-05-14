@@ -115,23 +115,13 @@ fn status_json_succeeds_on_empty_fixture() {
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be JSON");
 
-    // The Python "empty" fixture still ships `empty_project.json` (snapshot / export). The
-    // Rust scanner treats every file under the root as a resource except `project.yaml` and
-    // `_gen/`, so we see exactly that file as "new" vs an empty in-memory remote.
+    // Python status is local/snapshot based. With no saved resource snapshot, the empty fixture
+    // has no typed ADK resources to classify as new.
     let new_files = payload
         .get("new_files")
         .and_then(|v| v.as_array())
         .expect("new_files array");
-    assert_eq!(new_files.len(), 1);
-    let expected_new_file = std::path::PathBuf::from(&dir)
-        .join("empty_project.json")
-        .to_string_lossy()
-        .to_string();
-    assert_eq!(
-        new_files[0].as_str(),
-        Some(expected_new_file.as_str()),
-        "unexpected new_files: {new_files:?}"
-    );
+    assert!(new_files.is_empty(), "unexpected new_files: {new_files:?}");
     assert_eq!(
         payload
             .get("modified_files")

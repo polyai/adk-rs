@@ -16,6 +16,11 @@
 - Prefer trait-based and metadata-driven mappings that mirror Python naming/structure.
 - For branch/status/diff/push/pull flows, verify whether behavior is local-only vs server-backed.
 - Do not silently substitute in-memory behavior for real remote semantics in user-facing flows.
+- Filesystem access in library crates should go through `adk-io`. Do not add new direct
+  `std::fs` usage in `adk-core` or other reusable library logic; migrate existing call sites to
+  `FileSystem`/`StdFileSystem`/`MemoryFileSystem`. Direct `std::fs` usage is acceptable in
+  `adk-cli` and test harnesses. Once remaining library call sites are gone, enforce this
+  mechanically with Clippy `disallowed-methods`.
 
 ## Quality expectations
 

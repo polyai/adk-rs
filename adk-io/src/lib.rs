@@ -4,6 +4,10 @@ use sha2::{Digest, Sha256};
 use similar::TextDiff;
 use std::path::Path;
 
+mod fs;
+
+pub use fs::{FileSystem, MemoryFileSystem, StdFileSystem};
+
 pub fn canonical_json<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(value)
 }

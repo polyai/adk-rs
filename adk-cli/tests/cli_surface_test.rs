@@ -144,6 +144,27 @@ fn status_json_uses_python_payload_shape() {
 }
 
 #[test]
+fn status_json_does_not_require_remote_fallback() {
+    let project_dir = make_temp_project_dir();
+    let output = run_poly_without_fallback(&["status", "--json", "--path", &project_dir]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert!(
+        payload
+            .get("modified_files")
+            .and_then(|v| v.as_array())
+            .is_some_and(Vec::is_empty)
+    );
+}
+
+#[test]
 fn diff_hash_and_before_after_is_nonfatal() {
     let project_dir = make_temp_project_dir();
     let output = run_poly(&[

@@ -1,7 +1,5 @@
-use adk_api_client::{HttpPlatformClient, InMemoryPlatformClient};
-use adk_core::AdkService;
+use adk_core::ProjectWorkspace;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FfiStatusResponse {
@@ -15,8 +13,8 @@ pub struct FfiStatusResponse {
 }
 
 pub fn status_json(project_path: &str) -> String {
-    let service = service_for_path(project_path);
-    let payload = match service.status(project_path.as_ref()) {
+    let workspace = ProjectWorkspace::new();
+    let payload = match workspace.status(project_path.as_ref()) {
         Ok(summary) => FfiStatusResponse {
             success: true,
             conflict_detection_available: summary.conflict_detection_available,
@@ -39,23 +37,10 @@ pub fn status_json(project_path: &str) -> String {
     serde_json::to_string(&payload).unwrap_or_else(|_| "{\"success\":false}".to_string())
 }
 
-fn service_for_path(path: &str) -> AdkService {
-    let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
-    if let Ok(config) = bootstrap.load_project_config(PathBuf::from(path).as_path())
-        && let Ok(http_client) = HttpPlatformClient::new(
-            &config.region,
-            &config.account_id,
-            &config.project_id,
-            Some(&config.branch_id),
-        )
-    {
-        return AdkService::new(Box::new(http_client));
-    }
-    AdkService::new(Box::new(InMemoryPlatformClient::default()))
-}
-
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)]
+
     use super::*;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -94,21 +79,38 @@ mod tests {
     }
 
     #[test]
-    fn ffi_status_json_falls_back_to_inmemory_when_project_missing() {
+    fn ffi_status_json_reports_missing_project() {
         let raw = status_json("/tmp/definitely-not-an-adk-project");
         let payload: serde_json::Value = serde_json::from_str(&raw).expect("json payload");
-        assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            payload.get("success").and_then(|v| v.as_bool()),
+            Some(false)
+        );
         assert_eq!(
             payload
                 .get("conflict_detection_available")
                 .and_then(|v| v.as_bool()),
-            Some(true)
+            Some(false)
         );
         assert!(
             payload
-                .get("modified_files")
-                .and_then(|v| v.as_array())
-                .is_some()
+                .get("error")
+                .and_then(|v| v.as_str())
+                .is_some_and(|message| message.contains("project configuration not found"))
         );
+        for key in [
+            "modified_files",
+            "new_files",
+            "deleted_files",
+            "files_with_conflicts",
+        ] {
+            assert!(
+                payload
+                    .get(key)
+                    .and_then(|v| v.as_array())
+                    .is_some_and(Vec::is_empty),
+                "{key} should be an empty array"
+            );
+        }
     }
 }

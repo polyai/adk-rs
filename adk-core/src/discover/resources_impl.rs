@@ -4,12 +4,12 @@ use crate::discover::DiscoverResources;
 use crate::discover::resource_utils::{
     clean_name, extract_variable_names_from_code, join_under_root, rel_under_root,
 };
+use adk_io::{FileSystem, StdFileSystem};
 use serde_yaml::Value;
-use std::fs::{self, ReadDir};
 use std::path::{Path, PathBuf};
 
 fn read_yaml_mapping(path: &Path) -> Option<serde_yaml::Mapping> {
-    let raw = fs::read_to_string(path).ok()?;
+    let raw = StdFileSystem.read_to_string(path).ok()?;
     let v: Value = serde_yaml::from_str(&raw).ok()?;
     match v {
         Value::Mapping(m) => Some(m),
@@ -18,10 +18,15 @@ fn read_yaml_mapping(path: &Path) -> Option<serde_yaml::Mapping> {
 }
 
 fn sorted_read_dir(dir: &Path) -> Option<Vec<PathBuf>> {
-    let rd: ReadDir = fs::read_dir(dir).ok()?;
-    let mut v: Vec<PathBuf> = rd.filter_map(|e| e.ok()).map(|e| e.path()).collect();
-    v.sort();
-    Some(v)
+    StdFileSystem.read_dir(dir).ok()
+}
+
+fn is_file(path: impl AsRef<Path>) -> bool {
+    StdFileSystem.is_file(path.as_ref())
+}
+
+fn is_dir(path: impl AsRef<Path>) -> bool {
+    StdFileSystem.is_dir(path.as_ref())
 }
 
 // --- ApiIntegration (poly/resources/api_integration.py) ---
@@ -31,7 +36,7 @@ impl DiscoverResources for ApiIntegration {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/api_integrations.yaml");
-        if !path.is_file() {
+        if !is_file(&path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&path) else {
@@ -67,11 +72,11 @@ impl DiscoverResources for Function {
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         let flows = base_path.join("flows");
-        if flows.is_dir()
+        if is_dir(&flows)
             && let Some(flow_dirs) = sorted_read_dir(&flows)
         {
             for flow_dir in flow_dirs {
-                if !flow_dir.is_dir() {
+                if !is_dir(&flow_dir) {
                     continue;
                 }
                 let flow_functions = flow_dir.join("functions");
@@ -85,7 +90,7 @@ impl DiscoverResources for Function {
             }
         }
         let global_functions = base_path.join("functions");
-        if global_functions.is_dir()
+        if is_dir(&global_functions)
             && let Some(files) = sorted_read_dir(&global_functions)
         {
             for f in files {
@@ -105,7 +110,7 @@ impl DiscoverResources for Topic {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let topics = base_path.join("topics");
-        if !topics.is_dir() {
+        if !is_dir(&topics) {
             return vec![];
         }
         let mut out = Vec::new();
@@ -129,7 +134,7 @@ impl DiscoverResources for SettingsPersonality {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let p = base_path.join("agent_settings/personality.yaml");
-        if p.is_file() {
+        if is_file(&p) {
             vec![rel_under_root(base_path, &p)]
         } else {
             vec![]
@@ -143,7 +148,7 @@ impl DiscoverResources for SettingsRole {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let p = base_path.join("agent_settings/role.yaml");
-        if p.is_file() {
+        if is_file(&p) {
             vec![rel_under_root(base_path, &p)]
         } else {
             vec![]
@@ -157,7 +162,7 @@ impl DiscoverResources for SettingsRules {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let p = base_path.join("agent_settings/rules.txt");
-        if p.is_file() {
+        if is_file(&p) {
             vec![rel_under_root(base_path, &p)]
         } else {
             vec![]
@@ -185,13 +190,13 @@ impl DiscoverResources for FlowStep {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let flows_path = base_path.join("flows");
-        if !flows_path.is_dir() {
+        if !is_dir(&flows_path) {
             return vec![];
         }
         let mut out = Vec::new();
         if let Some(flow_dirs) = sorted_read_dir(&flows_path) {
             for flow_dir in flow_dirs {
-                if !flow_dir.is_dir() {
+                if !is_dir(&flow_dir) {
                     continue;
                 }
                 let steps_path = flow_dir.join("steps");
@@ -228,13 +233,13 @@ impl DiscoverResources for FunctionStep {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let flows_path = base_path.join("flows");
-        if !flows_path.is_dir() {
+        if !is_dir(&flows_path) {
             return vec![];
         }
         let mut out = Vec::new();
         if let Some(flow_dirs) = sorted_read_dir(&flows_path) {
             for flow_dir in flow_dirs {
-                if !flow_dir.is_dir() {
+                if !is_dir(&flow_dir) {
                     continue;
                 }
                 let function_steps_path = flow_dir.join("function_steps");
@@ -257,17 +262,17 @@ impl DiscoverResources for FlowConfig {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let flows_path = base_path.join("flows");
-        if !flows_path.is_dir() {
+        if !is_dir(&flows_path) {
             return vec![];
         }
         let mut out = Vec::new();
         if let Some(flow_dirs) = sorted_read_dir(&flows_path) {
             for flow_dir in flow_dirs {
-                if !flow_dir.is_dir() {
+                if !is_dir(&flow_dir) {
                     continue;
                 }
                 let cfg = flow_dir.join("flow_config.yaml");
-                if cfg.is_file() {
+                if is_file(&cfg) {
                     out.push(rel_under_root(base_path, &cfg));
                 }
             }
@@ -283,7 +288,7 @@ impl DiscoverResources for Entity {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let entities_path = base_path.join("config/entities.yaml");
-        if !entities_path.is_file() {
+        if !is_file(&entities_path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&entities_path) else {
@@ -318,7 +323,7 @@ impl DiscoverResources for ExperimentalConfig {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let p = base_path.join("agent_settings/experimental_config.json");
-        if p.is_file() {
+        if is_file(&p) {
             vec![rel_under_root(base_path, &p)]
         } else {
             vec![]
@@ -333,7 +338,7 @@ impl DiscoverResources for GeneralSafetyFilters {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let p = base_path.join("agent_settings/safety_filters.yaml");
-        if p.is_file() {
+        if is_file(&p) {
             vec![rel_under_root(base_path, &p)]
         } else {
             vec![]
@@ -348,7 +353,7 @@ impl DiscoverResources for SMSTemplate {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/sms_templates.yaml");
-        if !path.is_file() {
+        if !is_file(&path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&path) else {
@@ -383,7 +388,7 @@ impl DiscoverResources for Handoff {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/handoffs.yaml");
-        if !path.is_file() {
+        if !is_file(&path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&path) else {
@@ -418,7 +423,7 @@ impl DiscoverResources for Variant {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/variant_attributes.yaml");
-        if !path.is_file() {
+        if !is_file(&path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&path) else {
@@ -452,7 +457,7 @@ impl DiscoverResources for VariantAttribute {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/variant_attributes.yaml");
-        if !path.is_file() {
+        if !is_file(&path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&path) else {
@@ -488,7 +493,7 @@ impl DiscoverResources for Variable {
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let mut function_files: Vec<PathBuf> = Vec::new();
         let global_functions = base_path.join("functions");
-        if global_functions.is_dir()
+        if is_dir(&global_functions)
             && let Some(files) = sorted_read_dir(&global_functions)
         {
             for f in files {
@@ -498,11 +503,11 @@ impl DiscoverResources for Variable {
             }
         }
         let flows_path = base_path.join("flows");
-        if flows_path.is_dir()
+        if is_dir(&flows_path)
             && let Some(flow_dirs) = sorted_read_dir(&flows_path)
         {
             for flow_dir in flow_dirs {
-                if !flow_dir.is_dir() {
+                if !is_dir(&flow_dir) {
                     continue;
                 }
                 for sub in ["functions", "function_steps"] {
@@ -522,7 +527,7 @@ impl DiscoverResources for Variable {
         }
         let mut names = std::collections::HashSet::new();
         for function_file in function_files {
-            let Ok(code) = fs::read_to_string(&function_file) else {
+            let Ok(code) = StdFileSystem.read_to_string(&function_file) else {
                 continue;
             };
             for v in extract_variable_names_from_code(&code) {
@@ -545,7 +550,7 @@ impl DiscoverResources for VoiceGreeting {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("voice/configuration.yaml");
-        if !file_path.is_file() {
+        if !is_file(&file_path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&file_path) else {
@@ -568,7 +573,7 @@ impl DiscoverResources for VoiceSafetyFilters {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let p = base_path.join("voice/safety_filters.yaml");
-        if p.is_file() {
+        if is_file(&p) {
             vec![rel_under_root(base_path, &p)]
         } else {
             vec![]
@@ -582,7 +587,7 @@ impl DiscoverResources for VoiceStylePrompt {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("voice/configuration.yaml");
-        if !file_path.is_file() {
+        if !is_file(&file_path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&file_path) else {
@@ -605,7 +610,7 @@ impl DiscoverResources for VoiceDisclaimerMessage {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("voice/configuration.yaml");
-        if !file_path.is_file() {
+        if !is_file(&file_path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&file_path) else {
@@ -635,7 +640,7 @@ impl DiscoverResources for ChatGreeting {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("chat/configuration.yaml");
-        if !file_path.is_file() {
+        if !is_file(&file_path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&file_path) else {
@@ -658,7 +663,7 @@ impl DiscoverResources for ChatSafetyFilters {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let p = base_path.join("chat/safety_filters.yaml");
-        if p.is_file() {
+        if is_file(&p) {
             vec![rel_under_root(base_path, &p)]
         } else {
             vec![]
@@ -672,7 +677,7 @@ impl DiscoverResources for ChatStylePrompt {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("chat/configuration.yaml");
-        if !file_path.is_file() {
+        if !is_file(&file_path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&file_path) else {
@@ -699,7 +704,7 @@ impl DiscoverResources for KeyphraseBoosting {
             base_path.join("voice/speech_recognition/keyphrase_boosting.yaml"),
             base_path.join("speech_recognition/keyphrase_boosting.yaml"),
         ];
-        let yaml_path = candidates.into_iter().find(|p| p.is_file());
+        let yaml_path = candidates.into_iter().find(|p| is_file(p));
         let Some(yaml_path) = yaml_path else {
             return vec![];
         };
@@ -735,7 +740,7 @@ impl DiscoverResources for TranscriptCorrection {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let yaml_path = base_path.join("voice/speech_recognition/transcript_corrections.yaml");
-        if !yaml_path.is_file() {
+        if !is_file(&yaml_path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&yaml_path) else {
@@ -770,7 +775,7 @@ impl DiscoverResources for AsrSettings {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let p = base_path.join("voice/speech_recognition/asr_settings.yaml");
-        if p.is_file() {
+        if is_file(&p) {
             vec![rel_under_root(base_path, &p)]
         } else {
             vec![]
@@ -785,7 +790,7 @@ impl DiscoverResources for PhraseFilter {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let yaml_path = base_path.join("voice/response_control/phrase_filtering.yaml");
-        if !yaml_path.is_file() {
+        if !is_file(&yaml_path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&yaml_path) else {
@@ -820,7 +825,7 @@ impl DiscoverResources for Pronunciation {
 
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let yaml_path = base_path.join("voice/response_control/pronunciations.yaml");
-        if !yaml_path.is_file() {
+        if !is_file(&yaml_path) {
             return vec![];
         }
         let Some(m) = read_yaml_mapping(&yaml_path) else {

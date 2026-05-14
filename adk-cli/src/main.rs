@@ -1,8 +1,8 @@
 use adk_api_client::{
-    AccountSummary, HttpPlatformClient, InMemoryPlatformClient, ProjectSummary,
+    AccountSummary, HttpPlatformClient, InMemoryPlatformClient, PlatformClient, ProjectSummary,
 };
 use adk_command_gen::projection_to_resource_map;
-use adk_core::AdkService;
+use adk_core::{AdkService, ProjectWorkspace};
 use anyhow::Result;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Generator, Shell};
@@ -26,6 +26,25 @@ use review::{
 };
 
 const INIT_REGIONS: &[&str] = &["us-1", "euw-1", "uk-1", "studio", "staging", "dev"];
+
+macro_rules! with_remote_service {
+    ($workspace:expr, $path:expr, $json_mode:expr, |$service:ident| $body:expr) => {{
+        match http_service_for_path($workspace, $path) {
+            Ok($service) => $body,
+            Err(error) if allow_inmemory_fallback() => {
+                if should_warn_inmemory_fallback(&error) {
+                    emit_inmemory_fallback_warning($json_mode, &error);
+                }
+                let $service = local_service();
+                $body
+            }
+            Err(error) => {
+                emit_remote_service_error($json_mode, &error);
+                ExitCode::from(1)
+            }
+        }
+    }};
+}
 
 #[derive(Debug, Parser)]
 #[command(
@@ -535,45 +554,29 @@ fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
     console::configure(command_verbose(&cli.command), command_debug(&cli.command));
     tracing::debug!("debug logging enabled");
-    let bootstrap_service = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let workspace = ProjectWorkspace::new();
 
     let result = match cli.command {
         Commands::Docs(args) => cmd_docs(args),
-        Commands::Init(args) => cmd_init(&bootstrap_service, args),
+        Commands::Init(args) => cmd_init(&workspace, args),
         Commands::Pull(args) => {
             if args.from_projection.is_some() {
                 return Ok(cmd_pull(&local_service(), args));
             }
-            let Some(service) = remote_service_for_path(&bootstrap_service, &args.path, args.json)
-            else {
-                return Ok(ExitCode::from(1));
-            };
-            cmd_pull(&service, args)
+            with_remote_service!(&workspace, &args.path, args.json, |service| {
+                cmd_pull(&service, args)
+            })
         }
-        Commands::Push(args) => {
-            let Some(service) =
-                remote_service_for_path(&bootstrap_service, &args.path, args.json)
-            else {
-                return Ok(ExitCode::from(1));
-            };
+        Commands::Push(args) => with_remote_service!(&workspace, &args.path, args.json, |service| {
             cmd_push(&service, args)
-        }
-        Commands::Status(args) => cmd_status(&local_service(), args),
-        Commands::Revert(args) => {
-            let Some(service) =
-                remote_service_for_path(&bootstrap_service, &args.path, args.json)
-            else {
-                return Ok(ExitCode::from(1));
-            };
+        }),
+        Commands::Status(args) => cmd_status(&workspace, args),
+        Commands::Revert(args) => with_remote_service!(&workspace, &args.path, args.json, |service| {
             cmd_revert(&service, args)
-        }
-        Commands::Diff(args) => {
-            let Some(service) = remote_service_for_path(&bootstrap_service, &args.path, args.json)
-            else {
-                return Ok(ExitCode::from(1));
-            };
+        }),
+        Commands::Diff(args) => with_remote_service!(&workspace, &args.path, args.json, |service| {
             cmd_diff(&service, args)
-        }
+        }),
         Commands::Review(args) => cmd_review(args),
         Commands::Branch(args) => cmd_branch(args),
         Commands::Format(args) => cmd_format(args),
@@ -583,10 +586,9 @@ fn run() -> Result<ExitCode> {
         Commands::Deployments(args) => {
             let path = deployments_path(&args);
             let json_mode = deployments_json(&args);
-            let Some(service) = remote_service_for_path(&bootstrap_service, path, json_mode) else {
-                return Ok(ExitCode::from(1));
-            };
-            cmd_deployments(&service, args)
+            with_remote_service!(&workspace, path, json_mode, |service| {
+                cmd_deployments(&service, args)
+            })
         }
     };
     Ok(result)
@@ -684,7 +686,7 @@ fn deployments_debug(args: &DeploymentsArgs) -> bool {
     }
 }
 
-fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
+fn cmd_init(workspace: &ProjectWorkspace, args: InitArgs) -> ExitCode {
     let output_json = args.json || args.output_json_projection;
     let projection_json = match parse_optional_json_arg(args.from_projection.as_deref()) {
         Ok(value) => value,
@@ -703,7 +705,7 @@ fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
         }
     };
     let base = resolve_base_path(&args.base_path);
-    match service.init_project_with_name(
+    match workspace.init_project_with_name(
         &base,
         selection.region.clone(),
         selection.account_id.clone(),
@@ -727,7 +729,7 @@ fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
                     Some("main"),
                 )
             {
-                let remote_service = AdkService::new(Box::new(http_client));
+                let remote_service = AdkService::new(http_client);
                 if args.output_json_projection {
                     match remote_service.pull_projection_json() {
                         Ok(projection) => output_projection = Some(projection),
@@ -996,7 +998,10 @@ fn prompt_confirm(message: &str) -> Result<bool, String> {
     ))
 }
 
-fn prompt_branch_switch(service: &AdkService, path: &Path) -> Result<Option<String>, String> {
+fn prompt_branch_switch<C: PlatformClient>(
+    service: &AdkService<C>,
+    path: &Path,
+) -> Result<Option<String>, String> {
     let current_branch = service
         .current_branch_name(path)
         .map_err(|error| error.to_string())?;
@@ -1038,7 +1043,7 @@ fn resolve_base_path(base_path: &str) -> PathBuf {
     }
 }
 
-fn cmd_pull(service: &AdkService, args: PullArgs) -> ExitCode {
+fn cmd_pull<C: PlatformClient>(service: &AdkService<C>, args: PullArgs) -> ExitCode {
     if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
     }
@@ -1110,7 +1115,7 @@ fn cmd_pull(service: &AdkService, args: PullArgs) -> ExitCode {
     }
 }
 
-fn cmd_push(service: &AdkService, args: PushArgs) -> ExitCode {
+fn cmd_push<C: PlatformClient>(service: &AdkService<C>, args: PushArgs) -> ExitCode {
     let json_mode = args.json || args.output_json_commands;
     if !ensure_project_loaded(service, &args.path, json_mode) {
         return ExitCode::from(1);
@@ -1232,12 +1237,19 @@ fn generated_adk_branch_name() -> String {
     format!("ADK-{}-{}", &suffix[..5], &suffix[5..9])
 }
 
-fn cmd_status(service: &AdkService, args: StatusArgs) -> ExitCode {
-    if !ensure_project_loaded(service, &args.path, args.json) {
+fn cmd_status(workspace: &ProjectWorkspace, args: StatusArgs) -> ExitCode {
+    if workspace
+        .load_project_config(PathBuf::from(&args.path).as_path())
+        .is_err()
+    {
+        emit_error(
+            args.json,
+            "No project configuration found. Run poly init to initialize a project.",
+        );
         return ExitCode::from(1);
     }
     let root = PathBuf::from(&args.path);
-    match service.status(root.as_path()) {
+    match workspace.status(root.as_path()) {
         Ok(summary) => {
             if args.json {
                 println!(
@@ -1332,7 +1344,7 @@ fn absolutize_status_paths(root: &std::path::Path, paths: Vec<String>) -> Vec<St
         .collect()
 }
 
-fn cmd_revert(service: &AdkService, args: RevertArgs) -> ExitCode {
+fn cmd_revert<C: PlatformClient>(service: &AdkService<C>, args: RevertArgs) -> ExitCode {
     if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
     }
@@ -1372,7 +1384,7 @@ fn cmd_revert(service: &AdkService, args: RevertArgs) -> ExitCode {
     }
 }
 
-fn cmd_diff(service: &AdkService, args: DiffArgs) -> ExitCode {
+fn cmd_diff<C: PlatformClient>(service: &AdkService<C>, args: DiffArgs) -> ExitCode {
     if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
     }
@@ -1505,203 +1517,88 @@ fn cmd_review(args: ReviewArgs) -> ExitCode {
             let json_mode = args.json || create.json;
             let needs_remote =
                 create.hash.is_some() || create.before.is_some() || create.after.is_some();
-            let bootstrap = local_service();
-            let service = if needs_remote {
-                let Some(service) = remote_service_for_path(&bootstrap, &args.path, json_mode)
-                else {
-                    return ExitCode::from(1);
-                };
-                service
+            if needs_remote {
+                let workspace = ProjectWorkspace::new();
+                with_remote_service!(&workspace, &args.path, json_mode, |service| {
+                    cmd_review_create(&service, &args.path, args.json, create)
+                })
             } else {
-                local_service()
-            };
-            if !ensure_project_loaded(&service, &args.path, json_mode) {
-                return ExitCode::from(1);
-            }
-            let after = create.hash.clone().or(create.after.clone());
-            let root = PathBuf::from(&args.path);
-            let files = normalize_cli_file_args(root.as_path(), &create.files);
-            let diffs = match service.diff(
-                root.as_path(),
-                &files,
-                create.before.clone(),
-                after.clone(),
-            ) {
-                Ok(diffs) => diffs,
-                Err(_) => {
-                    if json_mode {
-                        println!("{}", json!({"success": false, "message": "Failed to compute diffs."}));
-                    } else {
-                        console::plain("[muted]No changes detected.[/muted]");
-                    }
-                    return ExitCode::SUCCESS;
-                }
-            };
-            if diffs.is_empty() {
-                if json_mode {
-                    println!("{}", json!({"success": false, "message": "No changes to review."}));
-                } else {
-                    console::plain("[muted]No changes detected.[/muted]");
-                }
-                return ExitCode::SUCCESS;
-            }
-            let description = review_description(&args.path, create.hash.as_deref(), create.before.as_deref(), after.as_deref());
-            match github_create_review_gist(diffs.iter(), &description) {
-                Ok(url) => {
-                    if json_mode {
-                        println!("{}", json!({"success": true, "link": url}));
-                    } else {
-                        console::success(format!("Gist created: {url}"));
-                    }
-                    ExitCode::SUCCESS
-                }
-                Err(error) => {
-                    emit_review_message(json_mode, &error);
-                    ExitCode::SUCCESS
-                }
+                let service = local_service();
+                cmd_review_create(&service, &args.path, args.json, create)
             }
         }
     }
 }
 
+fn cmd_review_create<C: PlatformClient>(
+    service: &AdkService<C>,
+    path: &str,
+    parent_json: bool,
+    create: ReviewCreateArgs,
+) -> ExitCode {
+    let json_mode = parent_json || create.json;
+    if !ensure_project_loaded(service, path, json_mode) {
+        return ExitCode::from(1);
+    }
+    let after = create.hash.clone().or(create.after.clone());
+    let root = PathBuf::from(path);
+    let files = normalize_cli_file_args(root.as_path(), &create.files);
+    let diffs = match service.diff(root.as_path(), &files, create.before.clone(), after.clone()) {
+        Ok(diffs) => diffs,
+        Err(_) => {
+            if json_mode {
+                println!(
+                    "{}",
+                    json!({"success": false, "message": "Failed to compute diffs."})
+                );
+            } else {
+                console::plain("[muted]No changes detected.[/muted]");
+            }
+            return ExitCode::SUCCESS;
+        }
+    };
+    if diffs.is_empty() {
+        if json_mode {
+            println!(
+                "{}",
+                json!({"success": false, "message": "No changes to review."})
+            );
+        } else {
+            console::plain("[muted]No changes detected.[/muted]");
+        }
+        return ExitCode::SUCCESS;
+    }
+    let description = review_description(
+        path,
+        create.hash.as_deref(),
+        create.before.as_deref(),
+        after.as_deref(),
+    );
+    match github_create_review_gist(diffs.iter(), &description) {
+        Ok(url) => {
+            if json_mode {
+                println!("{}", json!({"success": true, "link": url}));
+            } else {
+                console::success(format!("Gist created: {url}"));
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            emit_review_message(json_mode, &error);
+            ExitCode::SUCCESS
+        }
+    }
+}
+
 fn cmd_branch(args: BranchArgs) -> ExitCode {
-    let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
+    let workspace = ProjectWorkspace::new();
     match args.command {
-        BranchCommands::List(a) => {
-            let Some(service) = remote_service_for_path(&bootstrap, &a.path, a.json) else {
-                return ExitCode::from(1);
-            };
-            if !ensure_project_loaded(&service, &a.path, a.json) {
-                return ExitCode::from(1);
-            }
-            match (
-                service.current_branch_name_optional(PathBuf::from(&a.path).as_path()),
-                service.list_branch_map(PathBuf::from(&a.path).as_path()),
-            ) {
-                (Ok(current_branch), Ok(branches)) => {
-                    if a.json {
-                        println!(
-                            "{}",
-                            json!({"current_branch": current_branch, "branches": branches})
-                        );
-                        ExitCode::SUCCESS
-                    } else {
-                        print_branch_list(current_branch.as_deref(), branches.iter());
-                        if current_branch.is_none() {
-                            console::warning(
-                                "Current local branch does not exist in Agent Studio. It may have been deleted or merged.",
-                            );
-                        }
-                        ExitCode::SUCCESS
-                    }
-                }
-                (Err(error), _) => {
-                    emit_error(a.json, &error.to_string());
-                    ExitCode::from(1)
-                }
-                (_, Err(error)) => {
-                    emit_error(a.json, &error.to_string());
-                    ExitCode::from(1)
-                }
-            }
-        }
-        BranchCommands::Create(a) => {
-            let Some(service) = remote_service_for_path(&bootstrap, &a.path, a.json) else {
-                return ExitCode::from(1);
-            };
-            if !ensure_project_loaded(&service, &a.path, a.json) {
-                return ExitCode::from(1);
-            }
-            let branch_name_from_prompt;
-            let branch_name = match a.branch_name.as_deref() {
-                Some(branch_name) => branch_name,
-                None if a.json => {
-                    emit_error(
-                        true,
-                        "branch create with --json requires a branch name argument.",
-                    );
-                    return ExitCode::from(1);
-                }
-                None => {
-                    let _ = console::prompt("Enter the name of the new branch: ");
-                    let _ = std::io::stdout().flush();
-                    branch_name_from_prompt = read_stdin_line().trim().to_string();
-                    if branch_name_from_prompt.is_empty() {
-                        emit_error(false, "branch create requires a branch name argument.");
-                        return ExitCode::from(1);
-                    }
-                    branch_name_from_prompt.as_str()
-                }
-            };
-            let path = PathBuf::from(&a.path);
-            if matches!(a.environment.as_deref(), Some("pre-release" | "live")) {
-                if !a.force {
-                    match service.diff(path.as_path(), &[], None, None) {
-                        Ok(diffs) if !diffs.is_empty() => {
-                            let changed_files = diffs
-                                .keys()
-                                .map(String::as_str)
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            emit_error(
-                                a.json,
-                                &format!(
-                                    "Uncommitted changes on main branch: {changed_files}"
-                                ),
-                            );
-                            return ExitCode::from(1);
-                        }
-                        Err(error) => {
-                            emit_error(a.json, &error.to_string());
-                            return ExitCode::from(1);
-                        }
-                        _ => {}
-                    }
-                }
-                if let Some(env_name) = a.environment.as_deref()
-                    && let Err(error) = service.pull_named(path.as_path(), env_name, true)
-                {
-                    emit_error(a.json, &error.to_string());
-                    return ExitCode::from(1);
-                }
-            }
-            match service.create_branch(path.as_path(), branch_name) {
-                Ok(cfg) if matches!(a.environment.as_deref(), Some("pre-release" | "live")) => {
-                    match service.push(path.as_path(), true, true, false) {
-                        Ok(push) if push.success => print_payload(
-                            a.json,
-                            json!({"success": true, "branch_name": branch_name, "new_branch_id": cfg.branch_id}),
-                        ),
-                        Ok(push) => {
-                            emit_error(a.json, &push.message);
-                            ExitCode::from(1)
-                        }
-                        Err(error) => {
-                            emit_error(a.json, &error.to_string());
-                            ExitCode::from(1)
-                        }
-                    }
-                }
-                Ok(cfg) => {
-                    if a.json {
-                        print_payload(
-                            true,
-                            json!({"success": true, "branch_name": branch_name, "new_branch_id": cfg.branch_id}),
-                        )
-                    } else {
-                        console::success(format!(
-                            "Branch '{branch_name}' created (ID: {})",
-                            cfg.branch_id
-                        ));
-                        ExitCode::SUCCESS
-                    }
-                }
-                Err(error) => {
-                    emit_error(a.json, &error.to_string());
-                    ExitCode::from(1)
-                }
-            }
-        }
+        BranchCommands::List(a) => with_remote_service!(&workspace, &a.path, a.json, |service| {
+            cmd_branch_list_with_service(&service, a)
+        }),
+        BranchCommands::Create(a) => with_remote_service!(&workspace, &a.path, a.json, |service| {
+            cmd_branch_create_with_service(&service, a)
+        }),
         BranchCommands::Switch(a) => {
             let projection_json = match parse_optional_json_arg(a.from_projection.as_deref()) {
                 Ok(value) => value,
@@ -1710,90 +1607,143 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                     return ExitCode::from(1);
                 }
             };
-            let Some(service) = (if projection_json.is_some() {
-                Some(local_service())
+            if projection_json.is_some() {
+                let service = local_service();
+                cmd_branch_switch_with_service(&service, a, projection_json)
             } else {
-                remote_service_for_path(&bootstrap, &a.path, a.json || a.output_json_projection)
-            }) else {
-                return ExitCode::from(1);
-            };
+                with_remote_service!(
+                    &workspace,
+                    &a.path,
+                    a.json || a.output_json_projection,
+                    |service| cmd_branch_switch_with_service(&service, a, projection_json)
+                )
+            }
+        }
+        BranchCommands::Current(a) => with_remote_service!(&workspace, &a.path, a.json, |service| {
+            cmd_branch_current_with_service(&service, a)
+        }),
+        BranchCommands::Delete(a) => with_remote_service!(&workspace, &a.path, a.json, |service| {
             if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
-            let path = PathBuf::from(&a.path);
-            let branch_name_from_prompt;
-            let branch_name = match a.branch_name.as_deref() {
-                Some(branch_name) => branch_name,
-                None if a.json => {
+            cmd_branch_delete(&service, a)
+        }),
+        BranchCommands::Merge(a) => with_remote_service!(&workspace, &a.path, a.json, |service| {
+            if !ensure_project_loaded(&service, &a.path, a.json) {
+                return ExitCode::from(1);
+            }
+            cmd_branch_merge(&service, a)
+        }),
+    }
+}
+
+fn cmd_branch_list_with_service<C: PlatformClient>(
+    service: &AdkService<C>,
+    a: CommonPathArgs,
+) -> ExitCode {
+    if !ensure_project_loaded(service, &a.path, a.json) {
+        return ExitCode::from(1);
+    }
+    match (
+        service.current_branch_name_optional(PathBuf::from(&a.path).as_path()),
+        service.list_branch_map(PathBuf::from(&a.path).as_path()),
+    ) {
+        (Ok(current_branch), Ok(branches)) => {
+            if a.json {
+                println!(
+                    "{}",
+                    json!({"current_branch": current_branch, "branches": branches})
+                );
+                ExitCode::SUCCESS
+            } else {
+                print_branch_list(current_branch.as_deref(), branches.iter());
+                if current_branch.is_none() {
+                    console::warning(
+                        "Current local branch does not exist in Agent Studio. It may have been deleted or merged.",
+                    );
+                }
+                ExitCode::SUCCESS
+            }
+        }
+        (Err(error), _) => {
+            emit_error(a.json, &error.to_string());
+            ExitCode::from(1)
+        }
+        (_, Err(error)) => {
+            emit_error(a.json, &error.to_string());
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_branch_create_with_service<C: PlatformClient>(
+    service: &AdkService<C>,
+    a: BranchCreateArgs,
+) -> ExitCode {
+    if !ensure_project_loaded(service, &a.path, a.json) {
+        return ExitCode::from(1);
+    }
+    let branch_name_from_prompt;
+    let branch_name = match a.branch_name.as_deref() {
+        Some(branch_name) => branch_name,
+        None if a.json => {
+            emit_error(
+                true,
+                "branch create with --json requires a branch name argument.",
+            );
+            return ExitCode::from(1);
+        }
+        None => {
+            let _ = console::prompt("Enter the name of the new branch: ");
+            let _ = std::io::stdout().flush();
+            branch_name_from_prompt = read_stdin_line().trim().to_string();
+            if branch_name_from_prompt.is_empty() {
+                emit_error(false, "branch create requires a branch name argument.");
+                return ExitCode::from(1);
+            }
+            branch_name_from_prompt.as_str()
+        }
+    };
+    let path = PathBuf::from(&a.path);
+    if matches!(a.environment.as_deref(), Some("pre-release" | "live")) {
+        if !a.force {
+            match service.diff(path.as_path(), &[], None, None) {
+                Ok(diffs) if !diffs.is_empty() => {
+                    let changed_files = diffs
+                        .keys()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     emit_error(
-                        true,
-                        "branch switch with --json requires a branch name argument.",
+                        a.json,
+                        &format!("Uncommitted changes on main branch: {changed_files}"),
                     );
                     return ExitCode::from(1);
                 }
-                None => match prompt_branch_switch(&service, path.as_path()) {
-                    Ok(Some(selected)) => {
-                        branch_name_from_prompt = selected;
-                        branch_name_from_prompt.as_str()
-                    }
-                    Ok(None) => return ExitCode::SUCCESS,
-                    Err(error) => {
-                        emit_error(false, &error);
-                        return ExitCode::from(1);
-                    }
-                },
-            };
-            if !a.force {
-                match service.diff(path.as_path(), &[], None, None) {
-                    Ok(diffs) if !diffs.is_empty() => {
-                        emit_error(
-                            a.json,
-                            "Cannot switch branches with uncommitted changes. Use --force to switch and discard changes.",
-                        );
-                        return ExitCode::from(1);
-                    }
-                    Ok(_) => {}
-                    Err(error) => {
-                        emit_error(a.json, &error.to_string());
-                        return ExitCode::from(1);
-                    }
+                Err(error) => {
+                    emit_error(a.json, &error.to_string());
+                    return ExitCode::from(1);
                 }
+                _ => {}
             }
-            let mut output_projection = projection_json.clone();
-            match service.set_branch(PathBuf::from(&a.path).as_path(), branch_name) {
-                Ok(_cfg) => {
-                    if let Some(projection) = &projection_json
-                        && let Err(error) = pull_projection_into_path(
-                            path.as_path(),
-                            projection,
-                            a.force,
-                            a.format,
-                        )
-                    {
-                        emit_error(a.json, &error);
-                        return ExitCode::from(1);
-                    } else if projection_json.is_none()
-                        && let Err(error) =
-                            service.pull_named_with_format(path.as_path(), branch_name, a.force, a.format)
-                    {
-                        emit_error(a.json, &error.to_string());
-                        return ExitCode::from(1);
-                    }
-                    if projection_json.is_none() && a.output_json_projection {
-                        match service.pull_projection_json_by_name(branch_name) {
-                            Ok(projection) => output_projection = Some(projection),
-                            Err(error) => {
-                                emit_error(a.json, &error.to_string());
-                                return ExitCode::from(1);
-                            }
-                        }
-                    }
-                    let mut payload = json!({"success": true, "branch_name": branch_name});
-                    if a.output_json_projection {
-                        payload["projection"] =
-                            output_projection.unwrap_or(serde_json::Value::Null);
-                    }
-                    print_payload(a.json || a.output_json_projection, payload)
+        }
+        if let Some(env_name) = a.environment.as_deref()
+            && let Err(error) = service.pull_named(path.as_path(), env_name, true)
+        {
+            emit_error(a.json, &error.to_string());
+            return ExitCode::from(1);
+        }
+    }
+    match service.create_branch(path.as_path(), branch_name) {
+        Ok(cfg) if matches!(a.environment.as_deref(), Some("pre-release" | "live")) => {
+            match service.push(path.as_path(), true, true, false) {
+                Ok(push) if push.success => print_payload(
+                    a.json,
+                    json!({"success": true, "branch_name": branch_name, "new_branch_id": cfg.branch_id}),
+                ),
+                Ok(push) => {
+                    emit_error(a.json, &push.message);
+                    ExitCode::from(1)
                 }
                 Err(error) => {
                     emit_error(a.json, &error.to_string());
@@ -1801,61 +1751,148 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                 }
             }
         }
-        BranchCommands::Current(a) => {
-            let local = local_service();
-            if !ensure_project_loaded(&local, &a.path, a.json) {
-                return ExitCode::from(1);
-            }
-            let path = PathBuf::from(&a.path);
-            let branch_result = match remote_service_for_path(&local, &a.path, a.json) {
-                Some(service) => service.current_branch_name_optional(path.as_path()),
-                None => local.current_branch(path.as_path()).map(Some),
-            };
-            match branch_result {
-                Ok(branch) => {
-                    if a.json {
-                        println!("{}", json!({"current_branch": branch}));
-                    } else if let Some(branch) = branch {
-                        console::plain(format!("[label]Current branch:[/label] {branch}"));
-                    } else {
-                        console::warning(
-                            "Current local branch does not exist in Agent Studio. It may have been deleted or merged.",
-                        );
-                    }
-                    ExitCode::SUCCESS
-                }
-                Err(error) => {
-                    let message = error.to_string();
-                    print_payload(
-                        a.json,
-                        json!({"success": false, "message": clean_error_message(&message)}),
-                    );
-                    ExitCode::SUCCESS
-                }
+        Ok(cfg) => {
+            if a.json {
+                print_payload(
+                    true,
+                    json!({"success": true, "branch_name": branch_name, "new_branch_id": cfg.branch_id}),
+                )
+            } else {
+                console::success(format!(
+                    "Branch '{branch_name}' created (ID: {})",
+                    cfg.branch_id
+                ));
+                ExitCode::SUCCESS
             }
         }
-        BranchCommands::Delete(a) => {
-            let Some(service) = remote_service_for_path(&bootstrap, &a.path, a.json) else {
-                return ExitCode::from(1);
-            };
-            if !ensure_project_loaded(&service, &a.path, a.json) {
-                return ExitCode::from(1);
-            }
-            cmd_branch_delete(&service, a)
-        }
-        BranchCommands::Merge(a) => {
-            let Some(service) = remote_service_for_path(&bootstrap, &a.path, a.json) else {
-                return ExitCode::from(1);
-            };
-            if !ensure_project_loaded(&service, &a.path, a.json) {
-                return ExitCode::from(1);
-            }
-            cmd_branch_merge(&service, a)
+        Err(error) => {
+            emit_error(a.json, &error.to_string());
+            ExitCode::from(1)
         }
     }
 }
 
-fn cmd_branch_delete(service: &AdkService, args: BranchDeleteArgs) -> ExitCode {
+fn cmd_branch_current_with_service<C: PlatformClient>(
+    service: &AdkService<C>,
+    a: CommonPathArgs,
+) -> ExitCode {
+    if !ensure_project_loaded(service, &a.path, a.json) {
+        return ExitCode::from(1);
+    }
+    let path = PathBuf::from(&a.path);
+    match service.current_branch_name_optional(path.as_path()) {
+        Ok(branch) => {
+            if a.json {
+                println!("{}", json!({"current_branch": branch}));
+            } else if let Some(branch) = branch {
+                console::plain(format!("[label]Current branch:[/label] {branch}"));
+            } else {
+                console::warning(
+                    "Current local branch does not exist in Agent Studio. It may have been deleted or merged.",
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            let message = error.to_string();
+            print_payload(
+                a.json,
+                json!({"success": false, "message": clean_error_message(&message)}),
+            );
+            ExitCode::SUCCESS
+        }
+    }
+}
+
+fn cmd_branch_switch_with_service<C: PlatformClient>(
+    service: &AdkService<C>,
+    a: BranchSwitchArgs,
+    projection_json: Option<serde_json::Value>,
+) -> ExitCode {
+    if !ensure_project_loaded(service, &a.path, a.json) {
+        return ExitCode::from(1);
+    }
+    let path = PathBuf::from(&a.path);
+    let branch_name_from_prompt;
+    let branch_name = match a.branch_name.as_deref() {
+        Some(branch_name) => branch_name,
+        None if a.json => {
+            emit_error(
+                true,
+                "branch switch with --json requires a branch name argument.",
+            );
+            return ExitCode::from(1);
+        }
+        None => match prompt_branch_switch(service, path.as_path()) {
+            Ok(Some(selected)) => {
+                branch_name_from_prompt = selected;
+                branch_name_from_prompt.as_str()
+            }
+            Ok(None) => return ExitCode::SUCCESS,
+            Err(error) => {
+                emit_error(false, &error);
+                return ExitCode::from(1);
+            }
+        },
+    };
+    if !a.force {
+        match service.diff(path.as_path(), &[], None, None) {
+            Ok(diffs) if !diffs.is_empty() => {
+                emit_error(
+                    a.json,
+                    "Cannot switch branches with uncommitted changes. Use --force to switch and discard changes.",
+                );
+                return ExitCode::from(1);
+            }
+            Ok(_) => {}
+            Err(error) => {
+                emit_error(a.json, &error.to_string());
+                return ExitCode::from(1);
+            }
+        }
+    }
+    let mut output_projection = projection_json.clone();
+    match service.set_branch(PathBuf::from(&a.path).as_path(), branch_name) {
+        Ok(_cfg) => {
+            if let Some(projection) = &projection_json
+                && let Err(error) =
+                    pull_projection_into_path(path.as_path(), projection, a.force, a.format)
+            {
+                emit_error(a.json, &error);
+                return ExitCode::from(1);
+            } else if projection_json.is_none()
+                && let Err(error) =
+                    service.pull_named_with_format(path.as_path(), branch_name, a.force, a.format)
+            {
+                emit_error(a.json, &error.to_string());
+                return ExitCode::from(1);
+            }
+            if projection_json.is_none() && a.output_json_projection {
+                match service.pull_projection_json_by_name(branch_name) {
+                    Ok(projection) => output_projection = Some(projection),
+                    Err(error) => {
+                        emit_error(a.json, &error.to_string());
+                        return ExitCode::from(1);
+                    }
+                }
+            }
+            let mut payload = json!({"success": true, "branch_name": branch_name});
+            if a.output_json_projection {
+                payload["projection"] = output_projection.unwrap_or(serde_json::Value::Null);
+            }
+            print_payload(a.json || a.output_json_projection, payload)
+        }
+        Err(error) => {
+            emit_error(a.json, &error.to_string());
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_branch_delete<C: PlatformClient>(
+    service: &AdkService<C>,
+    args: BranchDeleteArgs,
+) -> ExitCode {
     let path = PathBuf::from(&args.path);
     let current_branch = match service.current_branch_name(path.as_path()) {
         Ok(branch) => branch,
@@ -1973,8 +2010,8 @@ fn cmd_branch_delete(service: &AdkService, args: BranchDeleteArgs) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn delete_one_branch(
-    service: &AdkService,
+fn delete_one_branch<C: PlatformClient>(
+    service: &AdkService<C>,
     path: &Path,
     branch_name: &str,
     current_branch: &str,
@@ -2012,7 +2049,10 @@ fn print_branch_delete_error(json_mode: bool, message: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn cmd_branch_merge(service: &AdkService, args: BranchMergeArgs) -> ExitCode {
+fn cmd_branch_merge<C: PlatformClient>(
+    service: &AdkService<C>,
+    args: BranchMergeArgs,
+) -> ExitCode {
     let message = args.message.unwrap_or_default();
     if message.trim().is_empty() {
         emit_error(args.json, "Merge message is required.");
@@ -2783,11 +2823,14 @@ fn cmd_validate(args: ValidateArgs) -> ExitCode {
 }
 
 fn cmd_chat(args: ChatArgs) -> ExitCode {
-    let bootstrap = AdkService::new(Box::new(InMemoryPlatformClient::default()));
-    let Some(service) = remote_service_for_path(&bootstrap, &args.path, args.json) else {
-        return ExitCode::from(1);
-    };
-    if !ensure_project_loaded(&service, &args.path, args.json) {
+    let workspace = ProjectWorkspace::new();
+    with_remote_service!(&workspace, &args.path, args.json, |service| {
+        cmd_chat_with_service(&service, args)
+    })
+}
+
+fn cmd_chat_with_service<C: PlatformClient>(service: &AdkService<C>, args: ChatArgs) -> ExitCode {
+    if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
     }
     let messages = match read_chat_messages(args.input_file.as_deref(), &args.messages, args.json) {
@@ -2927,7 +2970,7 @@ fn cmd_chat(args: ChatArgs) -> ExitCode {
         }
 
         let result = run_chat_loop(ChatLoopOptions {
-            service: &service,
+            service,
             conversation_id: &active_conversation_id,
             url: &url,
             environment: &environment,
@@ -2961,8 +3004,8 @@ fn cmd_chat(args: ChatArgs) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-struct ChatLoopOptions<'a> {
-    service: &'a AdkService,
+struct ChatLoopOptions<'a, C: PlatformClient> {
+    service: &'a AdkService<C>,
     conversation_id: &'a str,
     url: &'a str,
     environment: &'a str,
@@ -2981,7 +3024,7 @@ struct ChatLoopResult {
     conversation: serde_json::Value,
 }
 
-fn run_chat_loop(options: ChatLoopOptions<'_>) -> ChatLoopResult {
+fn run_chat_loop<C: PlatformClient>(options: ChatLoopOptions<'_, C>) -> ChatLoopResult {
     let mut turns = Vec::new();
     let mut conversation_ended = options
         .initial_response
@@ -3190,7 +3233,10 @@ fn cmd_completion(args: CompletionArgs) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn cmd_deployments(service: &AdkService, args: DeploymentsArgs) -> ExitCode {
+fn cmd_deployments<C: PlatformClient>(
+    service: &AdkService<C>,
+    args: DeploymentsArgs,
+) -> ExitCode {
     match args.command {
         DeploymentsCommands::List(list_args) => {
             if !ensure_project_loaded(service, &list_args.path, list_args.json) {
@@ -3260,7 +3306,10 @@ fn cmd_deployments(service: &AdkService, args: DeploymentsArgs) -> ExitCode {
     }
 }
 
-fn cmd_deployments_show(service: &AdkService, args: DeploymentsShowArgs) -> ExitCode {
+fn cmd_deployments_show<C: PlatformClient>(
+    service: &AdkService<C>,
+    args: DeploymentsShowArgs,
+) -> ExitCode {
     if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
     }
@@ -3324,7 +3373,10 @@ fn cmd_deployments_show(service: &AdkService, args: DeploymentsShowArgs) -> Exit
     ExitCode::SUCCESS
 }
 
-fn cmd_deployments_promote(service: &AdkService, args: DeploymentsPromoteArgs) -> ExitCode {
+fn cmd_deployments_promote<C: PlatformClient>(
+    service: &AdkService<C>,
+    args: DeploymentsPromoteArgs,
+) -> ExitCode {
     if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
     }
@@ -3477,7 +3529,10 @@ fn cmd_deployments_promote(service: &AdkService, args: DeploymentsPromoteArgs) -
     }
 }
 
-fn cmd_deployments_rollback(service: &AdkService, args: DeploymentsRollbackArgs) -> ExitCode {
+fn cmd_deployments_rollback<C: PlatformClient>(
+    service: &AdkService<C>,
+    args: DeploymentsRollbackArgs,
+) -> ExitCode {
     if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
     }
@@ -3863,7 +3918,11 @@ fn clean_error_message(message: &str) -> &str {
         .unwrap_or(message)
 }
 
-fn ensure_project_loaded(service: &AdkService, path: &str, json_mode: bool) -> bool {
+fn ensure_project_loaded<C: PlatformClient>(
+    service: &AdkService<C>,
+    path: &str,
+    json_mode: bool,
+) -> bool {
     match service.load_project_config(PathBuf::from(path).as_path()) {
         Ok(_) => true,
         Err(_) => {
@@ -4097,65 +4156,61 @@ fn emit_completion<G: Generator>(generator: G, binary_name: &str) {
     generate(generator, &mut command, binary_name, &mut std::io::stdout());
 }
 
-fn service_for_path(bootstrap: &AdkService, path: &str) -> AdkService {
-    // Prefer real HTTP integration whenever project config + API key are available.
-    // Fallback to in-memory client for tests/local dev without credentials.
-    if let Ok(config) = bootstrap.load_project_config(PathBuf::from(path).as_path())
-        && let Ok(http_client) = HttpPlatformClient::new(
-            &config.region,
-            &config.account_id,
-            &config.project_id,
-            Some(&config.branch_id),
-        )
-    {
-        return AdkService::new(Box::new(http_client));
-    }
-    AdkService::new(Box::new(InMemoryPlatformClient::default()))
+fn local_service() -> AdkService<InMemoryPlatformClient> {
+    AdkService::new(InMemoryPlatformClient::default())
 }
 
-fn local_service() -> AdkService {
-    AdkService::new(Box::new(InMemoryPlatformClient::default()))
-}
-
-fn remote_service_for_path(
-    bootstrap: &AdkService,
+/// Builds the service used for commands that require the remote platform.
+///
+/// Local project config is read by `ProjectWorkspace`, then the CLI constructs
+/// the real HTTP client for the configured project and branch.
+fn http_service_for_path(
+    workspace: &ProjectWorkspace,
     path: &str,
-    json_mode: bool,
-) -> Option<AdkService> {
-    let cfg = match bootstrap.load_project_config(PathBuf::from(path).as_path()) {
-        Ok(cfg) => cfg,
-        Err(_) => return Some(service_for_path(bootstrap, path)),
-    };
-    match HttpPlatformClient::new(&cfg.region, &cfg.account_id, &cfg.project_id, Some(&cfg.branch_id)) {
-        Ok(client) => Some(AdkService::new(Box::new(client))),
-        Err(error) => {
-            let allow_fallback =
-                std::env::var("POLY_ADK_ALLOW_INMEMORY_FALLBACK").unwrap_or_default() == "1";
-            if allow_fallback {
-                if json_mode {
-                    eprintln!(
-                        "{}",
-                        json!({
-                            "warning": format!(
-                                "remote platform client unavailable, using in-memory fallback: {error}"
-                            )
-                        })
-                    );
-                } else {
-                    console::warning(format!(
-                        "remote platform client unavailable, using in-memory fallback: {error}"
-                    ));
-                }
-                Some(AdkService::new(Box::new(InMemoryPlatformClient::default())))
-            } else {
-                emit_error(
-                    json_mode,
-                    &format!(
-                        "remote platform client unavailable: {error} (set POLY_ADK_ALLOW_INMEMORY_FALLBACK=1 to opt into local fallback)"
-                    ),
-                );
-                None
-            }
-        }
+) -> Result<AdkService<HttpPlatformClient>, String> {
+    let cfg = workspace
+        .load_project_config(PathBuf::from(path).as_path())
+        .map_err(|_| {
+            "No project configuration found. Run poly init to initialize a project.".to_string()
+        })?;
+    HttpPlatformClient::new(
+        &cfg.region,
+        &cfg.account_id,
+        &cfg.project_id,
+        Some(&cfg.branch_id),
+    )
+    .map(AdkService::new)
+    .map_err(|error| format!("remote platform client unavailable: {error}"))
+}
+
+fn allow_inmemory_fallback() -> bool {
+    std::env::var("POLY_ADK_ALLOW_INMEMORY_FALLBACK").unwrap_or_default() == "1"
+}
+
+fn should_warn_inmemory_fallback(error: &str) -> bool {
+    error.starts_with("remote platform client unavailable")
+}
+
+fn emit_inmemory_fallback_warning(json_mode: bool, error: &str) {
+    if json_mode {
+        eprintln!(
+            "{}",
+            json!({"warning": format!("{error}, using in-memory fallback")})
+        );
+    } else {
+        console::warning(format!("{error}, using in-memory fallback"));
+    }
+}
+
+fn emit_remote_service_error(json_mode: bool, error: &str) {
+    if error.starts_with("remote platform client unavailable") {
+        emit_error(
+            json_mode,
+            &format!(
+                "{error} (set POLY_ADK_ALLOW_INMEMORY_FALLBACK=1 to opt into local fallback)"
+            ),
+        );
+    } else {
+        emit_error(json_mode, error);
     }
 }
