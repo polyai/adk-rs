@@ -6,8 +6,8 @@ use adk_types::{
 pub mod discover;
 mod python_syntax;
 
+use adk_api_client::{ApiError, PlatformClient};
 use adk_io::{compute_hash, diff_resources, parse_multi_resource_path};
-use adk_platform_api::{ApiError, PlatformClient};
 use anyhow::Result;
 use base64::Engine;
 pub use discover::discover_local_resources;

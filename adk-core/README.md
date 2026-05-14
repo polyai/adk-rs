@@ -12,4 +12,4 @@ Core orchestration layer for ADK workflows.
 ## Design Notes
 
 - Keep business logic here, not in `adk-cli`.
-- Depend on abstractions from `adk-platform-api`, not concrete network code.
+- Depend on abstractions from `adk-api-client`, not concrete network code.

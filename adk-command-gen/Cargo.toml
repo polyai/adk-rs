@@ -1,0 +1,21 @@
+[package]
+name = "poly-adk-command-gen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure projection materialization and command generation for the PolyAI ADK."
+readme = "README.md"
+
+[lib]
+name = "adk_command_gen"
+
+[dependencies]
+serde_json.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+indexmap.workspace = true
+uuid.workspace = true
+prost-types.workspace = true
+adk-protobuf.workspace = true
+adk-types.workspace = true

@@ -1,4 +1,4 @@
-# adk-platform-api
+# adk-api-client
 
 API boundary crate between core workflows and remote platform operations.
 
@@ -12,6 +12,5 @@ API boundary crate between core workflows and remote platform operations.
 ## Push Support
 
 The HTTP client implements real calls for projection, deployments, chat, branch,
-and protobuf command-batch push endpoints. Push command generation is split by
-resource family across `push_single_file_resources.rs`, `push_topics.rs`,
-`push_functions.rs`, `push_flows.rs`, and `push_variables.rs`.
+and protobuf command-batch push endpoints. Push command generation lives in
+`adk-command-gen`; this crate is responsible for transport and response handling.

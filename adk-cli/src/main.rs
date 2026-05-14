@@ -1,8 +1,8 @@
-use adk_core::AdkService;
-use adk_platform_api::{
-    projection_to_resource_map, AccountSummary, HttpPlatformClient, InMemoryPlatformClient,
-    ProjectSummary,
+use adk_api_client::{
+    AccountSummary, HttpPlatformClient, InMemoryPlatformClient, ProjectSummary,
 };
+use adk_command_gen::projection_to_resource_map;
+use adk_core::AdkService;
 use anyhow::Result;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Generator, Shell};

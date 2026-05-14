@@ -1,9 +1,10 @@
 [workspace]
 members = [
   "adk-cli",
+  "adk-command-gen",
   "adk-core",
   "adk-io",
-  "adk-platform-api",
+  "adk-api-client",
   "adk-ffi",
   "adk-protobuf",
   "adk-types",
@@ -19,10 +20,11 @@ repository = "https://github.com/polyai/adk-rs"
 [workspace.dependencies]
 # ADK crates
 adk-cli = { package = "poly-adk-cli", version = "0.1.0", path = "adk-cli" }
+adk-command-gen = { package = "poly-adk-command-gen", version = "0.1.0", path = "adk-command-gen" }
 adk-core = { package = "poly-adk-core", version = "0.1.0", path = "adk-core" }
 adk-ffi = { package = "poly-adk-ffi", version = "0.1.0", path = "adk-ffi" }
 adk-io = { package = "poly-adk-io", version = "0.1.0", path = "adk-io" }
-adk-platform-api = { package = "poly-adk-platform-api", version = "0.1.0", path = "adk-platform-api" }
+adk-api-client = { package = "poly-adk-api-client", version = "0.1.0", path = "adk-api-client" }
 adk-protobuf = { package = "poly-adk-protobuf", version = "0.1.0", path = "adk-protobuf" }
 adk-types = { package = "poly-adk-types", version = "0.1.0", path = "adk-types" }
 # 3rd-party

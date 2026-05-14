@@ -1,5 +1,5 @@
+use adk_api_client::{HttpPlatformClient, InMemoryPlatformClient};
 use adk_core::AdkService;
-use adk_platform_api::{HttpPlatformClient, InMemoryPlatformClient};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

@@ -1,5 +1,5 @@
 [package]
-name = "poly-adk-platform-api"
+name = "poly-adk-api-client"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,18 +8,16 @@ description = "Platform API client boundary and push support for the PolyAI ADK.
 readme = "README.md"
 
 [lib]
-name = "adk_platform_api"
+name = "adk_api_client"
 
 [dependencies]
-serde.workspace = true
 serde_json.workspace = true
-serde_yaml.workspace = true
 thiserror.workspace = true
 indexmap.workspace = true
 reqwest.workspace = true
 url.workspace = true
 uuid.workspace = true
 prost.workspace = true
-prost-types.workspace = true
 adk-protobuf.workspace = true
 adk-types.workspace = true
+adk-command-gen.workspace = true

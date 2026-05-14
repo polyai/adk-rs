@@ -26,5 +26,5 @@ regex.workspace = true
 fancy-regex.workspace = true
 ruff_python_parser.workspace = true
 adk-io.workspace = true
-adk-platform-api.workspace = true
+adk-api-client.workspace = true
 adk-types.workspace = true

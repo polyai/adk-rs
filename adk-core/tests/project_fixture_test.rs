@@ -11,9 +11,9 @@
 //! (per-type lists keyed by Python class names). `collect_local_resources()` remains a flat walk of
 //! real files on disk.
 
+use adk_api_client::InMemoryPlatformClient;
 use adk_core::AdkService;
 use adk_io::{compute_hash, parse_multi_resource_path};
-use adk_platform_api::InMemoryPlatformClient;
 use adk_types::{DeploymentList, Resource, ResourceMap};
 use base64::Engine;
 use std::fs;
