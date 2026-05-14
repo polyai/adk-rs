@@ -4,7 +4,7 @@ use adk_domain::{
 use adk_protobuf::agent::{RulesReferences, RulesUpdateRules};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::entities;
-use adk_protobuf::functions::FunctionParameter;
+use adk_protobuf::functions::{FunctionParameter, FunctionUpdateLatencyControl};
 use adk_protobuf::knowledge_base::{KnowledgeBaseCreateTopic, TopicReferences};
 use adk_protobuf::variables::VariableReferences;
 use adk_protobuf::{Command, CommandBatch, Metadata};
@@ -50,6 +50,10 @@ pub trait PlatformClient: Send + Sync {
     }
 
     fn pull_resources(&self) -> Result<ResourceMap, ApiError>;
+    fn pull_projection_json_by_name(&self, name: &str) -> Result<Value, ApiError> {
+        let resources = self.pull_resources_by_name(name)?;
+        serde_json::to_value(resources).map_err(|e| ApiError::Http(e.to_string()))
+    }
     fn pull_resources_by_name(&self, name: &str) -> Result<ResourceMap, ApiError> {
         let _ = name;
         self.pull_resources()
@@ -434,6 +438,37 @@ impl PlatformClient for HttpPlatformClient {
     fn pull_projection_json(&self) -> Result<Value, ApiError> {
         let response = self.fetch_projection_response()?;
         Ok(Self::extract_projection(response))
+    }
+
+    fn pull_projection_json_by_name(&self, name: &str) -> Result<Value, ApiError> {
+        let env_names = ["sandbox", "pre-release", "live"];
+        if env_names.contains(&name) {
+            if let Some(deployment_id) = self.deployment_id_from_active_env(name)? {
+                let response = self.fetch_projection_response_for_deployment(&deployment_id)?;
+                return Ok(Self::extract_projection(response));
+            }
+            return Err(ApiError::Http(format!(
+                "No active deployment found for environment '{name}'"
+            )));
+        }
+
+        let branches = self.list_branches()?;
+        if let Some(branch) = branches
+            .iter()
+            .find(|b| b.name == name || b.branch_id == name)
+        {
+            let response = self.fetch_projection_response_for_branch(&branch.branch_id)?;
+            return Ok(Self::extract_projection(response));
+        }
+
+        if let Some(deployment_id) = self.deployment_id_from_version_prefix(name)? {
+            let response = self.fetch_projection_response_for_deployment(&deployment_id)?;
+            return Ok(Self::extract_projection(response));
+        }
+
+        Err(ApiError::Http(format!(
+            "Name '{name}' not found in environments, branches, or deployments"
+        )))
     }
 
     fn pull_resources_by_name(&self, name: &str) -> Result<ResourceMap, ApiError> {
@@ -989,15 +1024,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
             }).unwrap_or_default(),
         }))
         .map_err(|e| ApiError::Http(e.to_string()))?;
-        map.insert(
-            file_path.clone(),
-            Resource {
-                resource_id: id.clone(),
-                name: name.clone(),
-                file_path,
-                payload: serde_json::json!({"content": content}),
-            },
-        );
+        insert_content_resource(&mut map, &file_path, &id, &name, content)?;
     }
 
     for (id, function) in push_functions::function_entries(projection) {
@@ -1009,15 +1036,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
         let file_name = clean_name(&name).to_lowercase();
         let file_path = format!("functions/{file_name}.py");
         let content = push_functions::function_raw_content(&function);
-        map.insert(
-            file_path.clone(),
-            Resource {
-                resource_id: id.clone(),
-                name,
-                file_path,
-                payload: serde_json::json!({"content": content}),
-            },
-        );
+        insert_content_resource(&mut map, &file_path, &id, &name, content)?;
     }
     for kind in [
         push_functions::SpecialFunctionKind::Start,
@@ -1027,15 +1046,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
             let name = push_functions::special_function_name(kind).to_string();
             let file_path = format!("functions/{name}.py");
             let content = push_functions::function_raw_content(&function);
-            map.insert(
-                file_path.clone(),
-                Resource {
-                    resource_id: id,
-                    name,
-                    file_path,
-                    payload: serde_json::json!({"content": content}),
-                },
-            );
+            insert_content_resource(&mut map, &file_path, &id, &name, content)?;
         }
     }
 
@@ -1060,15 +1071,13 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
     if !entity_yaml_list.is_empty() {
         let content = serde_yaml::to_string(&serde_json::json!({ "entities": entity_yaml_list }))
             .map_err(|e| ApiError::Http(e.to_string()))?;
-        map.insert(
-            "config/entities.yaml".to_string(),
-            Resource {
-                resource_id: "entities".to_string(),
-                name: "entities".to_string(),
-                file_path: "config/entities.yaml".to_string(),
-                payload: serde_json::json!({"content": content}),
-            },
-        );
+        insert_content_resource(
+            &mut map,
+            "config/entities.yaml",
+            "entities",
+            "entities",
+            content,
+        )?;
     }
 
     // config/handoffs.yaml multi-resource file
@@ -1092,15 +1101,13 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
     if !handoff_yaml_list.is_empty() {
         let content = serde_yaml::to_string(&serde_json::json!({ "handoffs": handoff_yaml_list }))
             .map_err(|e| ApiError::Http(e.to_string()))?;
-        map.insert(
-            "config/handoffs.yaml".to_string(),
-            Resource {
-                resource_id: "handoffs".to_string(),
-                name: "handoffs".to_string(),
-                file_path: "config/handoffs.yaml".to_string(),
-                payload: serde_json::json!({ "content": content }),
-            },
-        );
+        insert_content_resource(
+            &mut map,
+            "config/handoffs.yaml",
+            "handoffs",
+            "handoffs",
+            content,
+        )?;
     }
 
     // config/sms_templates.yaml multi-resource file
@@ -1122,15 +1129,13 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
     if !sms_yaml_list.is_empty() {
         let content = serde_yaml::to_string(&serde_json::json!({ "sms_templates": sms_yaml_list }))
             .map_err(|e| ApiError::Http(e.to_string()))?;
-        map.insert(
-            "config/sms_templates.yaml".to_string(),
-            Resource {
-                resource_id: "sms_templates".to_string(),
-                name: "sms_templates".to_string(),
-                file_path: "config/sms_templates.yaml".to_string(),
-                payload: serde_json::json!({ "content": content }),
-            },
-        );
+        insert_content_resource(
+            &mut map,
+            "config/sms_templates.yaml",
+            "sms_templates",
+            "sms_templates",
+            content,
+        )?;
     }
 
     // phrase filters
@@ -1177,29 +1182,25 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
             "phrase_filtering": phrase_yaml_list
         }))
         .map_err(|e| ApiError::Http(e.to_string()))?;
-        map.insert(
-            "voice/response_control/phrase_filtering.yaml".to_string(),
-            Resource {
-                resource_id: "phrase_filtering".to_string(),
-                name: "phrase_filtering".to_string(),
-                file_path: "voice/response_control/phrase_filtering.yaml".to_string(),
-                payload: serde_json::json!({ "content": content }),
-            },
-        );
+        insert_content_resource(
+            &mut map,
+            "voice/response_control/phrase_filtering.yaml",
+            "phrase_filtering",
+            "phrase_filtering",
+            content,
+        )?;
     }
 
     if let Some(features) = experimental_features(projection) {
         let content =
             serde_json::to_string_pretty(&features).map_err(|e| ApiError::Http(e.to_string()))?;
-        map.insert(
-            "agent_settings/experimental_config.json".to_string(),
-            Resource {
-                resource_id: "experimental_config".to_string(),
-                name: "experimental_config".to_string(),
-                file_path: "agent_settings/experimental_config.json".to_string(),
-                payload: serde_json::json!({ "content": content }),
-            },
-        );
+        insert_content_resource(
+            &mut map,
+            "agent_settings/experimental_config.json",
+            "experimental_config",
+            "experimental_config",
+            content,
+        )?;
     }
 
     if let Some(value) = variant_attributes_yaml(projection) {
@@ -1364,15 +1365,13 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Api
         .pointer("/agentSettings/rules/behaviour")
         .and_then(Value::as_str)
     {
-        map.insert(
-            "agent_settings/rules.txt".to_string(),
-            Resource {
-                resource_id: "rules".to_string(),
-                name: "rules".to_string(),
-                file_path: "agent_settings/rules.txt".to_string(),
-                payload: serde_json::json!({ "content": behaviour }),
-            },
-        );
+        insert_content_resource(
+            &mut map,
+            "agent_settings/rules.txt",
+            "rules",
+            "rules",
+            behaviour.to_string(),
+        )?;
     }
     Ok(map)
 }
@@ -1425,19 +1424,33 @@ fn insert_flow_resources(
                     "flows/{folder}/function_steps/{}.py",
                     clean_name(&step_name).to_lowercase()
                 );
-                map.insert(
-                    file_path.clone(),
-                    Resource {
-                        resource_id: id,
-                        name: step_name,
-                        file_path,
-                        payload: serde_json::json!({"content": code}),
-                    },
-                );
+                insert_content_resource(map, &file_path, &id, &step_name, code)?;
             }
             "default_step" => insert_flow_step_resource(map, &folder, id, step, true)?,
             _ => insert_flow_step_resource(map, &folder, id, step, false)?,
         }
+    }
+
+    for (id, function) in projection_nested_entities(flow, &["transitionFunctions"])
+        .into_iter()
+        .chain(projection_nested_entities(flow, &["transition_functions"]))
+    {
+        if function
+            .get("archived")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let function_name = function
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(id.as_str())
+            .to_string();
+        let file_name = clean_name(&function_name).to_lowercase();
+        let file_path = format!("flows/{folder}/functions/{file_name}.py");
+        let content = push_functions::function_raw_content(&function);
+        insert_content_resource(map, &file_path, &id, &function_name, content)?;
     }
 
     Ok(())
@@ -1847,15 +1860,35 @@ fn insert_yaml_resource(
     value: Value,
 ) -> Result<(), ApiError> {
     let content = serde_yaml::to_string(&value).map_err(|e| ApiError::Http(e.to_string()))?;
-    map.insert(
-        file_path.to_string(),
+    insert_content_resource(map, file_path, resource_id, name, content)
+}
+
+fn insert_content_resource(
+    map: &mut ResourceMap,
+    file_path: &str,
+    resource_id: &str,
+    name: &str,
+    content: String,
+) -> Result<(), ApiError> {
+    insert_resource(
+        map,
         Resource {
             resource_id: resource_id.to_string(),
             name: name.to_string(),
             file_path: file_path.to_string(),
             payload: serde_json::json!({ "content": content }),
         },
-    );
+    )
+}
+
+fn insert_resource(map: &mut ResourceMap, resource: Resource) -> Result<(), ApiError> {
+    if map.contains_key(&resource.file_path) {
+        return Err(ApiError::Http(format!(
+            "Duplicate resource file path found: {} for resource {}\nPlease rename the resource to avoid conflicts.",
+            resource.file_path, resource.name
+        )));
+    }
+    map.insert(resource.file_path.clone(), resource);
     Ok(())
 }
 
@@ -2133,6 +2166,7 @@ const DELETE_COMMAND_PRIORITY: &[&str] = &[
     "delete_start_function",
     "delete_end_function",
     "delete_function",
+    "delete_flow_transition_function",
     "delete_topic",
     "handoff_delete",
     "sms_delete_template",
@@ -2150,6 +2184,7 @@ const CREATE_COMMAND_PRIORITY: &[&str] = &[
     "create_function",
     "create_topic",
     "create_flow",
+    "create_flow_transition_function",
     "create_step",
     "create_no_code_condition",
     "stop_keywords_create",
@@ -2162,6 +2197,7 @@ const UPDATE_COMMAND_PRIORITY: &[&str] = &[
     "update_start_function",
     "update_end_function",
     "update_function",
+    "update_flow_transition_function",
     "update_topic",
     "sms_update_template",
     "handoff_update",
@@ -2403,15 +2439,18 @@ fn to_snake_case(s: &str) -> String {
 }
 
 pub(crate) fn clean_name(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
+    let mut cleaned = String::new();
+    let mut last_was_separator = true;
+    for ch in s.chars() {
+        if ch.is_alphanumeric() {
+            cleaned.push(ch);
+            last_was_separator = false;
+        } else if !last_was_separator {
+            cleaned.push('_');
+            last_was_separator = true;
+        }
+    }
+    cleaned.trim_matches('_').to_string()
 }
 
 pub(crate) fn is_synthetic_local_resource_id(resource_id: &str) -> bool {
@@ -2701,6 +2740,9 @@ fn command_to_json_summary(command: &Command) -> Value {
                     update.references.as_ref().map(|refs| &refs.variables),
                 );
             }
+            CommandPayload::UpdateLatencyControl(update) => {
+                value["update_latency_control"] = function_update_latency_control_to_json(update);
+            }
             CommandPayload::CreateTopic(topic) => {
                 value["create_topic"] = create_topic_to_json(topic);
             }
@@ -2817,6 +2859,43 @@ fn special_function_update_to_json(
         .is_some_and(|object| !object.is_empty())
     {
         value.insert("references".to_string(), references);
+    }
+    Value::Object(value)
+}
+
+fn function_update_latency_control_to_json(update: &FunctionUpdateLatencyControl) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert(
+        "function_id".to_string(),
+        Value::String(update.function_id.clone()),
+    );
+    value.insert("enabled".to_string(), Value::Bool(update.enabled));
+    if let Some(initial_delay) = update.initial_delay {
+        value.insert(
+            "initial_delay".to_string(),
+            Value::Number(initial_delay.into()),
+        );
+    }
+    if let Some(interval) = update.interval {
+        value.insert("interval".to_string(), Value::Number(interval.into()));
+    }
+    if let Some(delay_responses) = &update.delay_responses {
+        value.insert(
+            "delay_responses".to_string(),
+            Value::Array(
+                delay_responses
+                    .delay_responses
+                    .iter()
+                    .map(|response| {
+                        serde_json::json!({
+                            "id": response.id,
+                            "message": response.message,
+                            "duration": response.duration,
+                        })
+                    })
+                    .collect(),
+            ),
+        );
     }
     Value::Object(value)
 }
@@ -2939,5 +3018,7 @@ fn insert_bool_map(
     target.insert(key.to_string(), serde_json::json!(source));
 }
 
+#[cfg(test)]
+mod parity_matrix_tests;
 #[cfg(test)]
 mod tests;

@@ -1,6 +1,6 @@
 use adk_domain::{
-    BranchMergeResult, DeploymentList, DiffMap, DomainError, ProjectConfig, PushResult, Resource,
-    ResourceMap, StatusSummary,
+    BranchDescriptor, BranchMergeResult, DeploymentList, DiffMap, DomainError, ProjectConfig,
+    PushResult, Resource, ResourceMap, StatusSummary,
 };
 
 pub mod discover;
@@ -91,6 +91,12 @@ pub enum CoreError {
 
 pub struct AdkService {
     client: Box<dyn PlatformClient>,
+}
+
+pub struct PullOutcome {
+    pub files_with_conflicts: Vec<String>,
+    pub new_branch_name: Option<String>,
+    pub new_branch_id: Option<String>,
 }
 
 impl AdkService {
@@ -617,16 +623,61 @@ impl AdkService {
     }
 
     pub fn pull(&self, root: &Path, force: bool) -> Result<Vec<String>, CoreError> {
+        self.pull_with_format(root, force, false)
+    }
+
+    pub fn pull_with_format(
+        &self,
+        root: &Path,
+        force: bool,
+        format: bool,
+    ) -> Result<Vec<String>, CoreError> {
+        Ok(self
+            .pull_detailed_with_format(root, force, format)?
+            .files_with_conflicts)
+    }
+
+    pub fn pull_resource_map_with_format(
+        &self,
+        root: &Path,
+        resources: ResourceMap,
+        force: bool,
+        format: bool,
+    ) -> Result<Vec<String>, CoreError> {
+        self.write_pulled_resources(root, resources, force, format)
+    }
+
+    pub fn pull_detailed_with_format(
+        &self,
+        root: &Path,
+        force: bool,
+        format: bool,
+    ) -> Result<PullOutcome, CoreError> {
         let remote = if let Some(resources) = self.load_replay_state_resources(root)? {
             resources
         } else {
-            self.client.pull_resources()?
+            let (resources, new_branch) = self.pull_resources_with_branch_reconciliation(root)?;
+            let conflicts = self.write_pulled_resources(root, resources, force, format)?;
+            return Ok(PullOutcome {
+                files_with_conflicts: conflicts,
+                new_branch_name: new_branch.as_ref().map(|branch| branch.name.clone()),
+                new_branch_id: new_branch.map(|branch| branch.branch_id),
+            });
         };
-        self.write_pulled_resources(root, remote, force)
+        let conflicts = self.write_pulled_resources(root, remote, force, format)?;
+        Ok(PullOutcome {
+            files_with_conflicts: conflicts,
+            new_branch_name: None,
+            new_branch_id: None,
+        })
     }
 
     pub fn pull_projection_json(&self) -> Result<Value, CoreError> {
         Ok(self.client.pull_projection_json()?)
+    }
+
+    pub fn pull_projection_json_by_name(&self, name: &str) -> Result<Value, CoreError> {
+        Ok(self.client.pull_projection_json_by_name(name)?)
     }
 
     pub fn pull_named(
@@ -635,12 +686,54 @@ impl AdkService {
         name: &str,
         force: bool,
     ) -> Result<Vec<String>, CoreError> {
+        self.pull_named_with_format(root, name, force, false)
+    }
+
+    pub fn pull_named_with_format(
+        &self,
+        root: &Path,
+        name: &str,
+        force: bool,
+        format: bool,
+    ) -> Result<Vec<String>, CoreError> {
         let remote = if let Some(resources) = self.load_replay_state_resources(root)? {
             resources
         } else {
             self.client.pull_resources_by_name(name)?
         };
-        self.write_pulled_resources(root, remote, force)
+        self.write_pulled_resources(root, remote, force, format)
+    }
+
+    fn pull_resources_with_branch_reconciliation(
+        &self,
+        root: &Path,
+    ) -> Result<(ResourceMap, Option<BranchDescriptor>), CoreError> {
+        let cfg = self.load_project_config(root)?;
+        if cfg.branch_id == "main" {
+            return Ok((self.client.pull_resources()?, None));
+        }
+        let branches = self.client.list_branches()?;
+        if branches
+            .iter()
+            .any(|branch| branch.branch_id == cfg.branch_id || branch.name == cfg.branch_id)
+        {
+            return Ok((self.client.pull_resources()?, None));
+        }
+        let Some(branch) = branches
+            .iter()
+            .find(|branch| branch.name == "main" || branch.branch_id == "main")
+            .or_else(|| branches.first())
+            .cloned()
+        else {
+            return Ok((self.client.pull_resources()?, None));
+        };
+        let mut updated = cfg;
+        updated.branch_id = branch.branch_id.clone();
+        self.write_project_config(root, &updated)?;
+        Ok((
+            self.client.pull_resources_by_name(&branch.name)?,
+            Some(branch),
+        ))
     }
 
     fn write_pulled_resources(
@@ -648,8 +741,10 @@ impl AdkService {
         root: &Path,
         remote: ResourceMap,
         force: bool,
+        format: bool,
     ) -> Result<Vec<String>, CoreError> {
         let mut files_with_conflicts = Vec::new();
+        let mut written_paths = Vec::new();
         let local_resources_before_force = force.then(|| self.discover_local_resources(root));
         let snapshot_hashes = if force {
             None
@@ -696,14 +791,30 @@ impl AdkService {
                 fs::create_dir_all(parent)?;
             }
             fs::write(target, file_content)?;
+            written_paths.push(path.clone());
         }
         if let Some(local_resources) = local_resources_before_force.as_ref() {
             delete_local_only_resource_files(root, &remote, local_resources)?;
             delete_empty_subdirectories(&root.join("flows"))?;
         }
         if files_with_conflicts.is_empty() {
-            self.save_replay_state_resources(root, &remote)?;
-            self.write_status_snapshot_from_resources(root, &remote)?;
+            let mut snapshot_resources = remote.clone();
+            if format && !written_paths.is_empty() {
+                self.format_local_resources(root, &written_paths, false)?;
+                for path in &written_paths {
+                    if let Some(resource) = snapshot_resources.get_mut(path)
+                        && let Some(payload) = resource.payload.as_object_mut()
+                    {
+                        let formatted_content = fs::read_to_string(root.join(path))?;
+                        payload.insert(
+                            "content".to_string(),
+                            Value::String(local_resource_content(path, &formatted_content)),
+                        );
+                    }
+                }
+            }
+            self.save_replay_state_resources(root, &snapshot_resources)?;
+            self.write_status_snapshot_from_resources(root, &snapshot_resources)?;
         }
         Ok(files_with_conflicts)
     }
@@ -810,27 +921,30 @@ impl AdkService {
     pub fn current_branch_name(&self, root: &Path) -> Result<String, CoreError> {
         let current_branch_id = self.current_branch(root)?;
         Ok(self
+            .current_branch_name_optional(root)?
+            .unwrap_or(current_branch_id))
+    }
+
+    pub fn current_branch_name_optional(&self, root: &Path) -> Result<Option<String>, CoreError> {
+        let current_branch_id = self.current_branch(root)?;
+        Ok(self
             .client
             .list_branches()?
             .into_iter()
             .find(|branch| {
                 branch.branch_id == current_branch_id || branch.name == current_branch_id
             })
-            .map(|branch| branch.name)
-            .unwrap_or(current_branch_id))
+            .map(|branch| branch.name))
     }
 
     pub fn list_known_branches(&self, root: &Path) -> Result<Vec<String>, CoreError> {
-        let current_branch_id = self.current_branch(root)?;
-        let mut names: Vec<String> = self
+        let _ = root;
+        let names: Vec<String> = self
             .client
             .list_branches()?
             .into_iter()
             .map(|branch| branch.name)
             .collect();
-        if !names.iter().any(|name| name == &current_branch_id) {
-            names.push(current_branch_id);
-        }
         Ok(names)
     }
 
@@ -838,15 +952,10 @@ impl AdkService {
         &self,
         root: &Path,
     ) -> Result<indexmap::IndexMap<String, String>, CoreError> {
-        let current_branch_id = self.current_branch(root)?;
+        let _ = self.load_project_config(root)?;
         let mut branches = indexmap::IndexMap::new();
         for branch in self.client.list_branches()? {
             branches.insert(branch.name, branch.branch_id);
-        }
-        if !branches.values().any(|id| id == &current_branch_id)
-            && !branches.contains_key(&current_branch_id)
-        {
-            branches.insert(current_branch_id.clone(), current_branch_id);
         }
         Ok(branches)
     }
@@ -914,7 +1023,7 @@ impl AdkService {
                 "Branch '{branch_name}' does not exist or cannot be deleted."
             ))
         })?;
-        let switched_to = if cfg.branch_id == branch_id {
+        let switched_to = if cfg.branch_id == branch_id || cfg.branch_id == branch_name {
             let mut updated_cfg = cfg;
             updated_cfg.branch_id = "main".to_string();
             self.write_project_config(root, &updated_cfg)?;
@@ -1730,6 +1839,21 @@ fn validate_flow_resources(
         validate_flow_function_step_resource(root, &path, content, errors)?;
     }
 
+    let mut transition_function_paths = resources
+        .keys()
+        .filter(|path| {
+            path.starts_with("flows/") && path.contains("/functions/") && path.ends_with(".py")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    transition_function_paths.sort();
+    for path in transition_function_paths {
+        let Some(content) = resource_content(resources, &path) else {
+            continue;
+        };
+        validate_flow_transition_function_resource(root, &path, content, errors)?;
+    }
+
     let mut config_paths = resources
         .keys()
         .filter(|path| path.starts_with("flows/") && path.ends_with("/flow_config.yaml"))
@@ -1760,8 +1884,175 @@ fn validate_python_function_resources(
             continue;
         };
         validate_python_resource_syntax(root, &path, content)?;
+        validate_function_parameter_decorators(root, &path, content)?;
     }
     Ok(())
+}
+
+fn validate_function_parameter_decorators(
+    root: &Path,
+    path: &str,
+    content: &str,
+) -> Result<(), CoreError> {
+    let function_name = reference_name_from_logical_path(path);
+    let Some(parameters) = function_signature_parameters(content, &function_name) else {
+        return Ok(());
+    };
+    for parameter_name in function_parameter_decorator_names(content) {
+        let Some(annotation) = parameters.get(&parameter_name) else {
+            return Err(DomainError::InvalidData(resource_read_error_with_detail(
+                root,
+                path,
+                &format!(
+                    "Parameter '{parameter_name}' has no type annotation. Supported types: str, int, float, bool."
+                ),
+            ))
+            .into());
+        };
+        let Some(annotation) = annotation else {
+            return Err(DomainError::InvalidData(resource_read_error_with_detail(
+                root,
+                path,
+                &format!(
+                    "Parameter '{parameter_name}' has no type annotation. Supported types: str, int, float, bool."
+                ),
+            ))
+            .into());
+        };
+        if !matches!(annotation.as_str(), "str" | "int" | "float" | "bool") {
+            return Err(DomainError::InvalidData(resource_read_error_with_detail(
+                root,
+                path,
+                &format!(
+                    "Parameter '{parameter_name}' has an unsupported type annotation. Supported types: str, int, float, bool."
+                ),
+            ))
+            .into());
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct FunctionSignatureParameter {
+    name: String,
+    annotation: Option<String>,
+}
+
+fn function_signature_parameter_list(
+    content: &str,
+    function_name: &str,
+) -> Option<Vec<FunctionSignatureParameter>> {
+    let prefix = format!("def {function_name}(");
+    let signature = content
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with(&prefix))?;
+    let open = signature.find('(')?;
+    let close = signature[open + 1..].find(')')?;
+    let params = &signature[open + 1..open + 1 + close];
+    Some(
+        params
+            .split(',')
+            .map(str::trim)
+            .filter(|param| !param.is_empty())
+            .filter_map(|param| {
+                let before_default = param.split('=').next().unwrap_or_default().trim();
+                let (name, annotation) = before_default
+                    .split_once(':')
+                    .map(|(name, annotation)| {
+                        (name.trim().to_string(), Some(annotation.trim().to_string()))
+                    })
+                    .unwrap_or_else(|| (before_default.to_string(), None));
+                (!name.is_empty()).then_some(FunctionSignatureParameter { name, annotation })
+            })
+            .collect(),
+    )
+}
+
+fn function_signature_parameters(
+    content: &str,
+    function_name: &str,
+) -> Option<HashMap<String, Option<String>>> {
+    Some(
+        function_signature_parameter_list(content, function_name)?
+            .into_iter()
+            .map(|parameter| (parameter.name, parameter.annotation))
+            .collect(),
+    )
+}
+
+fn function_parameter_decorator_names(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let rest = line.trim().strip_prefix("@func_parameter(")?;
+            let args = parse_python_string_args(rest.strip_suffix(')').unwrap_or(rest));
+            args.first().cloned()
+        })
+        .collect()
+}
+
+fn parse_python_string_args(value: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for ch in value.chars() {
+        if let Some(active_quote) = quote {
+            current.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+        match ch {
+            '\'' | '"' => {
+                quote = Some(ch);
+                current.push(ch);
+            }
+            ',' => {
+                args.push(parse_python_string_literal(current.trim()));
+                current.clear();
+            }
+            other => current.push(other),
+        }
+    }
+    if !current.trim().is_empty() {
+        args.push(parse_python_string_literal(current.trim()));
+    }
+    args
+}
+
+fn parse_python_string_literal(value: &str) -> String {
+    let mut chars = value.chars();
+    let Some(quote @ ('\'' | '"')) = chars.next() else {
+        return value.to_string();
+    };
+    let mut out = String::new();
+    let mut escaped = false;
+    for ch in chars {
+        if escaped {
+            match ch {
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                other => out.push(other),
+            }
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == quote {
+            break;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 fn is_python_function_resource(path: &str) -> bool {
@@ -2009,7 +2300,27 @@ fn validate_flow_function_step_resource(
     content: &str,
     errors: &mut Vec<String>,
 ) -> Result<(), CoreError> {
+    validate_flow_scoped_function_resource(root, path, content, errors, false)
+}
+
+fn validate_flow_transition_function_resource(
+    root: &Path,
+    path: &str,
+    content: &str,
+    errors: &mut Vec<String>,
+) -> Result<(), CoreError> {
+    validate_flow_scoped_function_resource(root, path, content, errors, true)
+}
+
+fn validate_flow_scoped_function_resource(
+    root: &Path,
+    path: &str,
+    content: &str,
+    errors: &mut Vec<String>,
+    allow_user_parameters: bool,
+) -> Result<(), CoreError> {
     validate_python_resource_syntax(root, path, content)?;
+    validate_function_parameter_decorators(root, path, content)?;
     let Some(file_name) = path
         .rsplit('/')
         .next()
@@ -2018,13 +2329,40 @@ fn validate_flow_function_step_resource(
         return Ok(());
     };
     let expected_typed = format!("def {file_name}(conv: Conversation, flow: Flow)");
-    let expected_untyped = format!("def {file_name}(conv, flow)");
-    if !content.contains(&expected_typed) && !content.contains(&expected_untyped) {
+    let valid_signature = if allow_user_parameters {
+        flow_scoped_signature_has_receiver_prefix(content, file_name)
+    } else {
+        content.contains(&expected_typed)
+            || content.contains(&format!("def {file_name}(conv, flow)"))
+    };
+    if !valid_signature {
         errors.push(format!(
             "Validation error in {path}: Function definition '{expected_typed}' not found in code."
         ));
     }
     Ok(())
+}
+
+fn flow_scoped_signature_has_receiver_prefix(content: &str, function_name: &str) -> bool {
+    let Some(parameters) = function_signature_parameter_list(content, function_name) else {
+        return false;
+    };
+    let Some(conv) = parameters.first() else {
+        return false;
+    };
+    let Some(flow) = parameters.get(1) else {
+        return false;
+    };
+    conv.name == "conv"
+        && conv
+            .annotation
+            .as_deref()
+            .is_none_or(|annotation| annotation == "Conversation")
+        && flow.name == "flow"
+        && flow
+            .annotation
+            .as_deref()
+            .is_none_or(|annotation| annotation == "Flow")
 }
 
 fn validate_python_resource_syntax(

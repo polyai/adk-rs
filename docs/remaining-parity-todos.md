@@ -2,6 +2,49 @@
 
 Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be covered by a Python recording fixture first where practical, then brought to parity in Rust.
 
+- [x] **Restore flow transition-function parity** (`flow-transition-function-parity`)
+  - Python treats `flows/<flow>/functions/*.py` as transition-function resources, materializes them from remote flow transition functions, validates them with `Conversation, Flow` signatures, and pushes create/update/delete transition-function commands plus latency-control updates.
+  - Rust currently discovers these files but does not materialize transition functions from projections, and `push_functions.rs` ignores paths outside `functions/`, so local transition-function changes can be invisible to push.
+  - Add Python recording coverage for pull/init materialization, status/diff, validation, dry-run push create/update/delete, and latency-control updates, then implement Rust projection and command generation.
+  - Progress: the in-memory parity matrix now covers transition-function materialization plus create/update/delete command generation, and Rust now materializes `flows/<flow>/functions/*.py`, embeds transition functions in new-flow creates, and emits existing-flow transition-function create/update/delete commands.
+  - Implemented: transition functions are now covered by the local parity matrix for materialization/create/update/delete, validated with flow-scoped `Conversation, Flow` signatures, and generate flow-scoped latency-control update commands from `@func_latency_control` decorators.
+
+- [x] **Finish Python function decorator, metadata, and validation parity** (`function-decorator-validation-parity`)
+  - Python parses `@func_description`, `@func_parameter`, and `@func_latency_control`, preserves existing parameter and delay-response IDs, maps Python annotations to schema types, extracts variable references, and validates exact function shapes and references.
+  - Rust currently infers global function parameters from signatures with empty descriptions/string types, omits global function variable references and latency-control commands, gives function steps default latency-control payloads, and only validates a narrow subset of function semantics.
+  - Add recordings for global, start, end, transition, and function-step decorator metadata plus representative invalid-function cases, then port the parser and validator behavior.
+  - Progress: global/transition function command generation now parses simple `@func_parameter` decorators, maps `str`/`int`/`float`/`bool` annotations to Python-compatible schema types, ignores `conv`/`flow` receiver parameters, preserves remote parameter metadata objects, and includes variable references on global function create/update commands.
+  - Implemented: `@func_latency_control` is now parsed for global functions, flow function steps, and transition functions; global creates embed latency control, global updates emit `update_latency_control`, function-step creates/updates carry Python-compatible latency payloads, and transition functions emit flow-scoped latency-control updates. Generated parameter and delay-response IDs are normalized in recording replay, decorator parameter/type validation is covered locally, and function-step create payloads preserve Python's empty latency-control object shape when latency is disabled.
+
+- [x] **Honor formatting flags on init, pull, and branch switch** (`init-pull-switch-format-parity`)
+  - Python passes `--format` through `init_project`, `pull_project`, and `switch_branch`, formatting resources as they are written.
+  - Rust exposes the same flags but currently only uses formatting for `push --format` and `format`; `init --format`, `pull --format`, and `branch switch --format` are ignored.
+  - Add focused recording fixtures for each command and make the write path apply Python-compatible resource formatting.
+  - Implemented: `init --format`, `pull --format`, and `branch switch --format` now route through the shared formatted pull writer, format written resources, and baseline the status snapshot from formatted disk content so a freshly formatted pull stays clean. Local projection-driven CLI tests cover all three commands without expanding the cassette set.
+
+- [x] **Align hidden projection-output CLI semantics** (`projection-output-flag-parity`)
+  - Python treats `--output-json-projection` as an output/capture flag, not as full `--json`: interactive `init` and `branch switch` can still prompt, missing-project errors follow human mode unless `--json` is set, and branch switch returns the pulled projection when no `--from-projection` is supplied.
+  - Rust currently folds `output_json_projection` into JSON-mode selection/error behavior and returns `projection: null` for branch switch without `--from-projection`.
+  - Add replay and recording coverage for `init`, `pull`, and `branch switch` hidden projection flags, then align prompts, errors, and projection payloads.
+  - Implemented: projection-output mode no longer forces JSON-only init/branch-switch argument behavior or missing-project errors, and remote branch switch now fetches and returns the selected branch projection when `--output-json-projection` is used without `--from-projection`. Local CLI tests cover missing-project error mode and non-null branch-switch projection output.
+
+- [x] **Reconcile remote-deleted current branch behavior** (`remote-deleted-branch-parity`)
+  - Python reports `current_branch: null` and human warnings when the locally configured branch id no longer exists remotely, and `pull` can switch to the server-selected branch while emitting `new_branch_name` and `new_branch_id`.
+  - Rust currently falls back to displaying the stale local branch id, includes it in branch lists, and `pull` does not update or report branch changes from the remote client.
+  - Add recording coverage for branch current/list/pull after remote branch deletion, then align branch reconciliation.
+  - Implemented: branch current/list now treat a missing remote branch as `None` instead of inventing a stale branch entry, human mode warns about the deleted/merged local branch, and pull reconciles to `main` (or the first available branch) while updating `project.yaml` and emitting `new_branch_name`/`new_branch_id` in JSON output.
+
+- [x] **Detect duplicate projected file-path collisions** (`duplicate-projection-path-parity`)
+  - Python raises `Duplicate resource file path found...` when remote/projection resources clean to the same local path.
+  - Rust projection materialization is keyed by file path and can silently overwrite one colliding resource.
+  - Add projection/unit coverage for duplicate cleaned names across single-file and multi-resource families, then fail before writing.
+  - Implemented: projection materialization now uses a single checked insertion path, raises the Python-style duplicate path error before writing, and aligns platform projection-name cleaning with Python's punctuation/whitespace normalization. Platform tests cover single-file topic collisions and flow-step path collisions.
+
+- [x] **Record and decide `chat --input-file` behavior** (`chat-input-file-parity`)
+  - Python dispatch currently appears to treat the loaded input-file string as a context manager before splitting lines, while Rust implements the intended line-splitting behavior.
+  - Add a Python behavior recording or annotate the Python bug before deciding whether Rust should preserve the observed contract or intentionally differ.
+  - Implemented: `chat-json` records the observed Python input-file failure contract, the Python source now calls out the bug explicitly, and Rust preserves the same behavior while still matching Python's file-not-found check before the context-manager failure.
+
 - [x] **Close resource-family recording coverage gaps** (`resource-family-recording-coverage`)
   - Our Python recordings are high-fidelity contracts for the workflows they exercise, but they are not yet a complete resource-family coverage matrix.
   - Add Python recording fixtures for flow resources (`flow_config`, `flow_steps`, `function_steps`) covering pull/init materialization, status/diff detection, dry-run push create/update/delete, and validation errors.

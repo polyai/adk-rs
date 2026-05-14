@@ -12,8 +12,10 @@ use adk_protobuf::end_function::{
     EndFunctionCreate, EndFunctionDelete, EndFunctionReferences, EndFunctionUpdate,
 };
 use adk_protobuf::functions::{
-    ErrorsUpdate, FunctionCreateFunction, FunctionDeleteFunction, FunctionError,
-    FunctionParameterUpdate, FunctionUpdateFunction, ParametersUpdate,
+    DelayResponseUpdate, DelayResponsesUpdate, ErrorsUpdate, FunctionCreateFunction,
+    FunctionCreateLatencyControl, FunctionDelayResponse, FunctionDeleteFunction, FunctionError,
+    FunctionParameterUpdate, FunctionReferences, FunctionUpdateFunction,
+    FunctionUpdateLatencyControl, ParametersUpdate,
 };
 use adk_protobuf::start_function::{
     StartFunctionCreate, StartFunctionDelete, StartFunctionReferences, StartFunctionUpdate,
@@ -189,7 +191,10 @@ pub(crate) fn function_resource_command_groups(
             .unwrap_or_else(|| format!("function-{}", clean_name(&name).to_lowercase()));
         let function_code = function_code_from_local_content(content);
         let inferred_description = infer_function_description(content);
-        let inferred_parameters = infer_function_parameters(&function_code);
+        let inferred_parameters = infer_function_parameters(content);
+        let variable_references = variable_reference_ids_from_code(&function_code, projection);
+        let local_latency =
+            local_latency_control_from_code(content, remote_function.map(|(_, function)| function));
 
         if remote_functions.contains_key(&name) {
             let remote_code = remote_function
@@ -198,45 +203,63 @@ pub(crate) fn function_resource_command_groups(
                 .and_then(|(_, function)| function.get("description").and_then(Value::as_str));
             let description_changed = !inferred_description.is_empty()
                 && remote_description != Some(inferred_description.as_str());
-            if remote_code == Some(function_code.as_str()) && !description_changed {
-                continue;
-            }
-            let description = if description_changed {
-                Some(inferred_description.clone())
-            } else {
-                remote_function
-                    .and_then(|(_, function)| function.get("description").and_then(Value::as_str))
-                    .map(ToString::to_string)
+            if remote_code != Some(function_code.as_str()) || description_changed {
+                let description = if description_changed {
+                    Some(inferred_description.clone())
+                } else {
+                    remote_function
+                        .and_then(|(_, function)| {
+                            function.get("description").and_then(Value::as_str)
+                        })
+                        .map(ToString::to_string)
+                        .or_else(|| {
+                            (!inferred_description.is_empty())
+                                .then_some(inferred_description.clone())
+                        })
+                };
+                let parameters = remote_function
+                    .and_then(|(_, function)| function_parameters_update_from_projection(function))
                     .or_else(|| {
-                        (!inferred_description.is_empty()).then_some(inferred_description.clone())
-                    })
-            };
-            let parameters = remote_function
-                .and_then(|(_, function)| function_parameters_update_from_projection(function))
-                .or_else(|| {
-                    (!inferred_parameters.is_empty()).then_some(ParametersUpdate {
-                        parameters: inferred_parameters.clone(),
-                    })
-                });
-            let errors = remote_function
-                .and_then(|(_, function)| function_errors_update_from_projection(function));
-            push_command(
-                &mut groups.updates,
-                metadata,
-                "update_function",
-                CommandPayload::UpdateFunction(FunctionUpdateFunction {
-                    id: id.clone(),
-                    name: Some(name.clone()),
-                    description,
-                    parameters,
-                    code: Some(function_code.clone()),
-                    errors,
-                    references: None,
-                    archived: remote_function
-                        .and_then(|(_, function)| function.get("archived").and_then(Value::as_bool))
-                        .or(Some(false)),
-                }),
-            );
+                        (!inferred_parameters.is_empty()).then_some(ParametersUpdate {
+                            parameters: inferred_parameters.clone(),
+                        })
+                    });
+                let errors = remote_function
+                    .and_then(|(_, function)| function_errors_update_from_projection(function));
+                push_command(
+                    &mut groups.updates,
+                    metadata,
+                    "update_function",
+                    CommandPayload::UpdateFunction(FunctionUpdateFunction {
+                        id: id.clone(),
+                        name: Some(name.clone()),
+                        description,
+                        parameters,
+                        code: Some(function_code.clone()),
+                        errors,
+                        references: Some(function_references(variable_references)),
+                        archived: remote_function
+                            .and_then(|(_, function)| {
+                                function.get("archived").and_then(Value::as_bool)
+                            })
+                            .or(Some(false)),
+                    }),
+                );
+            }
+            if let Some((_, remote_function)) = remote_function {
+                let remote_latency = latency_control_from_projection(remote_function);
+                if local_latency != remote_latency {
+                    push_command(
+                        &mut groups.post_updates,
+                        metadata,
+                        "update_latency_control",
+                        CommandPayload::UpdateLatencyControl(function_update_latency_control(
+                            &id,
+                            &local_latency,
+                        )),
+                    );
+                }
+            }
         } else {
             push_command(
                 &mut groups.creates,
@@ -249,8 +272,8 @@ pub(crate) fn function_resource_command_groups(
                     parameters: inferred_parameters,
                     code: function_code,
                     errors: vec![],
-                    latency_control: None,
-                    references: None,
+                    latency_control: function_create_latency_control(&local_latency),
+                    references: Some(function_references(variable_references)),
                     archived: Some(false),
                 }),
             );
@@ -289,6 +312,16 @@ pub(crate) fn function_resource_command_groups(
     }
 
     groups
+}
+
+fn function_references(variables: HashMap<String, bool>) -> FunctionReferences {
+    FunctionReferences {
+        flow_steps: HashMap::new(),
+        topics: HashMap::new(),
+        stop_keywords: HashMap::new(),
+        behaviour: HashMap::new(),
+        variables,
+    }
 }
 
 pub(crate) fn function_entries(projection: &Value) -> HashMap<String, Value> {
@@ -362,7 +395,10 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
     content
 }
 
-fn variable_reference_ids_from_code(code: &str, projection: &Value) -> HashMap<String, bool> {
+pub(crate) fn variable_reference_ids_from_code(
+    code: &str,
+    projection: &Value,
+) -> HashMap<String, bool> {
     extract_variable_names_from_code(code)
         .into_iter()
         .map(|name| {
@@ -433,7 +469,7 @@ pub(crate) fn function_code_from_local_content(content: &str) -> String {
     out.trim_start_matches('\n').to_string()
 }
 
-fn infer_function_description(code: &str) -> String {
+pub(crate) fn infer_function_description(code: &str) -> String {
     if let Some(description) = function_description_decorator(code) {
         return description;
     }
@@ -514,7 +550,8 @@ fn parse_python_string_literal(value: &str) -> String {
     out
 }
 
-fn infer_function_parameters(code: &str) -> Vec<FunctionParameterUpdate> {
+pub(crate) fn infer_function_parameters(code: &str) -> Vec<FunctionParameterUpdate> {
+    let decorator_descriptions = function_parameter_decorators(code);
     let signature = code
         .lines()
         .find_map(|line| line.trim().strip_prefix("def ").map(ToString::to_string));
@@ -531,21 +568,409 @@ fn infer_function_parameters(code: &str) -> Vec<FunctionParameterUpdate> {
     params
         .split(',')
         .map(str::trim)
-        .filter(|p| !p.is_empty() && *p != "self" && *p != "conv")
-        .map(|p| p.split('=').next().unwrap_or_default().trim())
-        .map(|p| p.split(':').next().unwrap_or_default().trim())
         .filter(|p| !p.is_empty())
-        .map(|name| FunctionParameterUpdate {
-            id: clean_name(name).to_lowercase(),
+        .map(|p| p.split('=').next().unwrap_or_default().trim())
+        .filter_map(|p| {
+            let (name, annotation) = p
+                .split_once(':')
+                .map(|(name, annotation)| (name.trim(), Some(annotation.trim())))
+                .unwrap_or((p.trim(), None));
+            (!name.is_empty() && !matches!(name, "self" | "conv" | "flow"))
+                .then_some((name, annotation))
+        })
+        .map(|(name, annotation)| FunctionParameterUpdate {
+            id: generated_or_stable_resource_id("function_parameter", "PARAMETER", name, name),
             name: name.to_string(),
-            description: String::new(),
-            r#type: "string".to_string(),
+            description: decorator_descriptions
+                .get(name)
+                .cloned()
+                .unwrap_or_default(),
+            r#type: annotation
+                .and_then(schema_type_from_python_annotation)
+                .unwrap_or("string")
+                .to_string(),
         })
         .collect()
 }
 
-fn function_parameters_update_from_projection(function: &Value) -> Option<ParametersUpdate> {
-    let parameters = function.get("parameters")?.as_array()?;
+fn function_parameter_decorators(code: &str) -> HashMap<String, String> {
+    code.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let rest = line.strip_prefix("@func_parameter(")?;
+            let args = rest.strip_suffix(')').unwrap_or(rest);
+            let args = parse_python_string_args(args);
+            (args.len() == 2).then(|| (args[0].clone(), args[1].clone()))
+        })
+        .collect()
+}
+
+fn parse_python_string_args(value: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for ch in value.chars() {
+        if let Some(active_quote) = quote {
+            current.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+        match ch {
+            '\'' | '"' => {
+                quote = Some(ch);
+                current.push(ch);
+            }
+            ',' => {
+                args.push(parse_python_string_literal(current.trim()));
+                current.clear();
+            }
+            other => current.push(other),
+        }
+    }
+    if !current.trim().is_empty() {
+        args.push(parse_python_string_literal(current.trim()));
+    }
+    args
+}
+
+fn schema_type_from_python_annotation(annotation: &str) -> Option<&'static str> {
+    match annotation
+        .split([' ', ')', ','])
+        .next()
+        .unwrap_or_default()
+        .trim()
+    {
+        "str" => Some("string"),
+        "int" => Some("integer"),
+        "float" => Some("number"),
+        "bool" => Some("boolean"),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ParsedLatencyControl {
+    pub(crate) enabled: bool,
+    pub(crate) initial_delay: i32,
+    pub(crate) interval: i32,
+    pub(crate) delay_responses: Vec<ParsedDelayResponse>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ParsedDelayResponse {
+    pub(crate) id: Option<String>,
+    pub(crate) message: String,
+    pub(crate) duration: i32,
+}
+
+pub(crate) fn local_latency_control_from_code(
+    code: &str,
+    known_function: Option<&Value>,
+) -> ParsedLatencyControl {
+    let Some(args) = latency_control_decorator_args(code) else {
+        return ParsedLatencyControl::default();
+    };
+    let known = known_function
+        .map(latency_control_from_projection)
+        .unwrap_or_default();
+    let mut used_ids = HashSet::new();
+    let delay_responses = latency_delay_response_args(&args)
+        .into_iter()
+        .map(|(message, duration)| {
+            let id = known
+                .delay_responses
+                .iter()
+                .find(|response| {
+                    response.message == message
+                        && response
+                            .id
+                            .as_ref()
+                            .is_some_and(|id| !used_ids.contains(id))
+                })
+                .and_then(|response| response.id.clone())
+                .or_else(|| {
+                    (!message.trim().is_empty()).then(|| {
+                        generated_or_stable_resource_id(
+                            "delay_response",
+                            "DELAY",
+                            &message,
+                            &message,
+                        )
+                    })
+                });
+            if let Some(id) = &id {
+                used_ids.insert(id.clone());
+            }
+            ParsedDelayResponse {
+                id,
+                message,
+                duration,
+            }
+        })
+        .collect();
+    ParsedLatencyControl {
+        enabled: true,
+        initial_delay: latency_i32_arg(&args, "delay_before_responses_start").unwrap_or(0),
+        interval: latency_i32_arg(&args, "silence_after_each_response").unwrap_or(0),
+        delay_responses,
+    }
+}
+
+pub(crate) fn function_create_latency_control(
+    latency: &ParsedLatencyControl,
+) -> Option<FunctionCreateLatencyControl> {
+    latency.enabled.then(|| FunctionCreateLatencyControl {
+        enabled: true,
+        delay_responses: latency
+            .delay_responses
+            .iter()
+            .map(function_delay_response)
+            .collect(),
+        initial_delay: latency.initial_delay,
+        interval: latency.interval,
+    })
+}
+
+pub(crate) fn function_update_latency_control(
+    function_id: &str,
+    latency: &ParsedLatencyControl,
+) -> FunctionUpdateLatencyControl {
+    FunctionUpdateLatencyControl {
+        function_id: function_id.to_string(),
+        enabled: latency.enabled,
+        delay_responses: Some(DelayResponsesUpdate {
+            delay_responses: latency
+                .delay_responses
+                .iter()
+                .map(|response| DelayResponseUpdate {
+                    id: response.id.clone().unwrap_or_else(|| {
+                        generated_or_stable_resource_id(
+                            "delay_response",
+                            "DELAY",
+                            &response.message,
+                            &response.message,
+                        )
+                    }),
+                    message: response.message.clone(),
+                    duration: response.duration,
+                    references: None,
+                })
+                .collect(),
+        }),
+        initial_delay: Some(if latency.enabled {
+            latency.initial_delay
+        } else {
+            0
+        }),
+        interval: Some(if latency.enabled { latency.interval } else { 0 }),
+    }
+}
+
+pub(crate) fn latency_control_from_projection(function: &Value) -> ParsedLatencyControl {
+    let Some(latency) = function
+        .get("latencyControl")
+        .or_else(|| function.get("latency_control"))
+        .and_then(Value::as_object)
+    else {
+        return ParsedLatencyControl::default();
+    };
+    let enabled = latency
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let initial_delay = latency
+        .get("initialDelay")
+        .or_else(|| latency.get("initial_delay"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0) as i32;
+    let interval = latency.get("interval").and_then(Value::as_i64).unwrap_or(0) as i32;
+    let delay_responses = latency
+        .get("delayResponses")
+        .or_else(|| latency.get("delay_responses"))
+        .map(delay_responses_from_projection)
+        .unwrap_or_default();
+    ParsedLatencyControl {
+        enabled,
+        initial_delay,
+        interval,
+        delay_responses,
+    }
+}
+
+fn function_delay_response(response: &ParsedDelayResponse) -> FunctionDelayResponse {
+    FunctionDelayResponse {
+        id: response.id.clone().unwrap_or_else(|| {
+            generated_or_stable_resource_id(
+                "delay_response",
+                "DELAY",
+                &response.message,
+                &response.message,
+            )
+        }),
+        message: response.message.clone(),
+        duration: response.duration,
+        created_at: None,
+        created_by: String::new(),
+        updated_at: None,
+        updated_by: String::new(),
+        references: None,
+    }
+}
+
+fn latency_control_decorator_args(code: &str) -> Option<String> {
+    let mut collecting = false;
+    let mut args = String::new();
+    let mut depth = 0_i32;
+    for raw in code.lines() {
+        let trimmed = raw.trim();
+        let line = if collecting {
+            trimmed
+        } else if let Some(rest) = trimmed.strip_prefix("@func_latency_control(") {
+            collecting = true;
+            rest
+        } else {
+            continue;
+        };
+        for ch in line.chars() {
+            match ch {
+                '(' | '[' => depth += 1,
+                ')' => {
+                    if depth == 0 {
+                        return Some(args.trim().trim_end_matches(',').to_string());
+                    }
+                    depth -= 1;
+                }
+                ']' => depth -= 1,
+                _ => {}
+            }
+            args.push(ch);
+        }
+        args.push('\n');
+    }
+    collecting.then(|| args.trim().trim_end_matches(')').trim().to_string())
+}
+
+fn latency_i32_arg(args: &str, name: &str) -> Option<i32> {
+    let start = args.find(&format!("{name}="))? + name.len() + 1;
+    let rest = &args[start..];
+    let digits = rest
+        .chars()
+        .skip_while(|ch| ch.is_whitespace())
+        .take_while(|ch| ch.is_ascii_digit() || *ch == '-')
+        .collect::<String>();
+    digits.parse().ok()
+}
+
+fn latency_delay_response_args(args: &str) -> Vec<(String, i32)> {
+    let Some(start) = args.find("delay_responses=") else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    let mut chars = args[start..].chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '(' {
+            continue;
+        }
+        while matches!(chars.peek(), Some(ch) if ch.is_whitespace()) {
+            chars.next();
+        }
+        let Some(quote @ ('\'' | '"')) = chars.next() else {
+            continue;
+        };
+        let mut message = String::new();
+        let mut escaped = false;
+        for ch in chars.by_ref() {
+            if escaped {
+                message.push(ch);
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                break;
+            } else {
+                message.push(ch);
+            }
+        }
+        for ch in chars.by_ref() {
+            if ch == ',' {
+                break;
+            }
+        }
+        let mut duration = String::new();
+        while let Some(ch) = chars.peek() {
+            if ch.is_ascii_digit() || *ch == '-' {
+                duration.push(*ch);
+                chars.next();
+            } else if ch.is_whitespace() {
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        if let Ok(duration) = duration.parse() {
+            out.push((message, duration));
+        }
+    }
+    out
+}
+
+fn delay_responses_from_projection(value: &Value) -> Vec<ParsedDelayResponse> {
+    if let Some(items) = value.as_array() {
+        return items.iter().filter_map(delay_response_from_value).collect();
+    }
+    let Some(object) = value.as_object() else {
+        return vec![];
+    };
+    if let (Some(entities), Some(ids)) = (
+        object.get("entities").and_then(Value::as_object),
+        object.get("ids").and_then(Value::as_array),
+    ) {
+        return ids
+            .iter()
+            .filter_map(Value::as_str)
+            .filter_map(|id| entities.get(id))
+            .filter_map(delay_response_from_value)
+            .collect();
+    }
+    vec![]
+}
+
+fn delay_response_from_value(value: &Value) -> Option<ParsedDelayResponse> {
+    Some(ParsedDelayResponse {
+        id: value
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        message: value
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        duration: value.get("duration").and_then(Value::as_i64).unwrap_or(0) as i32,
+    })
+}
+
+pub(crate) fn function_parameters_update_from_projection(
+    function: &Value,
+) -> Option<ParametersUpdate> {
+    let parameters = function
+        .get("parameters")
+        .and_then(Value::as_array)
+        .cloned()
+        .or_else(|| {
+            function
+                .get("parameters")
+                .and_then(|parameters| parameters.get("entities"))
+                .and_then(Value::as_object)
+                .map(|entities| entities.values().cloned().collect())
+        })?;
     let updates: Vec<FunctionParameterUpdate> = parameters
         .iter()
         .map(|p| FunctionParameterUpdate {
@@ -577,7 +1002,7 @@ fn function_parameters_update_from_projection(function: &Value) -> Option<Parame
     })
 }
 
-fn function_errors_update_from_projection(function: &Value) -> Option<ErrorsUpdate> {
+pub(crate) fn function_errors_update_from_projection(function: &Value) -> Option<ErrorsUpdate> {
     let errors = function.get("errors")?.as_array()?;
     let updates: Vec<FunctionError> = errors
         .iter()

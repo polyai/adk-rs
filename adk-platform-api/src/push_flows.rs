@@ -1,6 +1,12 @@
 //! Push command generation for flow config, advanced/default steps, and function steps.
 
-use crate::push_functions::function_code_from_local_content;
+use crate::push_functions::{
+    function_code_from_local_content, function_create_latency_control,
+    function_errors_update_from_projection, function_parameters_update_from_projection,
+    function_update_latency_control, infer_function_description, infer_function_parameters,
+    latency_control_from_projection, local_latency_control_from_code,
+    variable_reference_ids_from_code,
+};
 use crate::push_single_file_resources::CommandGroups;
 use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
 use adk_domain::{Resource, ResourceMap};
@@ -8,13 +14,16 @@ use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
     ConditionDetails, CreateAdvancedStep, CreateFunctionStep, CreateFunctionStepDefinition,
     CreateNoCodeCondition, CreateNoCodeStep, DeleteNoCodeCondition, DeleteStep, ExitFlowCondition,
-    FlowCreateFlow, FlowDeleteFlow, FlowUpdateFlow, FlowUpdateStep, FlowUpdateStepAsrConfig,
-    FlowUpdateStepDtmfConfig, NoCodeStepReferences, StepAsrConfig, StepAsrConfigUpdate,
-    StepDtmfConfig, StepDtmfConfigUpdate, StepPosition, StepReferences, UpdateAdvancedStep,
-    UpdateAsrKeywords, UpdateFunctionStep, UpdateFunctionStepDefinition, UpdateNoCodeCondition,
-    UpdateNoCodeStep, create_no_code_condition, create_step, update_no_code_condition, update_step,
+    FlowCreateFlow, FlowCreateTransitionFunction, FlowDeleteFlow, FlowDeleteTransitionFunction,
+    FlowUpdateFlow, FlowUpdateStep, FlowUpdateStepAsrConfig, FlowUpdateStepDtmfConfig,
+    FlowUpdateTransitionFunction, FlowUpdateTransitionFunctionLatencyControl, NoCodeStepReferences,
+    StepAsrConfig, StepAsrConfigUpdate, StepDtmfConfig, StepDtmfConfigUpdate, StepPosition,
+    StepReferences, TransitionFunctionCreateTransitionFunction, TransitionFunctionReferences,
+    TransitionFunctionUpdateTransitionFunction, UpdateAdvancedStep, UpdateAsrKeywords,
+    UpdateFunctionStep, UpdateFunctionStepDefinition, UpdateNoCodeCondition, UpdateNoCodeStep,
+    create_no_code_condition, create_step, update_no_code_condition, update_step,
 };
-use adk_protobuf::functions::FunctionCreateLatencyControl;
+use adk_protobuf::functions::{FunctionCreateLatencyControl, FunctionUpdateLatencyControl};
 use adk_protobuf::{Command, Metadata};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -28,6 +37,7 @@ struct LocalFlow {
     start_step: String,
     steps: Vec<LocalFlowStep>,
     function_steps: Vec<LocalFunctionStep>,
+    transition_functions: Vec<LocalTransitionFunction>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,8 +63,18 @@ enum FlowStepType {
 struct LocalFunctionStep {
     path: String,
     name: String,
+    content: String,
     code: String,
     position: Option<StepPosition>,
+}
+
+#[derive(Debug, Clone)]
+struct LocalTransitionFunction {
+    path: String,
+    name: String,
+    content: String,
+    code: String,
+    description: String,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +96,7 @@ struct RemoteFlow {
     start_step_id: String,
     steps_by_name: HashMap<String, RemoteFlowStep>,
     function_steps_by_name: HashMap<String, RemoteFunctionStep>,
+    transition_functions_by_name: HashMap<String, RemoteTransitionFunction>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,7 +117,17 @@ struct RemoteFunctionStep {
     id: String,
     name: String,
     code: String,
+    function: Value,
     position: Option<StepPosition>,
+}
+
+#[derive(Debug, Clone)]
+struct RemoteTransitionFunction {
+    id: String,
+    name: String,
+    description: String,
+    code: String,
+    raw: Value,
 }
 
 #[derive(Debug, Clone)]
@@ -144,12 +175,20 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
     match payload {
         CommandPayload::CreateFlow(flow) => Some(("create_flow", create_flow_to_json(flow))),
         CommandPayload::CreateStep(step) => Some(("create_step", create_step_to_json(step))),
+        CommandPayload::CreateFlowTransitionFunction(function) => Some((
+            "create_flow_transition_function",
+            create_flow_transition_function_to_json(function),
+        )),
         CommandPayload::CreateNoCodeCondition(condition) => Some((
             "create_no_code_condition",
             create_no_code_condition_to_json(condition),
         )),
         CommandPayload::DeleteStep(step) => Some(("delete_step", delete_step_to_json(step))),
         CommandPayload::DeleteFlow(flow) => Some(("delete_flow", delete_flow_to_json(flow))),
+        CommandPayload::DeleteFlowTransitionFunction(function) => Some((
+            "delete_flow_transition_function",
+            delete_flow_transition_function_to_json(function),
+        )),
         CommandPayload::DeleteNoCodeCondition(condition) => Some((
             "delete_no_code_condition",
             delete_no_code_condition_to_json(condition),
@@ -157,6 +196,14 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
         CommandPayload::UpdateFlowStep(step) => {
             Some(("update_flow_step", update_flow_step_to_json(step)))
         }
+        CommandPayload::UpdateFlowTransitionFunction(function) => Some((
+            "update_flow_transition_function",
+            update_flow_transition_function_to_json(function),
+        )),
+        CommandPayload::UpdateFlowTransitionFunctionLatencyControl(update) => Some((
+            "update_flow_transition_function_latency_control",
+            update_flow_transition_function_latency_control_to_json(update),
+        )),
         CommandPayload::UpdateNoCodeStep(step) => {
             Some(("update_no_code_step", update_no_code_step_to_json(step)))
         }
@@ -204,7 +251,7 @@ fn create_flow_to_json(flow: &FlowCreateFlow) -> Value {
             Value::Array(
                 flow.transition_functions
                     .iter()
-                    .map(|_| Value::Object(serde_json::Map::new()))
+                    .map(create_transition_function_to_json)
                     .collect(),
             ),
         );
@@ -304,7 +351,84 @@ fn create_function_step_definition_to_json(function: &CreateFunctionStepDefiniti
             Value::Array(function.errors.iter().map(|_| json!({})).collect()),
         );
     }
-    value.insert("latency_control".to_string(), json!({}));
+    if let Some(latency_control) = &function.latency_control {
+        value.insert(
+            "latency_control".to_string(),
+            function_create_latency_control_to_json(latency_control),
+        );
+    }
+    Value::Object(value)
+}
+
+fn create_flow_transition_function_to_json(function: &FlowCreateTransitionFunction) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert(
+        "flow_id".to_string(),
+        Value::String(function.flow_id.clone()),
+    );
+    if let Some(transition_function) = &function.transition_function {
+        value.insert(
+            "transition_function".to_string(),
+            create_transition_function_to_json(transition_function),
+        );
+    }
+    Value::Object(value)
+}
+
+fn function_create_latency_control_to_json(latency: &FunctionCreateLatencyControl) -> Value {
+    if !latency.enabled
+        && latency.initial_delay == 0
+        && latency.interval == 0
+        && latency.delay_responses.is_empty()
+    {
+        return json!({});
+    }
+    json!({
+        "enabled": latency.enabled,
+        "initial_delay": latency.initial_delay,
+        "interval": latency.interval,
+        "delay_responses": latency.delay_responses.iter().map(|response| {
+            json!({
+                "id": response.id,
+                "message": response.message,
+                "duration": response.duration,
+            })
+        }).collect::<Vec<_>>(),
+    })
+}
+
+fn create_transition_function_to_json(
+    function: &TransitionFunctionCreateTransitionFunction,
+) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert("id".to_string(), Value::String(function.id.clone()));
+    value.insert("name".to_string(), Value::String(function.name.clone()));
+    value.insert(
+        "description".to_string(),
+        Value::String(function.description.clone()),
+    );
+    value.insert(
+        "parameters".to_string(),
+        Value::Array(function.parameters.iter().map(|_| json!({})).collect()),
+    );
+    value.insert("code".to_string(), Value::String(function.code.clone()));
+    value.insert(
+        "errors".to_string(),
+        Value::Array(function.errors.iter().map(|_| json!({})).collect()),
+    );
+    if let Some(latency_control) = &function.latency_control {
+        value.insert(
+            "latency_control".to_string(),
+            function_create_latency_control_to_json(latency_control),
+        );
+    }
+    value.insert(
+        "references".to_string(),
+        transition_function_references_to_json(function.references.as_ref()),
+    );
+    if let Some(archived) = function.archived {
+        value.insert("archived".to_string(), Value::Bool(archived));
+    }
     Value::Object(value)
 }
 
@@ -365,6 +489,13 @@ fn delete_flow_to_json(flow: &FlowDeleteFlow) -> Value {
     })
 }
 
+fn delete_flow_transition_function_to_json(function: &FlowDeleteTransitionFunction) -> Value {
+    json!({
+        "flow_id": function.flow_id,
+        "function_id": function.function_id,
+    })
+}
+
 fn delete_no_code_condition_to_json(condition: &DeleteNoCodeCondition) -> Value {
     json!({
         "flow_id": condition.flow_id,
@@ -382,6 +513,104 @@ fn update_flow_step_to_json(step: &FlowUpdateStep) -> Value {
             .map(update_advanced_step_to_json)
             .unwrap_or_else(|| json!({})),
     })
+}
+
+fn update_flow_transition_function_to_json(function: &FlowUpdateTransitionFunction) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert(
+        "flow_id".to_string(),
+        Value::String(function.flow_id.clone()),
+    );
+    if let Some(transition_function) = &function.transition_function {
+        value.insert(
+            "transition_function".to_string(),
+            update_transition_function_to_json(transition_function),
+        );
+    }
+    Value::Object(value)
+}
+
+fn update_flow_transition_function_latency_control_to_json(
+    update: &FlowUpdateTransitionFunctionLatencyControl,
+) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert("flow_id".to_string(), Value::String(update.flow_id.clone()));
+    if let Some(latency) = &update.latency_control {
+        value.insert(
+            "latency_control".to_string(),
+            function_update_latency_control_to_json(latency),
+        );
+    }
+    Value::Object(value)
+}
+
+fn function_update_latency_control_to_json(update: &FunctionUpdateLatencyControl) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert(
+        "function_id".to_string(),
+        Value::String(update.function_id.clone()),
+    );
+    value.insert("enabled".to_string(), Value::Bool(update.enabled));
+    if let Some(initial_delay) = update.initial_delay {
+        value.insert(
+            "initial_delay".to_string(),
+            Value::Number(initial_delay.into()),
+        );
+    }
+    if let Some(interval) = update.interval {
+        value.insert("interval".to_string(), Value::Number(interval.into()));
+    }
+    if let Some(delay_responses) = &update.delay_responses {
+        value.insert(
+            "delay_responses".to_string(),
+            Value::Array(
+                delay_responses
+                    .delay_responses
+                    .iter()
+                    .map(|response| {
+                        json!({
+                            "id": response.id,
+                            "message": response.message,
+                            "duration": response.duration,
+                        })
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    Value::Object(value)
+}
+
+fn update_transition_function_to_json(
+    function: &TransitionFunctionUpdateTransitionFunction,
+) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert("id".to_string(), Value::String(function.id.clone()));
+    if let Some(name) = &function.name {
+        value.insert("name".to_string(), Value::String(name.clone()));
+    }
+    if let Some(description) = &function.description {
+        value.insert(
+            "description".to_string(),
+            Value::String(description.clone()),
+        );
+    }
+    if function.parameters.is_some() {
+        value.insert("parameters".to_string(), json!({}));
+    }
+    if let Some(code) = &function.code {
+        value.insert("code".to_string(), Value::String(code.clone()));
+    }
+    if function.errors.is_some() {
+        value.insert("errors".to_string(), json!({}));
+    }
+    if let Some(references) = &function.references {
+        value.insert(
+            "references".to_string(),
+            transition_function_references_to_json(Some(references)),
+        );
+    }
+    Value::Object(value)
 }
 
 fn update_advanced_step_to_json(step: &UpdateAdvancedStep) -> Value {
@@ -442,6 +671,22 @@ fn no_code_step_references_to_json(references: Option<&NoCodeStepReferences>) ->
             "extracted_entities".to_string(),
             json!(references.extracted_entities),
         );
+    }
+    Value::Object(value)
+}
+
+fn transition_function_references_to_json(
+    references: Option<&TransitionFunctionReferences>,
+) -> Value {
+    let Some(references) = references else {
+        return Value::Object(serde_json::Map::new());
+    };
+    let mut value = serde_json::Map::new();
+    if !references.flow_steps.is_empty() {
+        value.insert("flow_steps".to_string(), json!(references.flow_steps));
+    }
+    if !references.variables.is_empty() {
+        value.insert("variables".to_string(), json!(references.variables));
     }
     Value::Object(value)
 }
@@ -722,6 +967,7 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
 
     let ordered_steps = ordered_flow_steps(flow);
     let function_steps = ordered_function_steps(flow);
+    let transition_functions = ordered_transition_functions(flow);
 
     for (index, step) in ordered_steps.iter().enumerate() {
         let step_id = generated_replay_resource_id("flow_step", &step.name, &step.path)
@@ -769,7 +1015,10 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
             description: flow.description.clone(),
             start_step_id,
             steps: advanced_steps,
-            transition_functions: Vec::new(),
+            transition_functions: transition_functions
+                .iter()
+                .map(|function| transition_function_create_payload(function, None, &Value::Null))
+                .collect(),
             no_code_steps,
         }),
     );
@@ -798,7 +1047,7 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
                         name: step.name.clone(),
                         code: step.code.clone(),
                         errors: Vec::new(),
-                        latency_control: Some(FunctionCreateLatencyControl::default()),
+                        latency_control: Some(function_step_latency_control(step, None)),
                     }),
                 })),
             }),
@@ -861,6 +1110,40 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
             );
         }
     }
+}
+
+fn transition_function_create_payload(
+    function: &LocalTransitionFunction,
+    id_override: Option<String>,
+    projection: &Value,
+) -> TransitionFunctionCreateTransitionFunction {
+    let parameters = infer_function_parameters(&function.code);
+    TransitionFunctionCreateTransitionFunction {
+        id: id_override.unwrap_or_else(|| {
+            generated_replay_resource_id("flow_transition_function", &function.name, &function.path)
+                .unwrap_or_else(|| random_resource_id("FLOW_TRANSITION_FUNCTIONS"))
+        }),
+        name: function.name.clone(),
+        description: function.description.clone(),
+        parameters,
+        code: function.code.clone(),
+        errors: Vec::new(),
+        latency_control: None,
+        references: Some(TransitionFunctionReferences {
+            flow_steps: HashMap::new(),
+            variables: variable_reference_ids_from_code(&function.code, projection),
+        }),
+        archived: Some(false),
+    }
+}
+
+fn transition_function_changed(
+    local: &LocalTransitionFunction,
+    remote: &RemoteTransitionFunction,
+) -> bool {
+    local.code != remote.code
+        || (!local.description.is_empty() && local.description != remote.description)
+        || local.name != remote.name
 }
 
 fn update_flow_commands(
@@ -1099,7 +1382,10 @@ fn update_flow_commands(
                                 code: Some(step.code.clone()),
                                 errors: None,
                                 archived: None,
-                                latency_control: Some(FunctionCreateLatencyControl::default()),
+                                latency_control: Some(function_step_latency_control(
+                                    step,
+                                    Some(&remote_step.function),
+                                )),
                             }),
                         })),
                     }),
@@ -1127,11 +1413,119 @@ fn update_flow_commands(
                         name: step.name.clone(),
                         code: step.code.clone(),
                         errors: Vec::new(),
-                        latency_control: Some(FunctionCreateLatencyControl::default()),
+                        latency_control: Some(function_step_latency_control(step, None)),
                     }),
                 })),
             }),
         );
+    }
+
+    let local_transition_functions = flow
+        .transition_functions
+        .iter()
+        .map(|function| (function.name.clone(), function))
+        .collect::<HashMap<_, _>>();
+
+    for remote_function in remote.transition_functions_by_name.values() {
+        if !local_transition_functions.contains_key(&remote_function.name) {
+            push_command(
+                &mut groups.deletes,
+                metadata,
+                "delete_flow_transition_function",
+                CommandPayload::DeleteFlowTransitionFunction(FlowDeleteTransitionFunction {
+                    flow_id: remote.id.clone(),
+                    function_id: remote_function.id.clone(),
+                }),
+            );
+        }
+    }
+
+    for function in ordered_transition_functions(flow) {
+        if let Some(remote_function) = remote.transition_functions_by_name.get(&function.name) {
+            if transition_function_changed(function, remote_function) {
+                let parameters = function_parameters_update_from_projection(&remote_function.raw)
+                    .or_else(|| {
+                        let params = infer_function_parameters(&function.code);
+                        (!params.is_empty()).then_some(adk_protobuf::functions::ParametersUpdate {
+                            parameters: params,
+                        })
+                    });
+                push_command(
+                    &mut groups.updates,
+                    metadata,
+                    "update_flow_transition_function",
+                    CommandPayload::UpdateFlowTransitionFunction(FlowUpdateTransitionFunction {
+                        flow_id: remote.id.clone(),
+                        transition_function: Some(TransitionFunctionUpdateTransitionFunction {
+                            id: remote_function.id.clone(),
+                            name: Some(function.name.clone()),
+                            description: Some(function.description.clone()),
+                            parameters,
+                            code: Some(function.code.clone()),
+                            errors: function_errors_update_from_projection(&remote_function.raw),
+                            references: None,
+                        }),
+                    }),
+                );
+            }
+            let local_latency =
+                local_latency_control_from_code(&function.content, Some(&remote_function.raw));
+            let remote_latency = latency_control_from_projection(&remote_function.raw);
+            if local_latency != remote_latency {
+                push_command(
+                    &mut groups.post_updates,
+                    metadata,
+                    "update_flow_transition_function_latency_control",
+                    CommandPayload::UpdateFlowTransitionFunctionLatencyControl(
+                        FlowUpdateTransitionFunctionLatencyControl {
+                            flow_id: remote.id.clone(),
+                            latency_control: Some(function_update_latency_control(
+                                &remote_function.id,
+                                &local_latency,
+                            )),
+                        },
+                    ),
+                );
+            }
+            continue;
+        }
+
+        let function_id = generated_replay_resource_id(
+            "flow_transition_function",
+            &function.name,
+            &function.path,
+        )
+        .unwrap_or_else(|| random_resource_id("FLOW_TRANSITION_FUNCTIONS"));
+        push_command(
+            &mut groups.creates,
+            metadata,
+            "create_flow_transition_function",
+            CommandPayload::CreateFlowTransitionFunction(FlowCreateTransitionFunction {
+                flow_id: remote.id.clone(),
+                transition_function: Some(transition_function_create_payload(
+                    function,
+                    Some(function_id.clone()),
+                    &serde_json::Value::Null,
+                )),
+            }),
+        );
+        let local_latency = local_latency_control_from_code(&function.content, None);
+        if local_latency.enabled {
+            push_command(
+                &mut groups.post_updates,
+                metadata,
+                "update_flow_transition_function_latency_control",
+                CommandPayload::UpdateFlowTransitionFunctionLatencyControl(
+                    FlowUpdateTransitionFunctionLatencyControl {
+                        flow_id: remote.id.clone(),
+                        latency_control: Some(function_update_latency_control(
+                            &function_id,
+                            &local_latency,
+                        )),
+                    },
+                ),
+            );
+        }
     }
 }
 
@@ -1291,11 +1685,33 @@ fn local_flows(resources: &ResourceMap) -> Vec<LocalFlow> {
                 folder,
                 ..LocalFlow::default()
             });
+            let content = resource_content(resource);
             entry.function_steps.push(LocalFunctionStep {
                 path: path.to_string(),
                 name: function_name_from_path(path),
-                code: function_code_from_local_content(resource_content(resource)),
+                content: content.to_string(),
+                code: function_code_from_local_content(content),
                 position: None,
+            });
+        } else if path.starts_with("flows/")
+            && path.contains("/functions/")
+            && path.ends_with(".py")
+        {
+            let Some(folder) = flow_folder_from_path(path) else {
+                continue;
+            };
+            let content = resource_content(resource);
+            let code = function_code_from_local_content(content);
+            let entry = flows.entry(folder.clone()).or_insert_with(|| LocalFlow {
+                folder,
+                ..LocalFlow::default()
+            });
+            entry.transition_functions.push(LocalTransitionFunction {
+                path: path.to_string(),
+                name: function_name_from_path(path),
+                content: content.to_string(),
+                description: infer_function_description(content),
+                code,
             });
         }
     }
@@ -1326,6 +1742,20 @@ fn ordered_function_steps(flow: &LocalFlow) -> Vec<&LocalFunctionStep> {
     steps
 }
 
+fn ordered_transition_functions(flow: &LocalFlow) -> Vec<&LocalTransitionFunction> {
+    let mut functions = flow.transition_functions.iter().collect::<Vec<_>>();
+    functions.sort_by(|left, right| left.path.cmp(&right.path));
+    functions
+}
+
+fn function_step_latency_control(
+    step: &LocalFunctionStep,
+    known_function: Option<&Value>,
+) -> FunctionCreateLatencyControl {
+    let local = local_latency_control_from_code(&step.content, known_function);
+    function_create_latency_control(&local).unwrap_or_default()
+}
+
 fn remote_flows_by_name(projection: &Value) -> HashMap<String, RemoteFlow> {
     let mut flows = HashMap::new();
     let Some(entities) = projection
@@ -1349,6 +1779,7 @@ fn remote_flows_by_name(projection: &Value) -> HashMap<String, RemoteFlow> {
             start_step_id: json_string(flow, &["startStepId", "start_step_id"]),
             steps_by_name: remote_flow_steps_by_name(flow),
             function_steps_by_name: remote_function_steps_by_name(flow),
+            transition_functions_by_name: remote_transition_functions_by_name(flow),
         };
         flows.insert(name, remote);
     }
@@ -1427,11 +1858,48 @@ fn remote_function_steps_by_name(flow: &Value) -> HashMap<String, RemoteFunction
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string(),
+                function: step.get("function").cloned().unwrap_or(Value::Null),
                 position: json_step_position(step.get("position")),
             },
         );
     }
     steps
+}
+
+fn remote_transition_functions_by_name(flow: &Value) -> HashMap<String, RemoteTransitionFunction> {
+    let mut functions = HashMap::new();
+    let Some(entities) = flow
+        .get("transitionFunctions")
+        .or_else(|| flow.get("transition_functions"))
+        .and_then(|functions| functions.get("entities"))
+        .and_then(Value::as_object)
+    else {
+        return functions;
+    };
+    for (id, function) in entities {
+        if function
+            .get("archived")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let name = json_string(function, &["name"]);
+        if name.is_empty() {
+            continue;
+        }
+        functions.insert(
+            name.clone(),
+            RemoteTransitionFunction {
+                id: id.clone(),
+                name,
+                description: json_string(function, &["description"]),
+                code: json_string(function, &["code"]),
+                raw: function.clone(),
+            },
+        );
+    }
+    functions
 }
 
 fn remote_conditions_by_name(step: &Value) -> HashMap<String, RemoteCondition> {

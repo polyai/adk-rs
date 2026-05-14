@@ -14,7 +14,7 @@ Python ADK while making it easier to test and ship the CLI, as well as embed the
 - `adk-io`: filesystem, hashing, diff, path, and serialization helpers.
 - `adk-protobuf`: protobuf command definitions used by push.
 - `adk-ffi`: thin FFI-facing wrappers for future library bindings.
-- `docs`: remaining parity TODOs.
+- `docs`: parity TODOs and testing strategy.
 
 Each crate also has a short local README.
 
@@ -65,4 +65,5 @@ cargo test --test record_python_adk_from_manifest_test -- --ignored --nocapture
 ```
 
 See `adk-cli/tests/fixtures/python-adk-recordings/README.md` for the recording
-format and replay workflow.
+format and replay workflow, and `docs/parity-test-strategy.md` for when to use
+recordings versus in-memory matrix tests.

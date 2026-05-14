@@ -288,7 +288,7 @@ fn create_function_infers_description_and_parameters_from_code() {
             name: "new_func".to_string(),
             file_path: "functions/new_func.py".to_string(),
             payload: serde_json::json!({
-                "content": "def new_func(name, age=0):\n    \"\"\"Create greeting.\"\"\"\n    return f'Hi {name}'\n"
+                "content": "@func_description('Create greeting.')\n@func_parameter('name', 'Customer name')\n@func_parameter('age', 'Customer age')\ndef new_func(conv: Conversation, name: str, age: int = 0):\n    conv.state.customer_name = name\n    return f'Hi {name}'\n"
             }),
         },
     );
@@ -301,8 +301,160 @@ fn create_function_infers_description_and_parameters_from_code() {
         Some(CommandPayload::CreateFunction(msg)) => {
             assert_eq!(msg.description, "Create greeting.");
             assert_eq!(msg.parameters.len(), 2);
+            assert_eq!(msg.parameters[0].name, "name");
+            assert_eq!(msg.parameters[0].description, "Customer name");
+            assert_eq!(msg.parameters[0].r#type, "string");
+            assert_eq!(msg.parameters[1].name, "age");
+            assert_eq!(msg.parameters[1].description, "Customer age");
+            assert_eq!(msg.parameters[1].r#type, "integer");
+            assert!(
+                msg.code
+                    .starts_with("def new_func(conv: Conversation, name: str, age: int = 0):")
+            );
+            assert!(
+                msg.references
+                    .as_ref()
+                    .is_some_and(|refs| !refs.variables.is_empty())
+            );
         }
         _ => panic!("unexpected payload variant for create function command"),
+    }
+}
+
+#[test]
+fn function_latency_control_decorator_populates_create_and_update_commands() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "functions/slow_lookup.py".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "slow_lookup".to_string(),
+            file_path: "functions/slow_lookup.py".to_string(),
+            payload: serde_json::json!({
+                "content": "@func_latency_control(delay_before_responses_start=3, silence_after_each_response=1, delay_responses=[('Please wait', 2)])\ndef slow_lookup(conv: Conversation):\n    return None\n"
+            }),
+        },
+    );
+
+    let create_commands = build_phase1_commands(&resources, &serde_json::json!({}));
+    let create = create_commands
+        .iter()
+        .find(|c| c.r#type == "create_function")
+        .expect("create function command");
+    match &create.payload {
+        Some(CommandPayload::CreateFunction(msg)) => {
+            let latency = msg.latency_control.as_ref().expect("latency control");
+            assert!(latency.enabled);
+            assert_eq!(latency.initial_delay, 3);
+            assert_eq!(latency.interval, 1);
+            assert_eq!(latency.delay_responses[0].message, "Please wait");
+            assert!(!msg.code.contains("func_latency_control"));
+        }
+        _ => panic!("unexpected payload variant for create function command"),
+    }
+
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "slow_lookup",
+                        "description": "",
+                        "code": "def slow_lookup(conv: Conversation):\n    return None\n",
+                        "latencyControl": {
+                            "enabled": false,
+                            "initialDelay": 0,
+                            "interval": 0,
+                            "delayResponses": {"entities": {}, "ids": []}
+                        }
+                    }
+                }
+            }
+        }
+    });
+    let update_commands = build_phase1_commands(&resources, &projection);
+    let update = update_commands
+        .iter()
+        .find(|c| c.r#type == "update_latency_control")
+        .expect("update latency control command");
+    match &update.payload {
+        Some(CommandPayload::UpdateLatencyControl(msg)) => {
+            assert_eq!(msg.function_id, "fn-1");
+            assert!(msg.enabled);
+            assert_eq!(msg.initial_delay, Some(3));
+            assert_eq!(msg.interval, Some(1));
+        }
+        _ => panic!("unexpected payload variant for update latency command"),
+    }
+}
+
+#[test]
+fn transition_function_latency_control_decorator_emits_flow_scoped_update() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/parity_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/parity_flow/flow_config.yaml",
+            "parity_flow",
+            "name: parity_flow\ndescription: Test flow\nstart_step: start\n",
+        ),
+    );
+    resources.insert(
+        "flows/parity_flow/functions/route_account.py".to_string(),
+        local_resource(
+            "flows/parity_flow/functions/route_account.py",
+            "route_account",
+            "@func_latency_control(delay_before_responses_start=2, silence_after_each_response=1, delay_responses=[('Routing', 2)])\ndef route_account(conv: Conversation, flow: Flow):\n    return None\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "parity_flow",
+                        "description": "Test flow",
+                        "startStepId": "start",
+                        "steps": {"entities": {}, "ids": []},
+                        "transitionFunctions": {
+                            "entities": {
+                                "tf-1": {
+                                    "id": "tf-1",
+                                    "name": "route_account",
+                                    "description": "",
+                                    "code": "def route_account(conv: Conversation, flow: Flow):\n    return None\n",
+                                    "latencyControl": {
+                                        "enabled": false,
+                                        "initialDelay": 0,
+                                        "interval": 0,
+                                        "delayResponses": {"entities": {}, "ids": []}
+                                    }
+                                }
+                            },
+                            "ids": ["tf-1"]
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_phase1_commands(&resources, &projection);
+    let update = commands
+        .iter()
+        .find(|c| c.r#type == "update_flow_transition_function_latency_control")
+        .expect("transition latency control update");
+    match &update.payload {
+        Some(CommandPayload::UpdateFlowTransitionFunctionLatencyControl(msg)) => {
+            assert_eq!(msg.flow_id, "flow-1");
+            let latency = msg.latency_control.as_ref().expect("latency control");
+            assert_eq!(latency.function_id, "tf-1");
+            assert!(latency.enabled);
+            assert_eq!(latency.initial_delay, Some(2));
+        }
+        _ => panic!("unexpected payload variant for transition latency update"),
     }
 }
 
@@ -380,6 +532,64 @@ fn projection_materializes_global_functions_as_raw_content() {
     assert!(!content.contains("from _gen import *  # <AUTO GENERATED>"));
     assert!(content.contains("@func_description('Look up a customer.')"));
     assert!(content.contains("def lookup_customer(conv: Conversation):"));
+}
+
+#[test]
+fn projection_to_resource_map_rejects_duplicate_cleaned_topic_paths() {
+    let projection = serde_json::json!({
+        "knowledgeBase": {
+            "topics": {
+                "entities": {
+                    "topic-1": {"name": "Billing-Team", "content": "one"},
+                    "topic-2": {"name": "Billing Team", "content": "two"}
+                }
+            }
+        }
+    });
+
+    let error = projection_to_resource_map(&projection)
+        .expect_err("duplicate cleaned topic paths should fail")
+        .to_string();
+    assert!(error.contains("Duplicate resource file path found"));
+    assert!(error.contains("topics/billing_team.yaml"));
+    assert!(error.contains("Please rename the resource to avoid conflicts."));
+}
+
+#[test]
+fn projection_to_resource_map_rejects_duplicate_cleaned_flow_step_paths() {
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "name": "Collect-Info",
+                                    "type": "advanced_step",
+                                    "prompt": "one"
+                                },
+                                "step-2": {
+                                    "name": "Collect Info",
+                                    "type": "advanced_step",
+                                    "prompt": "two"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let error = projection_to_resource_map(&projection)
+        .expect_err("duplicate cleaned flow-step paths should fail")
+        .to_string();
+    assert!(error.contains("Duplicate resource file path found"));
+    assert!(error.contains("flows/support_flow/steps/collect_info.yaml"));
 }
 
 #[test]

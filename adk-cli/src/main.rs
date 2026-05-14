@@ -6,7 +6,7 @@ use adk_platform_api::{
 use anyhow::Result;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Generator, Shell};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::io::{self, Read, Write};
@@ -685,19 +685,20 @@ fn deployments_debug(args: &DeploymentsArgs) -> bool {
 }
 
 fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
-    let json_mode = args.json || args.output_json_projection;
+    let output_json = args.json || args.output_json_projection;
     let projection_json = match parse_optional_json_arg(args.from_projection.as_deref()) {
         Ok(value) => value,
         Err(error) => {
-            emit_error(json_mode, &error);
+            emit_error(output_json, &error);
             return ExitCode::from(1);
         }
     };
-    let selection = match resolve_init_selection(args.region, args.account_id, args.project_id, json_mode) {
+    let selection =
+        match resolve_init_selection(args.region, args.account_id, args.project_id, args.json) {
         Ok(Some(selection)) => selection,
         Ok(None) => return ExitCode::SUCCESS,
         Err(error) => {
-            emit_error(json_mode, &error);
+            emit_error(args.json, &error);
             return ExitCode::from(1);
         }
     };
@@ -713,9 +714,10 @@ fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
             let root_path = base.join(&project.account_id).join(&project.project_id);
             let mut output_projection = projection_json.clone();
             if let Some(projection) = &projection_json
-                && let Err(error) = pull_projection_into_path(&root_path, projection, true)
+                && let Err(error) =
+                    pull_projection_into_path(&root_path, projection, true, args.format)
             {
-                emit_error(json_mode, &error);
+                emit_error(args.json, &error);
                 return ExitCode::from(1);
             } else if projection_json.is_none()
                 && let Ok(http_client) = HttpPlatformClient::new(
@@ -730,17 +732,19 @@ fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
                     match remote_service.pull_projection_json() {
                         Ok(projection) => output_projection = Some(projection),
                         Err(error) => {
-                            emit_error(json_mode, &error.to_string());
+                            emit_error(args.json, &error.to_string());
                             return ExitCode::from(1);
                         }
                     }
                 }
-                if let Err(error) = remote_service.pull(root_path.as_path(), true) {
-                    emit_error(json_mode, &error.to_string());
+                if let Err(error) =
+                    remote_service.pull_with_format(root_path.as_path(), true, args.format)
+                {
+                    emit_error(args.json, &error.to_string());
                     return ExitCode::from(1);
                 }
             }
-            if json_mode {
+            if output_json {
                 let mut payload = json!({"success": true, "root_path": root_path});
                 if args.output_json_projection {
                     payload["projection"] = output_projection.unwrap_or(serde_json::Value::Null);
@@ -752,7 +756,7 @@ fn cmd_init(service: &AdkService, args: InitArgs) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            emit_error(json_mode, &error.to_string());
+            emit_error(args.json, &error.to_string());
             ExitCode::from(1)
         }
     }
@@ -1035,7 +1039,7 @@ fn resolve_base_path(base_path: &str) -> PathBuf {
 }
 
 fn cmd_pull(service: &AdkService, args: PullArgs) -> ExitCode {
-    if !ensure_project_loaded(service, &args.path, args.json || args.output_json_projection) {
+    if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
     }
     let projection_json = match parse_optional_json_arg(args.from_projection.as_deref()) {
@@ -1048,7 +1052,13 @@ fn cmd_pull(service: &AdkService, args: PullArgs) -> ExitCode {
     let path = PathBuf::from(&args.path);
     let mut output_projection = projection_json.clone();
     let pull_result = if let Some(projection) = &projection_json {
-        pull_projection_into_path(path.as_path(), projection, args.force)
+        pull_projection_into_path(path.as_path(), projection, args.force, args.format).map(
+            |conflicts| adk_core::PullOutcome {
+                files_with_conflicts: conflicts,
+                new_branch_name: None,
+                new_branch_id: None,
+            },
+        )
     } else {
         if args.output_json_projection {
             match service.pull_projection_json() {
@@ -1060,14 +1070,23 @@ fn cmd_pull(service: &AdkService, args: PullArgs) -> ExitCode {
             }
         }
         service
-            .pull(path.as_path(), args.force)
+            .pull_detailed_with_format(path.as_path(), args.force, args.format)
             .map_err(|error| error.to_string())
     };
     match pull_result {
-        Ok(conflicts) => {
+        Ok(outcome) => {
+            let conflicts_empty = outcome.files_with_conflicts.is_empty();
             if args.json || args.output_json_projection {
-                let mut payload =
-                    json!({"success": conflicts.is_empty(), "files_with_conflicts": conflicts});
+                let mut payload = json!({
+                    "success": conflicts_empty,
+                    "files_with_conflicts": outcome.files_with_conflicts.clone(),
+                });
+                if let Some(new_branch_name) = outcome.new_branch_name {
+                    payload["new_branch_name"] = Value::String(new_branch_name);
+                }
+                if let Some(new_branch_id) = outcome.new_branch_id {
+                    payload["new_branch_id"] = Value::String(new_branch_id);
+                }
                 if args.output_json_projection {
                     payload["projection"] = output_projection.unwrap_or(serde_json::Value::Null);
                 }
@@ -1078,7 +1097,7 @@ fn cmd_pull(service: &AdkService, args: PullArgs) -> ExitCode {
             } else {
                 console::success("Pulled project.");
             }
-            if conflicts.is_empty() {
+            if conflicts_empty {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::from(1)
@@ -1556,7 +1575,7 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                 return ExitCode::from(1);
             }
             match (
-                service.current_branch_name(PathBuf::from(&a.path).as_path()),
+                service.current_branch_name_optional(PathBuf::from(&a.path).as_path()),
                 service.list_branch_map(PathBuf::from(&a.path).as_path()),
             ) {
                 (Ok(current_branch), Ok(branches)) => {
@@ -1567,7 +1586,12 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                         );
                         ExitCode::SUCCESS
                     } else {
-                        print_branch_list(&current_branch, branches.iter());
+                        print_branch_list(current_branch.as_deref(), branches.iter());
+                        if current_branch.is_none() {
+                            console::warning(
+                                "Current local branch does not exist in Agent Studio. It may have been deleted or merged.",
+                            );
+                        }
                         ExitCode::SUCCESS
                     }
                 }
@@ -1693,14 +1717,14 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
             }) else {
                 return ExitCode::from(1);
             };
-            if !ensure_project_loaded(&service, &a.path, a.json || a.output_json_projection) {
+            if !ensure_project_loaded(&service, &a.path, a.json) {
                 return ExitCode::from(1);
             }
             let path = PathBuf::from(&a.path);
             let branch_name_from_prompt;
             let branch_name = match a.branch_name.as_deref() {
                 Some(branch_name) => branch_name,
-                None if a.json || a.output_json_projection => {
+                None if a.json => {
                     emit_error(
                         true,
                         "branch switch with --json requires a branch name argument.",
@@ -1723,18 +1747,19 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                 match service.diff(path.as_path(), &[], None, None) {
                     Ok(diffs) if !diffs.is_empty() => {
                         emit_error(
-                            a.json || a.output_json_projection,
+                            a.json,
                             "Cannot switch branches with uncommitted changes. Use --force to switch and discard changes.",
                         );
                         return ExitCode::from(1);
                     }
                     Ok(_) => {}
                     Err(error) => {
-                        emit_error(a.json || a.output_json_projection, &error.to_string());
+                        emit_error(a.json, &error.to_string());
                         return ExitCode::from(1);
                     }
                 }
             }
+            let mut output_projection = projection_json.clone();
             match service.set_branch(PathBuf::from(&a.path).as_path(), branch_name) {
                 Ok(_cfg) => {
                     if let Some(projection) = &projection_json
@@ -1742,25 +1767,36 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                             path.as_path(),
                             projection,
                             a.force,
+                            a.format,
                         )
                     {
-                        emit_error(a.json || a.output_json_projection, &error);
+                        emit_error(a.json, &error);
                         return ExitCode::from(1);
                     } else if projection_json.is_none()
-                        && let Err(error) = service.pull_named(path.as_path(), branch_name, a.force)
+                        && let Err(error) =
+                            service.pull_named_with_format(path.as_path(), branch_name, a.force, a.format)
                     {
-                        emit_error(a.json || a.output_json_projection, &error.to_string());
+                        emit_error(a.json, &error.to_string());
                         return ExitCode::from(1);
+                    }
+                    if projection_json.is_none() && a.output_json_projection {
+                        match service.pull_projection_json_by_name(branch_name) {
+                            Ok(projection) => output_projection = Some(projection),
+                            Err(error) => {
+                                emit_error(a.json, &error.to_string());
+                                return ExitCode::from(1);
+                            }
+                        }
                     }
                     let mut payload = json!({"success": true, "branch_name": branch_name});
                     if a.output_json_projection {
                         payload["projection"] =
-                            projection_json.clone().unwrap_or(serde_json::Value::Null);
+                            output_projection.unwrap_or(serde_json::Value::Null);
                     }
                     print_payload(a.json || a.output_json_projection, payload)
                 }
                 Err(error) => {
-                    emit_error(a.json || a.output_json_projection, &error.to_string());
+                    emit_error(a.json, &error.to_string());
                     ExitCode::from(1)
                 }
             }
@@ -1771,19 +1807,20 @@ fn cmd_branch(args: BranchArgs) -> ExitCode {
                 return ExitCode::from(1);
             }
             let path = PathBuf::from(&a.path);
-            let remote_branch = try_remote_service_for_path(&local, &a.path)
-                .and_then(|service| service.current_branch_name(path.as_path()).ok());
-            let branch_result = if let Some(branch) = remote_branch {
-                Ok(branch)
-            } else {
-                local.current_branch(path.as_path())
+            let branch_result = match remote_service_for_path(&local, &a.path, a.json) {
+                Some(service) => service.current_branch_name_optional(path.as_path()),
+                None => local.current_branch(path.as_path()).map(Some),
             };
             match branch_result {
                 Ok(branch) => {
                     if a.json {
                         println!("{}", json!({"current_branch": branch}));
-                    } else {
+                    } else if let Some(branch) = branch {
                         console::plain(format!("[label]Current branch:[/label] {branch}"));
+                    } else {
+                        console::warning(
+                            "Current local branch does not exist in Agent Studio. It may have been deleted or merged.",
+                        );
                     }
                     ExitCode::SUCCESS
                 }
@@ -2585,13 +2622,14 @@ fn contains_merge_conflict(value: &str) -> bool {
     false
 }
 
-fn print_branch_list<'a, I>(current_branch: &str, branches: I)
+fn print_branch_list<'a, I>(current_branch: Option<&str>, branches: I)
 where
     I: IntoIterator<Item = (&'a String, &'a String)>,
 {
     console::plain("[label]Branches:[/label]");
     for (name, branch_id) in branches {
-        let marker = if name == current_branch || branch_id == current_branch {
+        let marker = if current_branch.is_some_and(|current| name == current || branch_id == current)
+        {
             "*"
         } else {
             " "
@@ -3870,11 +3908,23 @@ fn read_chat_messages(
     messages: &[String],
     json_mode: bool,
 ) -> Result<Vec<String>, ExitCode> {
-    if input_file.is_some() {
-        emit_error(
-            json_mode,
-            "'str' object does not support the context manager protocol (missed __exit__ method)",
-        );
+    if let Some(input_file) = input_file {
+        let read_result = if input_file == "-" {
+            let mut src = String::new();
+            io::stdin().read_to_string(&mut src).map(|_| src)
+        } else {
+            fs::read_to_string(input_file)
+        };
+        match read_result {
+            Ok(_) => emit_error(
+                json_mode,
+                "'str' object does not support the context manager protocol (missed __exit__ method)",
+            ),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                emit_error(json_mode, &format!("Input file not found: {input_file}"));
+            }
+            Err(error) => emit_error(json_mode, &error.to_string()),
+        }
         return Err(ExitCode::from(1));
     }
     Ok(messages.to_vec())
@@ -3915,11 +3965,11 @@ fn pull_projection_into_path(
     path: &std::path::Path,
     projection: &serde_json::Value,
     force: bool,
+    format: bool,
 ) -> Result<Vec<String>, String> {
     let resources = projection_to_resource_map(projection).map_err(|e| e.to_string())?;
-    let service = AdkService::new(Box::new(InMemoryPlatformClient::with_resources(resources)));
-    service
-        .pull(path, force)
+    local_service()
+        .pull_resource_map_with_format(path, resources, force, format)
         .map_err(|error| error.to_string())
 }
 
@@ -4108,18 +4158,4 @@ fn remote_service_for_path(
             }
         }
     }
-}
-
-fn try_remote_service_for_path(bootstrap: &AdkService, path: &str) -> Option<AdkService> {
-    let cfg = bootstrap
-        .load_project_config(PathBuf::from(path).as_path())
-        .ok()?;
-    HttpPlatformClient::new(
-        &cfg.region,
-        &cfg.account_id,
-        &cfg.project_id,
-        Some(&cfg.branch_id),
-    )
-    .ok()
-    .map(|client| AdkService::new(Box::new(client)))
 }

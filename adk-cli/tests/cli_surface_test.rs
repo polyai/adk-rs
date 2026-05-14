@@ -47,6 +47,39 @@ fn sample_projection_json() -> &'static str {
     r#"{"knowledgeBase":{"topics":{"entities":{"topic-1":{"name":"Welcome","isActive":true,"actions":"","content":"Hello there","exampleQueries":[{"query":"hi"}]}}}}}"#
 }
 
+fn unformatted_function_projection_json() -> String {
+    serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "name": "format_local",
+                        "description": "Format a pulled function.",
+                        "code": "def format_local(conv: Conversation):\n    payload={\"b\":2,\"a\":1}\n    return payload\n"
+                    }
+                }
+            }
+        }
+    })
+    .to_string()
+}
+
+fn assert_formatted_function_and_clean_status(project_dir: &str) {
+    let function_path = std::path::PathBuf::from(project_dir).join("functions/format_local.py");
+    let content = fs::read_to_string(function_path).expect("formatted function");
+    assert!(content.contains("payload = {\"b\": 2, \"a\": 1}"));
+
+    let status = run_poly(&["status", "--json", "--path", project_dir]);
+    assert_eq!(status.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&status.stdout).expect("valid status JSON output");
+    let modified = payload
+        .get("modified_files")
+        .and_then(|v| v.as_array())
+        .expect("modified_files array");
+    assert!(modified.is_empty());
+}
+
 #[test]
 fn invalid_subcommand_returns_parser_error() {
     let output = run_poly(&["not-a-command"]);
@@ -94,7 +127,13 @@ fn status_json_missing_project_matches_contract() {
 fn status_json_uses_python_payload_shape() {
     let project_dir = make_temp_project_dir();
     let output = run_poly(&["status", "--json", "--path", &project_dir]);
-    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
     assert!(payload.get("conflict_detection_available").is_none());
@@ -160,6 +199,77 @@ fn pull_from_projection_writes_resources_and_echoes_projection() {
 }
 
 #[test]
+fn pull_from_projection_preserves_current_branch_config() {
+    let project_dir = make_temp_project_dir();
+    let project_root = std::path::PathBuf::from(&project_dir);
+    fs::write(
+        project_root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: BRANCH-feature\n",
+    )
+    .expect("rewrite config");
+
+    let output = run_poly(&[
+        "pull",
+        "--json",
+        "--path",
+        &project_dir,
+        "--from-projection",
+        sample_projection_json(),
+    ]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let project_yaml = fs::read_to_string(project_root.join("project.yaml")).expect("config");
+    assert!(project_yaml.contains("branch_id: BRANCH-feature"));
+}
+
+#[test]
+fn pull_from_projection_format_formats_python_and_baselines_snapshot() {
+    let project_dir = make_temp_project_dir();
+    let projection_arg = unformatted_function_projection_json();
+
+    let output = run_poly(&[
+        "pull",
+        "--json",
+        "--format",
+        "--path",
+        &project_dir,
+        "--from-projection",
+        &projection_arg,
+    ]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_formatted_function_and_clean_status(&project_dir);
+}
+
+#[test]
+fn init_from_projection_format_formats_python_and_baselines_snapshot() {
+    let base_dir = support::cli::temp_dir("adk-rs-cli-init-format-test");
+    fs::create_dir_all(&base_dir).expect("mkdir base dir");
+    let base_dir_arg = base_dir.to_string_lossy().to_string();
+    let projection_arg = unformatted_function_projection_json();
+
+    let output = run_poly(&[
+        "init",
+        "--json",
+        "--format",
+        "--base-path",
+        &base_dir_arg,
+        "--region",
+        "us-1",
+        "--account_id",
+        "test-account",
+        "--project_id",
+        "test-project",
+        "--from-projection",
+        &projection_arg,
+    ]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let project_dir = base_dir.join("test-account/test-project");
+    assert_formatted_function_and_clean_status(&project_dir.to_string_lossy());
+}
+
+#[test]
 fn push_from_projection_rejects_non_object_json() {
     let project_dir = make_temp_project_dir();
     let output = run_poly(&[
@@ -186,6 +296,25 @@ fn push_from_projection_rejects_non_object_json() {
 }
 
 #[test]
+fn pull_output_json_projection_does_not_force_json_error_mode() {
+    let missing_project_dir = support::cli::temp_dir("adk-rs-missing-projection-project");
+    fs::create_dir_all(&missing_project_dir).expect("mkdir missing project dir");
+    let missing_project_arg = missing_project_dir.to_string_lossy().to_string();
+
+    let output = run_poly(&[
+        "pull",
+        "--output-json-projection",
+        "--path",
+        &missing_project_arg,
+    ]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("No project configuration found"));
+}
+
+#[test]
 fn branch_switch_from_projection_updates_branch_and_writes_resources() {
     let project_dir = make_temp_project_dir();
     let output = run_poly(&[
@@ -209,6 +338,54 @@ fn branch_switch_from_projection_updates_branch_and_writes_resources() {
     assert!(payload.get("projection").is_some());
     let topic = std::path::PathBuf::from(&project_dir).join("topics/welcome.yaml");
     assert!(topic.exists());
+}
+
+#[test]
+fn branch_switch_from_projection_format_formats_python_and_baselines_snapshot() {
+    let project_dir = make_temp_project_dir();
+    let projection_arg = unformatted_function_projection_json();
+
+    let output = run_poly(&[
+        "branch",
+        "switch",
+        "--json",
+        "--format",
+        "--path",
+        &project_dir,
+        "--from-projection",
+        &projection_arg,
+        "feature-format",
+    ]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_formatted_function_and_clean_status(&project_dir);
+}
+
+#[test]
+fn branch_switch_output_json_projection_returns_remote_projection_without_from_projection() {
+    let project_dir = make_temp_project_dir();
+
+    let output = run_poly(&[
+        "branch",
+        "switch",
+        "--output-json-projection",
+        "--path",
+        &project_dir,
+        "feature-y",
+    ]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(
+        payload.get("branch_name").and_then(|v| v.as_str()),
+        Some("feature-y")
+    );
+    assert!(
+        payload
+            .get("projection")
+            .is_some_and(|value| !value.is_null())
+    );
 }
 
 #[test]
@@ -311,6 +488,65 @@ fn validate_json_reports_python_function_syntax_errors() {
         .expect("error string");
     assert!(error.contains("Error reading resource bad_global"));
     assert!(error.contains("functions/bad_global.py"));
+}
+
+#[test]
+fn validate_json_reports_transition_function_signature_errors() {
+    let project_dir = make_temp_project_dir();
+    let root = std::path::PathBuf::from(&project_dir);
+    fs::create_dir_all(root.join("flows/bad_flow/functions")).expect("mkdir transition functions");
+    fs::write(
+        root.join("flows/bad_flow/functions/route_account.py"),
+        "from _gen import *  # <AUTO GENERATED>\n\n\ndef route_account(conv: Conversation):\n    return None\n",
+    )
+    .expect("write invalid transition function");
+
+    let output = run_poly(&["validate", "--json", "--path", &project_dir]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(payload.get("valid").and_then(|v| v.as_bool()), Some(false));
+    let errors = payload
+        .get("errors")
+        .and_then(|v| v.as_array())
+        .expect("errors array")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>();
+    assert!(errors.iter().any(|error| {
+        error.contains("flows/bad_flow/functions/route_account.py")
+            && error.contains(
+                "Function definition 'def route_account(conv: Conversation, flow: Flow)' not found",
+            )
+    }));
+}
+
+#[test]
+fn validate_json_reports_function_decorator_parameter_errors() {
+    let project_dir = make_temp_project_dir();
+    let root = std::path::PathBuf::from(&project_dir);
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+    fs::write(
+        root.join("functions/book_table.py"),
+        "from _gen import *  # <AUTO GENERATED>\n\n\n@func_description('Book a table')\n@func_parameter('booking_ref', 'The booking reference')\ndef book_table(conv: Conversation, booking_ref):\n    return booking_ref\n",
+    )
+    .expect("write invalid decorator function");
+
+    let output = run_poly(&["validate", "--json", "--path", &project_dir]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    let error = payload
+        .get("error")
+        .and_then(|v| v.as_str())
+        .expect("error string");
+    assert!(error.contains("Error reading resource book_table"));
+    assert!(
+        error.contains("Parameter 'booking_ref' has no type annotation"),
+        "error was: {error}"
+    );
 }
 
 #[test]
@@ -446,7 +682,7 @@ fn format_ty_json_fails_when_ty_is_not_on_path() {
 }
 
 #[test]
-fn branch_current_reads_branch_from_project_config() {
+fn branch_current_reports_null_when_configured_branch_is_missing_remotely() {
     let project_dir = make_temp_project_dir();
     let p = std::path::PathBuf::from(&project_dir);
     fs::write(
@@ -458,10 +694,7 @@ fn branch_current_reads_branch_from_project_config() {
     assert_eq!(output.status.code(), Some(0));
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert_eq!(
-        payload.get("current_branch").and_then(|v| v.as_str()),
-        Some("feature-x")
-    );
+    assert!(payload.get("current_branch").is_some_and(|v| v.is_null()));
 }
 
 #[test]
@@ -481,10 +714,34 @@ fn branch_switch_updates_project_branch() {
     assert_eq!(output2.status.code(), Some(0));
     let payload: serde_json::Value =
         serde_json::from_slice(&output2.stdout).expect("valid JSON output");
+    assert!(payload.get("current_branch").is_some_and(|v| v.is_null()));
+}
+
+#[test]
+fn pull_json_reconciles_deleted_current_branch_to_main() {
+    let project_dir = make_temp_project_dir();
+    let p = std::path::PathBuf::from(&project_dir);
+    fs::write(
+        p.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: deleted-branch\n",
+    )
+    .expect("rewrite config");
+
+    let output = run_poly(&["pull", "--json", "--path", &project_dir]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
     assert_eq!(
-        payload.get("current_branch").and_then(|v| v.as_str()),
-        Some("feature-y")
+        payload.get("new_branch_name").and_then(|v| v.as_str()),
+        Some("main")
     );
+    assert_eq!(
+        payload.get("new_branch_id").and_then(|v| v.as_str()),
+        Some("main")
+    );
+    let project_yaml = fs::read_to_string(p.join("project.yaml")).expect("project config");
+    assert!(project_yaml.contains("branch_id: main"));
 }
 
 #[test]

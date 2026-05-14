@@ -525,6 +525,14 @@ fn run_rust_poly(
             "${GENERATED_FUNCTION_IDS}",
             "POLY_ADK_GENERATED_FUNCTION_IDS",
         ),
+        (
+            "${GENERATED_FUNCTION_PARAMETER_IDS}",
+            "POLY_ADK_GENERATED_FUNCTION_PARAMETER_IDS",
+        ),
+        (
+            "${GENERATED_DELAY_RESPONSE_IDS}",
+            "POLY_ADK_GENERATED_DELAY_RESPONSE_IDS",
+        ),
         ("${GENERATED_FLOW_IDS}", "POLY_ADK_GENERATED_FLOW_IDS"),
         (
             "${GENERATED_FLOW_STEP_IDS}",
@@ -1162,6 +1170,8 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
     let mut transcript_corrections_ids = Vec::new();
     let mut pronunciations_ids = Vec::new();
     let mut function_ids = Vec::new();
+    let mut function_parameter_ids = Vec::new();
+    let mut delay_response_ids = Vec::new();
     let mut flow_ids = Vec::new();
     let mut flow_step_ids = Vec::new();
     let mut function_step_ids = Vec::new();
@@ -1248,6 +1258,11 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
                     "id",
                     &mut function_ids,
                 );
+                collect_function_generated_ids(
+                    command,
+                    &mut function_parameter_ids,
+                    &mut delay_response_ids,
+                );
                 if let Some(flow) = command.get("create_flow") {
                     push_mapping(Some(flow), "name", "id", &mut flow_ids);
                     if let Some(steps) = flow.get("steps").and_then(Value::as_array) {
@@ -1320,6 +1335,8 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
         &mut transcript_corrections_ids,
         &mut pronunciations_ids,
         &mut function_ids,
+        &mut function_parameter_ids,
+        &mut delay_response_ids,
         &mut flow_ids,
         &mut flow_step_ids,
         &mut function_step_ids,
@@ -1352,6 +1369,11 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
         ),
         ("${GENERATED_PRONUNCIATIONS_IDS}", pronunciations_ids),
         ("${GENERATED_FUNCTION_IDS}", function_ids),
+        (
+            "${GENERATED_FUNCTION_PARAMETER_IDS}",
+            function_parameter_ids,
+        ),
+        ("${GENERATED_DELAY_RESPONSE_IDS}", delay_response_ids),
         ("${GENERATED_FLOW_IDS}", flow_ids),
         ("${GENERATED_FLOW_STEP_IDS}", flow_step_ids),
         ("${GENERATED_FUNCTION_STEP_IDS}", function_step_ids),
@@ -1362,6 +1384,46 @@ fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec
         ("${GENERATED_HANDOFF_IDS}", handoff_ids),
         ("${GENERATED_PHRASE_FILTERING_IDS}", phrase_filtering_ids),
     ]
+}
+
+fn collect_function_generated_ids(
+    value: &Value,
+    parameter_ids: &mut Vec<String>,
+    delay_response_ids: &mut Vec<String>,
+) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_function_generated_ids(item, parameter_ids, delay_response_ids);
+            }
+        }
+        Value::Object(object) => {
+            if let Some(parameters) = object.get("parameters").and_then(Value::as_array) {
+                for parameter in parameters {
+                    push_mapping(Some(parameter), "name", "id", parameter_ids);
+                }
+            }
+            if let Some(delay_responses) = object
+                .get("latency_control")
+                .or_else(|| object.get("latencyControl"))
+                .and_then(|latency| {
+                    latency
+                        .get("delay_responses")
+                        .or_else(|| latency.get("delayResponses"))
+                })
+                .and_then(Value::as_array)
+                .or_else(|| object.get("delay_responses").and_then(Value::as_array))
+            {
+                for delay_response in delay_responses {
+                    push_mapping(Some(delay_response), "message", "id", delay_response_ids);
+                }
+            }
+            for child in object.values() {
+                collect_function_generated_ids(child, parameter_ids, delay_response_ids);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn push_mapping(payload: Option<&Value>, name_key: &str, id_key: &str, mappings: &mut Vec<String>) {
