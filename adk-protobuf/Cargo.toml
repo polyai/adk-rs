@@ -2,6 +2,7 @@
 name = "poly-adk-protobuf"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Protobuf command definitions for PolyAI ADK push operations."

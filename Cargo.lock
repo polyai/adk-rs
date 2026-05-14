@@ -1624,7 +1624,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "poly-adk-api-client"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "indexmap",
  "poly-adk-command-gen",
@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-cli"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1661,7 +1661,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-command-gen"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "indexmap",
  "poly-adk-protobuf",
@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -1697,7 +1697,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-ffi"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "poly-adk-api-client",
  "poly-adk-core",
@@ -1708,7 +1708,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-io"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "poly-adk-types",
  "serde",
@@ -1720,7 +1720,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-protobuf"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "prost",
  "prost-types",
@@ -1728,7 +1728,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-types"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "chrono",
  "indexmap",
