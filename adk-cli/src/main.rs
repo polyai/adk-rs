@@ -50,7 +50,7 @@ macro_rules! with_remote_service {
 #[command(
     name = "poly",
     version,
-    about = "Agent Development Kit (Rust)",
+    disable_help_subcommand = true,
     disable_version_flag = true
 )]
 struct Cli {
@@ -62,19 +62,35 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    #[command(about = "Outputs documentation for a given topic.")]
     Docs(DocsArgs),
+    #[command(about = "Initialize a new Agent Studio project.")]
     Init(InitArgs),
+    #[command(about = "Manage Agent Studio projects.")]
+    Project(ProjectArgs),
+    #[command(about = "Pull the latest project configuration from Agent Studio.")]
     Pull(PullArgs),
+    #[command(about = "Push the project configuration to Agent Studio.")]
     Push(PushArgs),
+    #[command(about = "Check the changed files of the project.")]
     Status(StatusArgs),
+    #[command(about = "Revert changes in the project.")]
     Revert(RevertArgs),
+    #[command(about = "Show the changes made to the project.")]
     Diff(DiffArgs),
+    #[command(about = "Create a GitHub Gist of Agent Studio project changes to share changes.")]
     Review(ReviewArgs),
+    #[command(about = "Manage branches in the Agent Studio project.")]
     Branch(BranchArgs),
+    #[command(about = "Run ruff and YAML/JSON formatting on the project (optional ty with --ty).")]
     Format(FormatArgs),
+    #[command(about = "Validate the project configuration locally.")]
     Validate(ValidateArgs),
+    #[command(about = "Start an interactive chat session with the agent.")]
     Chat(ChatArgs),
+    #[command(about = "Generate shell completion scripts")]
     Completion(CompletionArgs),
+    #[command(about = "Manage deployments for the project.")]
     Deployments(DeploymentsArgs),
 }
 
@@ -104,8 +120,44 @@ struct InitArgs {
     format: bool,
     #[arg(long = "from-projection", hide = true)]
     from_projection: Option<String>,
-    #[arg(long = "output-json-projection", action = ArgAction::SetTrue)]
+    #[arg(long = "output-json-projection", hide = true, action = ArgAction::SetTrue)]
     output_json_projection: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    json: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    debug: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    verbose: bool,
+}
+
+#[derive(Debug, clap::Args)]
+struct ProjectArgs {
+    #[command(subcommand)]
+    command: ProjectCommands,
+}
+
+#[derive(Debug, Subcommand)]
+enum ProjectCommands {
+    #[command(about = "Create a new Agent Studio project under an account.")]
+    Create(ProjectCreateArgs),
+}
+
+#[derive(Debug, clap::Args)]
+struct ProjectCreateArgs {
+    #[arg(long = "base-path", default_value = ".")]
+    base_path: String,
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(INIT_REGIONS))]
+    region: Option<String>,
+    #[arg(long = "account_id")]
+    account_id: Option<String>,
+    #[arg(long = "name")]
+    project_name: Option<String>,
+    #[arg(long = "id", visible_alias = "project_id")]
+    project_id: Option<String>,
+    #[arg(long, default_value = "Hello, how can I help you?")]
+    greeting: String,
+    #[arg(long = "voice-id")]
+    voice_id: Option<String>,
     #[arg(long, action = ArgAction::SetTrue)]
     json: bool,
     #[arg(long, action = ArgAction::SetTrue)]
@@ -306,7 +358,7 @@ struct BranchSwitchArgs {
     force: bool,
     #[arg(long = "from-projection", hide = true)]
     from_projection: Option<String>,
-    #[arg(long = "output-json-projection", hide = true, action = ArgAction::SetTrue)]
+    #[arg(long = "output-json-projection", action = ArgAction::SetTrue)]
     output_json_projection: bool,
     #[arg(long, action = ArgAction::SetTrue)]
     json: bool,
@@ -544,8 +596,16 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<ExitCode> {
-    if std::env::args()
-        .nth(1)
+    let first_arg = std::env::args().nth(1);
+    if first_arg
+        .as_deref()
+        .is_some_and(|arg| arg == "-h" || arg == "--help")
+    {
+        print_top_level_help();
+        return Ok(ExitCode::SUCCESS);
+    }
+    if first_arg
+        .as_deref()
         .is_some_and(|arg| arg == "-v" || arg == "--version")
     {
         println!("{}", env!("CARGO_PKG_VERSION"));
@@ -559,6 +619,7 @@ fn run() -> Result<ExitCode> {
     let result = match cli.command {
         Commands::Docs(args) => cmd_docs(args),
         Commands::Init(args) => cmd_init(&workspace, args),
+        Commands::Project(args) => cmd_project(&workspace, args),
         Commands::Pull(args) => {
             if args.from_projection.is_some() {
                 return Ok(cmd_pull(&local_service(), args));
@@ -594,6 +655,64 @@ fn run() -> Result<ExitCode> {
     Ok(result)
 }
 
+fn print_top_level_help() {
+    let mut output = String::from(
+        concat!(
+            "usage: poly [-h] [-v]\n",
+            "            {docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,completion,deployments} ...\n\n",
+            "positional arguments:\n",
+            "  {docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,completion,deployments}\n",
+        ),
+    );
+    for (name, description) in [
+        ("docs", "Outputs documentation for a given topic."),
+        ("init", "Initialize a new Agent Studio project."),
+        ("project", "Manage Agent Studio projects."),
+        (
+            "pull",
+            "Pull the latest project configuration from Agent Studio.",
+        ),
+        ("push", "Push the project configuration to Agent Studio."),
+        ("status", "Check the changed files of the project."),
+        ("revert", "Revert changes in the project."),
+        ("diff", "Show the changes made to the project."),
+        (
+            "review",
+            "Create a GitHub Gist of Agent Studio project changes to share changes.",
+        ),
+        ("branch", "Manage branches in the Agent Studio project."),
+        (
+            "format",
+            "Run ruff and YAML/JSON formatting on the project (optional ty with --ty).",
+        ),
+        ("validate", "Validate the project configuration locally."),
+        ("chat", "Start an interactive chat session with the agent."),
+        ("completion", "Generate shell completion scripts"),
+        ("deployments", "Manage deployments for the project."),
+    ] {
+        output.push_str(&format!(
+            "    {}{description}\n",
+            help_label(name, 20)
+        ));
+    }
+    output.push_str("\noptions:\n");
+    for (name, description) in [
+        ("-h, --help", "show this help message and exit"),
+        ("-v, --version", "show the version and exit"),
+    ] {
+        output.push_str(&format!(
+            "  {}{description}\n",
+            help_label(name, 22)
+        ));
+    }
+    console::plain(output);
+}
+
+fn help_label(label: &str, width: usize) -> String {
+    let padded = format!("{label:<width$}");
+    format!("[label]{padded}[/label]")
+}
+
 fn deployments_path(args: &DeploymentsArgs) -> &str {
     match &args.command {
         DeploymentsCommands::List(args) => args.path.as_str(),
@@ -616,6 +735,7 @@ fn command_verbose(command: &Commands) -> bool {
     match command {
         Commands::Docs(args) => args.verbose,
         Commands::Init(args) => args.verbose,
+        Commands::Project(args) => project_verbose(args),
         Commands::Pull(args) => args.verbose,
         Commands::Push(args) => args.verbose,
         Commands::Status(args) => args.verbose,
@@ -640,12 +760,25 @@ fn command_verbose(command: &Commands) -> bool {
 fn command_debug(command: &Commands) -> bool {
     match command {
         Commands::Init(args) => args.debug,
+        Commands::Project(args) => project_debug(args),
         Commands::Pull(args) => args.debug,
         Commands::Push(args) => args.debug,
         Commands::Branch(args) => branch_debug(args),
         Commands::Chat(args) => args.debug,
         Commands::Deployments(args) => deployments_debug(args),
         _ => false,
+    }
+}
+
+fn project_verbose(args: &ProjectArgs) -> bool {
+    match &args.command {
+        ProjectCommands::Create(args) => args.verbose,
+    }
+}
+
+fn project_debug(args: &ProjectArgs) -> bool {
+    match &args.command {
+        ProjectCommands::Create(args) => args.debug,
     }
 }
 
@@ -762,6 +895,217 @@ fn cmd_init(workspace: &ProjectWorkspace, args: InitArgs) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn cmd_project(workspace: &ProjectWorkspace, args: ProjectArgs) -> ExitCode {
+    match args.command {
+        ProjectCommands::Create(args) => cmd_project_create(workspace, args),
+    }
+}
+
+struct ProjectCreateSelection {
+    region: String,
+    account_id: String,
+    project_name: String,
+    project_id: Option<String>,
+}
+
+fn cmd_project_create(workspace: &ProjectWorkspace, args: ProjectCreateArgs) -> ExitCode {
+    let selection = match resolve_project_create_selection(
+        args.region.clone(),
+        args.account_id.clone(),
+        args.project_name.clone(),
+        args.project_id.clone(),
+        args.json,
+    ) {
+        Ok(Some(selection)) => selection,
+        Ok(None) => return ExitCode::SUCCESS,
+        Err(error) => {
+            emit_error(args.json, &error);
+            return ExitCode::from(1);
+        }
+    };
+
+    if !args.json {
+        console::info(format!(
+            "Creating project {} under account {}...",
+            selection.project_name, selection.account_id
+        ));
+    }
+    let created = match HttpPlatformClient::create_project(
+        &selection.region,
+        &selection.account_id,
+        &selection.project_name,
+        selection.project_id.as_deref(),
+        &args.greeting,
+        args.voice_id.as_deref(),
+    ) {
+        Ok(project) => project,
+        Err(error) => {
+            emit_error(args.json, &format!("Failed to create project: {error}"));
+            return ExitCode::from(1);
+        }
+    };
+    if created.id.is_empty() {
+        emit_error(args.json, "No project ID returned by API.");
+        return ExitCode::from(1);
+    }
+    if !args.json {
+        console::success(format!(
+            "Created project {} ({})",
+            selection.project_name, created.id
+        ));
+    }
+
+    cmd_init(
+        workspace,
+        InitArgs {
+            base_path: args.base_path,
+            region: Some(selection.region),
+            account_id: Some(selection.account_id),
+            project_id: Some(created.id),
+            format: false,
+            from_projection: None,
+            output_json_projection: false,
+            json: args.json,
+            debug: args.debug,
+            verbose: args.verbose,
+        },
+    )
+}
+
+fn resolve_project_create_selection(
+    region: Option<String>,
+    account_id: Option<String>,
+    project_name: Option<String>,
+    project_id: Option<String>,
+    json_mode: bool,
+) -> Result<Option<ProjectCreateSelection>, String> {
+    if json_mode {
+        return match (region, account_id, project_name) {
+            (Some(region), Some(account_id), Some(project_name)) => {
+                Ok(Some(ProjectCreateSelection {
+                    region,
+                    account_id,
+                    project_name,
+                    project_id,
+                }))
+            }
+            _ => Err(
+                "create project with --json requires --region, --account_id, and --name."
+                    .to_string(),
+            ),
+        };
+    }
+
+    let region = match region {
+        Some(region) => region,
+        None => {
+            console::info("Fetching available regions...");
+            let regions = HttpPlatformClient::accessible_regions(INIT_REGIONS);
+            if regions.is_empty() {
+                return Err("No accessible regions found for your API key.".to_string());
+            }
+            if regions.len() == 1 {
+                let region = regions[0].clone();
+                console::info(format!("Auto-selected region {region}."));
+                region
+            } else {
+                let choices = regions
+                    .iter()
+                    .map(|region| (region.clone(), region.clone()))
+                    .collect::<Vec<_>>();
+                let Some(region) = prompt_select("Select Region", &choices)? else {
+                    console::warning("No region selected. Exiting.");
+                    return Ok(None);
+                };
+                region
+            }
+        }
+    };
+
+    let account_id = match account_id {
+        Some(account_id) => account_id,
+        None => {
+            let accounts =
+                HttpPlatformClient::list_accounts(&region).map_err(|error| error.to_string())?;
+            if accounts.is_empty() {
+                return Err("No accounts found in the selected region.".to_string());
+            }
+            if accounts.len() == 1 {
+                let account = &accounts[0];
+                console::info(format!("Auto-selected account {}.", account.name));
+                account.id.clone()
+            } else {
+                let choices = accounts.iter().map(account_choice).collect::<Vec<_>>();
+                let Some(account_id) = prompt_select("Select Account", &choices)? else {
+                    console::warning("No account selected. Exiting.");
+                    return Ok(None);
+                };
+                account_id
+            }
+        }
+    };
+
+    let project_name = match project_name {
+        Some(project_name) if !project_name.trim().is_empty() => project_name.trim().to_string(),
+        _ => {
+            let Some(project_name) = prompt_text("Enter project name:", None)? else {
+                console::warning("No project name provided. Exiting.");
+                return Ok(None);
+            };
+            if project_name.trim().is_empty() {
+                console::warning("No project name provided. Exiting.");
+                return Ok(None);
+            }
+            project_name.trim().to_string()
+        }
+    };
+
+    let project_id = match project_id {
+        Some(project_id) => Some(project_id),
+        None => {
+            let default_id = default_project_id_for_name(&project_name);
+            let Some(project_id) = prompt_text(
+                "Enter project ID (leave empty to let the platform generate one):",
+                Some(&default_id),
+            )?
+            else {
+                return Ok(None);
+            };
+            let project_id = project_id.trim();
+            if project_id.is_empty() {
+                None
+            } else if project_id
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+            {
+                Some(project_id.to_string())
+            } else {
+                return Err(
+                    "Project ID can only contain alphanumeric characters and dashes.".to_string(),
+                );
+            }
+        }
+    };
+
+    Ok(Some(ProjectCreateSelection {
+        region,
+        account_id,
+        project_name,
+        project_id,
+    }))
+}
+
+fn default_project_id_for_name(project_name: &str) -> String {
+    project_name
+        .to_lowercase()
+        .replace(' ', "-")
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
 }
 
 struct InitSelection {
@@ -924,6 +1268,29 @@ fn prompt_select(label: &str, choices: &[(String, String)]) -> Result<Option<Str
         console::warning("Invalid selection. Exiting.");
     }
     Ok(selected)
+}
+
+fn prompt_text(label: &str, default: Option<&str>) -> Result<Option<String>, String> {
+    match default {
+        Some(default) if !default.is_empty() => console::prompt(format!("{label} [{default}] ")),
+        _ => console::prompt(format!("{label} ")),
+    }
+    .map_err(|error| format!("Failed to write prompt: {error}"))?;
+    io::stdout()
+        .flush()
+        .map_err(|error| format!("Failed to write prompt: {error}"))?;
+    let mut input = String::new();
+    let bytes = io::stdin()
+        .read_line(&mut input)
+        .map_err(|error| format!("Failed to read input: {error}"))?;
+    if bytes == 0 {
+        return Ok(None);
+    }
+    let value = input.trim();
+    if value.is_empty() {
+        return Ok(default.map(ToString::to_string));
+    }
+    Ok(Some(value.to_string()))
 }
 
 fn prompt_multi_select(

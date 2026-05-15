@@ -228,6 +228,44 @@ impl HttpPlatformClient {
             .collect())
     }
 
+    pub fn create_project(
+        region: &str,
+        account_id: &str,
+        project_name: &str,
+        project_id: Option<&str>,
+        greeting: &str,
+        voice_id: Option<&str>,
+    ) -> Result<ProjectSummary, ApiError> {
+        let endpoint = format!("/v1/accounts/{account_id}/agents");
+        let mut body = serde_json::json!({
+            "name": project_name,
+            "responseSettings": {
+                "greeting": greeting,
+            },
+            "voiceSettings": {
+                "voiceId": voice_id.unwrap_or_else(|| default_voice_id(region)),
+            },
+        });
+        if let Some(project_id) = project_id.filter(|value| !value.is_empty()) {
+            body["agentId"] = Value::String(project_id.to_string());
+        }
+
+        let value =
+            Self::request_region_platform_json(region, reqwest::Method::POST, &endpoint, body)?;
+        Ok(ProjectSummary {
+            id: value
+                .get("agentId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            name: value
+                .get("agentName")
+                .and_then(Value::as_str)
+                .unwrap_or(project_name)
+                .to_string(),
+        })
+    }
+
     fn request_region_json(region: &str, endpoint: &str) -> Result<Value, ApiError> {
         let api_key = api_key_for_region(region)?;
         let base_url = base_url_for_region(region)?;
@@ -237,6 +275,30 @@ impl HttpPlatformClient {
             .header("X-API-KEY", api_key)
             .header("X-PolyAI-Correlation-Id", format!("adk-{}", Uuid::new_v4()))
             .header("Content-Type", "application/json")
+            .send()
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(http_status_error(status, &url));
+        }
+        response.json().map_err(|e| ApiError::Http(e.to_string()))
+    }
+
+    fn request_region_platform_json(
+        region: &str,
+        method: reqwest::Method,
+        endpoint: &str,
+        body: Value,
+    ) -> Result<Value, ApiError> {
+        let api_key = api_key_for_region(region)?;
+        let base_url = base_url_for_region(region)?;
+        let url = format!("{}{}", platform_root_url(&base_url), endpoint);
+        let response = reqwest::blocking::Client::new()
+            .request(method, &url)
+            .header("X-API-KEY", api_key)
+            .header("X-PolyAI-Correlation-Id", format!("adk-{}", Uuid::new_v4()))
+            .header("Content-Type", "application/json")
+            .json(&body)
             .send()
             .map_err(|e| ApiError::Http(e.to_string()))?;
         let status = response.status();
@@ -1164,6 +1226,16 @@ fn base_url_for_region(region: &str) -> Result<String, ApiError> {
 
 fn platform_root_url(adk_base_url: &str) -> &str {
     adk_base_url.strip_suffix("/adk/v1").unwrap_or(adk_base_url)
+}
+
+fn default_voice_id(region: &str) -> &'static str {
+    match region {
+        "us-1" => "VOICE-6fad73f6",
+        "euw-1" => "VOICE-8b814724",
+        "uk-1" => "VOICE-37966683",
+        "dev" | "staging" => "VOICE-e2b01d55",
+        _ => "VOICE-afe2b8e8",
+    }
 }
 
 fn http_status_error(status: reqwest::StatusCode, url: &str) -> ApiError {

@@ -87,6 +87,74 @@ fn invalid_subcommand_returns_parser_error() {
 }
 
 #[test]
+fn top_level_help_matches_python_command_surface() {
+    let output = run_poly(&["--help"]);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    for expected in ["poly", "-h", "--help", "-v", "--version"] {
+        assert!(
+            stdout.contains(expected),
+            "expected help to contain {expected:?}\nstdout={stdout}"
+        );
+    }
+
+    for (command, description) in [
+        ("docs", "Outputs documentation for a given topic."),
+        ("init", "Initialize a new Agent Studio project."),
+        ("project", "Manage Agent Studio projects."),
+        (
+            "pull",
+            "Pull the latest project configuration from Agent Studio.",
+        ),
+        ("push", "Push the project configuration to Agent Studio."),
+        ("status", "Check the changed files of the project."),
+        ("revert", "Revert changes in the project."),
+        ("diff", "Show the changes made to the project."),
+        (
+            "review",
+            "Create a GitHub Gist of Agent Studio project changes to share changes.",
+        ),
+        ("branch", "Manage branches in the Agent Studio project."),
+        (
+            "format",
+            "Run ruff and YAML/JSON formatting on the project (optional ty with --ty).",
+        ),
+        ("validate", "Validate the project configuration locally."),
+        ("chat", "Start an interactive chat session with the agent."),
+        ("completion", "Generate shell completion scripts"),
+        ("deployments", "Manage deployments for the project."),
+    ] {
+        assert!(
+            stdout.contains(command),
+            "expected help to contain command {command:?}\nstdout={stdout}"
+        );
+        assert!(
+            stdout.contains(description),
+            "expected help to contain description {description:?}\nstdout={stdout}"
+        );
+    }
+
+    assert!(!stdout.contains("Agent Development Kit (Rust)"));
+}
+
+#[test]
+fn project_create_json_requires_python_noninteractive_arguments() {
+    let output = run_poly(&["project", "create", "--json"]);
+    assert_eq!(output.status.code(), Some(1));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(
+        payload.get("success").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    assert_eq!(
+        payload.get("error").and_then(|v| v.as_str()),
+        Some("create project with --json requires --region, --account_id, and --name.")
+    );
+}
+
+#[test]
 fn version_accepts_python_short_flag_and_output_shape() {
     for flag in ["-v", "--version"] {
         let output = run_poly(&[flag]);

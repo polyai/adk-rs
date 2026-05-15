@@ -5,6 +5,7 @@ use adk_types::{
 
 pub mod discover;
 mod python_syntax;
+mod status_snapshot;
 
 use adk_api_client::{ApiError, PlatformClient};
 use adk_io::{FileSystem, StdFileSystem, compute_hash, diff_resources, parse_multi_resource_path};
@@ -15,6 +16,7 @@ pub use discover::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedReso
 use globset::{Glob, GlobSetBuilder};
 use python_syntax::validate_python_module;
 use serde_json::Value;
+use status_snapshot::{FileStructureEntry, StatusResourcePayload, StatusSnapshot};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 use std::io::Write;
@@ -165,38 +167,13 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
             return Ok(config);
         }
 
-        let status_path = discovered.join(STATUS_FILE);
-        if self.fs.exists(&status_path) {
-            let encoded = self.fs.read(&status_path)?;
-            let decoded = base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .map_err(|e| DomainError::InvalidData(e.to_string()))?;
-            let json: serde_json::Value = serde_json::from_slice(&decoded)?;
+        if let Some(snapshot) = self.load_status_snapshot(&discovered)? {
             let config = ProjectConfig {
-                region: json
-                    .get("region")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                account_id: json
-                    .get("account_id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                project_id: json
-                    .get("project_id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                project_name: json
-                    .get("project_name")
-                    .and_then(serde_json::Value::as_str)
-                    .map(ToString::to_string),
-                branch_id: json
-                    .get("branch_id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("main")
-                    .to_string(),
+                region: snapshot.region,
+                account_id: snapshot.account_id,
+                project_id: snapshot.project_id,
+                project_name: snapshot.project_name,
+                branch_id: snapshot.branch_id,
             };
             self.run_and_persist_project_migrations(&discovered)?;
             return Ok(config);
@@ -251,6 +228,8 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         &self,
         project_root: &Path,
     ) -> Result<serde_json::Map<String, serde_json::Value>, CoreError> {
+        // Raw JSON is used only by migrations so unknown Python fields are
+        // preserved byte-for-byte at the schema level.
         let status_path = project_root.join(STATUS_FILE);
         if !self.fs.exists(&status_path) {
             return Ok(serde_json::Map::new());
@@ -269,6 +248,36 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         status: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), CoreError> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(status)?);
+        let status_path = project_root.join(STATUS_FILE);
+        if let Some(parent) = status_path.parent() {
+            self.fs.create_dir_all(parent)?;
+        }
+        self.fs.write_string(&status_path, &encoded)?;
+        Ok(())
+    }
+
+    fn load_status_snapshot(
+        &self,
+        project_root: &Path,
+    ) -> Result<Option<StatusSnapshot>, CoreError> {
+        let status_path = project_root.join(STATUS_FILE);
+        if !self.fs.exists(&status_path) {
+            return Ok(None);
+        }
+        let encoded = self.fs.read(&status_path)?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        Ok(Some(serde_json::from_slice(&decoded)?))
+    }
+
+    fn write_status_snapshot(
+        &self,
+        project_root: &Path,
+        snapshot: &StatusSnapshot,
+    ) -> Result<(), CoreError> {
+        let encoded =
+            base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(snapshot)?);
         let status_path = project_root.join(STATUS_FILE);
         if let Some(parent) = status_path.parent() {
             self.fs.create_dir_all(parent)?;
@@ -390,37 +399,23 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         &self,
         root: &Path,
     ) -> Result<Option<DiscoveredResourcePaths>, CoreError> {
-        let status_path = root.join(STATUS_FILE);
-        if !self.fs.exists(&status_path) {
+        let Some(snapshot) = self.load_status_snapshot(root)? else {
             return Ok(None);
-        }
-        let encoded = self.fs.read(&status_path)?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
-
-        let resources = match status_json.get("resources").and_then(|v| v.as_object()) {
-            Some(r) => r,
-            None => return Ok(Some(discover::empty_discovered_resource_paths())),
         };
 
         let mut discovered = discover::empty_discovered_resource_paths();
-        for (resource_name, resource_entries) in resources {
+        for (resource_name, resource_entries) in &snapshot.resources {
             let Some(type_name) = discover::resource_name_to_type_name(resource_name) else {
                 continue;
             };
-            let Some(entries) = resource_entries.as_object() else {
-                continue;
-            };
             let mut paths = Vec::new();
-            for (idx, resource_data) in entries.values().enumerate() {
+            for (idx, resource_data) in resource_entries.values().enumerate() {
+                let resource_value = resource_data.as_value();
                 let file_path = resource_data
-                    .get("file_path")
-                    .and_then(|v| v.as_str())
+                    .file_path()
                     .map(|path| path.replace('\\', "/"))
                     .or_else(|| {
-                        legacy_python_status_resource_path(resource_name, resource_data, idx)
+                        legacy_python_status_resource_path(resource_name, &resource_value, idx)
                     });
                 if let Some(file_path) = file_path {
                     paths.push(file_path);
@@ -482,28 +477,19 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         &self,
         root: &Path,
     ) -> Result<Option<indexmap::IndexMap<String, String>>, CoreError> {
-        let status_path = root.join(STATUS_FILE);
-        if !self.fs.exists(&status_path) {
+        let Some(snapshot) = self.load_status_snapshot(root)? else {
             return Ok(None);
-        }
-        let encoded = self.fs.read(&status_path)?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
+        };
         let mut out = indexmap::IndexMap::new();
-        let resources = status_json.get("resources").and_then(|v| v.as_object());
-        if let Some(resources) = resources {
+        if !snapshot.resources.is_empty() {
             let mut found_resource_hash = false;
-            let rules_reference_names = legacy_python_rules_reference_names(resources);
-            for (resource_name, entries) in resources {
-                let Some(entries) = entries.as_object() else {
-                    continue;
-                };
+            let rules_reference_names = legacy_python_rules_reference_names(&snapshot.resources);
+            for (resource_name, entries) in &snapshot.resources {
                 for (idx, payload) in entries.values().enumerate() {
+                    let payload_value = payload.as_value();
                     if resource_name == "flow_config"
-                        && let Some(flow_name) = payload.get("name").and_then(Value::as_str)
-                        && let Some(flow_id) = payload.get("resource_id").and_then(Value::as_str)
+                        && let Some(flow_name) = payload.name()
+                        && let Some(flow_id) = payload.resource_id()
                     {
                         out.insert(
                             format!(
@@ -514,8 +500,8 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
                         );
                     }
                     if resource_name == "variants"
-                        && let Some(variant_name) = payload.get("name").and_then(Value::as_str)
-                        && let Some(variant_id) = payload.get("resource_id").and_then(Value::as_str)
+                        && let Some(variant_name) = payload.name()
+                        && let Some(variant_id) = payload.resource_id()
                     {
                         out.insert(
                             format!("{PYTHON_VARIANT_STATUS_KEY_PREFIX}{variant_name}"),
@@ -523,7 +509,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
                         );
                     }
                     let Some(logical_path) =
-                        legacy_python_status_resource_path(resource_name, payload, idx)
+                        legacy_python_status_resource_path(resource_name, &payload_value, idx)
                     else {
                         continue;
                     };
@@ -536,7 +522,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
                         root,
                         resource_name,
                         &file_path,
-                        payload,
+                        &payload_value,
                         &rules_reference_names,
                     ) {
                         out.insert(file_path, hash);
@@ -549,26 +535,23 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
             }
         }
 
-        let Some(file_structure_info) = status_json
-            .get("file_structure_info")
-            .and_then(|v| v.as_object())
-        else {
+        if snapshot.file_structure_info.is_empty() {
             return Ok(if out.is_empty() { None } else { Some(out) });
-        };
-        for (file_path, info) in file_structure_info {
+        }
+        for (file_path, info) in &snapshot.file_structure_info {
             if file_path.contains("variant_attributes.yaml/variants/")
-                && let Some(variant_name) = info.get("resource_name").and_then(|v| v.as_str())
-                && let Some(variant_id) = info.get("resource_id").and_then(|v| v.as_str())
+                && !info.resource_name.is_empty()
+                && !info.resource_id.is_empty()
             {
                 out.insert(
-                    format!("{PYTHON_VARIANT_STATUS_KEY_PREFIX}{variant_name}"),
-                    variant_id.to_string(),
+                    format!("{PYTHON_VARIANT_STATUS_KEY_PREFIX}{}", info.resource_name),
+                    info.resource_id.clone(),
                 );
             }
-            let Some(hash) = info.get("hash").and_then(|v| v.as_str()) else {
+            if info.hash.is_empty() {
                 continue;
-            };
-            out.insert(file_path.replace('\\', "/"), hash.to_string());
+            }
+            out.insert(file_path.replace('\\', "/"), info.hash.clone());
         }
         Ok(Some(out))
     }
@@ -577,30 +560,20 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         &self,
         root: &Path,
     ) -> Result<indexmap::IndexMap<String, String>, CoreError> {
-        let status_path = root.join(STATUS_FILE);
-        if !self.fs.exists(&status_path) {
-            return Ok(indexmap::IndexMap::new());
-        }
-        let encoded = self.fs.read(&status_path)?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
-        let Some(resources) = status_json.get("resources").and_then(|v| v.as_object()) else {
+        let Some(snapshot) = self.load_status_snapshot(root)? else {
             return Ok(indexmap::IndexMap::new());
         };
         let mut ids = indexmap::IndexMap::new();
-        for (resource_name, entries) in resources {
-            let Some(entries) = entries.as_object() else {
-                continue;
-            };
+        for (resource_name, entries) in &snapshot.resources {
             for (idx, payload) in entries.values().enumerate() {
+                let payload_value = payload.as_value();
                 let path = payload
-                    .get("file_path")
-                    .and_then(|v| v.as_str())
+                    .file_path()
                     .map(|path| path.replace('\\', "/"))
-                    .or_else(|| legacy_python_status_resource_path(resource_name, payload, idx));
-                let Some(id) = payload.get("resource_id").and_then(|v| v.as_str()) else {
+                    .or_else(|| {
+                        legacy_python_status_resource_path(resource_name, &payload_value, idx)
+                    });
+                let Some(id) = payload.resource_id() else {
                     continue;
                 };
                 if let Some(path) = path {
@@ -615,40 +588,26 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         &self,
         root: &Path,
     ) -> Result<indexmap::IndexMap<String, (String, String)>, CoreError> {
-        let status_path = root.join(STATUS_FILE);
-        if !self.fs.exists(&status_path) {
-            return Ok(indexmap::IndexMap::new());
-        }
-        let encoded = self.fs.read(&status_path)?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
-        let Some(resources) = status_json.get("resources").and_then(|v| v.as_object()) else {
+        let Some(snapshot) = self.load_status_snapshot(root)? else {
             return Ok(indexmap::IndexMap::new());
         };
         let mut metadata = indexmap::IndexMap::new();
-        for (resource_name, entries) in resources {
-            let Some(entries) = entries.as_object() else {
-                continue;
-            };
+        for (resource_name, entries) in &snapshot.resources {
             for (idx, payload) in entries.values().enumerate() {
+                let payload_value = payload.as_value();
                 let Some(path) = payload
-                    .get("file_path")
-                    .and_then(|v| v.as_str())
+                    .file_path()
                     .map(|path| path.replace('\\', "/"))
-                    .or_else(|| legacy_python_status_resource_path(resource_name, payload, idx))
+                    .or_else(|| {
+                        legacy_python_status_resource_path(resource_name, &payload_value, idx)
+                    })
                 else {
                     continue;
                 };
-                let Some(id) = payload.get("resource_id").and_then(|v| v.as_str()) else {
+                let Some(id) = payload.resource_id() else {
                     continue;
                 };
-                let name = payload
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
+                let name = payload.name().unwrap_or_default().to_string();
                 let item = (id.to_string(), name);
                 metadata.insert(path.clone(), item.clone());
                 metadata
@@ -663,48 +622,31 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         &self,
         root: &Path,
     ) -> Result<Option<ResourceMap>, CoreError> {
-        let status_path = root.join(STATUS_FILE);
-        if !self.fs.exists(&status_path) {
-            return Ok(None);
-        }
-        let encoded = self.fs.read(&status_path)?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
-        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
-        let Some(resources) = status_json.get("resources").and_then(|v| v.as_object()) else {
+        let Some(snapshot) = self.load_status_snapshot(root)? else {
             return Ok(None);
         };
 
         let mut map = ResourceMap::new();
-        for (resource_name, entries) in resources {
-            let Some(entries) = entries.as_object() else {
-                continue;
-            };
+        for (resource_name, entries) in &snapshot.resources {
             for (idx, payload) in entries.values().enumerate() {
+                let payload_value = payload.as_value();
                 let Some(path) = payload
-                    .get("file_path")
-                    .and_then(|v| v.as_str())
+                    .file_path()
                     .map(|path| path.replace('\\', "/"))
-                    .or_else(|| legacy_python_status_resource_path(resource_name, payload, idx))
+                    .or_else(|| {
+                        legacy_python_status_resource_path(resource_name, &payload_value, idx)
+                    })
                 else {
                     continue;
                 };
                 let (file_path, _) = parse_multi_resource_path(&path);
-                let Some(content) = legacy_python_status_resource_content(resource_name, payload)
+                let Some(content) =
+                    legacy_python_status_resource_content(resource_name, &payload_value)
                 else {
                     continue;
                 };
-                let resource_id = payload
-                    .get("resource_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                let name = payload
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
+                let resource_id = payload.resource_id().unwrap_or_default().to_string();
+                let name = payload.name().unwrap_or_default().to_string();
                 map.insert(
                     file_path.clone(),
                     Resource {
@@ -828,7 +770,7 @@ fn legacy_python_status_resource_path(
 }
 
 fn legacy_python_rules_reference_names(
-    resources: &serde_json::Map<String, Value>,
+    resources: &indexmap::IndexMap<String, indexmap::IndexMap<String, StatusResourcePayload>>,
 ) -> Vec<(String, String, String)> {
     [
         ("functions", "fn"),
@@ -841,12 +783,11 @@ fn legacy_python_rules_reference_names(
     .flat_map(|(resource_name, reference_prefix)| {
         resources
             .get(resource_name)
-            .and_then(Value::as_object)
             .into_iter()
             .flat_map(move |entries| {
                 entries.values().filter_map(move |payload| {
-                    let id = payload.get("resource_id").and_then(Value::as_str)?;
-                    let name = payload.get("name").and_then(Value::as_str)?;
+                    let id = payload.resource_id()?;
+                    let name = payload.name()?;
                     Some((
                         reference_prefix.to_string(),
                         id.to_string(),
@@ -2470,14 +2411,14 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             flow_step_name_to_id: &flow_step_name_to_id,
         };
         let discovered = self.discover_local_resources(&project_root);
-        let mut resources = serde_json::Map::new();
+        let mut resources = indexmap::IndexMap::new();
         let mut file_structure_metadata = BTreeMap::new();
 
         for (type_name, paths) in discovered {
             let Some(resource_name) = discover::type_name_to_resource_name(&type_name) else {
                 continue;
             };
-            let mut entries = serde_json::Map::new();
+            let mut entries = indexmap::IndexMap::new();
             for logical_path in paths {
                 let (file_path, resource_suffix) = parse_multi_resource_path(&logical_path);
                 if type_name != "Variable" && !baseline_file_paths.contains(&file_path) {
@@ -2542,28 +2483,29 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                         status_hash,
                     ),
                 );
-                entries.insert(resource_id.clone(), payload);
+                entries.insert(
+                    resource_id.clone(),
+                    StatusResourcePayload::from_value(payload),
+                );
             }
             if !entries.is_empty() {
-                resources.insert(
-                    resource_name.to_string(),
-                    serde_json::Value::Object(entries),
-                );
+                resources.insert(resource_name.to_string(), entries);
             }
         }
 
-        let mut file_structure_info = serde_json::Map::new();
+        let mut file_structure_info = indexmap::IndexMap::new();
         for (file_path, (resource_type, resource_id, resource_name, hash)) in
             file_structure_metadata
         {
             file_structure_info.insert(
                 file_path.clone(),
-                serde_json::json!({
-                    "type": resource_type,
-                    "resource_id": resource_id,
-                    "resource_name": resource_name,
-                    "hash": hash,
-                }),
+                FileStructureEntry {
+                    resource_type,
+                    resource_id,
+                    resource_name,
+                    hash,
+                    extra: serde_json::Map::new(),
+                },
             );
         }
 
@@ -2573,24 +2515,30 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             .map(|cfg| cfg.branch_id.clone())
             .unwrap_or_else(|| "main".to_string());
         let migration_flags = self.run_and_persist_project_migrations(&project_root)?;
-        let status = serde_json::json!({
-            "region": config.as_ref().map(|cfg| cfg.region.clone()).unwrap_or_default(),
-            "account_id": config.as_ref().map(|cfg| cfg.account_id.clone()).unwrap_or_default(),
-            "project_id": config.as_ref().map(|cfg| cfg.project_id.clone()).unwrap_or_default(),
-            "project_name": config.as_ref().and_then(|cfg| cfg.project_name.clone()),
-            "resources": resources,
-            "last_updated": chrono::Utc::now().to_rfc3339(),
-            "file_structure_info": file_structure_info,
-            "branch_id": branch_id,
-            "migration_flags": migration_flags.into_iter().collect::<Vec<_>>(),
-        });
-        let encoded =
-            base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&status)?);
-        let gen_dir = project_root.join("_gen");
+        let status = StatusSnapshot {
+            region: config
+                .as_ref()
+                .map(|cfg| cfg.region.clone())
+                .unwrap_or_default(),
+            account_id: config
+                .as_ref()
+                .map(|cfg| cfg.account_id.clone())
+                .unwrap_or_default(),
+            project_id: config
+                .as_ref()
+                .map(|cfg| cfg.project_id.clone())
+                .unwrap_or_default(),
+            project_name: config.as_ref().and_then(|cfg| cfg.project_name.clone()),
+            resources,
+            last_updated: Some(chrono::Utc::now().to_rfc3339()),
+            file_structure_info,
+            branch_id,
+            migration_flags: migration_flags.into_iter().collect::<Vec<_>>(),
+            extra: serde_json::Map::new(),
+        };
         self.write_python_gen_package(&project_root)?;
         self.workspace
-            .fs
-            .write_string(&gen_dir.join(".agent_studio_config"), &encoded)?;
+            .write_status_snapshot(&project_root, &status)?;
         Ok(())
     }
 
