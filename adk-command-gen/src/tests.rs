@@ -191,12 +191,60 @@ fn update_function_uses_remote_metadata_when_available() {
 }
 
 #[test]
+fn projection_function_with_distinct_display_name_round_trips_without_commands() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "Lookup Customer",
+                        "description": "Looks up a customer.",
+                        "code": "def lookup_customer(conv):\n    return 'ok'\n",
+                        "archived": false
+                    }
+                }
+            }
+        }
+    });
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let commands = build_phase1_commands(&resources, &projection);
+
+    assert!(commands.is_empty());
+}
+
+#[test]
+fn archived_remote_function_absent_from_disk_is_not_deleted() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "Archived Function",
+                        "code": "def archived_function(conv):\n    return 'old'\n",
+                        "archived": true
+                    }
+                }
+            }
+        }
+    });
+    let commands = build_phase1_commands(&ResourceMap::new(), &projection);
+
+    assert!(
+        commands
+            .iter()
+            .all(|command| command.r#type != "delete_function")
+    );
+}
+
+#[test]
 fn create_function_infers_description_and_parameters_from_code() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "functions/new_func.py".to_string(),
         Resource {
-            resource_id: "local".to_string(),
+            resource_id: "functions/new_func.py".to_string(),
             name: "new_func".to_string(),
             file_path: "functions/new_func.py".to_string(),
             payload: serde_json::json!({
@@ -211,6 +259,8 @@ fn create_function_infers_description_and_parameters_from_code() {
         .expect("create function command");
     match &create.payload {
         Some(CommandPayload::CreateFunction(msg)) => {
+            assert!(msg.id.starts_with("FUNCTIONS-"));
+            assert_ne!(msg.id, "functions/new_func.py");
             assert_eq!(msg.description, "Create greeting.");
             assert_eq!(msg.parameters.len(), 2);
             assert_eq!(msg.parameters[0].name, "name");

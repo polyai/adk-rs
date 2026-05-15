@@ -3,7 +3,7 @@
 use crate::push_single_file_resources::CommandGroups;
 use crate::{
     extract_entities_map, extract_variable_names_from_code, generated_or_stable_resource_id,
-    push_command,
+    push_command, push_functions,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -219,22 +219,23 @@ fn function_reference_target(
         ));
     }
     if path.starts_with("functions/") && path.ends_with(".py") {
-        let name = path
-            .split('/')
-            .next_back()
-            .unwrap_or_default()
-            .trim_end_matches(".py");
-        let remote_id = extract_entities_map(projection, &["functions", "functions", "entities"])
+        let content = resource
+            .payload
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let name = push_functions::local_function_name(path, resource, content);
+        let remote_id = push_functions::function_entries(projection)
             .into_iter()
             .find_map(|(id, function)| {
-                (function.get("name").and_then(Value::as_str) == Some(name)).then_some(id)
+                (function.get("name").and_then(Value::as_str) == Some(name.as_str())).then_some(id)
             });
         return Some((
             FunctionReferenceKind::Global,
             remote_id
                 .or_else(|| local_resource_id(resource))
                 .unwrap_or_else(|| {
-                    generated_or_stable_resource_id("function", "FUNCTIONS", name, path)
+                    generated_or_stable_resource_id("function", "FUNCTIONS", &name, path)
                 }),
         ));
     }

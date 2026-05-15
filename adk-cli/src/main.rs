@@ -1737,7 +1737,7 @@ fn cmd_branch_create_with_service<C: PlatformClient>(
     match service.create_branch(path.as_path(), branch_name) {
         Ok(cfg) if matches!(a.environment.as_deref(), Some("pre-release" | "live")) => {
             match service.push(path.as_path(), true, true, false) {
-                Ok(push) if push.success => print_payload(
+                Ok(push) if push.success || push.message == "No changes detected" => print_payload(
                     a.json,
                     json!({"success": true, "branch_name": branch_name, "new_branch_id": cfg.branch_id}),
                 ),

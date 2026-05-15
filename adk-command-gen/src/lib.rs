@@ -1219,6 +1219,23 @@ pub fn build_phase1_commands_with_actor(
     projection: &Value,
     actor: Option<&str>,
 ) -> Vec<Command> {
+    build_phase1_commands_inner(resources, projection, actor, true)
+}
+
+pub fn build_phase1_commands_for_changed_resources(
+    resources: &ResourceMap,
+    projection: &Value,
+    actor: Option<&str>,
+) -> Vec<Command> {
+    build_phase1_commands_inner(resources, projection, actor, false)
+}
+
+fn build_phase1_commands_inner(
+    resources: &ResourceMap,
+    projection: &Value,
+    actor: Option<&str>,
+    include_deletes: bool,
+) -> Vec<Command> {
     let metadata = command_metadata_with_actor(actor);
 
     let flow_groups = push_flows::flow_resource_command_groups(resources, projection, &metadata);
@@ -1237,14 +1254,20 @@ pub fn build_phase1_commands_with_actor(
         post_updates: variable_post_updates,
     } = variable_groups;
 
-    let mut deletes: Vec<Command> = variable_deletes
-        .into_iter()
-        .chain(function_groups.deletes)
-        .chain(topic_groups.deletes)
-        .chain(flow_groups.deletes)
-        .chain(single_file_groups.deletes)
-        .collect();
-    order_commands_with_priority(&mut deletes, DELETE_COMMAND_PRIORITY);
+    let mut deletes: Vec<Command> = if include_deletes {
+        variable_deletes
+            .into_iter()
+            .chain(function_groups.deletes)
+            .chain(topic_groups.deletes)
+            .chain(flow_groups.deletes)
+            .chain(single_file_groups.deletes)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if include_deletes {
+        order_commands_with_priority(&mut deletes, DELETE_COMMAND_PRIORITY);
+    }
 
     let mut creates: Vec<Command> = variable_creates
         .into_iter()

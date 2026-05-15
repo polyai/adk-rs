@@ -30,6 +30,11 @@ const PYTHON_FUNCTION_STATUS_HASH_PREFIX: &str = "python-function:";
 const PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX: &str = "__python_flow_import__/";
 const PYTHON_VARIANT_STATUS_KEY_PREFIX: &str = "__python_variant__/";
 
+struct PushChangeSet {
+    resources: ResourceMap,
+    has_deletions: bool,
+}
+
 const PYTHON_GEN_TEMPLATE_FILES: &[(&str, &str)] = &[
     (
         "__init__.py",
@@ -604,6 +609,54 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
             }
         }
         Ok(ids)
+    }
+
+    fn load_status_snapshot_resource_metadata(
+        &self,
+        root: &Path,
+    ) -> Result<indexmap::IndexMap<String, (String, String)>, CoreError> {
+        let status_path = root.join(STATUS_FILE);
+        if !self.fs.exists(&status_path) {
+            return Ok(indexmap::IndexMap::new());
+        }
+        let encoded = self.fs.read(&status_path)?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
+        let Some(resources) = status_json.get("resources").and_then(|v| v.as_object()) else {
+            return Ok(indexmap::IndexMap::new());
+        };
+        let mut metadata = indexmap::IndexMap::new();
+        for (resource_name, entries) in resources {
+            let Some(entries) = entries.as_object() else {
+                continue;
+            };
+            for (idx, payload) in entries.values().enumerate() {
+                let Some(path) = payload
+                    .get("file_path")
+                    .and_then(|v| v.as_str())
+                    .map(|path| path.replace('\\', "/"))
+                    .or_else(|| legacy_python_status_resource_path(resource_name, payload, idx))
+                else {
+                    continue;
+                };
+                let Some(id) = payload.get("resource_id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let name = payload
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let item = (id.to_string(), name);
+                metadata.insert(path.clone(), item.clone());
+                metadata
+                    .entry(parse_multi_resource_path(&path).0)
+                    .or_insert(item);
+            }
+        }
+        Ok(metadata)
     }
 
     fn load_status_snapshot_resource_map(
@@ -1467,6 +1520,55 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         }
         let mut persistent_local = self.collect_local_resources(root)?;
         self.apply_deleted_reference_names(root, &mut persistent_local)?;
+        if let Some(mut changes) =
+            self.push_resource_map_for_status_changes(root, &persistent_local, projection)?
+        {
+            if changes.resources.is_empty() && !changes.has_deletions {
+                return Ok(PushResult {
+                    success: false,
+                    message: "No changes detected".to_string(),
+                    commands: vec![],
+                });
+            }
+            if changes.has_deletions {
+                self.add_discovered_variable_resources(root, &mut changes.resources);
+                if dry_run {
+                    return Ok(self.client.preview_push_resources_with_options(
+                        &changes.resources,
+                        projection,
+                        actor,
+                    )?);
+                }
+                let result = self.client.push_resources_with_options(
+                    &changes.resources,
+                    projection,
+                    actor,
+                )?;
+                if result.success {
+                    self.save_replay_state_resources(root, &persistent_local)?;
+                    self.write_status_snapshot_from_resources(root, &persistent_local)?;
+                }
+                return Ok(result);
+            }
+            self.add_variable_resources_for_changed_resources(&mut changes.resources);
+            if dry_run {
+                return Ok(self.client.preview_push_changed_resources_with_options(
+                    &changes.resources,
+                    projection,
+                    actor,
+                )?);
+            }
+            let result = self.client.push_changed_resources_with_options(
+                &changes.resources,
+                projection,
+                actor,
+            )?;
+            if result.success {
+                self.save_replay_state_resources(root, &persistent_local)?;
+                self.write_status_snapshot_from_resources(root, &persistent_local)?;
+            }
+            return Ok(result);
+        }
         let mut local = persistent_local.clone();
         self.add_discovered_variable_resources(root, &mut local);
         if dry_run {
@@ -1482,6 +1584,81 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             self.write_status_snapshot_from_resources(root, &persistent_local)?;
         }
         Ok(result)
+    }
+
+    fn push_resource_map_for_status_changes(
+        &self,
+        root: &Path,
+        persistent_local: &ResourceMap,
+        projection: Option<&Value>,
+    ) -> Result<Option<PushChangeSet>, CoreError> {
+        if projection.is_some() {
+            return Ok(None);
+        }
+        let Some(existing_typed) = self.load_status_snapshot_discovered_resources(root)? else {
+            return Ok(None);
+        };
+        let discovered_typed = self.discover_local_resources(root);
+        let typed_changes = self.find_new_kept_deleted(&discovered_typed, &existing_typed);
+        let has_deletions = !typed_changes.deleted_resources.values().all(Vec::is_empty);
+        let mut changed_paths = flatten_discovered_paths(&typed_changes.new_resources)
+            .into_iter()
+            .chain(flatten_discovered_paths(&typed_changes.deleted_resources))
+            .collect::<Vec<_>>();
+
+        if let Some(snapshot_hashes) = self.load_status_snapshot_file_hashes(root)? {
+            changed_paths.extend(compute_modified_files_against_snapshot(
+                root,
+                &typed_changes.kept_resources,
+                &snapshot_hashes,
+            )?);
+            let replacements = self
+                .deleted_resource_reference_replacements(root, &typed_changes.deleted_resources)?;
+            changed_paths.extend(compute_modified_files_against_snapshot_with_replacements(
+                root,
+                &typed_changes.kept_resources,
+                &snapshot_hashes,
+                &replacements,
+            )?);
+        }
+
+        if changed_paths.is_empty() {
+            return Ok(Some(PushChangeSet {
+                resources: ResourceMap::new(),
+                has_deletions: false,
+            }));
+        }
+
+        let changed_file_paths = changed_paths
+            .into_iter()
+            .map(|path| parse_multi_resource_path(&path).0)
+            .collect::<BTreeSet<_>>();
+        let metadata = self
+            .workspace
+            .load_status_snapshot_resource_metadata(root)?;
+        let mut resources = if has_deletions {
+            persistent_local.clone()
+        } else {
+            ResourceMap::new()
+        };
+        for file_path in changed_file_paths {
+            if let Some(resource) = persistent_local.get(&file_path) {
+                let mut resource = resource.clone();
+                if let Some((id, name)) = metadata.get(&file_path) {
+                    resource.resource_id = id.clone();
+                    if !name.is_empty() {
+                        resource.name = name.clone();
+                    }
+                }
+                resources.insert(file_path, resource);
+            } else {
+                resources.shift_remove(&file_path);
+            }
+        }
+        Ok(Some(PushChangeSet {
+            resources,
+            has_deletions,
+        }))
     }
 
     fn add_discovered_variable_resources(&self, root: &Path, local: &mut ResourceMap) {
@@ -1506,6 +1683,29 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                     resource_id: "local".to_string(),
                     name: name.to_string(),
                     file_path: logical_path.clone(),
+                    payload: serde_json::json!({ "content": "" }),
+                },
+            );
+        }
+    }
+
+    fn add_variable_resources_for_changed_resources(&self, local: &mut ResourceMap) {
+        let variable_names = local
+            .values()
+            .filter_map(|resource| resource.payload.get("content").and_then(Value::as_str))
+            .flat_map(discover::extract_variable_names_from_code)
+            .collect::<BTreeSet<_>>();
+        for name in variable_names {
+            let logical_path = format!("variables/{name}");
+            if local.contains_key(&logical_path) {
+                continue;
+            }
+            local.insert(
+                logical_path.clone(),
+                Resource {
+                    resource_id: "local".to_string(),
+                    name,
+                    file_path: logical_path,
                     payload: serde_json::json!({ "content": "" }),
                 },
             );
@@ -1554,7 +1754,11 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         }
         let mut persistent_local = self.collect_local_resources(root)?;
         self.apply_deleted_reference_names(root, &mut persistent_local)?;
-        let mut local = persistent_local.clone();
+        let mut local = self
+            .push_resource_map_for_status_changes(root, &persistent_local, None)?
+            .filter(|changes| changes.has_deletions)
+            .map(|changes| changes.resources)
+            .unwrap_or_else(|| persistent_local.clone());
         self.add_discovered_variable_resources(root, &mut local);
         let (branch_id, push_result) =
             self.client

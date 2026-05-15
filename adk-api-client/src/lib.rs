@@ -1,6 +1,6 @@
 use adk_command_gen::{
-    CommandGenError, build_phase1_commands_with_actor, command_to_json_summary,
-    projection_to_resource_map,
+    CommandGenError, build_phase1_commands_for_changed_resources, build_phase1_commands_with_actor,
+    command_to_json_summary, projection_to_resource_map,
 };
 use adk_protobuf::{Command, CommandBatch};
 use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
@@ -54,6 +54,13 @@ pub trait PlatformClient: Send + Sync {
         let _ = name;
         self.pull_resources()
     }
+    fn push_baseline_resources(&self, projection: Option<&Value>) -> Result<ResourceMap, ApiError> {
+        if let Some(projection) = projection {
+            projection_to_resource_map(projection).map_err(ApiError::from)
+        } else {
+            self.pull_resources()
+        }
+    }
     fn preview_push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
         let _ = resources;
         Ok(PushResult {
@@ -71,6 +78,14 @@ pub trait PlatformClient: Send + Sync {
         let _ = (projection, actor);
         self.preview_push_resources(resources)
     }
+    fn preview_push_changed_resources_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, ApiError> {
+        self.preview_push_resources_with_options(resources, projection, actor)
+    }
     fn push_resources(&self, _resources: &ResourceMap) -> Result<PushResult, ApiError>;
     fn push_resources_with_options(
         &self,
@@ -80,6 +95,14 @@ pub trait PlatformClient: Send + Sync {
     ) -> Result<PushResult, ApiError> {
         let _ = (projection, actor);
         self.push_resources(resources)
+    }
+    fn push_changed_resources_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, ApiError> {
+        self.push_resources_with_options(resources, projection, actor)
     }
     fn push_main_resources_to_new_branch(
         &self,
@@ -536,6 +559,25 @@ impl PlatformClient for HttpPlatformClient {
         self.push_commands_to_branch(&self.branch_id, last_known_sequence, commands)
     }
 
+    fn push_changed_resources_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, ApiError> {
+        let (commands, last_known_sequence) =
+            self.build_changed_push_commands_with_options(resources, projection, actor)?;
+        if commands.is_empty() {
+            return Ok(PushResult {
+                success: false,
+                message: "No changes detected".to_string(),
+                commands: vec![],
+            });
+        }
+
+        self.push_commands_to_branch(&self.branch_id, last_known_sequence, commands)
+    }
+
     fn push_main_resources_to_new_branch(
         &self,
         branch_name: &str,
@@ -590,6 +632,30 @@ impl PlatformClient for HttpPlatformClient {
     ) -> Result<PushResult, ApiError> {
         let (commands, _, _) =
             self.build_push_commands_and_projection_with_options(resources, projection, actor)?;
+        let summaries: Vec<_> = commands.iter().map(command_to_json_summary).collect();
+        if summaries.is_empty() {
+            return Ok(PushResult {
+                success: false,
+                message: "No changes detected".to_string(),
+                commands: vec![],
+            });
+        }
+        Ok(PushResult {
+            success: true,
+            message: "Dry run completed. No changes were pushed.".to_string(),
+            commands: summaries,
+        })
+    }
+
+    fn preview_push_changed_resources_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, ApiError> {
+        let (commands, _, _) = self.build_changed_push_commands_and_projection_with_options(
+            resources, projection, actor,
+        )?;
         let summaries: Vec<_> = commands.iter().map(command_to_json_summary).collect();
         if summaries.is_empty() {
             return Ok(PushResult {
@@ -974,6 +1040,21 @@ impl HttpPlatformClient {
         Ok((commands, last_known_sequence))
     }
 
+    fn build_changed_push_commands_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection_override: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<(Vec<Command>, u64), ApiError> {
+        let (commands, last_known_sequence, _) = self
+            .build_changed_push_commands_and_projection_with_options(
+                resources,
+                projection_override,
+                actor,
+            )?;
+        Ok((commands, last_known_sequence))
+    }
+
     fn build_push_commands_and_projection_with_options(
         &self,
         resources: &ResourceMap,
@@ -999,6 +1080,34 @@ impl HttpPlatformClient {
             (projection, last_known_sequence)
         };
         let commands = build_phase1_commands_with_actor(resources, &projection, actor);
+        Ok((commands, last_known_sequence, projection))
+    }
+
+    fn build_changed_push_commands_and_projection_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection_override: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<(Vec<Command>, u64, Value), ApiError> {
+        let (projection, last_known_sequence) = if let Some(projection) = projection_override {
+            (projection.clone(), 0)
+        } else {
+            let projection_response = self.fetch_projection_response()?;
+            let projection = projection_response
+                .get("projection")
+                .cloned()
+                .unwrap_or_else(|| projection_response.clone());
+            let last_known_sequence = projection_response
+                .get("lastKnownSequence")
+                .and_then(|v| match v {
+                    Value::String(s) => s.parse::<u64>().ok(),
+                    Value::Number(n) => n.as_u64(),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            (projection, last_known_sequence)
+        };
+        let commands = build_phase1_commands_for_changed_resources(resources, &projection, actor);
         Ok((commands, last_known_sequence, projection))
     }
 }

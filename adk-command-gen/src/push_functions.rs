@@ -2,8 +2,8 @@
 
 use crate::push_single_file_resources::CommandGroups;
 use crate::{
-    clean_name, extract_entities_map, extract_variable_names_from_code,
-    generated_or_stable_resource_id, is_synthetic_local_resource_id, push_command,
+    extract_entities_map, extract_variable_names_from_code, generated_or_stable_resource_id,
+    is_synthetic_local_resource_id, push_command,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -19,7 +19,7 @@ use adk_protobuf::functions::{
 use adk_protobuf::start_function::{
     StartFunctionCreate, StartFunctionDelete, StartFunctionReferences, StartFunctionUpdate,
 };
-use adk_types::ResourceMap;
+use adk_types::{Resource, ResourceMap};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -58,12 +58,7 @@ pub(crate) fn function_resource_command_groups(
             .get("content")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let name = path
-            .split('/')
-            .next_back()
-            .unwrap_or_default()
-            .trim_end_matches(".py")
-            .to_string();
+        let name = local_function_name(path, resource, content);
 
         if let Some(kind) = special_function_kind_from_path(path) {
             match kind {
@@ -185,10 +180,12 @@ pub(crate) fn function_resource_command_groups(
             .get(&name)
             .map(|(id, _)| id.clone())
             .or_else(|| {
-                (!resource.resource_id.trim().is_empty() && resource.resource_id != "local")
+                (!is_synthetic_local_resource_id(&resource.resource_id))
                     .then_some(resource.resource_id.clone())
             })
-            .unwrap_or_else(|| format!("function-{}", clean_name(&name).to_lowercase()));
+            .unwrap_or_else(|| {
+                generated_or_stable_resource_id("function", "FUNCTIONS", &name, path)
+            });
         let function_code = function_code_from_local_content(content);
         let inferred_description = infer_function_description(content);
         let inferred_parameters = infer_function_parameters(content);
@@ -280,8 +277,8 @@ pub(crate) fn function_resource_command_groups(
         }
     }
 
-    for (name, (id, _)) in remote_functions {
-        if !local_function_names.contains(&name) {
+    for (name, (id, function)) in remote_functions {
+        if !function_archived(&function) && !local_function_names.contains(&name) {
             push_command(
                 &mut groups.deletes,
                 metadata,
@@ -326,6 +323,49 @@ fn function_references(variables: HashMap<String, bool>) -> FunctionReferences {
 
 pub(crate) fn function_entries(projection: &Value) -> HashMap<String, Value> {
     extract_entities_map(projection, &["functions", "functions", "entities"])
+}
+
+fn function_archived(function: &Value) -> bool {
+    function
+        .get("archived")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+pub(crate) fn local_function_name(path: &str, resource: &Resource, content: &str) -> String {
+    meaningful_resource_name(resource, path)
+        .or_else(|| inferred_function_name(content))
+        .unwrap_or_else(|| function_file_stem(path).to_string())
+}
+
+fn inferred_function_name(content: &str) -> Option<String> {
+    content.lines().find_map(|line| {
+        let trimmed = line.trim_start();
+        let signature = trimmed
+            .strip_prefix("def ")
+            .or_else(|| trimmed.strip_prefix("async def "))?;
+        let open = signature.find('(')?;
+        let name = signature[..open].trim();
+        (!name.is_empty()).then(|| name.to_string())
+    })
+}
+
+fn meaningful_resource_name(resource: &Resource, path: &str) -> Option<String> {
+    let name = resource.name.trim();
+    (!name.is_empty()
+        && name != path
+        && !name.contains('/')
+        && !name.ends_with(".py")
+        && !name.ends_with(".yaml")
+        && !name.ends_with(".yml"))
+    .then(|| name.to_string())
+}
+
+fn function_file_stem(path: &str) -> &str {
+    path.split('/')
+        .next_back()
+        .unwrap_or_default()
+        .trim_end_matches(".py")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
