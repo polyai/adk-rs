@@ -383,16 +383,65 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
         .get("code")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let mut content = String::new();
+    let name = function
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut decorators = Vec::new();
     if let Some(description) = function.get("description").and_then(Value::as_str)
         && !description.is_empty()
     {
-        content.push_str("@func_description(");
-        content.push_str(&python_string_literal(description));
-        content.push_str(")\n");
+        decorators.push(format!(
+            "@func_description({})\n",
+            python_string_literal(description)
+        ));
     }
-    content.push_str(code);
-    content
+    insert_python_function_decorators(code, name, decorators)
+}
+
+fn insert_python_function_decorators(
+    code: &str,
+    function_name: &str,
+    decorators: Vec<String>,
+) -> String {
+    if decorators.is_empty() {
+        return code.to_string();
+    }
+    let lines = code.split_inclusive('\n').collect::<Vec<_>>();
+    if lines.is_empty() {
+        return code.to_string();
+    }
+    let target_idx = lines.iter().position(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with(&format!("def {function_name}("))
+            || trimmed.starts_with(&format!("async def {function_name}("))
+    });
+    let Some(target_idx) = target_idx else {
+        let mut out = decorators.concat();
+        out.push_str(code);
+        return out;
+    };
+    let indent = lines[target_idx]
+        .chars()
+        .take_while(|ch| ch.is_whitespace())
+        .collect::<String>();
+    let mut insert_at = target_idx;
+    while insert_at > 0 && lines[insert_at - 1].trim_start().starts_with('@') {
+        insert_at -= 1;
+    }
+    let decorator_block = decorators
+        .into_iter()
+        .map(|decorator| format!("{indent}{decorator}"))
+        .collect::<String>();
+    let mut out = String::new();
+    for line in &lines[..insert_at] {
+        out.push_str(line);
+    }
+    out.push_str(&decorator_block);
+    for line in &lines[insert_at..] {
+        out.push_str(line);
+    }
+    out
 }
 
 pub(crate) fn variable_reference_ids_from_code(

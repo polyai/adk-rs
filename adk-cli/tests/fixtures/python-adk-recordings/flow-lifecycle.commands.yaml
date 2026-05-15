@@ -167,8 +167,9 @@ workflows:
           @@ -1,3 +1,3 @@
            name: adk_recording_flow
           -description: Flow recording baseline.
+          -start_step: start_step
           +description: Flow recording updated.
-           start_step: STEP-start
+          +start_step: STEP-start
         flows/adk_recording_flow/function_steps/new_work.py: |-
           --- original
           +++ updated

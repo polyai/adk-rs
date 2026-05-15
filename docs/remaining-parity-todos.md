@@ -149,6 +149,7 @@ Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be co
   - Match Python's resource-specific formatting for YAML, JSON, Python, multi-resource YAML files, `--files` path resolution relative to `--path`, and `ty` timeout/result behavior.
   - Acceptance: tests cover JSON formatting, YAML multi-resource formatting, absolute and base-path-relative `--files`, invalid resource format errors, and `ty` timeout/nonzero reporting.
   - Implemented: formatting now supports explicit JSON file formatting, keeps project-wide replay behavior aligned with Python recordings, normalizes `--files` relative to `--path` including absolute paths, preserves invalid YAML/JSON content instead of failing formatter runs, and runs `ty` with a Python-compatible timeout/result shape. CLI tests cover JSON and absolute-path formatting.
+  - [ ] Follow-up: replace Rust's broad `serde_yaml` project-wide YAML formatting with a Python-compatible ruamel-style formatter or narrower resource-aware formatter. A larger private smoke project showed Rust reporting extra YAML files in `format --check` that Python leaves unchanged.
 
 - [x] **Port full resource validation semantics** (`resource-validation-parity`)
   - Extend Rust validation beyond the current semantic checks to mirror each Python resource class's validation, including references, required fields, value enums, duplicate names, and resource-family-specific constraints.

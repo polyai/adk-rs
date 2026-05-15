@@ -26,6 +26,9 @@ use walkdir::WalkDir;
 pub const PROJECT_CONFIG_FILE: &str = "project.yaml";
 pub const STATUS_FILE: &str = "_gen/.agent_studio_config";
 const MIGRATED_LEGACY_TOPIC_FILES: &str = "migrated_legacy_topic_files";
+const PYTHON_FUNCTION_STATUS_HASH_PREFIX: &str = "python-function:";
+const PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX: &str = "__python_flow_import__/";
+const PYTHON_VARIANT_STATUS_KEY_PREFIX: &str = "__python_variant__/";
 
 const PYTHON_GEN_TEMPLATE_FILES: &[(&str, &str)] = &[
     (
@@ -406,12 +409,17 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
                 continue;
             };
             let mut paths = Vec::new();
-            for resource_data in entries.values() {
-                let Some(file_path) = resource_data.get("file_path").and_then(|v| v.as_str())
-                else {
-                    continue;
-                };
-                paths.push(file_path.replace('\\', "/"));
+            for (idx, resource_data) in entries.values().enumerate() {
+                let file_path = resource_data
+                    .get("file_path")
+                    .and_then(|v| v.as_str())
+                    .map(|path| path.replace('\\', "/"))
+                    .or_else(|| {
+                        legacy_python_status_resource_path(resource_name, resource_data, idx)
+                    });
+                if let Some(file_path) = file_path {
+                    paths.push(file_path);
+                }
             }
             paths.sort();
             paths.dedup();
@@ -478,14 +486,80 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
             .decode(encoded)
             .map_err(|e| DomainError::InvalidData(e.to_string()))?;
         let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
+        let mut out = indexmap::IndexMap::new();
+        let resources = status_json.get("resources").and_then(|v| v.as_object());
+        if let Some(resources) = resources {
+            let mut found_resource_hash = false;
+            let rules_reference_names = legacy_python_rules_reference_names(resources);
+            for (resource_name, entries) in resources {
+                let Some(entries) = entries.as_object() else {
+                    continue;
+                };
+                for (idx, payload) in entries.values().enumerate() {
+                    if resource_name == "flow_config"
+                        && let Some(flow_name) = payload.get("name").and_then(Value::as_str)
+                        && let Some(flow_id) = payload.get("resource_id").and_then(Value::as_str)
+                    {
+                        out.insert(
+                            format!(
+                                "{PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX}{}",
+                                discover::clean_name(flow_name, true)
+                            ),
+                            flow_id.to_string(),
+                        );
+                    }
+                    if resource_name == "variants"
+                        && let Some(variant_name) = payload.get("name").and_then(Value::as_str)
+                        && let Some(variant_id) = payload.get("resource_id").and_then(Value::as_str)
+                    {
+                        out.insert(
+                            format!("{PYTHON_VARIANT_STATUS_KEY_PREFIX}{variant_name}"),
+                            variant_id.to_string(),
+                        );
+                    }
+                    let Some(logical_path) =
+                        legacy_python_status_resource_path(resource_name, payload, idx)
+                    else {
+                        continue;
+                    };
+                    let (file_path, _) = parse_multi_resource_path(&logical_path);
+                    if out.contains_key(&file_path) {
+                        continue;
+                    }
+                    if let Some(hash) = legacy_python_status_resource_file_hash(
+                        &self.fs,
+                        root,
+                        resource_name,
+                        &file_path,
+                        payload,
+                        &rules_reference_names,
+                    ) {
+                        out.insert(file_path, hash);
+                        found_resource_hash = true;
+                    }
+                }
+            }
+            if found_resource_hash {
+                return Ok(Some(out));
+            }
+        }
+
         let Some(file_structure_info) = status_json
             .get("file_structure_info")
             .and_then(|v| v.as_object())
         else {
-            return Ok(None);
+            return Ok(if out.is_empty() { None } else { Some(out) });
         };
-        let mut out = indexmap::IndexMap::new();
         for (file_path, info) in file_structure_info {
+            if file_path.contains("variant_attributes.yaml/variants/")
+                && let Some(variant_name) = info.get("resource_name").and_then(|v| v.as_str())
+                && let Some(variant_id) = info.get("resource_id").and_then(|v| v.as_str())
+            {
+                out.insert(
+                    format!("{PYTHON_VARIANT_STATUS_KEY_PREFIX}{variant_name}"),
+                    variant_id.to_string(),
+                );
+            }
             let Some(hash) = info.get("hash").and_then(|v| v.as_str()) else {
                 continue;
             };
@@ -511,22 +585,572 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
             return Ok(indexmap::IndexMap::new());
         };
         let mut ids = indexmap::IndexMap::new();
-        for entries in resources.values() {
+        for (resource_name, entries) in resources {
             let Some(entries) = entries.as_object() else {
                 continue;
             };
-            for payload in entries.values() {
-                let Some(path) = payload.get("file_path").and_then(|v| v.as_str()) else {
-                    continue;
-                };
+            for (idx, payload) in entries.values().enumerate() {
+                let path = payload
+                    .get("file_path")
+                    .and_then(|v| v.as_str())
+                    .map(|path| path.replace('\\', "/"))
+                    .or_else(|| legacy_python_status_resource_path(resource_name, payload, idx));
                 let Some(id) = payload.get("resource_id").and_then(|v| v.as_str()) else {
                     continue;
                 };
-                ids.insert(path.replace('\\', "/"), id.to_string());
+                if let Some(path) = path {
+                    ids.insert(path, id.to_string());
+                }
             }
         }
         Ok(ids)
     }
+
+    fn load_status_snapshot_resource_map(
+        &self,
+        root: &Path,
+    ) -> Result<Option<ResourceMap>, CoreError> {
+        let status_path = root.join(STATUS_FILE);
+        if !self.fs.exists(&status_path) {
+            return Ok(None);
+        }
+        let encoded = self.fs.read(&status_path)?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        let status_json: serde_json::Value = serde_json::from_slice(&decoded)?;
+        let Some(resources) = status_json.get("resources").and_then(|v| v.as_object()) else {
+            return Ok(None);
+        };
+
+        let mut map = ResourceMap::new();
+        for (resource_name, entries) in resources {
+            let Some(entries) = entries.as_object() else {
+                continue;
+            };
+            for (idx, payload) in entries.values().enumerate() {
+                let Some(path) = payload
+                    .get("file_path")
+                    .and_then(|v| v.as_str())
+                    .map(|path| path.replace('\\', "/"))
+                    .or_else(|| legacy_python_status_resource_path(resource_name, payload, idx))
+                else {
+                    continue;
+                };
+                let (file_path, _) = parse_multi_resource_path(&path);
+                let Some(content) = legacy_python_status_resource_content(resource_name, payload)
+                else {
+                    continue;
+                };
+                let resource_id = payload
+                    .get("resource_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let name = payload
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                map.insert(
+                    file_path.clone(),
+                    Resource {
+                        resource_id,
+                        name,
+                        file_path,
+                        payload: serde_json::json!({ "content": content }),
+                    },
+                );
+            }
+        }
+
+        if map.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(map))
+        }
+    }
+}
+
+fn legacy_python_status_resource_path(
+    resource_name: &str,
+    payload: &Value,
+    ordinal: usize,
+) -> Option<String> {
+    let name = payload
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let clean_name = |lowercase| discover::clean_name(name, lowercase);
+    let flow_folder = || {
+        payload
+            .get("flow_name")
+            .and_then(Value::as_str)
+            .map(|flow_name| discover::clean_name(flow_name, true))
+    };
+    match resource_name {
+        "api_integration" => Some(format!(
+            "config/api_integrations.yaml/api_integrations/{}",
+            clean_name(false)
+        )),
+        "functions" => {
+            if let Some(flow_folder) = flow_folder() {
+                Some(format!("flows/{flow_folder}/functions/{name}.py"))
+            } else {
+                Some(format!("functions/{name}.py"))
+            }
+        }
+        "topics" => Some(format!("topics/{}.yaml", clean_name(true))),
+        "personality" => Some("agent_settings/personality.yaml".to_string()),
+        "role" => Some("agent_settings/role.yaml".to_string()),
+        "rules" => Some("agent_settings/rules.txt".to_string()),
+        "flow_steps" => flow_folder()
+            .map(|flow_folder| format!("flows/{flow_folder}/steps/{}.yaml", clean_name(true))),
+        "function_steps" => {
+            flow_folder().map(|flow_folder| format!("flows/{flow_folder}/function_steps/{name}.py"))
+        }
+        "flow_config" => Some(format!("flows/{}/flow_config.yaml", clean_name(true))),
+        "entities" => Some(format!(
+            "config/entities.yaml/entities/{}",
+            clean_name(false)
+        )),
+        "experimental_config" => Some("agent_settings/experimental_config.json".to_string()),
+        "safety_filters" => Some("agent_settings/safety_filters.yaml".to_string()),
+        "sms_templates" => Some(format!(
+            "config/sms_templates.yaml/sms_templates/{}",
+            clean_name(false)
+        )),
+        "handoffs" => Some(format!(
+            "config/handoffs.yaml/handoffs/{}",
+            clean_name(false)
+        )),
+        "variants" => Some(format!(
+            "config/variant_attributes.yaml/variants/{}",
+            clean_name(false)
+        )),
+        "variant_attributes" => Some(format!(
+            "config/variant_attributes.yaml/attributes/{}",
+            clean_name(false)
+        )),
+        "variables" => Some(format!("variables/{name}")),
+        "voice_greeting" => Some("voice/configuration.yaml/greeting".to_string()),
+        "voice_safety_filters" => Some("voice/safety_filters.yaml".to_string()),
+        "voice_style_prompt" => Some("voice/configuration.yaml/style_prompt".to_string()),
+        "voice_disclaimer" => Some("voice/configuration.yaml/disclaimer_messages".to_string()),
+        "chat_greeting" => Some("chat/configuration.yaml/greeting".to_string()),
+        "chat_safety_filters" => Some("chat/safety_filters.yaml".to_string()),
+        "chat_style_prompt" => Some("chat/configuration.yaml/style_prompt".to_string()),
+        "keyphrase_boosting" => {
+            let keyphrase = payload
+                .get("keyphrase")
+                .and_then(Value::as_str)
+                .unwrap_or(name);
+            Some(format!(
+                "voice/speech_recognition/keyphrase_boosting.yaml/keyphrases/{}",
+                discover::clean_name(keyphrase, false)
+            ))
+        }
+        "transcript_corrections" => Some(format!(
+            "voice/speech_recognition/transcript_corrections.yaml/corrections/{}",
+            clean_name(false)
+        )),
+        "asr_settings" => Some("voice/speech_recognition/asr_settings.yaml".to_string()),
+        "phrase_filtering" => Some(format!(
+            "voice/response_control/phrase_filtering.yaml/phrase_filtering/{}",
+            clean_name(false)
+        )),
+        "pronunciations" => {
+            let position = payload
+                .get("position")
+                .and_then(Value::as_i64)
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| ordinal.to_string());
+            Some(format!(
+                "voice/response_control/pronunciations.yaml/pronunciations/{}",
+                discover::clean_name(&position, false)
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn legacy_python_rules_reference_names(
+    resources: &serde_json::Map<String, Value>,
+) -> Vec<(String, String, String)> {
+    [
+        ("functions", "fn"),
+        ("sms_templates", "sms"),
+        ("handoffs", "handoff"),
+        ("variant_attributes", "attr"),
+        ("variables", "vrbl"),
+    ]
+    .into_iter()
+    .flat_map(|(resource_name, reference_prefix)| {
+        resources
+            .get(resource_name)
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(move |entries| {
+                entries.values().filter_map(move |payload| {
+                    let id = payload.get("resource_id").and_then(Value::as_str)?;
+                    let name = payload.get("name").and_then(Value::as_str)?;
+                    Some((
+                        reference_prefix.to_string(),
+                        id.to_string(),
+                        name.to_string(),
+                    ))
+                })
+            })
+    })
+    .collect()
+}
+
+fn replace_resource_ids_with_names(
+    content: &str,
+    replacements: &[(String, String, String)],
+) -> String {
+    let mut normalized = content.to_string();
+    for (prefix, id, name) in replacements {
+        if id.is_empty() || id == name {
+            continue;
+        }
+        normalized = normalized.replace(
+            &format!("{{{{{prefix}:{id}}}}}"),
+            &format!("{{{{{prefix}:{name}}}}}"),
+        );
+    }
+    normalized
+}
+
+fn legacy_python_status_resource_file_hash<Fs: FileSystem>(
+    fs: &Fs,
+    root: &Path,
+    resource_name: &str,
+    file_path: &str,
+    payload: &Value,
+    rules_reference_names: &[(String, String, String)],
+) -> Option<String> {
+    if payload.get("file_path").is_some() {
+        return None;
+    }
+    match resource_name {
+        "functions" => {
+            let raw = legacy_python_function_raw(payload, true)?;
+            Some(format!(
+                "{PYTHON_FUNCTION_STATUS_HASH_PREFIX}{}",
+                compute_hash(&normalize_python_function_metadata_spacing(&raw))
+            ))
+        }
+        "function_steps" => {
+            let raw = legacy_python_function_raw(payload, false)?;
+            Some(format!(
+                "{PYTHON_FUNCTION_STATUS_HASH_PREFIX}{}",
+                compute_hash(&normalize_python_function_metadata_spacing(&raw))
+            ))
+        }
+        "rules" => payload
+            .get("behaviour")
+            .and_then(Value::as_str)
+            .map(|raw| compute_hash(&replace_resource_ids_with_names(raw, rules_reference_names))),
+        "variables" => payload
+            .get("name")
+            .and_then(Value::as_str)
+            .map(|name| compute_hash(&format!("vrbl:{name}"))),
+        _ => fs
+            .read_to_string(&root.join(file_path))
+            .ok()
+            .map(|content| compute_hash(&content)),
+    }
+}
+
+fn legacy_python_status_resource_content(resource_name: &str, payload: &Value) -> Option<String> {
+    match resource_name {
+        "functions" => legacy_python_function_raw(payload, true),
+        "function_steps" => legacy_python_function_raw(payload, false),
+        "rules" => payload
+            .get("behaviour")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        _ => None,
+    }
+}
+
+fn legacy_python_function_raw(
+    payload: &Value,
+    include_metadata_decorators: bool,
+) -> Option<String> {
+    let code = payload.get("code").and_then(Value::as_str)?.to_string();
+    let name = payload
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut decorators = Vec::new();
+    if include_metadata_decorators
+        && let Some(description) = payload.get("description").and_then(Value::as_str)
+        && !description.is_empty()
+    {
+        decorators.push(format!(
+            "@func_description({})\n",
+            python_repr_string(description)
+        ));
+    }
+    if include_metadata_decorators
+        && let Some(parameters) = payload.get("parameters").and_then(Value::as_array)
+    {
+        for parameter in parameters {
+            let parameter_name = parameter
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let description = parameter
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            decorators.push(format!(
+                "@func_parameter({}, {})\n",
+                python_repr_string(parameter_name),
+                python_repr_string(description)
+            ));
+        }
+    }
+    if let Some(latency) = payload.get("latency_control")
+        && latency
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    {
+        let initial_delay = latency
+            .get("initial_delay")
+            .or_else(|| latency.get("initialDelay"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        let interval = latency.get("interval").and_then(Value::as_i64).unwrap_or(0);
+        let mut parts = vec![
+            format!("delay_before_responses_start={initial_delay}"),
+            format!("silence_after_each_response={interval}"),
+        ];
+        let delay_responses = latency
+            .get("delay_responses")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|response| {
+                let message = response.get("message").and_then(Value::as_str)?;
+                let duration = response.get("duration").and_then(Value::as_i64)?;
+                Some(format!("({}, {duration})", python_repr_string(message)))
+            })
+            .collect::<Vec<_>>();
+        if !delay_responses.is_empty() {
+            parts.push(format!("delay_responses=[{}]", delay_responses.join(", ")));
+        }
+        decorators.push(format!("@func_latency_control({})\n", parts.join(", ")));
+    }
+    Some(insert_python_function_decorators(code, name, decorators))
+}
+
+fn insert_python_function_decorators(
+    code: String,
+    function_name: &str,
+    decorators: Vec<String>,
+) -> String {
+    if decorators.is_empty() {
+        return code;
+    }
+    let lines = code.split_inclusive('\n').collect::<Vec<_>>();
+    if lines.is_empty() {
+        return code;
+    }
+    let target_idx = lines.iter().position(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with(&format!("def {function_name}("))
+            || trimmed.starts_with(&format!("async def {function_name}("))
+    });
+    let Some(target_idx) = target_idx else {
+        return code;
+    };
+    let indent = lines[target_idx]
+        .chars()
+        .take_while(|ch| ch.is_whitespace())
+        .collect::<String>();
+    let mut insert_at = target_idx;
+    while insert_at > 0 && lines[insert_at - 1].trim_start().starts_with('@') {
+        insert_at -= 1;
+    }
+    let decorator_block = decorators
+        .into_iter()
+        .map(|decorator| format!("{indent}{decorator}"))
+        .collect::<String>();
+    let mut out = String::new();
+    for line in &lines[..insert_at] {
+        out.push_str(line);
+    }
+    out.push_str(&decorator_block);
+    for line in &lines[insert_at..] {
+        out.push_str(line);
+    }
+    out
+}
+
+fn legacy_python_local_function_raw(
+    path: &str,
+    content: &str,
+    snapshot_hashes: &indexmap::IndexMap<String, String>,
+) -> String {
+    let raw = normalize_legacy_python_flow_imports(&raw_function_content(content), snapshot_hashes);
+    let include_metadata_decorators = !path.contains("/function_steps/");
+    let function_name = Path::new(path)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let mut decorators = Vec::new();
+    let mut code = String::new();
+    for line in raw.split_inclusive('\n') {
+        if let Some(decorator) =
+            normalize_python_adk_decorator_line(line, include_metadata_decorators)
+        {
+            if !decorator.is_empty() {
+                decorators.push(decorator);
+            }
+        } else {
+            code.push_str(line);
+        }
+    }
+    insert_python_function_decorators(code, function_name, decorators)
+}
+
+fn normalize_python_function_metadata_spacing(content: &str) -> String {
+    let lines = content.split_inclusive('\n').collect::<Vec<_>>();
+    let mut out = String::new();
+    for (idx, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() {
+            let previous_nonblank = lines[..idx]
+                .iter()
+                .rev()
+                .find(|line| !line.trim().is_empty());
+            let next_nonblank = lines[idx + 1..].iter().find(|line| !line.trim().is_empty());
+            let before_metadata_decorator =
+                next_nonblank.is_some_and(|next| next.trim_start().starts_with("@func_"));
+            let after_module_docstring_before_import = previous_nonblank
+                .is_some_and(|previous| closes_python_triple_quote(previous.trim()))
+                && next_nonblank.is_some_and(|next| {
+                    let next = next.trim_start();
+                    next.starts_with("from ") || next.starts_with("import ")
+                });
+
+            if after_module_docstring_before_import {
+                continue;
+            }
+            if before_metadata_decorator && out.ends_with("\n\n") {
+                continue;
+            }
+        }
+        out.push_str(line);
+    }
+    out
+}
+
+fn closes_python_triple_quote(line: &str) -> bool {
+    line.ends_with("\"\"\"") || line.ends_with("'''")
+}
+
+fn normalize_legacy_python_flow_imports(
+    content: &str,
+    snapshot_hashes: &indexmap::IndexMap<String, String>,
+) -> String {
+    let mut out = content.to_string();
+    for (key, flow_id) in snapshot_hashes {
+        let Some(flow_folder) = key.strip_prefix(PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX) else {
+            continue;
+        };
+        out = out.replace(
+            &format!("flows.{flow_folder}.functions"),
+            &format!("functions.{}", discover::clean_name(flow_id, true)),
+        );
+    }
+    out
+}
+
+fn legacy_python_snapshot_hashes(snapshot_hashes: &indexmap::IndexMap<String, String>) -> bool {
+    snapshot_hashes
+        .values()
+        .any(|hash| hash.starts_with(PYTHON_FUNCTION_STATUS_HASH_PREFIX))
+}
+
+fn normalize_legacy_python_status_function_resources(
+    resources: &mut ResourceMap,
+    snapshot_hashes: &indexmap::IndexMap<String, String>,
+) {
+    for (path, resource) in resources {
+        if !is_python_function_like_path(path) {
+            continue;
+        }
+        let Some(content) = resource
+            .payload
+            .get("content")
+            .and_then(Value::as_str)
+            .map(|content| legacy_python_local_function_raw(path, content, snapshot_hashes))
+        else {
+            continue;
+        };
+        if let Some(payload) = resource.payload.as_object_mut() {
+            payload.insert("content".to_string(), Value::String(content));
+        }
+    }
+}
+
+fn normalize_python_adk_decorator_line(
+    line: &str,
+    include_metadata_decorators: bool,
+) -> Option<String> {
+    let trimmed = line.trim();
+    if let Some(rest) = trimmed.strip_prefix("@func_description(") {
+        if !include_metadata_decorators {
+            return Some(String::new());
+        }
+        let args = parse_python_string_args(rest.strip_suffix(')').unwrap_or(rest));
+        return args.first().map(|description| {
+            format!("@func_description({})\n", python_repr_string(description))
+        });
+    }
+    if let Some(rest) = trimmed.strip_prefix("@func_parameter(") {
+        if !include_metadata_decorators {
+            return Some(String::new());
+        }
+        let args = parse_python_string_args(rest.strip_suffix(')').unwrap_or(rest));
+        if args.len() >= 2 {
+            return Some(format!(
+                "@func_parameter({}, {})\n",
+                python_repr_string(&args[0]),
+                python_repr_string(&args[1])
+            ));
+        }
+    }
+    trimmed
+        .strip_prefix("@func_latency_control(")
+        .map(|_| format!("{trimmed}\n"))
+}
+
+fn python_repr_string(value: &str) -> String {
+    let quote = if value.contains('\'') && !value.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::new();
+    out.push(quote);
+    for ch in value.chars() {
+        if ch == '\\' || ch == quote {
+            out.push('\\');
+        }
+        match ch {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(ch),
+        }
+    }
+    out.push(quote);
+    out
 }
 
 /// ADK operations backed by a concrete platform client.
@@ -539,6 +1163,20 @@ pub struct PullOutcome {
     pub files_with_conflicts: Vec<String>,
     pub new_branch_name: Option<String>,
     pub new_branch_id: Option<String>,
+}
+
+struct StatusSnapshotPayloadContext<'a> {
+    root: &'a Path,
+    variant_name_to_id: &'a BTreeMap<String, String>,
+    flow_step_name_to_id: &'a BTreeMap<(String, String), String>,
+}
+
+struct StatusSnapshotResource<'a> {
+    type_name: &'a str,
+    logical_path: &'a str,
+    file_path: &'a str,
+    resource_id: &'a str,
+    fallback_name: &'a str,
 }
 
 impl<C: PlatformClient> AdkService<C, StdFileSystem> {
@@ -698,7 +1336,15 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             return Ok(diffs);
         }
         let mut local = self.collect_local_resources(root)?;
+        let snapshot_hashes = self.load_status_snapshot_file_hashes(root)?;
+        let using_legacy_python_snapshot = snapshot_hashes
+            .as_ref()
+            .is_some_and(legacy_python_snapshot_hashes);
+        let status_snapshot_resources = self.workspace.load_status_snapshot_resource_map(root)?;
+        let using_status_snapshot_resources = status_snapshot_resources.is_some();
         let remote = if let Some(resources) = self.load_replay_state_resources(root)? {
+            resources
+        } else if let Some(resources) = status_snapshot_resources {
             resources
         } else {
             self.client.pull_resources()?
@@ -722,16 +1368,16 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 .into_iter()
                 .chain(flatten_discovered_paths(&typed_changes.deleted_resources))
                 .collect::<Vec<_>>();
-            if let Some(snapshot_hashes) = self.load_status_snapshot_file_hashes(root)? {
+            if let Some(snapshot_hashes) = snapshot_hashes.as_ref() {
                 changed_paths.extend(compute_modified_files_against_snapshot(
                     root,
                     &typed_changes.kept_resources,
-                    &snapshot_hashes,
+                    snapshot_hashes,
                 )?);
                 changed_paths.extend(compute_modified_files_against_snapshot_with_replacements(
                     root,
                     &typed_changes.kept_resources,
-                    &snapshot_hashes,
+                    snapshot_hashes,
                     &replacements,
                 )?);
             }
@@ -749,6 +1395,11 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         }
 
         let mut remote = remote;
+        if (using_legacy_python_snapshot || using_status_snapshot_resources)
+            && let Some(snapshot_hashes) = snapshot_hashes.as_ref()
+        {
+            normalize_legacy_python_status_function_resources(&mut local, snapshot_hashes);
+        }
         normalize_flow_resources_for_diff(&mut remote, None);
         normalize_flow_resources_for_diff(&mut local, Some(&remote));
         let mut diffs = diff_resources(&remote, &local);
@@ -1069,11 +1720,19 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                     files_with_conflicts.push(target.to_string_lossy().to_string());
                     continue;
                 }
-                if let Some(snapshot_hash) =
-                    snapshot_hashes.as_ref().and_then(|hashes| hashes.get(path))
+                if let Some(hashes) = snapshot_hashes.as_ref()
+                    && let Some(snapshot_hash) = hashes.get(path)
                 {
-                    let local_changed = compute_hash(&existing) != *snapshot_hash;
-                    let incoming_changed = compute_hash(&file_content) != *snapshot_hash;
+                    let local_hash =
+                        current_status_hash_for_expected(path, &existing, snapshot_hash, hashes);
+                    let incoming_hash = current_status_hash_for_expected(
+                        path,
+                        &file_content,
+                        snapshot_hash,
+                        hashes,
+                    );
+                    let local_changed = local_hash != *snapshot_hash;
+                    let incoming_changed = incoming_hash != *snapshot_hash;
                     if local_changed && !incoming_changed {
                         continue;
                     }
@@ -1435,7 +2094,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             } else {
                 continue;
             };
-            if formatted != content {
+            if formatted.trim() != content.trim() {
                 changed_files.push(path.clone());
                 if !check {
                     self.workspace.fs.write_string(
@@ -1597,6 +2256,15 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             .flat_map(|(path, resource)| [path.clone(), resource.file_path.clone()])
             .collect();
         let existing_resource_ids = self.load_status_snapshot_resource_ids(&project_root)?;
+        let variant_name_to_id =
+            self.status_variant_name_to_id(&project_root, &existing_resource_ids)?;
+        let flow_step_name_to_id =
+            self.status_flow_step_name_to_id(&project_root, &existing_resource_ids)?;
+        let payload_context = StatusSnapshotPayloadContext {
+            root: &project_root,
+            variant_name_to_id: &variant_name_to_id,
+            flow_step_name_to_id: &flow_step_name_to_id,
+        };
         let discovered = self.discover_local_resources(&project_root);
         let mut resources = serde_json::Map::new();
         let mut file_structure_metadata = BTreeMap::new();
@@ -1608,10 +2276,10 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             let mut entries = serde_json::Map::new();
             for logical_path in paths {
                 let (file_path, resource_suffix) = parse_multi_resource_path(&logical_path);
-                if !baseline_file_paths.contains(&file_path) {
+                if type_name != "Variable" && !baseline_file_paths.contains(&file_path) {
                     continue;
                 }
-                let status_resource_name = resource_suffix
+                let fallback_resource_name = resource_suffix
                     .clone()
                     .or_else(|| {
                         baseline
@@ -1633,22 +2301,44 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                             .map(|resource| resource.resource_id.clone())
                     })
                     .unwrap_or_else(|| logical_path.clone());
+                let payload = self.status_snapshot_resource_payload(
+                    &payload_context,
+                    StatusSnapshotResource {
+                        type_name: &type_name,
+                        logical_path: &logical_path,
+                        file_path: &file_path,
+                        resource_id: &resource_id,
+                        fallback_name: &fallback_resource_name,
+                    },
+                )?;
+                let status_resource_name = payload
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&fallback_resource_name)
+                    .to_string();
+                let status_hash = self.status_snapshot_file_hash(
+                    &project_root,
+                    &type_name,
+                    &logical_path,
+                    &file_path,
+                    &payload,
+                    &variant_name_to_id,
+                )?;
+                let file_structure_path = if type_name == "Variable" || resource_suffix.is_some() {
+                    logical_path.clone()
+                } else {
+                    file_path.clone()
+                };
                 file_structure_metadata.insert(
-                    file_path.clone(),
+                    file_structure_path,
                     (
                         resource_name.to_string(),
                         resource_id.clone(),
                         status_resource_name,
+                        status_hash,
                     ),
                 );
-                entries.insert(
-                    resource_id.clone(),
-                    serde_json::json!({
-                        "resource_id": resource_id,
-                        "name": logical_path,
-                        "file_path": logical_path,
-                    }),
-                );
+                entries.insert(resource_id.clone(), payload);
             }
             if !entries.is_empty() {
                 resources.insert(
@@ -1659,19 +2349,16 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         }
 
         let mut file_structure_info = serde_json::Map::new();
-        for (file_path, (resource_type, resource_id, resource_name)) in file_structure_metadata {
-            let content = self
-                .workspace
-                .fs
-                .read_to_string(&project_root.join(&file_path))
-                .unwrap_or_default();
+        for (file_path, (resource_type, resource_id, resource_name, hash)) in
+            file_structure_metadata
+        {
             file_structure_info.insert(
                 file_path.clone(),
                 serde_json::json!({
                     "type": resource_type,
                     "resource_id": resource_id,
                     "resource_name": resource_name,
-                    "hash": compute_hash(&content),
+                    "hash": hash,
                 }),
             );
         }
@@ -1701,6 +2388,235 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             .fs
             .write_string(&gen_dir.join(".agent_studio_config"), &encoded)?;
         Ok(())
+    }
+
+    fn status_snapshot_resource_payload(
+        &self,
+        context: &StatusSnapshotPayloadContext<'_>,
+        resource: StatusSnapshotResource<'_>,
+    ) -> Result<Value, CoreError> {
+        let content = if resource.type_name == "Variable" {
+            String::new()
+        } else {
+            self.workspace
+                .fs
+                .read_to_string(&context.root.join(resource.file_path))
+                .unwrap_or_default()
+        };
+        let mut payload = match resource.type_name {
+            "Function" => {
+                status_function_payload(resource.logical_path, &content, resource.fallback_name)
+            }
+            "FunctionStep" => status_function_step_payload(
+                resource.logical_path,
+                &content,
+                resource.fallback_name,
+            ),
+            "FlowConfig" => status_flow_config_payload(
+                resource.logical_path,
+                &content,
+                context.flow_step_name_to_id,
+            ),
+            "FlowStep" => {
+                status_flow_step_payload(resource.logical_path, &content, resource.fallback_name)
+            }
+            "SettingsRules" => serde_json::json!({
+                "name": "rules",
+                "behaviour": content,
+            }),
+            "ExperimentalConfig" => serde_json::json!({
+                "name": "experimental_config",
+                "config": serde_json::from_str::<Value>(&content).unwrap_or_else(|_| serde_json::json!({})),
+            }),
+            "GeneralSafetyFilters" => {
+                status_safety_filters_payload(resource.logical_path, &content, false)
+            }
+            "VoiceSafetyFilters" | "ChatSafetyFilters" => {
+                status_safety_filters_payload(resource.logical_path, &content, true)
+            }
+            "Pronunciation" => status_pronunciation_payload(
+                resource.logical_path,
+                &content,
+                resource.fallback_name,
+            ),
+            "VariantAttribute" => status_variant_attribute_payload(
+                resource.logical_path,
+                &content,
+                resource.fallback_name,
+                context.variant_name_to_id,
+            ),
+            "Variable" => serde_json::json!({
+                "name": resource
+                    .logical_path
+                    .strip_prefix("variables/")
+                    .unwrap_or(resource.fallback_name),
+                "references": {},
+            }),
+            _ => status_yaml_payload(resource.logical_path, &content)
+                .unwrap_or_else(|| serde_json::json!({ "name": resource.fallback_name })),
+        };
+        snake_case_json_keys(&mut payload);
+        let Some(object) = payload.as_object_mut() else {
+            payload = serde_json::json!({ "name": resource.fallback_name });
+            let object = payload.as_object_mut().expect("payload object");
+            object.insert(
+                "resource_id".to_string(),
+                Value::String(resource.resource_id.to_string()),
+            );
+            object.insert(
+                "file_path".to_string(),
+                Value::String(resource.logical_path.to_string()),
+            );
+            return Ok(payload);
+        };
+        object
+            .entry("name".to_string())
+            .or_insert_with(|| Value::String(resource.fallback_name.to_string()));
+        object.insert(
+            "resource_id".to_string(),
+            Value::String(resource.resource_id.to_string()),
+        );
+        object.insert(
+            "file_path".to_string(),
+            Value::String(resource.logical_path.to_string()),
+        );
+        Ok(payload)
+    }
+
+    fn status_snapshot_file_hash(
+        &self,
+        root: &Path,
+        type_name: &str,
+        logical_path: &str,
+        file_path: &str,
+        payload: &Value,
+        variant_name_to_id: &BTreeMap<String, String>,
+    ) -> Result<String, CoreError> {
+        if let Some(name) = logical_path.strip_prefix("variables/") {
+            return Ok(compute_hash(&format!("vrbl:{name}")));
+        }
+        match type_name {
+            "Function" => {
+                let raw = legacy_python_function_raw(payload, true).unwrap_or_default();
+                Ok(compute_hash(&raw))
+            }
+            "FunctionStep" => {
+                let raw = legacy_python_function_raw(payload, false).unwrap_or_default();
+                Ok(compute_hash(&raw))
+            }
+            "SettingsRules" => Ok(compute_hash(
+                payload
+                    .get("behaviour")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            )),
+            "ExperimentalConfig" => {
+                let config = payload.get("config").unwrap_or(&Value::Null);
+                Ok(compute_hash(&python_json_dumps_pretty_sorted(config)))
+            }
+            "Pronunciation" => Ok(compute_hash(&python_json_dumps_sorted(
+                &status_pronunciation_hash_payload(payload),
+            ))),
+            "VariantAttribute" => {
+                let content = self
+                    .workspace
+                    .fs
+                    .read_to_string(&root.join(file_path))
+                    .unwrap_or_default();
+                let value = status_yaml_payload(logical_path, &content).unwrap_or(Value::Null);
+                Ok(compute_hash(&python_json_dumps_sorted(
+                    &status_variant_attribute_hash_payload(&value, variant_name_to_id),
+                )))
+            }
+            _ => {
+                let content = self
+                    .workspace
+                    .fs
+                    .read_to_string(&root.join(file_path))
+                    .unwrap_or_default();
+                if let Some(value) = status_yaml_payload(logical_path, &content) {
+                    Ok(compute_hash(&python_json_dumps_sorted(&value)))
+                } else {
+                    Ok(compute_hash(&content))
+                }
+            }
+        }
+    }
+
+    fn status_variant_name_to_id(
+        &self,
+        root: &Path,
+        existing_resource_ids: &indexmap::IndexMap<String, String>,
+    ) -> Result<BTreeMap<String, String>, CoreError> {
+        let content = self
+            .workspace
+            .fs
+            .read_to_string(&root.join("config/variant_attributes.yaml"))
+            .unwrap_or_default();
+        let yaml = serde_yaml::from_str::<serde_yaml::Value>(&content).ok();
+        let variants = yaml
+            .as_ref()
+            .and_then(|yaml| yaml.get("variants"))
+            .and_then(serde_yaml::Value::as_sequence)
+            .into_iter()
+            .flatten();
+        let mut map = BTreeMap::new();
+        for variant in variants {
+            let Some(name) = variant.get("name").and_then(serde_yaml::Value::as_str) else {
+                continue;
+            };
+            let logical_path = format!(
+                "config/variant_attributes.yaml/variants/{}",
+                discover::clean_name(name, false)
+            );
+            if let Some(id) = existing_resource_ids.get(&logical_path) {
+                map.insert(name.to_string(), id.clone());
+            } else if let (_, Some(suffix)) = parse_multi_resource_path(&logical_path) {
+                map.insert(
+                    name.to_string(),
+                    format!("variants:{}", suffix.replace('/', ":")),
+                );
+            }
+        }
+        Ok(map)
+    }
+
+    fn status_flow_step_name_to_id(
+        &self,
+        root: &Path,
+        existing_resource_ids: &indexmap::IndexMap<String, String>,
+    ) -> Result<BTreeMap<(String, String), String>, CoreError> {
+        let discovered = self.discover_local_resources(root);
+        let mut map = BTreeMap::new();
+        for logical_path in discovered.get("FlowStep").into_iter().flatten() {
+            let Some(folder) = flow_folder_name(logical_path) else {
+                continue;
+            };
+            let (file_path, _) = parse_multi_resource_path(logical_path);
+            let content = self
+                .workspace
+                .fs
+                .read_to_string(&root.join(file_path))
+                .unwrap_or_default();
+            let yaml = serde_yaml::from_str::<serde_yaml::Value>(&content).ok();
+            let Some(name) = yaml
+                .as_ref()
+                .and_then(|yaml| yaml.get("name"))
+                .and_then(serde_yaml::Value::as_str)
+            else {
+                continue;
+            };
+            if let Some(id) = existing_resource_ids.get(logical_path) {
+                map.insert((folder.clone(), name.to_string()), id.clone());
+                if let Some(stem) = Path::new(logical_path)
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                {
+                    map.insert((folder, stem.to_string()), id.clone());
+                }
+            }
+        }
+        Ok(map)
     }
 
     fn write_python_gen_package(&self, project_root: &Path) -> Result<(), CoreError> {
@@ -2233,16 +3149,18 @@ fn flow_validation_step_names(resources: &ResourceMap) -> FlowValidationNames {
             continue;
         };
         if path.starts_with("flows/") && path.contains("/steps/") && path.ends_with(".yaml") {
+            let flow_names = names.by_flow.entry(flow_name.to_string()).or_default();
             if let Some(stem) = path
                 .rsplit('/')
                 .next()
                 .and_then(|name| name.strip_suffix(".yaml"))
             {
-                names
-                    .by_flow
-                    .entry(flow_name.to_string())
-                    .or_default()
-                    .insert(stem.to_string());
+                flow_names.insert(stem.to_string());
+            }
+            if let Some(yaml) = resource_yaml_content(resources, path)
+                && let Some(name) = yaml.get("name").and_then(serde_yaml::Value::as_str)
+            {
+                flow_names.insert(name.to_string());
             }
         } else if path.starts_with("flows/")
             && path.contains("/function_steps/")
@@ -2867,13 +3785,17 @@ fn flatten_discovered_paths_by_type_order(paths: &DiscoveredResourcePaths) -> Ve
     out
 }
 
-fn ordered_discovered_paths_for_files(
+fn ordered_discovered_paths_for_modifications(
     paths: &DiscoveredResourcePaths,
     file_paths: &HashSet<String>,
+    logical_paths: &HashSet<String>,
 ) -> Vec<String> {
     flatten_discovered_paths_by_type_order(paths)
         .into_iter()
-        .filter(|logical_path| file_paths.contains(&parse_multi_resource_path(logical_path).0))
+        .filter(|logical_path| {
+            logical_paths.contains(logical_path)
+                || file_paths.contains(&parse_multi_resource_path(logical_path).0)
+        })
         .collect()
 }
 
@@ -3160,6 +4082,456 @@ fn strip_generated_flow_function_imports(content: &str) -> String {
         .to_string()
 }
 
+fn status_function_payload(logical_path: &str, content: &str, fallback_name: &str) -> Value {
+    let name = path_stem(logical_path).unwrap_or(fallback_name).to_string();
+    let flow_name = flow_folder_name(logical_path);
+    let function_type = if logical_path.starts_with("flows/") {
+        "transition"
+    } else if logical_path == "functions/start_function.py" {
+        "start"
+    } else if logical_path == "functions/end_function.py" {
+        "end"
+    } else {
+        "global"
+    };
+    let mut payload = serde_json::json!({
+        "name": name,
+        "description": "",
+        "code": raw_function_content(content),
+        "parameters": [],
+        "latency_control": {},
+        "function_type": function_type,
+        "variable_references": {},
+    });
+    if let Some(flow_name) = flow_name {
+        payload["flow_name"] = Value::String(flow_name);
+    }
+    payload
+}
+
+fn status_function_step_payload(logical_path: &str, content: &str, fallback_name: &str) -> Value {
+    let name = path_stem(logical_path).unwrap_or(fallback_name).to_string();
+    let flow_name = flow_folder_name(logical_path).unwrap_or_default();
+    serde_json::json!({
+        "name": name,
+        "step_id": "",
+        "flow_id": "",
+        "flow_name": flow_name,
+        "code": raw_function_content(content),
+        "description": null,
+        "parameters": [],
+        "latency_control": {},
+        "position": {},
+        "function_id": "",
+        "variable_references": {},
+    })
+}
+
+fn status_flow_config_payload(
+    logical_path: &str,
+    content: &str,
+    flow_step_name_to_id: &BTreeMap<(String, String), String>,
+) -> Value {
+    let mut payload =
+        status_yaml_payload(logical_path, content).unwrap_or_else(|| serde_json::json!({}));
+    let Some(object) = payload.as_object_mut() else {
+        return payload;
+    };
+    let Some(folder) = flow_folder_name(logical_path) else {
+        return payload;
+    };
+    let Some(start_step) = object.get("start_step").and_then(Value::as_str) else {
+        return payload;
+    };
+    if let Some(id) = flow_step_name_to_id.get(&(folder, start_step.to_string())) {
+        let flow_name = object
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let normalized_id = id
+            .strip_prefix(&format!("{flow_name}_"))
+            .unwrap_or(id)
+            .to_string();
+        object.insert("start_step".to_string(), Value::String(normalized_id));
+    }
+    payload
+}
+
+fn status_flow_step_payload(logical_path: &str, content: &str, fallback_name: &str) -> Value {
+    let mut payload =
+        status_yaml_payload(logical_path, content).unwrap_or_else(|| serde_json::json!({}));
+    let flow_name = flow_folder_name(logical_path).unwrap_or_default();
+    let name = payload
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or(fallback_name)
+        .to_string();
+    let Some(object) = payload.as_object_mut() else {
+        return serde_json::json!({
+            "name": name,
+            "step_id": "",
+            "flow_id": "",
+            "flow_name": flow_name,
+            "step_type": "advanced_step",
+            "prompt": "",
+        });
+    };
+    object
+        .entry("name".to_string())
+        .or_insert_with(|| Value::String(name));
+    object
+        .entry("step_id".to_string())
+        .or_insert_with(|| Value::String(String::new()));
+    object
+        .entry("flow_id".to_string())
+        .or_insert_with(|| Value::String(String::new()));
+    object
+        .entry("flow_name".to_string())
+        .or_insert_with(|| Value::String(flow_name));
+    object
+        .entry("step_type".to_string())
+        .or_insert_with(|| Value::String("advanced_step".to_string()));
+    object
+        .entry("prompt".to_string())
+        .or_insert_with(|| Value::String(String::new()));
+    payload
+}
+
+fn status_variant_attribute_payload(
+    logical_path: &str,
+    content: &str,
+    fallback_name: &str,
+    variant_name_to_id: &BTreeMap<String, String>,
+) -> Value {
+    let mut payload =
+        status_yaml_payload(logical_path, content).unwrap_or_else(|| serde_json::json!({}));
+    let Some(object) = payload.as_object_mut() else {
+        return serde_json::json!({
+            "name": fallback_name,
+            "mappings": {},
+        });
+    };
+    if !object.contains_key("mappings") {
+        let mappings = object
+            .remove("values")
+            .map(|value| status_variant_attribute_values_to_ids(value, variant_name_to_id))
+            .unwrap_or_else(|| serde_json::json!({}));
+        object.insert("mappings".to_string(), mappings);
+    }
+    payload
+}
+
+fn status_variant_attribute_values_to_ids(
+    value: Value,
+    variant_name_to_id: &BTreeMap<String, String>,
+) -> Value {
+    let Some(values) = value.as_object() else {
+        return value;
+    };
+    let mut mapped = serde_json::Map::new();
+    for (key, value) in values {
+        let key = variant_name_to_id.get(key).unwrap_or(key).clone();
+        mapped.insert(key, value.clone());
+    }
+    Value::Object(mapped)
+}
+
+fn status_pronunciation_payload(logical_path: &str, content: &str, fallback_name: &str) -> Value {
+    let mut payload =
+        status_yaml_payload(logical_path, content).unwrap_or_else(|| serde_json::json!({}));
+    let position = logical_path
+        .split('/')
+        .next_back()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0);
+    let Some(object) = payload.as_object_mut() else {
+        return serde_json::json!({
+            "name": "",
+            "position": position,
+        });
+    };
+    object
+        .entry("name".to_string())
+        .or_insert_with(|| Value::String(String::new()));
+    object.insert("position".to_string(), Value::Number(position.into()));
+    if object
+        .get("name")
+        .and_then(Value::as_str)
+        .is_some_and(|name| name == fallback_name)
+    {
+        object.insert("name".to_string(), Value::String(String::new()));
+    }
+    payload
+}
+
+fn status_safety_filters_payload(
+    logical_path: &str,
+    content: &str,
+    include_enabled: bool,
+) -> Value {
+    let yaml = status_yaml_payload(logical_path, content).unwrap_or_else(|| serde_json::json!({}));
+    let mut payload = serde_json::Map::new();
+    if include_enabled {
+        payload.insert(
+            "enabled".to_string(),
+            yaml.get("enabled").cloned().unwrap_or(Value::Bool(true)),
+        );
+    }
+    let mut categories = serde_json::Map::new();
+    for key in ["violence", "hate", "sexual", "self_harm"] {
+        let category = yaml
+            .get("categories")
+            .and_then(|categories| categories.get(key))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        categories.insert(key.to_string(), status_safety_filter_category(category));
+    }
+    payload.insert("categories".to_string(), Value::Object(categories));
+    Value::Object(payload)
+}
+
+fn status_safety_filter_category(category: Value) -> Value {
+    serde_json::json!({
+        "enabled": category.get("enabled").cloned().unwrap_or(Value::Null),
+        "precision": safety_filter_level_to_precision(
+            category
+                .get("level")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        ),
+    })
+}
+
+fn safety_filter_level_to_precision(level: &str) -> String {
+    match level {
+        "lenient" => "LOOSE".to_string(),
+        "medium" => "MEDIUM".to_string(),
+        "strict" => "STRICT".to_string(),
+        value => value.to_string(),
+    }
+}
+
+fn status_pronunciation_hash_payload(payload: &Value) -> Value {
+    let mut object = serde_json::Map::new();
+    for key in [
+        "regex",
+        "replacement",
+        "case_sensitive",
+        "language_code",
+        "description",
+    ] {
+        let Some(value) = payload.get(key) else {
+            continue;
+        };
+        if key != "replacement" && value.as_str() == Some("") {
+            continue;
+        }
+        object.insert(key.to_string(), value.clone());
+    }
+    Value::Object(object)
+}
+
+fn status_variant_attribute_hash_payload(
+    payload: &Value,
+    variant_name_to_id: &BTreeMap<String, String>,
+) -> Value {
+    let mut object = serde_json::Map::new();
+    if let Some(name) = payload.get("name") {
+        object.insert("name".to_string(), name.clone());
+    }
+    let values = payload
+        .get("values")
+        .or_else(|| payload.get("mappings"))
+        .and_then(Value::as_object)
+        .map(|values| {
+            let mut mapped = serde_json::Map::new();
+            for (key, value) in values {
+                let key = variant_name_to_id.get(key).unwrap_or(key).clone();
+                mapped.insert(key, value.clone());
+            }
+            Value::Object(mapped)
+        })
+        .unwrap_or_else(|| serde_json::json!({}));
+    object.insert("values".to_string(), values);
+    Value::Object(object)
+}
+
+fn status_yaml_payload(logical_path: &str, content: &str) -> Option<Value> {
+    let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+    let value = if let (_, Some(suffix)) = parse_multi_resource_path(logical_path) {
+        let mut segments = suffix.split('/');
+        let top_level_name = segments.next()?;
+        let resource_name = segments.next_back();
+        let top = yaml.get(top_level_name)?;
+        if let Some(resource_name) = resource_name {
+            if let Some(items) = top.as_sequence() {
+                if top_level_name == "pronunciations"
+                    && let Ok(index) = resource_name.parse::<usize>()
+                {
+                    return serde_json::to_value(items.get(index)?.clone()).ok();
+                }
+                items
+                    .iter()
+                    .find(|item| {
+                        item.get("name")
+                            .and_then(serde_yaml::Value::as_str)
+                            .is_some_and(|name| discover::clean_name(name, false) == resource_name)
+                    })
+                    .cloned()?
+            } else {
+                top.clone()
+            }
+        } else {
+            top.clone()
+        }
+    } else {
+        yaml
+    };
+    serde_json::to_value(value).ok()
+}
+
+fn python_json_dumps_sorted(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::String(value) => serde_json::to_string(value).unwrap_or_default(),
+        Value::Array(items) => {
+            let items = items
+                .iter()
+                .map(python_json_dumps_sorted)
+                .collect::<Vec<_>>();
+            format!("[{}]", items.join(", "))
+        }
+        Value::Object(object) => {
+            let mut entries = object.iter().collect::<Vec<_>>();
+            entries.sort_by_key(|(key, _)| *key);
+            let entries = entries
+                .into_iter()
+                .map(|(key, value)| {
+                    format!(
+                        "{}: {}",
+                        serde_json::to_string(key).unwrap_or_default(),
+                        python_json_dumps_sorted(value)
+                    )
+                })
+                .collect::<Vec<_>>();
+            format!("{{{}}}", entries.join(", "))
+        }
+    }
+}
+
+fn python_json_dumps_pretty_sorted(value: &Value) -> String {
+    let sorted = sort_json_value(value);
+    serde_json::to_string_pretty(&sorted).unwrap_or_default()
+}
+
+fn sort_json_value(value: &Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(items.iter().map(sort_json_value).collect()),
+        Value::Object(object) => {
+            let mut sorted = serde_json::Map::new();
+            let mut keys = object.keys().collect::<Vec<_>>();
+            keys.sort();
+            for key in keys {
+                if let Some(value) = object.get(key) {
+                    sorted.insert(key.clone(), sort_json_value(value));
+                }
+            }
+            Value::Object(sorted)
+        }
+        value => value.clone(),
+    }
+}
+
+fn snake_case_json_keys(value: &mut Value) {
+    snake_case_json_keys_inner(value, None, false);
+}
+
+fn snake_case_json_keys_inner(value: &mut Value, parent_key: Option<&str>, preserve_tree: bool) {
+    match value {
+        Value::Object(object) => {
+            let preserve_keys = preserve_tree
+                || matches!(
+                    parent_key,
+                    Some(
+                        "adjectives"
+                            | "attributes"
+                            | "config"
+                            | "mappings"
+                            | "references"
+                            | "topics"
+                            | "translations"
+                            | "values"
+                            | "variable_references"
+                            | "variables"
+                            | "variants"
+                    )
+                );
+            let old = std::mem::take(object);
+            for (key, mut value) in old {
+                let child_preserve_tree = preserve_tree
+                    || matches!(
+                        key.as_str(),
+                        "adjectives"
+                            | "attributes"
+                            | "config"
+                            | "mappings"
+                            | "references"
+                            | "topics"
+                            | "translations"
+                            | "values"
+                            | "variable_references"
+                            | "variables"
+                            | "variants"
+                    );
+                snake_case_json_keys_inner(&mut value, Some(&key), child_preserve_tree);
+                let key = if preserve_keys {
+                    key
+                } else {
+                    camel_to_snake(&key)
+                };
+                object.insert(key, value);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                snake_case_json_keys_inner(item, parent_key, preserve_tree);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn camel_to_snake(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for (idx, ch) in value.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if idx > 0 {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn path_stem(path: &str) -> Option<&str> {
+    Path::new(path).file_stem().and_then(|value| value.to_str())
+}
+
+fn flow_folder_name(path: &str) -> Option<String> {
+    let mut parts = path.split('/');
+    while let Some(part) = parts.next() {
+        if part == "flows" {
+            return parts.next().map(ToString::to_string);
+        }
+    }
+    None
+}
+
 const FUNCTION_HEADER: &str = "from _gen import *  # <AUTO GENERATED>\n";
 const LEGACY_FUNCTION_HEADER: &str = "from imports import *  # <AUTO GENERATED>\n";
 
@@ -3404,27 +4776,41 @@ fn compute_modified_files_against_snapshot(
     kept_resources: &DiscoveredResourcePaths,
     snapshot_hashes: &indexmap::IndexMap<String, String>,
 ) -> Result<Vec<String>, CoreError> {
-    let kept_file_paths: HashSet<String> = flatten_discovered_paths(kept_resources)
-        .into_iter()
-        .map(|p| parse_multi_resource_path(&p).0)
-        .collect();
+    let kept_paths = flatten_discovered_paths(kept_resources);
     let mut modified_file_paths = HashSet::new();
-    for rel_path in kept_file_paths {
-        let Some(expected_hash) = snapshot_hashes.get(&rel_path) else {
-            continue;
-        };
-        let current_path = root.join(&rel_path);
+    let mut modified_logical_paths = HashSet::new();
+    for logical_path in kept_paths {
+        let (file_path, _) = parse_multi_resource_path(&logical_path);
+        let (hash_path, expected_hash) =
+            if let Some(expected_hash) = snapshot_hashes.get(&logical_path) {
+                (logical_path.as_str(), expected_hash)
+            } else if let Some(expected_hash) = snapshot_hashes.get(&file_path) {
+                (file_path.as_str(), expected_hash)
+            } else {
+                continue;
+            };
+        let current_path = root.join(&file_path);
         let current_content = StdFileSystem
             .read_to_string(&current_path)
             .unwrap_or_default();
-        let current_hash = compute_hash(&current_content);
-        if &current_hash != expected_hash {
-            modified_file_paths.insert(rel_path);
+        let current_hash = current_status_hash_for_expected(
+            hash_path,
+            &current_content,
+            expected_hash,
+            snapshot_hashes,
+        );
+        if current_hash != *expected_hash {
+            if hash_path == logical_path {
+                modified_logical_paths.insert(logical_path);
+            } else {
+                modified_file_paths.insert(file_path);
+            }
         }
     }
-    Ok(ordered_discovered_paths_for_files(
+    Ok(ordered_discovered_paths_for_modifications(
         kept_resources,
         &modified_file_paths,
+        &modified_logical_paths,
     ))
 }
 
@@ -3437,16 +4823,20 @@ fn compute_modified_files_against_snapshot_with_replacements(
     if replacements.is_empty() {
         return Ok(Vec::new());
     }
-    let kept_file_paths: HashSet<String> = flatten_discovered_paths(kept_resources)
-        .into_iter()
-        .map(|p| parse_multi_resource_path(&p).0)
-        .collect();
+    let kept_paths = flatten_discovered_paths(kept_resources);
     let mut modified_file_paths = HashSet::new();
-    for rel_path in kept_file_paths {
-        let Some(expected_hash) = snapshot_hashes.get(&rel_path) else {
-            continue;
-        };
-        let current_path = root.join(&rel_path);
+    let mut modified_logical_paths = HashSet::new();
+    for logical_path in kept_paths {
+        let (file_path, _) = parse_multi_resource_path(&logical_path);
+        let (hash_path, expected_hash) =
+            if let Some(expected_hash) = snapshot_hashes.get(&logical_path) {
+                (logical_path.as_str(), expected_hash)
+            } else if let Some(expected_hash) = snapshot_hashes.get(&file_path) {
+                (file_path.as_str(), expected_hash)
+            } else {
+                continue;
+            };
+        let current_path = root.join(&file_path);
         let current_content = StdFileSystem
             .read_to_string(&current_path)
             .unwrap_or_default();
@@ -3454,15 +4844,103 @@ fn compute_modified_files_against_snapshot_with_replacements(
         if normalized_content == current_content {
             continue;
         }
-        let current_hash = compute_hash(&normalized_content);
-        if &current_hash != expected_hash {
-            modified_file_paths.insert(rel_path);
+        let current_hash = current_status_hash_for_expected(
+            hash_path,
+            &normalized_content,
+            expected_hash,
+            snapshot_hashes,
+        );
+        if current_hash != *expected_hash {
+            if hash_path == logical_path {
+                modified_logical_paths.insert(logical_path);
+            } else {
+                modified_file_paths.insert(file_path);
+            }
         }
     }
-    Ok(ordered_discovered_paths_for_files(
+    Ok(ordered_discovered_paths_for_modifications(
         kept_resources,
         &modified_file_paths,
+        &modified_logical_paths,
     ))
+}
+
+fn current_status_hash_for_expected(
+    path: &str,
+    content: &str,
+    expected_hash: &str,
+    snapshot_hashes: &indexmap::IndexMap<String, String>,
+) -> String {
+    let raw_hash = compute_hash(content);
+    if raw_hash == expected_hash {
+        return raw_hash;
+    }
+    if is_python_function_like_path(path) {
+        let raw_function_hash = compute_hash(&raw_function_content(content));
+        if raw_function_hash == expected_hash {
+            return raw_function_hash;
+        }
+        let prefixed_raw_function_hash =
+            format!("{PYTHON_FUNCTION_STATUS_HASH_PREFIX}{raw_function_hash}");
+        if prefixed_raw_function_hash == expected_hash {
+            return prefixed_raw_function_hash;
+        }
+        let hash = compute_hash(&legacy_python_local_function_raw(
+            path,
+            content,
+            snapshot_hashes,
+        ));
+        if expected_hash
+            .strip_prefix(PYTHON_FUNCTION_STATUS_HASH_PREFIX)
+            .is_some()
+        {
+            let normalized = legacy_python_local_function_raw(path, content, snapshot_hashes);
+            let normalized_hash =
+                compute_hash(&normalize_python_function_metadata_spacing(&normalized));
+            return format!("{PYTHON_FUNCTION_STATUS_HASH_PREFIX}{normalized_hash}");
+        }
+        return hash;
+    }
+    if let Some(name) = path.strip_prefix("variables/") {
+        return compute_hash(&format!("vrbl:{name}"));
+    }
+    if path == "agent_settings/experimental_config.json"
+        && let Ok(value) = serde_json::from_str::<Value>(content)
+    {
+        return compute_hash(&python_json_dumps_pretty_sorted(&value));
+    }
+    if path.ends_with(".yaml") || path.contains(".yaml/") {
+        let value = if path.contains("/pronunciations/") {
+            status_pronunciation_hash_payload(&status_pronunciation_payload(path, content, ""))
+        } else if path.contains("variant_attributes.yaml/attributes/") {
+            status_yaml_payload(path, content)
+                .map(|value| {
+                    status_variant_attribute_hash_payload(
+                        &value,
+                        &variant_name_to_id_from_snapshot_hashes(snapshot_hashes),
+                    )
+                })
+                .unwrap_or(Value::Null)
+        } else {
+            status_yaml_payload(path, content).unwrap_or(Value::Null)
+        };
+        if !value.is_null() {
+            return compute_hash(&python_json_dumps_sorted(&value));
+        }
+    }
+    raw_hash
+}
+
+fn variant_name_to_id_from_snapshot_hashes(
+    snapshot_hashes: &indexmap::IndexMap<String, String>,
+) -> BTreeMap<String, String> {
+    snapshot_hashes
+        .iter()
+        .filter_map(|(key, value)| {
+            key.strip_prefix(PYTHON_VARIANT_STATUS_KEY_PREFIX)
+                .map(|name| (name.to_string(), value.clone()))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -3488,6 +4966,17 @@ mod tests {
             "\"\"\"Helpers.\"\"\"\nfrom _gen import *  # <AUTO GENERATED>\nimport json\n"
         ));
         assert_eq!(local_resource_content("functions/lookup.py", &pretty), raw);
+    }
+
+    #[test]
+    fn legacy_function_status_hash_ignores_python_pretty_blank_churn() {
+        let with_python_status_spacing = "\"\"\"Module docs.\"\"\"\n\nfrom helper import value\n\n\n@func_description('Internal helper.')\ndef helper(conv: Conversation):\n    return value\n";
+        let with_local_pretty_spacing = "\"\"\"Module docs.\"\"\"\nfrom helper import value\n\n@func_description('Internal helper.')\ndef helper(conv: Conversation):\n    return value\n";
+
+        assert_eq!(
+            normalize_python_function_metadata_spacing(with_python_status_spacing),
+            normalize_python_function_metadata_spacing(with_local_pretty_spacing)
+        );
     }
 
     #[test]

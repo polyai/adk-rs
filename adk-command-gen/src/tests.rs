@@ -424,7 +424,7 @@ fn projection_materializes_global_functions_as_raw_content() {
                     "fn-1": {
                         "name": "lookup_customer",
                         "description": "Look up a customer.",
-                        "code": "def lookup_customer(conv: Conversation):\n    return {'ok': True}\n"
+                        "code": "from functions.helpers import normalize\n\n\ndef lookup_customer(conv: Conversation):\n    return normalize({'ok': True})\n"
                     }
                 }
             }
@@ -442,8 +442,186 @@ fn projection_materializes_global_functions_as_raw_content() {
         .expect("function content");
 
     assert!(!content.contains("from _gen import *  # <AUTO GENERATED>"));
-    assert!(content.contains("@func_description('Look up a customer.')"));
-    assert!(content.contains("def lookup_customer(conv: Conversation):"));
+    assert_eq!(
+        content,
+        "from functions.helpers import normalize\n\n\n@func_description('Look up a customer.')\ndef lookup_customer(conv: Conversation):\n    return normalize({'ok': True})\n"
+    );
+}
+
+#[test]
+fn projection_ignores_archived_global_functions() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-active": {
+                        "name": "lookup_customer",
+                        "description": "Look up a customer.",
+                        "code": "def lookup_customer(conv):\n    return True\n",
+                        "archived": false
+                    },
+                    "fn-archived": {
+                        "name": "lookup_customer",
+                        "description": "Archived duplicate.",
+                        "code": "def lookup_customer(conv):\n    return False\n",
+                        "archived": true
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+
+    assert!(resources.contains_key("functions/lookup_customer.py"));
+    assert_eq!(resources.len(), 1);
+    assert_eq!(
+        resources
+            .get("functions/lookup_customer.py")
+            .map(|resource| resource.resource_id.as_str()),
+        Some("fn-active")
+    );
+}
+
+#[test]
+fn projection_materializes_safety_filters_as_python_yaml_shape() {
+    let projection = serde_json::json!({
+        "contentFilterSettings": {
+            "disabled": true,
+            "type": "azure",
+            "azureConfig": {
+                "violence": {"isActive": true, "precision": "STRICT"},
+                "hate": {"isActive": false, "precision": "MEDIUM"},
+                "sexual": {"isActive": false, "precision": "LOOSE"},
+                "selfHarm": {"isActive": true, "precision": "STRICT"}
+            }
+        },
+        "channels": {
+            "voice": {
+                "config": {
+                    "safetyFilters": {
+                        "disabled": false,
+                        "azureConfig": {
+                            "violence": {"isActive": true, "precision": "STRICT"},
+                            "hate": {"isActive": true, "precision": "MEDIUM"},
+                            "sexual": {"isActive": false, "precision": "LOOSE"},
+                            "selfHarm": {"isActive": false, "precision": "MEDIUM"}
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let general = resources
+        .get("agent_settings/safety_filters.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("general safety filter YAML");
+    let voice = resources
+        .get("voice/safety_filters.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("voice safety filter YAML");
+
+    assert!(!general.contains("azureConfig"));
+    assert!(!general.contains("disabled:"));
+    assert!(general.contains("categories:"));
+    assert!(general.contains("self_harm:"));
+    assert!(general.contains("level: strict"));
+    assert!(voice.contains("enabled: true"));
+}
+
+#[test]
+fn projection_materializes_channel_configuration_as_python_yaml_shape() {
+    let projection = serde_json::json!({
+        "channels": {
+            "voice": {
+                "config": {
+                    "greeting": {
+                        "welcomeMessage": "Hello",
+                        "languageCode": "en-US"
+                    },
+                    "stylePrompt": {"prompt": "Warm and concise"}
+                },
+                "disclaimer": {
+                    "message": "Recorded line",
+                    "isEnabled": true,
+                    "languageCode": "en-US"
+                }
+            },
+            "webChat": {
+                "status": true,
+                "config": {
+                    "greeting": {
+                        "welcomeMessage": "Hi",
+                        "languageCode": "en-GB"
+                    },
+                    "stylePrompt": {"prompt": "Helpful"}
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let voice = resources
+        .get("voice/configuration.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("voice configuration YAML");
+    let chat = resources
+        .get("chat/configuration.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("chat configuration YAML");
+
+    assert!(voice.contains("welcome_message: Hello"));
+    assert!(voice.contains("language_code: en-US"));
+    assert!(voice.contains("disclaimer_messages:"));
+    assert!(voice.contains("enabled: true"));
+    assert!(!voice.contains("welcomeMessage"));
+    assert!(!voice.contains("- message:"));
+    assert!(chat.contains("welcome_message: Hi"));
+    assert!(chat.contains("style_prompt:"));
+}
+
+#[test]
+fn projection_materializes_agent_settings_as_python_yaml_shape() {
+    let projection = serde_json::json!({
+        "agentSettings": {
+            "personality": {
+                "adjectives": {"values": {"Calm": true}},
+                "custom": "Be helpful",
+                "createdAt": "ignored"
+            },
+            "role": {
+                "value": "other",
+                "additionalInfo": "Receptionist",
+                "custom": "Custom role",
+                "updatedAt": "ignored"
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let personality = resources
+        .get("agent_settings/personality.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("personality YAML");
+    let role = resources
+        .get("agent_settings/role.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("role YAML");
+
+    assert!(personality.contains("adjectives:"));
+    assert!(personality.contains("custom: Be helpful"));
+    assert!(!personality.contains("createdAt"));
+    assert!(role.contains("additional_info: Receptionist"));
+    assert!(!role.contains("additionalInfo"));
+    assert!(!role.contains("updatedAt"));
 }
 
 #[test]
@@ -502,6 +680,126 @@ fn projection_to_resource_map_rejects_duplicate_cleaned_flow_step_paths() {
         .to_string();
     assert!(error.contains("Duplicate resource file path found"));
     assert!(error.contains("flows/support_flow/steps/collect_info.yaml"));
+}
+
+#[test]
+fn projection_materializes_flow_step_yaml_with_python_key_casing() {
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "name": "Collect Rating",
+                                    "type": "advanced_step",
+                                    "prompt": "Rate the call",
+                                    "asrBiasing": {
+                                        "customKeywords": ["billing"]
+                                    },
+                                    "dtmfConfig": {
+                                        "isEnabled": true,
+                                        "interDigitTimeout": 3,
+                                        "isPii": false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let content = resources
+        .get("flows/support_flow/steps/collect_rating.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("flow step YAML");
+
+    assert!(content.contains("asr_biasing:"));
+    assert!(content.contains("custom_keywords:"));
+    assert!(content.contains("dtmf_config:"));
+    assert!(content.contains("inter_digit_timeout: 3"));
+    assert!(content.contains("is_pii: false"));
+    assert!(!content.contains("customKeywords"));
+    assert!(!content.contains("dtmfConfig"));
+}
+
+#[test]
+fn projection_materializes_flow_config_start_step_as_step_name() {
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "Support Flow_step-1": {
+                                    "name": "Collect Rating",
+                                    "type": "advanced_step",
+                                    "prompt": "Rate the call"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let content = resources
+        .get("flows/support_flow/flow_config.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("flow config YAML");
+
+    assert!(content.contains("start_step: Collect Rating"));
+    assert!(!content.contains("start_step: step-1"));
+}
+
+#[test]
+fn projection_materializes_flow_config_start_step_as_id_when_step_is_missing() {
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "startStepId": "STEP-start",
+                        "steps": {
+                            "entities": {
+                                "STEP-other": {
+                                    "name": "Collect Rating",
+                                    "type": "advanced_step",
+                                    "prompt": "Rate the call"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let content = resources
+        .get("flows/support_flow/flow_config.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("flow config YAML");
+
+    assert!(content.contains("start_step: STEP-start"));
+    assert!(!content.contains("start_step: Collect Rating"));
 }
 
 #[test]

@@ -134,6 +134,14 @@ fn read_status_snapshot_json(project_root: &std::path::Path) -> serde_json::Valu
     serde_json::from_slice(&decoded).expect("status json")
 }
 
+fn write_status_snapshot_json(project_root: &std::path::Path, status: serde_json::Value) {
+    let encoded = base64::engine::general_purpose::STANDARD
+        .encode(serde_json::to_vec(&status).expect("status json"));
+    let gen_dir = project_root.join("_gen");
+    fs::create_dir_all(&gen_dir).expect("mkdir _gen");
+    fs::write(gen_dir.join(".agent_studio_config"), encoded).expect("write status snapshot");
+}
+
 /// Port: `poly/tests/project_test.py` - `InitTest.test_init`
 #[test]
 fn load_project_config_matches_python_project_test_init() {
@@ -223,6 +231,141 @@ fn init_and_pull_write_python_compatible_gen_package() {
             .get("migration_flags")
             .and_then(serde_json::Value::as_array)
             .is_some()
+    );
+}
+
+#[test]
+fn pushed_status_snapshot_contains_python_loadable_resource_payloads() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+    fs::create_dir_all(root.join("agent_settings")).expect("mkdir agent settings");
+    fs::create_dir_all(root.join("config")).expect("mkdir config");
+    fs::write(
+        root.join("functions/lookup.py"),
+        "from _gen import *  # <AUTO GENERATED>\ndef lookup(conv):\n    conv.state.saved_value = 'yes'\n    return 'ok'\n",
+    )
+    .expect("write function");
+    fs::write(
+        root.join("agent_settings/rules.txt"),
+        "Always call {{fn:lookup}} when needed.",
+    )
+    .expect("write rules");
+    fs::write(
+        root.join("config/variant_attributes.yaml"),
+        "variants:\n  - name: default\n    is_default: true\nattributes:\n  - name: tone\n    values:\n      default: friendly\n",
+    )
+    .expect("write variant attributes");
+
+    service_offline()
+        .push(root.as_path(), true, true, false)
+        .expect("push");
+    let status = read_status_snapshot_json(&root);
+
+    let function = status
+        .pointer("/resources/functions/variables:functions~1lookup.py")
+        .or_else(|| {
+            status
+                .get("resources")
+                .and_then(|resources| resources.get("functions"))
+                .and_then(serde_json::Value::as_object)
+                .and_then(|functions| functions.values().next())
+        })
+        .expect("function status payload");
+    for key in [
+        "resource_id",
+        "name",
+        "description",
+        "code",
+        "parameters",
+        "latency_control",
+        "function_type",
+        "variable_references",
+    ] {
+        assert!(function.get(key).is_some(), "missing function key {key}");
+    }
+    assert!(function.get("file_path").is_some());
+
+    let variables = status
+        .pointer("/resources/variables")
+        .and_then(serde_json::Value::as_object)
+        .expect("variable status payloads");
+    assert!(!variables.is_empty());
+    assert!(
+        status
+            .pointer("/file_structure_info/variables~1saved_value/hash")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
+
+    let variant_attribute = status
+        .pointer("/resources/variant_attributes")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|attributes| attributes.values().next())
+        .expect("variant attribute status payload");
+    assert!(variant_attribute.get("mappings").is_some());
+    assert!(variant_attribute.get("values").is_none());
+}
+
+#[test]
+fn pull_does_not_conflict_on_clean_python_status_function_files() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: us-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+
+    let raw_function = "def lookup(conv):\n    return 'ok'\n";
+    fs::write(
+        root.join("functions/lookup.py"),
+        format!("from _gen import *  # <AUTO GENERATED>\n\n{raw_function}"),
+    )
+    .expect("write Python-formatted function");
+    write_status_snapshot_json(
+        &root,
+        serde_json::json!({
+            "resources": {
+                "functions": {
+                    "fn-1": {
+                        "resource_id": "fn-1",
+                        "name": "lookup",
+                        "description": "",
+                        "code": raw_function,
+                        "parameters": [],
+                        "latency_control": {"enabled": false},
+                        "function_type": "regular"
+                    }
+                }
+            },
+            "file_structure_info": {},
+            "branch_id": "main"
+        }),
+    );
+
+    let mut remote = ResourceMap::new();
+    remote.insert(
+        "functions/lookup.py".to_string(),
+        Resource {
+            resource_id: "fn-1".to_string(),
+            name: "lookup".to_string(),
+            file_path: "functions/lookup.py".to_string(),
+            payload: serde_json::json!({ "content": raw_function }),
+        },
+    );
+
+    let conflicts = AdkService::new(InMemoryPlatformClient::with_resources(remote))
+        .pull(&root, false)
+        .expect("pull");
+
+    assert!(
+        conflicts.is_empty(),
+        "clean Python status snapshot should not create conflicts: {conflicts:?}"
     );
 }
 
@@ -701,6 +844,47 @@ fn status_uses_typed_snapshot_for_new_and_deleted_when_status_file_exists() {
 }
 
 #[test]
+fn status_reads_legacy_python_snapshot_without_file_paths() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(
+        root.join("topics/topic_1.yaml"),
+        "name: Topic 1\nenabled: true\nactions: ''\ncontent: ''\nexample_queries: []\n",
+    )
+    .expect("write topic");
+    write_status_snapshot_json(
+        &root,
+        serde_json::json!({
+            "resources": {
+                "topics": {
+                    "TOPIC-topic_1": {
+                        "resource_id": "TOPIC-topic_1",
+                        "name": "Topic 1",
+                        "enabled": true,
+                        "actions": "",
+                        "content": "",
+                        "example_queries": []
+                    }
+                }
+            },
+            "file_structure_info": null,
+            "branch_id": "main"
+        }),
+    );
+
+    let summary = service_offline().status(root.as_path()).expect("status");
+
+    assert!(summary.new_files.is_empty());
+    assert!(summary.deleted_files.is_empty());
+    assert!(summary.modified_files.is_empty());
+}
+
+#[test]
 fn diff_uses_typed_snapshot_for_no_changes() {
     let root = make_temp_project_dir();
     fs::write(
@@ -801,6 +985,219 @@ fn status_uses_typed_snapshot_for_mixed_changes() {
     assert_eq!(summary.modified_files, vec!["topics/topic_1.yaml"]);
     assert_eq!(summary.new_files, vec!["topics/topic_2.yaml"]);
     assert_eq!(summary.deleted_files, vec!["functions/old.py"]);
+}
+
+#[test]
+fn status_detects_function_changes_from_legacy_python_snapshot() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+    fs::write(
+        root.join("functions/lookup.py"),
+        "from _gen import *  # <AUTO GENERATED>\n@func_description('Looks up a customer\\'s order')\ndef lookup(conv):\n    return 'old'\n",
+    )
+    .expect("write function");
+    write_status_snapshot_json(
+        &root,
+        serde_json::json!({
+            "resources": {
+                "functions": {
+                    "FUNCTION-lookup": {
+                        "resource_id": "FUNCTION-lookup",
+                        "name": "lookup",
+                        "description": "Looks up a customer's order",
+                        "code": "def lookup(conv):\n    return 'old'\n",
+                        "parameters": [],
+                        "latency_control": {},
+                        "function_type": "global",
+                        "variable_references": {}
+                    }
+                }
+            },
+            "file_structure_info": {
+                "functions/lookup.py": {
+                    "type": "functions",
+                    "resource_id": "FUNCTION-lookup",
+                    "resource_name": "lookup",
+                    "hash": "stale-file-structure-hash"
+                }
+            },
+            "branch_id": "main"
+        }),
+    );
+    let clean_summary = service_offline().status(root.as_path()).expect("status");
+    assert!(clean_summary.modified_files.is_empty());
+
+    fs::write(
+        root.join("functions/lookup.py"),
+        "from _gen import *  # <AUTO GENERATED>\n@func_description('Looks up a customer\\'s order')\ndef lookup(conv):\n    return 'new'\n",
+    )
+    .expect("modify function");
+
+    let summary = service_offline().status(root.as_path()).expect("status");
+
+    assert_eq!(summary.modified_files, vec!["functions/lookup.py"]);
+    assert!(summary.new_files.is_empty());
+    assert!(summary.deleted_files.is_empty());
+}
+
+#[test]
+fn status_normalizes_legacy_python_flow_function_imports() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("flows/booking/functions")).expect("mkdir flow functions");
+    fs::write(
+        root.join("flows/booking/flow_config.yaml"),
+        "name: Booking\ndescription: Book things.\nstart_step: Start\n",
+    )
+    .expect("write flow config");
+    fs::write(
+        root.join("flows/booking/functions/reject.py"),
+        "from _gen import *  # <AUTO GENERATED>\nfrom flows.booking.functions.shared import helper\n@func_description('Rejects a booking')\ndef reject(conv, flow):\n    return helper()\n",
+    )
+    .expect("write flow function");
+    write_status_snapshot_json(
+        &root,
+        serde_json::json!({
+            "resources": {
+                "flow_config": {
+                    "FLOW-abc123": {
+                        "resource_id": "FLOW-abc123",
+                        "name": "Booking",
+                        "description": "Book things.",
+                        "start_step": "Start"
+                    }
+                },
+                "functions": {
+                    "FUNCTION-reject": {
+                        "resource_id": "FUNCTION-reject",
+                        "name": "reject",
+                        "description": "Rejects a booking",
+                        "code": "from functions.flow_abc123.shared import helper\ndef reject(conv, flow):\n    return helper()\n",
+                        "parameters": [],
+                        "latency_control": {},
+                        "function_type": "transition",
+                        "flow_id": "FLOW-abc123",
+                        "flow_name": "Booking",
+                        "variable_references": {}
+                    }
+                }
+            },
+            "file_structure_info": null,
+            "branch_id": "main"
+        }),
+    );
+
+    let summary = service_offline().status(root.as_path()).expect("status");
+
+    assert!(summary.modified_files.is_empty(), "{summary:#?}");
+    assert!(summary.new_files.is_empty());
+    assert!(summary.deleted_files.is_empty());
+}
+
+#[test]
+fn diff_uses_legacy_python_status_snapshot_without_remote_pull() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+    fs::write(
+        root.join("functions/lookup.py"),
+        "from _gen import *  # <AUTO GENERATED>\n@func_description('Looks up a customer')\ndef lookup(conv):\n    return 'new'\n",
+    )
+    .expect("write function");
+    write_status_snapshot_json(
+        &root,
+        serde_json::json!({
+            "resources": {
+                "functions": {
+                    "FUNCTION-lookup": {
+                        "resource_id": "FUNCTION-lookup",
+                        "name": "lookup",
+                        "description": "Looks up a customer",
+                        "code": "def lookup(conv):\n    return 'old'\n",
+                        "parameters": [],
+                        "latency_control": {},
+                        "function_type": "global",
+                        "variable_references": {}
+                    }
+                }
+            },
+            "file_structure_info": {
+                "functions/lookup.py": {
+                    "type": "functions",
+                    "resource_id": "FUNCTION-lookup",
+                    "resource_name": "lookup",
+                    "hash": "stale-file-structure-hash"
+                }
+            },
+            "branch_id": "main"
+        }),
+    );
+
+    let diffs = service_offline()
+        .diff(root.as_path(), &[], None, None)
+        .expect("diff");
+
+    let diff = diffs.get("functions/lookup.py").expect("lookup diff");
+    assert!(diff.contains("-    return 'old'"));
+    assert!(diff.contains("+    return 'new'"));
+}
+
+#[test]
+fn format_check_ignores_python_trailing_whitespace_only_differences() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(root.join("topics/topic_1.yaml"), "name: Topic 1").expect("write topic");
+
+    let changed = service_offline()
+        .format_local_resources(root.as_path(), &[], true)
+        .expect("format check");
+
+    assert!(changed.is_empty(), "{changed:#?}");
+}
+
+#[test]
+fn validate_flow_config_start_step_matches_step_display_name() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("flows/appointment_booking/steps")).expect("mkdir flow");
+    fs::write(
+        root.join("flows/appointment_booking/flow_config.yaml"),
+        "name: Appointment Booking\ndescription: Book an appointment.\nstart_step: Check Appointment Details with User\n",
+    )
+    .expect("write flow config");
+    fs::write(
+        root.join("flows/appointment_booking/steps/check_appointment_details_with_user.yaml"),
+        "step_type: advanced_step\nname: Check Appointment Details with User\nasr_biasing: {}\ndtmf_config: {}\nprompt: Confirm the appointment details.\n",
+    )
+    .expect("write flow step");
+
+    let errors = service_offline()
+        .validate_local_resources(root.as_path())
+        .expect("validate");
+
+    assert!(errors.is_empty(), "{errors:#?}");
 }
 
 #[test]
@@ -1185,7 +1582,7 @@ fn pull_force_controls_overwrite_of_conflict_files() {
         file_info
             .get("resource_name")
             .and_then(serde_json::Value::as_str),
-        Some("Topic 1")
+        Some("Remote Topic")
     );
     assert!(
         file_info

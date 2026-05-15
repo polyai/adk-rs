@@ -52,6 +52,13 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
     }
 
     for (id, function) in push_functions::function_entries(projection) {
+        if function
+            .get("archived")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
         let name = function
             .get("name")
             .and_then(Value::as_str)
@@ -283,7 +290,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
             "agent_settings/personality.yaml",
             "personality",
             "personality",
-            personality.clone(),
+            personality_yaml(personality),
         )?;
     }
 
@@ -293,7 +300,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
             "agent_settings/role.yaml",
             "role",
             "role",
-            role.clone(),
+            role_yaml(role),
         )?;
     }
 
@@ -303,7 +310,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
             "agent_settings/safety_filters.yaml",
             "safety_filters",
             "safety_filters",
-            safety_filters.clone(),
+            safety_filters_yaml(safety_filters, false),
         )?;
     }
 
@@ -313,7 +320,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
             "voice/safety_filters.yaml",
             "voice_safety_filters",
             "voice_safety_filters",
-            voice_safety_filters.clone(),
+            safety_filters_yaml(voice_safety_filters, true),
         )?;
     }
 
@@ -343,13 +350,11 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
             "voice/configuration.yaml",
             "voice_configuration",
             "voice_configuration",
-            serde_json::json!({
-                "greeting": voice_greeting.unwrap_or_else(|| serde_json::json!({})),
-                "style_prompt": voice_style_prompt.unwrap_or_else(|| serde_json::json!({})),
-                "disclaimer_messages": voice_disclaimer
-                    .map(|disclaimer| serde_json::json!([disclaimer]))
-                    .unwrap_or_else(|| serde_json::json!([])),
-            }),
+            channel_configuration_yaml(
+                voice_greeting.as_ref(),
+                voice_style_prompt.as_ref(),
+                voice_disclaimer.as_ref(),
+            ),
         )?;
     }
 
@@ -366,10 +371,11 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
                 "chat/configuration.yaml",
                 "chat_configuration",
                 "chat_configuration",
-                serde_json::json!({
-                    "greeting": chat_greeting.unwrap_or_else(|| serde_json::json!({})),
-                    "style_prompt": chat_style_prompt.unwrap_or_else(|| serde_json::json!({})),
-                }),
+                channel_configuration_yaml(
+                    chat_greeting.as_ref(),
+                    chat_style_prompt.as_ref(),
+                    None,
+                ),
             )?;
         }
         if let Some(chat_safety_filters) =
@@ -380,7 +386,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
                 "chat/safety_filters.yaml",
                 "chat_safety_filters",
                 "chat_safety_filters",
-                chat_safety_filters.clone(),
+                safety_filters_yaml(chat_safety_filters, true),
             )?;
         }
     }
@@ -413,7 +419,10 @@ fn insert_flow_resources(
     let folder = clean_name(&name).to_lowercase();
     let start_step_id = flow.get("startStepId").and_then(Value::as_str);
     let steps = projection_nested_entities(flow, &["steps"]);
-    let start_step = start_step_id.unwrap_or_default().to_string();
+    let start_step = start_step_id
+        .map(|id| python_pretty_flow_start_step(&name, id, &steps))
+        .unwrap_or_default()
+        .to_string();
 
     let flow_config = serde_json::json!({
         "name": name,
@@ -478,6 +487,30 @@ fn insert_flow_resources(
     }
 
     Ok(())
+}
+
+fn python_pretty_flow_start_step<'a>(
+    flow_name: &str,
+    start_step_id: &'a str,
+    steps: &'a [(String, Value)],
+) -> &'a str {
+    steps
+        .iter()
+        .find_map(|(step_id, step)| {
+            let resource_id = step
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or(step_id.as_str());
+            let normalized_id = resource_id
+                .strip_prefix(&format!("{flow_name}_"))
+                .unwrap_or(resource_id);
+            if normalized_id == start_step_id {
+                step.get("name").and_then(Value::as_str)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(start_step_id)
 }
 
 fn flow_entries(projection: &Value) -> Vec<(String, Value)> {
@@ -823,6 +856,7 @@ fn insert_flow_step_resource(
         "flows/{folder}/steps/{}.yaml",
         clean_name(&name).to_lowercase()
     );
+    snake_case_json_keys(&mut value);
     insert_yaml_resource(map, &file_path, &id, &name, value)
 }
 
@@ -874,6 +908,169 @@ fn web_chat_channel_is_created(channel: Option<&Value>) -> bool {
         Some(Value::Null) | None => false,
         Some(_) => true,
     }
+}
+
+fn safety_filters_yaml(settings: &Value, include_enabled: bool) -> Value {
+    let azure_config = settings
+        .get("azureConfig")
+        .or_else(|| settings.get("azure_config"))
+        .unwrap_or(&Value::Null);
+    let mut categories = serde_json::Map::new();
+    for (yaml_key, backend_keys) in [
+        ("violence", ["violence", "violence"]),
+        ("hate", ["hate", "hate"]),
+        ("sexual", ["sexual", "sexual"]),
+        ("self_harm", ["selfHarm", "self_harm"]),
+    ] {
+        let category = backend_keys
+            .iter()
+            .find_map(|key| azure_config.get(*key))
+            .map(safety_filter_category_yaml)
+            .unwrap_or_else(|| serde_json::json!({}));
+        categories.insert(yaml_key.to_string(), category);
+    }
+
+    let mut value = serde_json::Map::new();
+    if include_enabled {
+        value.insert(
+            "enabled".to_string(),
+            Value::Bool(
+                !settings
+                    .get("disabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            ),
+        );
+    }
+    value.insert("categories".to_string(), Value::Object(categories));
+    Value::Object(value)
+}
+
+fn safety_filter_category_yaml(category: &Value) -> Value {
+    serde_json::json!({
+        "enabled": category
+            .get("isActive")
+            .or_else(|| category.get("is_active"))
+            .and_then(Value::as_bool),
+        "level": safety_filter_precision_level(
+            category
+                .get("precision")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+        ),
+    })
+}
+
+fn safety_filter_precision_level(precision: &str) -> String {
+    match precision {
+        "LOOSE" => "lenient".to_string(),
+        "MEDIUM" => "medium".to_string(),
+        "STRICT" => "strict".to_string(),
+        value => value.to_ascii_lowercase(),
+    }
+}
+
+fn channel_configuration_yaml(
+    greeting: Option<&Value>,
+    style_prompt: Option<&Value>,
+    disclaimer: Option<&Value>,
+) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert(
+        "greeting".to_string(),
+        greeting
+            .map(channel_greeting_yaml)
+            .unwrap_or_else(|| serde_json::json!({})),
+    );
+    value.insert(
+        "style_prompt".to_string(),
+        style_prompt
+            .map(channel_style_prompt_yaml)
+            .unwrap_or_else(|| serde_json::json!({})),
+    );
+    if let Some(disclaimer) = disclaimer {
+        value.insert(
+            "disclaimer_messages".to_string(),
+            channel_disclaimer_yaml(disclaimer),
+        );
+    }
+    Value::Object(value)
+}
+
+fn channel_greeting_yaml(greeting: &Value) -> Value {
+    serde_json::json!({
+        "welcome_message": greeting
+            .get("welcomeMessage")
+            .or_else(|| greeting.get("welcome_message"))
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        "language_code": greeting
+            .get("languageCode")
+            .or_else(|| greeting.get("language_code"))
+            .and_then(Value::as_str)
+            .unwrap_or("en-GB"),
+    })
+}
+
+fn channel_style_prompt_yaml(style_prompt: &Value) -> Value {
+    serde_json::json!({
+        "prompt": style_prompt
+            .get("prompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    })
+}
+
+fn channel_disclaimer_yaml(disclaimer: &Value) -> Value {
+    serde_json::json!({
+        "message": disclaimer
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        "enabled": disclaimer
+            .get("isEnabled")
+            .or_else(|| disclaimer.get("enabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        "language_code": disclaimer
+            .get("languageCode")
+            .or_else(|| disclaimer.get("language_code"))
+            .and_then(Value::as_str)
+            .unwrap_or("en-GB"),
+    })
+}
+
+fn personality_yaml(personality: &Value) -> Value {
+    let adjectives = personality
+        .pointer("/adjectives/values")
+        .or_else(|| personality.get("adjectives"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    serde_json::json!({
+        "adjectives": adjectives,
+        "custom": personality
+            .get("custom")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    })
+}
+
+fn role_yaml(role: &Value) -> Value {
+    serde_json::json!({
+        "value": role
+            .get("value")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        "additional_info": role
+            .get("additionalInfo")
+            .or_else(|| role.get("additional_info"))
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        "custom": role
+            .get("custom")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    })
 }
 
 fn insert_yaml_resource(
@@ -1308,6 +1505,24 @@ fn json_bool_map(value: Option<&Value>) -> HashMap<String, bool> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn snake_case_json_keys(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            let old = std::mem::take(object);
+            for (key, mut value) in old {
+                snake_case_json_keys(&mut value);
+                object.insert(to_snake_case(&key), value);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                snake_case_json_keys(item);
+            }
+        }
+        _ => {}
+    }
 }
 
 pub(crate) fn extract_entities_map(root: &Value, path: &[&str]) -> HashMap<String, Value> {
