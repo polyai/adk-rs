@@ -503,7 +503,11 @@ fn substitutions_for_recording(
     ]
 }
 
-fn project_root_for_file_edit(name: &str, tmp: &Path, substitutions: &[(String, String)]) -> PathBuf {
+fn project_root_for_file_edit(
+    name: &str,
+    tmp: &Path,
+    substitutions: &[(String, String)],
+) -> PathBuf {
     let base = if name.contains("remote checkout") || name.contains("remote-only") {
         tmp.join("remote")
     } else if name.contains("local checkout") || name.contains("local-only") {
@@ -517,10 +521,10 @@ fn project_root_for_file_edit(name: &str, tmp: &Path, substitutions: &[(String, 
     } else {
         tmp.to_path_buf()
     };
-    let account_id =
-        lookup_optional("${ACCOUNT_ID}", substitutions).unwrap_or_else(|| TARGET_ACCOUNT_ID.to_string());
-    let project_id =
-        lookup_optional("${PROJECT_ID}", substitutions).unwrap_or_else(|| TARGET_PROJECT_ID.to_string());
+    let account_id = lookup_optional("${ACCOUNT_ID}", substitutions)
+        .unwrap_or_else(|| TARGET_ACCOUNT_ID.to_string());
+    let project_id = lookup_optional("${PROJECT_ID}", substitutions)
+        .unwrap_or_else(|| TARGET_PROJECT_ID.to_string());
     base.join(account_id).join(project_id)
 }
 

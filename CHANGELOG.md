@@ -4,9 +4,14 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
-- Resolve reference IDs to names in generated commands.
-- Improve interactive Ctrl-C handling and project listing.
-- Tighten formatting and header parity for generated project files.
+- _Nothing yet._
+
+## 0.0.3 - 2026-05-18
+
+- Improved Python parity for prompt references by materializing readable names in `rules`, `topics`, and flow steps, while preserving push round-tripping back to Agent Studio IDs.
+- Aligned flow function import path behavior with Python by materializing `flows.<flow_name>.functions` imports and translating back to ID-based paths during push.
+- Improved interactive UX parity by filtering deleted projects from selection, adding arrow-key/fuzzy project selection, and restoring terminal state with a clean "Cancelled by user" Ctrl-C path.
+- Tightened generated resource parity with Python by matching file headers/formatting details and expanding recording/replay coverage for interactive and flow import-path contracts.
 
 ## 0.0.2 - 2026-05-15
 
