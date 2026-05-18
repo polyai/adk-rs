@@ -851,6 +851,242 @@ fn projection_materializes_flow_step_yaml_with_python_key_casing() {
 }
 
 #[test]
+fn projection_materializes_named_prompt_references_like_python() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "FUNCTION-start_verification": {
+                        "id": "FUNCTION-start_verification",
+                        "name": "start_verification",
+                        "code": "def start_verification(conv):\n    return {}\n",
+                        "archived": false
+                    }
+                }
+            }
+        },
+        "variables": {
+            "variables": {
+                "entities": {
+                    "VARIABLE-call_direction_prompt": {
+                        "id": "VARIABLE-call_direction_prompt",
+                        "name": "call_direction_prompt"
+                    }
+                }
+            }
+        },
+        "variantManagement": {
+            "variants": {
+                "entities": {
+                    "VAR-default": {
+                        "name": "default",
+                        "isDefault": true
+                    }
+                }
+            },
+            "attributes": {
+                "entities": {
+                    "ATTR-site_name": {
+                        "id": "ATTR-site_name",
+                        "name": "site_name",
+                        "archived": false
+                    }
+                }
+            },
+            "variantAttributeValues": {
+                "entities": {}
+            }
+        },
+        "knowledgeBase": {
+            "topics": {
+                "entities": {
+                    "TOPIC-1": {
+                        "id": "TOPIC-1",
+                        "name": "Billing",
+                        "actions": "Call {{fn:FUNCTION-start_verification}} using {{attr:ATTR-site_name}}",
+                        "content": "Use {{vrbl:VARIABLE-call_direction_prompt}} in replies",
+                        "exampleQueries": [],
+                        "isActive": true
+                    }
+                }
+            }
+        },
+        "agentSettings": {
+            "rules": {
+                "behaviour": "Rules {{fn:FUNCTION-start_verification}} {{attr:ATTR-site_name}} {{vrbl:VARIABLE-call_direction_prompt}}"
+            }
+        },
+        "flows": {
+            "flows": {
+                "entities": {
+                    "FLOW-address": {
+                        "id": "FLOW-address",
+                        "name": "Address Flow",
+                        "startStepId": "STEP-determine_language",
+                        "steps": {
+                            "entities": {
+                                "STEP-determine_language": {
+                                    "id": "STEP-determine_language",
+                                    "name": "Determine Language",
+                                    "type": "advanced_step",
+                                    "prompt": "Step {{fn:FUNCTION-start_verification}} {{ft:FUNCTION-determine_language}} {{attr:ATTR-site_name}} {{vrbl:VARIABLE-call_direction_prompt}}"
+                                }
+                            }
+                        },
+                        "transitionFunctions": {
+                            "entities": {
+                                "FUNCTION-determine_language": {
+                                    "id": "FUNCTION-determine_language",
+                                    "name": "determine_language",
+                                    "code": "def determine_language(conv):\n    return {}\n",
+                                    "archived": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+
+    let rules = resources
+        .get("agent_settings/rules.txt")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("rules");
+    assert!(rules.contains("{{fn:start_verification}}"));
+    assert!(rules.contains("{{attr:site_name}}"));
+    assert!(rules.contains("{{vrbl:call_direction_prompt}}"));
+    assert!(!rules.contains("FUNCTION-start_verification"));
+    assert!(!rules.contains("ATTR-site_name"));
+    assert!(!rules.contains("VARIABLE-call_direction_prompt"));
+
+    let topic = resources
+        .get("topics/billing.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("topic");
+    assert!(topic.contains("{{fn:start_verification}}"));
+    assert!(topic.contains("{{attr:site_name}}"));
+    assert!(topic.contains("{{vrbl:call_direction_prompt}}"));
+    assert!(!topic.contains("FUNCTION-start_verification"));
+
+    let step = resources
+        .get("flows/address_flow/steps/determine_language.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("step");
+    assert!(step.contains("{{fn:start_verification}}"));
+    assert!(step.contains("{{ft:determine_language}}"));
+    assert!(step.contains("{{attr:site_name}}"));
+    assert!(step.contains("{{vrbl:call_direction_prompt}}"));
+    assert!(!step.contains("FUNCTION-determine_language"));
+}
+
+#[test]
+fn reference_named_materialization_round_trips_without_push_commands() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "FUNCTION-start_verification": {
+                        "id": "FUNCTION-start_verification",
+                        "name": "start_verification",
+                        "code": "def start_verification(conv):\n    return {}\n",
+                        "archived": false
+                    }
+                }
+            }
+        },
+        "variantManagement": {
+            "variants": {
+                "entities": {
+                    "VAR-default": {
+                        "name": "default",
+                        "isDefault": true
+                    }
+                }
+            },
+            "attributes": {
+                "entities": {
+                    "ATTR-site_name": {
+                        "id": "ATTR-site_name",
+                        "name": "site_name",
+                        "archived": false
+                    }
+                }
+            },
+            "variantAttributeValues": {
+                "entities": {}
+            }
+        },
+        "knowledgeBase": {
+            "topics": {
+                "entities": {
+                    "TOPIC-1": {
+                        "id": "TOPIC-1",
+                        "name": "Billing",
+                        "actions": "Call {{fn:FUNCTION-start_verification}} using {{attr:ATTR-site_name}}",
+                        "content": "Use {{attr:ATTR-site_name}} in replies",
+                        "exampleQueries": [],
+                        "isActive": true
+                    }
+                }
+            }
+        },
+        "agentSettings": {
+            "rules": {
+                "behaviour": "Rules {{fn:FUNCTION-start_verification}} {{attr:ATTR-site_name}}"
+            }
+        },
+        "flows": {
+            "flows": {
+                "entities": {
+                    "FLOW-address": {
+                        "id": "FLOW-address",
+                        "name": "Address Flow",
+                        "startStepId": "STEP-determine_language",
+                        "steps": {
+                            "entities": {
+                                "STEP-determine_language": {
+                                    "id": "STEP-determine_language",
+                                    "name": "Determine Language",
+                                    "type": "advanced_step",
+                                    "prompt": "Step {{fn:FUNCTION-start_verification}} {{ft:FUNCTION-determine_language}} {{attr:ATTR-site_name}}"
+                                }
+                            }
+                        },
+                        "transitionFunctions": {
+                            "entities": {
+                                "FUNCTION-determine_language": {
+                                    "id": "FUNCTION-determine_language",
+                                    "name": "determine_language",
+                                    "code": "def determine_language(conv):\n    return {}\n",
+                                    "archived": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let commands = build_phase1_commands(&resources, &projection);
+    assert!(
+        commands.is_empty(),
+        "expected no commands, got types: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn projection_materializes_flow_config_start_step_as_step_name() {
     let projection = serde_json::json!({
         "flows": {

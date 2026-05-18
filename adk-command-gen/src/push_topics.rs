@@ -3,7 +3,8 @@
 use crate::push_single_file_resources::CommandGroups;
 use crate::{
     extract_entities_map, generated_replay_resource_id, is_synthetic_local_resource_id,
-    push_command, random_resource_id,
+    prompt_reference_maps_from_projection, push_command, random_resource_id,
+    replace_resource_names_with_ids,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -19,6 +20,7 @@ pub(crate) fn topic_resource_command_groups(
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> CommandGroups {
+    let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
     let remote_topics = topic_entries(projection)
         .into_iter()
         .map(|(id, topic)| {
@@ -66,13 +68,13 @@ pub(crate) fn topic_resource_command_groups(
         let actions = yaml
             .get("actions")
             .and_then(serde_yaml::Value::as_str)
-            .unwrap_or("")
-            .to_string();
+            .map(|value| replace_resource_names_with_ids(value, &prompt_reference_maps, None))
+            .unwrap_or_default();
         let text = yaml
             .get("content")
             .and_then(serde_yaml::Value::as_str)
-            .unwrap_or("")
-            .to_string();
+            .map(|value| replace_resource_names_with_ids(value, &prompt_reference_maps, None))
+            .unwrap_or_default();
         let enabled = yaml
             .get("enabled")
             .and_then(serde_yaml::Value::as_bool)

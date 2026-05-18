@@ -8,7 +8,10 @@ use crate::push_functions::{
     variable_reference_ids_from_code,
 };
 use crate::push_single_file_resources::CommandGroups;
-use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
+use crate::{
+    PromptReferenceMaps, generated_replay_resource_id, prompt_reference_maps_from_projection,
+    push_command, random_resource_id, replace_resource_names_with_ids, yaml_str,
+};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
     ConditionDetails, CreateAdvancedStep, CreateFunctionStep, CreateFunctionStepDefinition,
@@ -143,7 +146,8 @@ pub(crate) fn flow_resource_command_groups(
 ) -> CommandGroups {
     let mut groups = CommandGroups::default();
     let remote_flows = remote_flows_by_name(projection);
-    let local_flows = local_flows(resources);
+    let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
+    let local_flows = local_flows(resources, &prompt_reference_maps);
     let local_flow_names = local_flows
         .iter()
         .map(|flow| flow.name.clone())
@@ -1630,7 +1634,10 @@ fn step_dtmf_config_update(config: &StepDtmfConfig) -> StepDtmfConfigUpdate {
     }
 }
 
-fn local_flows(resources: &ResourceMap) -> Vec<LocalFlow> {
+fn local_flows(
+    resources: &ResourceMap,
+    prompt_reference_maps: &PromptReferenceMaps,
+) -> Vec<LocalFlow> {
     let mut flows: HashMap<String, LocalFlow> = HashMap::new();
 
     for resource in resources.values() {
@@ -1660,14 +1667,18 @@ fn local_flows(resources: &ResourceMap) -> Vec<LocalFlow> {
                 continue;
             };
             let entry = flows.entry(folder.clone()).or_insert_with(|| LocalFlow {
-                folder,
+                folder: folder.clone(),
                 ..LocalFlow::default()
             });
             entry.steps.push(LocalFlowStep {
                 path: path.to_string(),
                 name: non_empty(yaml_str(&yaml, "name"), &resource.name),
                 step_type: flow_step_type(&yaml),
-                prompt: yaml_str(&yaml, "prompt"),
+                prompt: replace_resource_names_with_ids(
+                    &yaml_str(&yaml, "prompt"),
+                    prompt_reference_maps,
+                    Some(folder.as_str()),
+                ),
                 asr_biasing: Some(step_asr_config(yaml.get("asr_biasing"))),
                 dtmf_config: Some(step_dtmf_config(yaml.get("dtmf_config"))),
                 conditions: local_conditions(&yaml),

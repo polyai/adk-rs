@@ -167,8 +167,8 @@ Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be co
   - Acceptance: tests cover human verbose traceback visibility, default concise errors, debug logging activation, and JSON traceback behavior.
   - Implemented: non-JSON `emit_error` now uses the rich traceback helper, concise mode prints a verbose hint, verbose mode prints a traceback, debug mode emits tracing debug logs, and JSON error payloads remain stable. Human-output tests cover concise/verbose errors and debug logging.
 
-- [ ] **Resolve projection prompt references to local resource names** (`prompt-reference-resolution`)
+- [x] **Resolve projection prompt references to local resource names** (`prompt-reference-resolution`)
   - Python rewrites prompt/topic references such as `{{fn:FUNCTION-...}}` and `{{ft:FUNCTION-...}}` to local names like `{{fn:start_verification}}` when materializing resources.
-  - Rust currently writes raw projection IDs into topic actions and flow-step prompts, which creates noisy migration diffs and makes local files less readable.
-  - Add Python recording coverage for topic actions, advanced/default step prompts, and any other text fields with function, flow transition, SMS, handoff, variable, and attribute references before implementing the resolver.
+  - Implemented: materialization now resolves `fn`, `ft` (flow-scoped), `attr`, and `vrbl` references in `agent_settings/rules.txt`, topic YAML content, and flow-step prompts to local names during init/pull/switch output.
+  - Implemented: push paths now reverse those replacements back to projection IDs for rules/topic/flow-step command generation, preserving no-op round-trips and command payload parity.
   - Acceptance: Rust init/pull/switch materialization matches Python reference names, and push still resolves edited local references back to the correct resource IDs.

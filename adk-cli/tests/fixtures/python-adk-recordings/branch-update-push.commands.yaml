@@ -120,7 +120,7 @@ workflows:
           @@ -68,3 +68,7 @@
            ASSISTANT: “Thanks for calling, and I hope you have a great rest of your day. Goodbye.”
            USER: “Bye” / [silence]
-           → TOOL CALL: Call the {{fn:default-function}} without saying anything else.
+           → TOOL CALL: Call the {{fn:goodbye_and_hang_up}} without saying anything else.
           +
           +
           +# ADK recording branch edit

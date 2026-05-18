@@ -23,8 +23,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     build_entity_create_config, build_entity_update_config, entity_entries,
-    generated_replay_resource_id, is_synthetic_local_resource_id, push_command, random_resource_id,
-    rules_references_from_behaviour, rules_references_from_projection, to_camel_case,
+    generated_replay_resource_id, is_synthetic_local_resource_id,
+    prompt_reference_maps_from_projection, push_command, random_resource_id,
+    replace_resource_names_with_ids, rules_references_from_behaviour,
+    rules_references_from_projection, to_camel_case,
 };
 
 #[derive(Debug, Default)]
@@ -64,6 +66,7 @@ fn fixed_single_file_resource_command_groups(
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> CommandGroups {
+    let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
     let remote_entities = entity_entries(projection)
         .into_iter()
         .map(|(id, entity)| {
@@ -86,18 +89,20 @@ fn fixed_single_file_resource_command_groups(
             .unwrap_or_default();
 
         if path == "agent_settings/rules.txt" {
+            let normalized_content =
+                replace_resource_names_with_ids(content, &prompt_reference_maps, None);
             let remote_behaviour = projection
                 .pointer("/agentSettings/rules/behaviour")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            if content != remote_behaviour {
+            if normalized_content != remote_behaviour {
                 push_command(
                     &mut groups.updates,
                     metadata,
                     "update_rules",
                     CommandPayload::UpdateRules(RulesUpdateRules {
-                        behaviour: Some(content.to_string()),
-                        references: rules_references_from_behaviour(content)
+                        behaviour: Some(normalized_content.clone()),
+                        references: rules_references_from_behaviour(&normalized_content)
                             .or_else(|| rules_references_from_projection(projection)),
                     }),
                 );
