@@ -541,6 +541,18 @@ workflows:
       success: true
     stdout: null
     stderr: ''
+  - kind: file_assertion
+    name: assert ASR settings materialized with Python keys
+    path: voice/speech_recognition/asr_settings.yaml
+    exists: true
+    contains:
+    - 'barge_in: false'
+    - 'interaction_style: balanced'
+    not_contains:
+    - bargeIn
+    - latencyConfig
+    - updatedAt
+    - updatedBy
   - kind: file_edit
     name: delete generated personality settings
     operation: delete_file

@@ -64,6 +64,8 @@ workflows:
     contains:
     - 'step_type: advanced_step'
     - Welcome to the flow recording.
+    not_contains:
+    - 'position:'
   - kind: file_assertion
     name: assert flow default step materialized
     path: flows/adk_recording_flow/steps/default_step.yaml

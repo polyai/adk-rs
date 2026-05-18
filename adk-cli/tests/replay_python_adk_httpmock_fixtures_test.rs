@@ -939,6 +939,16 @@ fn apply_file_assertion(
             fixture_paths.diagnostic_lines()
         );
     }
+    for needle in &record.not_contains {
+        let needle = substitute(needle, substitutions);
+        assert!(
+            !content.contains(&needle),
+            "{scenario}/{workflow}/{}: {} contained unexpected text {needle:?}\n{}\ncontent:\n{content}",
+            record.name,
+            path.display(),
+            fixture_paths.diagnostic_lines()
+        );
+    }
 }
 
 fn read_or_seed_file(

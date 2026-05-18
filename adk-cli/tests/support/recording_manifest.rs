@@ -92,4 +92,6 @@ pub struct FileAssertionRecord {
     pub exists: bool,
     #[serde(default)]
     pub contains: Vec<String>,
+    #[serde(default)]
+    pub not_contains: Vec<String>,
 }

@@ -333,7 +333,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
             "voice/speech_recognition/asr_settings.yaml",
             "asr_settings",
             "asr_settings",
-            asr_settings.clone(),
+            asr_settings_yaml(asr_settings),
         )?;
     }
 
@@ -823,9 +823,6 @@ fn insert_flow_step_resource(
         "name": name,
         "prompt": step.get("prompt").and_then(Value::as_str).unwrap_or(""),
     });
-    if let Some(position) = step.get("position") {
-        value["position"] = position.clone();
-    }
     if !is_default {
         value["asr_biasing"] = step
             .get("asrBiasing")
@@ -893,6 +890,32 @@ fn flow_conditions_yaml(step: &Value) -> Value {
         })
         .collect::<Vec<_>>();
     Value::Array(items)
+}
+
+fn asr_settings_yaml(settings: &Value) -> Value {
+    let latency_config = settings
+        .get("latencyConfig")
+        .or_else(|| settings.get("latency_config"));
+    serde_json::json!({
+        "barge_in": settings
+            .get("bargeIn")
+            .or_else(|| settings.get("barge_in"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        "interaction_style": latency_config
+            .and_then(|config| {
+                config
+                    .get("interactionStyle")
+                    .or_else(|| config.get("interaction_style"))
+            })
+            .or_else(|| {
+                settings
+                    .get("interactionStyle")
+                    .or_else(|| settings.get("interaction_style"))
+            })
+            .and_then(Value::as_str)
+            .unwrap_or("balanced"),
+    })
 }
 
 fn web_chat_channel_is_created(channel: Option<&Value>) -> bool {

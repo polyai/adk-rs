@@ -670,6 +670,38 @@ fn projection_materializes_channel_configuration_as_python_yaml_shape() {
 }
 
 #[test]
+fn projection_materializes_asr_settings_as_python_yaml_shape() {
+    let projection = serde_json::json!({
+        "channels": {
+            "voice": {
+                "asrSettings": {
+                    "bargeIn": false,
+                    "latencyConfig": {
+                        "interactionStyle": "precise"
+                    },
+                    "updatedAt": "2026-01-21T14:35:16.078Z",
+                    "updatedBy": "miles.nash@poly-ai.com"
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let content = resources
+        .get("voice/speech_recognition/asr_settings.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("ASR settings YAML");
+
+    assert!(content.contains("barge_in: false"));
+    assert!(content.contains("interaction_style: precise"));
+    assert!(!content.contains("bargeIn"));
+    assert!(!content.contains("latencyConfig"));
+    assert!(!content.contains("updatedAt"));
+    assert!(!content.contains("updatedBy"));
+}
+
+#[test]
 fn projection_materializes_agent_settings_as_python_yaml_shape() {
     let projection = serde_json::json!({
         "agentSettings": {
@@ -780,6 +812,10 @@ fn projection_materializes_flow_step_yaml_with_python_key_casing() {
                                     "name": "Collect Rating",
                                     "type": "advanced_step",
                                     "prompt": "Rate the call",
+                                    "position": {
+                                        "x": 100.0,
+                                        "y": 200.0
+                                    },
                                     "asrBiasing": {
                                         "customKeywords": ["billing"]
                                     },
@@ -811,6 +847,7 @@ fn projection_materializes_flow_step_yaml_with_python_key_casing() {
     assert!(content.contains("is_pii: false"));
     assert!(!content.contains("customKeywords"));
     assert!(!content.contains("dtmfConfig"));
+    assert!(!content.contains("position:"));
 }
 
 #[test]

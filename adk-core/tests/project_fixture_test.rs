@@ -181,8 +181,11 @@ fn init_and_pull_write_python_compatible_gen_package() {
 
     assert!(init_py.contains("from _gen.conversation import ("));
     assert!(init_py.contains("\"func_latency_control\""));
+    assert!(!init_py.starts_with("# Copyright PolyAI Limited\n"));
     assert!(decorators.contains("def func_description("));
     assert!(decorators.contains("def func_latency_control("));
+    assert!(!decorators.starts_with("# Copyright PolyAI Limited\n"));
+    assert!(conversation.starts_with("# Copyright PolyAI Limited\n"));
     assert!(conversation.contains("class Conversation"));
 
     fs::write(gen_dir.join("stale.pyi"), "class Stale: ...\n").expect("write stale pyi");
@@ -396,6 +399,17 @@ fn init_python_gen_package_matches_synced_fixture_files() {
         let expected = fs::read_to_string(expected_gen.join(&file_name))
             .unwrap_or_else(|err| panic!("read fixture {file_name}: {err}"));
         assert_eq!(actual, expected, "{file_name} should match Python fixture");
+        if file_name == "__init__.py" || file_name == "decorators.py" {
+            assert!(
+                !actual.starts_with("# Copyright PolyAI Limited\n"),
+                "{file_name} should match Python's generated header shape"
+            );
+        } else {
+            assert!(
+                actual.starts_with("# Copyright PolyAI Limited\n"),
+                "{file_name} should retain the copied poly.types copyright header"
+            );
+        }
     }
 }
 

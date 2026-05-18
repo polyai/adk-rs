@@ -1,3 +1,4 @@
+
 # Remaining Python ADK Parity TODOs
 
 Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be covered by a Python recording fixture first where practical, then brought to parity in Rust.
@@ -15,7 +16,6 @@ Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be co
   - Add recordings for global, start, end, transition, and function-step decorator metadata plus representative invalid-function cases, then port the parser and validator behavior.
   - Progress: global/transition function command generation now parses simple `@func_parameter` decorators, maps `str`/`int`/`float`/`bool` annotations to Python-compatible schema types, ignores `conv`/`flow` receiver parameters, preserves remote parameter metadata objects, and includes variable references on global function create/update commands.
   - Implemented: `@func_latency_control` is now parsed for global functions, flow function steps, and transition functions; global creates embed latency control, global updates emit `update_latency_control`, function-step creates/updates carry Python-compatible latency payloads, and transition functions emit flow-scoped latency-control updates. Generated parameter and delay-response IDs are normalized in recording replay, decorator parameter/type validation is covered locally, and function-step create payloads preserve Python's empty latency-control object shape when latency is disabled.
-  - Follow-up fixed from the UK smoke project: multiline `@func_description`/`@func_parameter` decorators produced by Ruff are now parsed and stripped as a single decorator block for command generation and legacy status-hash normalization.
 
 - [x] **Honor formatting flags on init, pull, and branch switch** (`init-pull-switch-format-parity`)
   - Python passes `--format` through `init_project`, `pull_project`, and `switch_branch`, formatting resources as they are written.
@@ -150,7 +150,7 @@ Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be co
   - Match Python's resource-specific formatting for YAML, JSON, Python, multi-resource YAML files, `--files` path resolution relative to `--path`, and `ty` timeout/result behavior.
   - Acceptance: tests cover JSON formatting, YAML multi-resource formatting, absolute and base-path-relative `--files`, invalid resource format errors, and `ty` timeout/nonzero reporting.
   - Implemented: formatting now supports explicit JSON file formatting, keeps project-wide replay behavior aligned with Python recordings, normalizes `--files` relative to `--path` including absolute paths, preserves invalid YAML/JSON content instead of failing formatter runs, and runs `ty` with a Python-compatible timeout/result shape. CLI tests cover JSON and absolute-path formatting.
-  - [ ] Follow-up: replace Rust's broad `serde_yaml` project-wide YAML formatting with a Python-compatible ruamel-style formatter or narrower resource-aware formatter. A larger private smoke project showed Rust reporting extra YAML files in `format --check` that Python leaves unchanged.
+  - [ ] Follow-up: replace Rust's broad `serde_yaml` project-wide YAML formatting and projection materialization serialization with a Python-compatible ruamel-style formatter or narrower resource-aware formatter. Python's `resource_utils.dump_yaml` preserves insertion order, uses literal block scalars for multiline strings, quotes only selected YAML-sensitive keys, and wraps at width 100; Rust's current `serde_yaml::to_string` path sorts many object keys, emits multiline strings as quoted `\n` scalars, and wraps differently, causing noisy migration diffs.
 
 - [x] **Port full resource validation semantics** (`resource-validation-parity`)
   - Extend Rust validation beyond the current semantic checks to mirror each Python resource class's validation, including references, required fields, value enums, duplicate names, and resource-family-specific constraints.
@@ -166,3 +166,9 @@ Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be co
   - Match Python's `--verbose` traceback behavior and `--debug` logging behavior for supported commands, while keeping JSON-mode error payloads stable.
   - Acceptance: tests cover human verbose traceback visibility, default concise errors, debug logging activation, and JSON traceback behavior.
   - Implemented: non-JSON `emit_error` now uses the rich traceback helper, concise mode prints a verbose hint, verbose mode prints a traceback, debug mode emits tracing debug logs, and JSON error payloads remain stable. Human-output tests cover concise/verbose errors and debug logging.
+
+- [ ] **Resolve projection prompt references to local resource names** (`prompt-reference-resolution`)
+  - Python rewrites prompt/topic references such as `{{fn:FUNCTION-...}}` and `{{ft:FUNCTION-...}}` to local names like `{{fn:start_verification}}` when materializing resources.
+  - Rust currently writes raw projection IDs into topic actions and flow-step prompts, which creates noisy migration diffs and makes local files less readable.
+  - Add Python recording coverage for topic actions, advanced/default step prompts, and any other text fields with function, flow transition, SMS, handoff, variable, and attribute references before implementing the resolver.
+  - Acceptance: Rust init/pull/switch materialization matches Python reference names, and push still resolves edited local references back to the correct resource IDs.
