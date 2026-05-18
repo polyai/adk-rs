@@ -2382,7 +2382,8 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 (resource_content.to_string(), formatted, true)
             } else if path.ends_with(".json") && !files.is_empty() {
                 let formatted = match serde_json::from_str::<serde_json::Value>(resource_content) {
-                    Ok(parsed) => {
+                    Ok(mut parsed) => {
+                        sort_json_value_keys(&mut parsed);
                         let mut formatted = serde_json::to_string_pretty(&parsed).map_err(|e| {
                             DomainError::InvalidData(format!("{path}: json error: {e}"))
                         })?;
@@ -3105,6 +3106,26 @@ fn yaml_mapping_contains_key(mapping: &serde_yaml::Mapping, key: &str) -> bool {
     mapping
         .keys()
         .any(|candidate| candidate.as_str() == Some(key))
+}
+
+fn sort_json_value_keys(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            let old = std::mem::take(object);
+            let mut items = old.into_iter().collect::<Vec<_>>();
+            items.sort_by(|(left, _), (right, _)| left.cmp(right));
+            for (key, mut value) in items {
+                sort_json_value_keys(&mut value);
+                object.insert(key, value);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                sort_json_value_keys(item);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn is_yaml_file(path: &Path) -> bool {
@@ -5305,6 +5326,46 @@ mod tests {
         assert_eq!(
             normalized,
             "@func_description('Transfers a caller.')\n@func_parameter('handoff_reason', 'Reason copied from context.')\ndef handoff(conv: Conversation, handoff_reason: str):\n    return handoff_reason\n"
+        );
+    }
+
+    #[test]
+    fn format_check_preserves_python_shaped_yaml_key_order() {
+        let fs = adk_io::MemoryFileSystem::new();
+        fs.write_string(
+            Path::new("workspace/project.yaml"),
+            "region: dev\naccount_id: acct\nproject_id: proj\nbranch_id: main\n",
+        )
+        .expect("write config");
+        fs.write_string(
+            Path::new("workspace/topics/billing_general.yaml"),
+            "name: Billing General\nenabled: true\nactions: Transfer the caller.\ncontent: |-\n  Line one.\n  Line two.\nexample_queries:\n- Question about my bill\n",
+        )
+        .expect("write topic");
+        fs.write_string(
+            Path::new("workspace/config/entities.yaml"),
+            "entities:\n- name: Age\n  description: Customer age\n  entity_type: numeric\n  config:\n    min: 1\n    max: 120\n",
+        )
+        .expect("write entities");
+
+        let service = AdkService::with_file_system(
+            adk_api_client::InMemoryPlatformClient::default(),
+            fs.clone(),
+        );
+        let changed = service
+            .format_local_resources(Path::new("workspace"), &[], true)
+            .expect("format check");
+
+        assert!(changed.is_empty());
+        assert_eq!(
+            fs.read_to_string(Path::new("workspace/topics/billing_general.yaml"))
+                .expect("read topic"),
+            "name: Billing General\nenabled: true\nactions: Transfer the caller.\ncontent: |-\n  Line one.\n  Line two.\nexample_queries:\n- Question about my bill\n"
+        );
+        assert_eq!(
+            fs.read_to_string(Path::new("workspace/config/entities.yaml"))
+                .expect("read entities"),
+            "entities:\n- name: Age\n  description: Customer age\n  entity_type: numeric\n  config:\n    min: 1\n    max: 120\n"
         );
     }
 

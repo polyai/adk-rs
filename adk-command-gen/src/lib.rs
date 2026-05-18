@@ -6,6 +6,7 @@ use adk_protobuf::knowledge_base::{KnowledgeBaseCreateTopic, TopicReferences};
 use adk_protobuf::variables::VariableReferences;
 use adk_protobuf::{Command, Metadata};
 use adk_types::{Resource, ResourceMap};
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::env;
@@ -23,6 +24,13 @@ mod push_functions;
 mod push_single_file_resources;
 mod push_topics;
 mod push_variables;
+mod yaml_resources;
+
+use yaml_resources::{
+    AsrBiasingYaml, DtmfConfigYaml, EntitiesYaml, EntityYaml, EnvPhoneNumbersYaml, FlowConfigYaml,
+    FlowStepYaml, HandoffYaml, HandoffsYaml, PhraseFilterYaml, PhraseFilteringYaml,
+    SmsTemplateYaml, SmsTemplatesYaml, TopicYaml, to_yaml_string,
+};
 
 // Define mapping from projection to resources in file system.
 pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, CommandGenError> {
@@ -38,17 +46,36 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
             .to_string();
         let file_name = clean_name(&name).to_lowercase();
         let file_path = format!("topics/{file_name}.yaml");
-        let content = serde_yaml::to_string(&serde_json::json!({
-            "name": name,
-            "enabled": topic.get("isActive").and_then(Value::as_bool).unwrap_or(true),
-            "actions": topic.get("actions").and_then(Value::as_str).unwrap_or(""),
-            "content": topic.get("content").and_then(Value::as_str).unwrap_or(""),
-            "example_queries": topic.get("exampleQueries").and_then(Value::as_array).map(|arr| {
-                arr.iter()
-                    .filter_map(|x| x.get("query").and_then(Value::as_str).map(ToString::to_string))
-                    .collect::<Vec<String>>()
-            }).unwrap_or_default(),
-        }))
+        let content = to_yaml_string(&TopicYaml {
+            name: name.clone(),
+            enabled: topic
+                .get("isActive")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            actions: topic
+                .get("actions")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            content: topic
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            example_queries: topic
+                .get("exampleQueries")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| {
+                            x.get("query")
+                                .and_then(Value::as_str)
+                                .map(ToString::to_string)
+                        })
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_default(),
+        })
         .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
         insert_content_resource(&mut map, &file_path, &id, &name, content)?;
     }
@@ -94,22 +121,28 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
     }
 
     let mut entity_yaml_list = Vec::new();
-    for (id, entity) in entity_entries(projection) {
+    for (id, entity) in entity_entries_vec(projection) {
         let name = entity
             .get("name")
             .and_then(Value::as_str)
             .unwrap_or(id.as_str())
             .to_string();
-        entity_yaml_list.push(serde_json::json!({
-            "name": name,
-            "description": entity.get("description").and_then(Value::as_str).unwrap_or(""),
-            "entity_type": to_snake_case(entity.get("type").and_then(Value::as_str).unwrap_or("")),
-            "config": projection_entity_config(&entity),
-        }));
+        entity_yaml_list.push(EntityYaml {
+            name,
+            description: entity
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            entity_type: to_snake_case(entity.get("type").and_then(Value::as_str).unwrap_or("")),
+            config: projection_entity_config(&entity),
+        });
     }
     if !entity_yaml_list.is_empty() {
-        let content = serde_yaml::to_string(&serde_json::json!({ "entities": entity_yaml_list }))
-            .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
+        let content = to_yaml_string(&EntitiesYaml {
+            entities: entity_yaml_list,
+        })
+        .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
         insert_content_resource(
             &mut map,
             "config/entities.yaml",
@@ -121,7 +154,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
 
     // config/handoffs.yaml multi-resource file
     let mut handoff_yaml_list = Vec::new();
-    for (_id, handoff) in handoff_entries(projection) {
+    for (_id, handoff) in handoff_entries_vec(projection) {
         if !handoff
             .get("active")
             .and_then(Value::as_bool)
@@ -129,17 +162,30 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
         {
             continue;
         }
-        handoff_yaml_list.push(serde_json::json!({
-            "name": handoff.get("name").and_then(Value::as_str).unwrap_or(""),
-            "description": handoff.get("description").and_then(Value::as_str).unwrap_or(""),
-            "is_default": handoff.get("isDefault").and_then(Value::as_bool).unwrap_or(false),
-            "sip_config": handoff_sip_config_yaml(&handoff),
-            "sip_headers": handoff_sip_headers_yaml(&handoff)
-        }));
+        handoff_yaml_list.push(HandoffYaml {
+            name: handoff
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            description: handoff
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            is_default: handoff
+                .get("isDefault")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            sip_config: handoff_sip_config_yaml(&handoff),
+            sip_headers: handoff_sip_headers_yaml(&handoff),
+        });
     }
     if !handoff_yaml_list.is_empty() {
-        let content = serde_yaml::to_string(&serde_json::json!({ "handoffs": handoff_yaml_list }))
-            .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
+        let content = to_yaml_string(&HandoffsYaml {
+            handoffs: handoff_yaml_list,
+        })
+        .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
         insert_content_resource(
             &mut map,
             "config/handoffs.yaml",
@@ -151,23 +197,48 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
 
     // config/sms_templates.yaml multi-resource file
     let mut sms_yaml_list = Vec::new();
-    for (_id, sms) in sms_entries(projection) {
+    for (_id, sms) in sms_entries_vec(projection) {
         if !sms.get("active").and_then(Value::as_bool).unwrap_or(true) {
             continue;
         }
-        sms_yaml_list.push(serde_json::json!({
-                "name": sms.get("name").and_then(Value::as_str).unwrap_or(""),
-                "text": sms.get("text").and_then(Value::as_str).unwrap_or(""),
-                "env_phone_numbers": {
-                    "sandbox": sms.get("envPhoneNumbers").and_then(|v| v.get("sandbox")).and_then(Value::as_str).unwrap_or(""),
-                    "pre_release": sms.get("envPhoneNumbers").and_then(|v| v.get("preRelease")).and_then(Value::as_str).unwrap_or(""),
-                    "live": sms.get("envPhoneNumbers").and_then(|v| v.get("live")).and_then(Value::as_str).unwrap_or(""),
-                }
-            }));
+        sms_yaml_list.push(SmsTemplateYaml {
+            name: sms
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            text: sms
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            env_phone_numbers: EnvPhoneNumbersYaml {
+                sandbox: sms
+                    .get("envPhoneNumbers")
+                    .and_then(|v| v.get("sandbox"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                pre_release: sms
+                    .get("envPhoneNumbers")
+                    .and_then(|v| v.get("preRelease"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                live: sms
+                    .get("envPhoneNumbers")
+                    .and_then(|v| v.get("live"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            },
+        });
     }
     if !sms_yaml_list.is_empty() {
-        let content = serde_yaml::to_string(&serde_json::json!({ "sms_templates": sms_yaml_list }))
-            .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
+        let content = to_yaml_string(&SmsTemplatesYaml {
+            sms_templates: sms_yaml_list,
+        })
+        .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
         insert_content_resource(
             &mut map,
             "config/sms_templates.yaml",
@@ -192,67 +263,51 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
         })
         .collect::<HashMap<_, _>>();
     let mut phrase_yaml_list = Vec::new();
-    for (_id, pf) in phrase_filter_entries(projection) {
-        let mut phrase = serde_json::Map::new();
-        phrase.insert(
-            "name".to_string(),
-            Value::String(
-                pf.get("title")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-            ),
-        );
-        insert_non_empty_string(
-            &mut phrase,
-            "description",
-            pf.get("description").and_then(Value::as_str).unwrap_or(""),
-        );
-        phrase.insert(
-            "regular_expressions".to_string(),
-            Value::Array(
-                pf.get("regularExpressions")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-        );
-        phrase.insert(
-            "say_phrase".to_string(),
-            Value::Bool(
-                pf.get("sayPhrase")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            ),
-        );
-        insert_non_empty_string(
-            &mut phrase,
-            "language_code",
-            pf.get("languageCode").and_then(Value::as_str).unwrap_or(""),
-        );
-        if let Some(function_id) = pf
+    for (_id, pf) in phrase_filter_entries_vec(projection) {
+        let function = pf
             .pointer("/references/globalFunctions")
             .or_else(|| pf.pointer("/references/global_functions"))
             .and_then(Value::as_object)
             .and_then(|refs| refs.keys().next())
-        {
-            phrase.insert(
-                "function".to_string(),
-                Value::String(
-                    global_function_names
-                        .get(function_id)
-                        .filter(|name| !name.is_empty())
-                        .cloned()
-                        .unwrap_or_else(|| function_id.to_string()),
-                ),
-            );
-        }
-        phrase_yaml_list.push(Value::Object(phrase));
+            .map(|function_id| {
+                global_function_names
+                    .get(function_id)
+                    .filter(|name| !name.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| function_id.to_string())
+            });
+        phrase_yaml_list.push(PhraseFilterYaml {
+            name: pf
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            description: pf
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            regular_expressions: pf
+                .get("regularExpressions")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
+            say_phrase: pf
+                .get("sayPhrase")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            language_code: pf
+                .get("languageCode")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            function,
+        });
     }
     if !phrase_yaml_list.is_empty() {
-        let content = serde_yaml::to_string(&serde_json::json!({
-            "phrase_filtering": phrase_yaml_list
-        }))
+        let content = to_yaml_string(&PhraseFilteringYaml {
+            phrase_filtering: phrase_yaml_list,
+        })
         .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
         insert_content_resource(
             &mut map,
@@ -467,17 +522,17 @@ fn insert_flow_resources(
         .unwrap_or_default()
         .to_string();
 
-    let flow_config = serde_json::json!({
-        "name": name,
-        "description": flow.get("description").and_then(Value::as_str).unwrap_or(""),
-        "start_step": start_step,
-    });
+    let flow_config = FlowConfigYaml {
+        name,
+        description: flow
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        start_step,
+    };
     let flow_config_path = format!("flows/{folder}/flow_config.yaml");
-    let flow_name = flow_config
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or("flow")
-        .to_string();
+    let flow_name = flow_config.name.clone();
     insert_yaml_resource(
         map,
         &flow_config_path,
@@ -1245,43 +1300,126 @@ fn insert_flow_step_resource(
         .and_then(Value::as_str)
         .unwrap_or(id.as_str())
         .to_string();
-    let mut value = serde_json::json!({
-        "step_type": if is_default { "default_step" } else { "advanced_step" },
-        "name": name,
-        "prompt": step.get("prompt").and_then(Value::as_str).unwrap_or(""),
-    });
-    if !is_default {
-        value["asr_biasing"] = step
-            .get("asrBiasing")
-            .or_else(|| step.get("asr_biasing"))
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({}));
-        value["dtmf_config"] = step
-            .get("dtmfConfig")
-            .or_else(|| step.get("dtmf_config"))
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({}));
+    let value = if !is_default {
+        FlowStepYaml {
+            step_type: "advanced_step".to_string(),
+            name: name.clone(),
+            asr_biasing: Some(asr_biasing_yaml(
+                step.get("asrBiasing").or_else(|| step.get("asr_biasing")),
+            )),
+            dtmf_config: Some(dtmf_config_yaml(
+                step.get("dtmfConfig").or_else(|| step.get("dtmf_config")),
+            )),
+            conditions: None,
+            extracted_entities: None,
+            prompt: step
+                .get("prompt")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        }
     } else {
-        value["conditions"] = flow_conditions_yaml(&step);
-        value["extracted_entities"] = step
-            .pointer("/references/extractedEntities")
-            .or_else(|| step.pointer("/references/extracted_entities"))
-            .and_then(Value::as_object)
-            .map(|refs| {
-                refs.keys()
-                    .cloned()
-                    .map(Value::String)
-                    .collect::<Vec<Value>>()
-            })
-            .map(Value::Array)
-            .unwrap_or_else(|| Value::Array(vec![]));
-    }
+        FlowStepYaml {
+            step_type: "default_step".to_string(),
+            name: name.clone(),
+            asr_biasing: None,
+            dtmf_config: None,
+            conditions: Some(flow_conditions_yaml(&step)),
+            extracted_entities: Some(
+                step.pointer("/references/extractedEntities")
+                    .or_else(|| step.pointer("/references/extracted_entities"))
+                    .and_then(Value::as_object)
+                    .map(|refs| {
+                        refs.keys()
+                            .cloned()
+                            .map(Value::String)
+                            .collect::<Vec<Value>>()
+                    })
+                    .map(Value::Array)
+                    .unwrap_or_else(|| Value::Array(vec![])),
+            ),
+            prompt: step
+                .get("prompt")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        }
+    };
     let file_path = format!(
         "flows/{folder}/steps/{}.yaml",
         clean_name(&name).to_lowercase()
     );
-    snake_case_json_keys(&mut value);
     insert_yaml_resource(map, &file_path, &id, &name, value)
+}
+
+fn asr_biasing_yaml(config: Option<&Value>) -> AsrBiasingYaml {
+    AsrBiasingYaml {
+        is_enabled: json_bool_value(config, &["isEnabled", "is_enabled"], false),
+        alphanumeric: json_bool_value(config, &["alphanumeric"], false),
+        name_spelling: json_bool_value(config, &["nameSpelling", "name_spelling"], false),
+        numeric: json_bool_value(config, &["numeric"], false),
+        party_size: json_bool_value(config, &["partySize", "party_size"], false),
+        precise_date: json_bool_value(config, &["preciseDate", "precise_date"], false),
+        relative_date: json_bool_value(config, &["relativeDate", "relative_date"], false),
+        single_number: json_bool_value(config, &["singleNumber", "single_number"], false),
+        time: json_bool_value(config, &["time"], false),
+        yes_no: json_bool_value(config, &["yesNo", "yes_no"], false),
+        address: json_bool_value(config, &["address"], false),
+        custom_keywords: json_string_list_value(config, &["customKeywords", "custom_keywords"]),
+    }
+}
+
+fn dtmf_config_yaml(config: Option<&Value>) -> DtmfConfigYaml {
+    DtmfConfigYaml {
+        is_enabled: json_bool_value(config, &["isEnabled", "is_enabled"], false),
+        inter_digit_timeout: json_i32_value(
+            config,
+            &["interDigitTimeout", "inter_digit_timeout"],
+            0,
+        ),
+        max_digits: json_i32_value(config, &["maxDigits", "max_digits"], 0),
+        end_key: json_string_value(config, &["endKey", "end_key"], ""),
+        collect_while_agent_speaking: json_bool_value(
+            config,
+            &["collectWhileAgentSpeaking", "collect_while_agent_speaking"],
+            false,
+        ),
+        is_pii: json_bool_value(config, &["isPii", "is_pii"], false),
+    }
+}
+
+fn json_bool_value(config: Option<&Value>, keys: &[&str], default: bool) -> bool {
+    keys.iter()
+        .find_map(|key| config.and_then(|config| config.get(*key)))
+        .and_then(Value::as_bool)
+        .unwrap_or(default)
+}
+
+fn json_i32_value(config: Option<&Value>, keys: &[&str], default: i32) -> i32 {
+    keys.iter()
+        .find_map(|key| config.and_then(|config| config.get(*key)))
+        .and_then(Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok())
+        .unwrap_or(default)
+}
+
+fn json_string_value(config: Option<&Value>, keys: &[&str], default: &str) -> String {
+    keys.iter()
+        .find_map(|key| config.and_then(|config| config.get(*key)))
+        .and_then(Value::as_str)
+        .unwrap_or(default)
+        .to_string()
+}
+
+fn json_string_list_value(config: Option<&Value>, keys: &[&str]) -> Vec<String> {
+    keys.iter()
+        .find_map(|key| config.and_then(|config| config.get(*key)))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn flow_conditions_yaml(step: &Value) -> Value {
@@ -1528,10 +1666,10 @@ fn insert_yaml_resource(
     file_path: &str,
     resource_id: &str,
     name: &str,
-    value: Value,
+    value: impl Serialize,
 ) -> Result<(), CommandGenError> {
     let content =
-        serde_yaml::to_string(&value).map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
+        to_yaml_string(&value).map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
     insert_content_resource(map, file_path, resource_id, name, content)
 }
 
@@ -1566,13 +1704,17 @@ fn insert_resource(map: &mut ResourceMap, resource: Resource) -> Result<(), Comm
 
 fn projection_entity_config(entity: &Value) -> Value {
     if let Some(cfg) = entity.pointer("/config/value") {
-        return cfg.clone();
+        let mut cfg = cfg.clone();
+        snake_case_json_keys(&mut cfg);
+        return cfg;
     }
     if let Some(cfg) = entity.get("config") {
-        return cfg.clone();
+        let mut cfg = cfg.clone();
+        snake_case_json_keys(&mut cfg);
+        return cfg;
     }
     let entity_type = to_snake_case(entity.get("type").and_then(Value::as_str).unwrap_or(""));
-    match entity_type.as_str() {
+    let mut cfg = match entity_type.as_str() {
         "numeric" => entity
             .get("numberConfig")
             .cloned()
@@ -1598,7 +1740,9 @@ fn projection_entity_config(entity: &Value) -> Value {
             .cloned()
             .unwrap_or_else(|| serde_json::json!({})),
         _ => serde_json::json!({}),
-    }
+    };
+    snake_case_json_keys(&mut cfg);
+    cfg
 }
 
 fn handoff_sip_config_yaml(handoff: &Value) -> Value {
@@ -1876,16 +2020,20 @@ pub(crate) fn entity_entries(projection: &Value) -> HashMap<String, Value> {
     extract_entities_map(projection, &["entities", "entities", "entities"])
 }
 
-fn handoff_entries(projection: &Value) -> HashMap<String, Value> {
-    extract_entities_map(projection, &["handoff", "handoffs", "entities"])
+fn entity_entries_vec(projection: &Value) -> Vec<(String, Value)> {
+    extract_entities_vec(projection, &["entities", "entities", "entities"])
 }
 
-fn sms_entries(projection: &Value) -> HashMap<String, Value> {
-    extract_entities_map(projection, &["sms", "templates", "entities"])
+fn handoff_entries_vec(projection: &Value) -> Vec<(String, Value)> {
+    extract_entities_vec(projection, &["handoff", "handoffs", "entities"])
 }
 
-fn phrase_filter_entries(projection: &Value) -> HashMap<String, Value> {
-    extract_entities_map(projection, &["stopKeywords", "filters", "entities"])
+fn sms_entries_vec(projection: &Value) -> Vec<(String, Value)> {
+    extract_entities_vec(projection, &["sms", "templates", "entities"])
+}
+
+fn phrase_filter_entries_vec(projection: &Value) -> Vec<(String, Value)> {
+    extract_entities_vec(projection, &["stopKeywords", "filters", "entities"])
 }
 
 fn experimental_features(projection: &Value) -> Option<Value> {
@@ -2015,6 +2163,42 @@ pub(crate) fn extract_entities_map(root: &Value, path: &[&str]) -> HashMap<Strin
                 .collect::<HashMap<_, _>>()
         })
         .unwrap_or_default()
+}
+
+fn extract_entities_vec(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
+    let mut cur = root;
+    for key in path {
+        cur = match cur.get(*key) {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+    }
+
+    let (entities, ids) = match cur.get("entities").and_then(Value::as_object) {
+        Some(entities) => (entities, cur.get("ids").and_then(Value::as_array)),
+        None => match cur.as_object() {
+            Some(entities) => (entities, None),
+            None => return Vec::new(),
+        },
+    };
+
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    if let Some(ids) = ids {
+        for id in ids.iter().filter_map(Value::as_str) {
+            if let Some(entity) = entities.get(id) {
+                out.push((id.to_string(), entity.clone()));
+                seen.insert(id.to_string());
+            }
+        }
+    }
+    out.extend(
+        entities
+            .iter()
+            .filter(|(id, _)| !seen.contains(*id))
+            .map(|(id, entity)| (id.clone(), entity.clone())),
+    );
+    out
 }
 
 pub(crate) fn to_camel_case(s: &str) -> String {

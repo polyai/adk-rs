@@ -1263,6 +1263,174 @@ fn projection_materializes_flow_config_start_step_as_id_when_step_is_missing() {
 }
 
 #[test]
+fn projection_materialization_preserves_python_yaml_key_order() {
+    let projection = serde_json::json!({
+        "knowledgeBase": {
+            "topics": {
+                "entities": {
+                    "topic-1": {
+                        "id": "topic-1",
+                        "name": "Billing General",
+                        "isActive": true,
+                        "actions": "Transfer the caller.",
+                        "content": "General billing enquiries.",
+                        "exampleQueries": [
+                            {"query": "Question about my bill"}
+                        ]
+                    }
+                }
+            }
+        },
+        "entities": {
+            "entities": {
+                "entities": {
+                    "entity-1": {
+                        "name": "Age",
+                        "description": "Customer age",
+                        "type": "numeric",
+                        "numberConfig": {"min": 1, "max": 120}
+                    }
+                }
+            }
+        },
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "handoff",
+                        "code": "def handoff(conv):\n    return None\n",
+                        "archived": false
+                    }
+                }
+            }
+        },
+        "handoff": {
+            "handoffs": {
+                "entities": {
+                    "handoff-1": {
+                        "name": "Support Queue",
+                        "description": "Route to support",
+                        "isDefault": true,
+                        "active": true,
+                        "sipConfig": {
+                            "config": {
+                                "$case": "invite",
+                                "value": {
+                                    "phoneNumber": "+441234",
+                                    "outboundEndpoint": "sip.example.test",
+                                    "outboundEncryption": "TLS/SRTP"
+                                }
+                            }
+                        },
+                        "sipHeaders": {
+                            "headers": [
+                                {"key": "X-Team", "value": "Support"}
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "sms": {
+            "templates": {
+                "entities": {
+                    "sms-1": {
+                        "name": "Reminder",
+                        "text": "Your appointment is tomorrow.",
+                        "active": true,
+                        "envPhoneNumbers": {
+                            "sandbox": "+100",
+                            "preRelease": "+200",
+                            "live": "+300"
+                        }
+                    }
+                }
+            }
+        },
+        "stopKeywords": {
+            "filters": {
+                "entities": {
+                    "phrase-1": {
+                        "title": "Escalate",
+                        "description": "Escalation phrases",
+                        "regularExpressions": ["agent", "human"],
+                        "sayPhrase": true,
+                        "languageCode": "en-GB",
+                        "references": {
+                            "globalFunctions": {
+                                "fn-1": true
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "Collect details",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "name": "Collect Rating",
+                                    "type": "advanced_step",
+                                    "prompt": "Rate the call",
+                                    "asrBiasing": {},
+                                    "dtmfConfig": {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let content = |path: &str| {
+        resources
+            .get(path)
+            .and_then(|resource| resource.payload.get("content"))
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| panic!("missing resource content for {path}"))
+    };
+
+    assert_eq!(
+        content("topics/billing_general.yaml"),
+        "name: Billing General\nenabled: true\nactions: Transfer the caller.\ncontent: General billing enquiries.\nexample_queries:\n- Question about my bill\n"
+    );
+    assert_eq!(
+        content("flows/support_flow/flow_config.yaml"),
+        "name: Support Flow\ndescription: Collect details\nstart_step: Collect Rating\n"
+    );
+    assert_eq!(
+        content("flows/support_flow/steps/collect_rating.yaml"),
+        "step_type: advanced_step\nname: Collect Rating\nasr_biasing:\n  is_enabled: false\n  alphanumeric: false\n  name_spelling: false\n  numeric: false\n  party_size: false\n  precise_date: false\n  relative_date: false\n  single_number: false\n  time: false\n  yes_no: false\n  address: false\n  custom_keywords: []\ndtmf_config:\n  is_enabled: false\n  inter_digit_timeout: 0\n  max_digits: 0\n  end_key: ''\n  collect_while_agent_speaking: false\n  is_pii: false\nprompt: Rate the call\n"
+    );
+    assert_eq!(
+        content("config/entities.yaml"),
+        "entities:\n- name: Age\n  description: Customer age\n  entity_type: numeric\n  config:\n    min: 1\n    max: 120\n"
+    );
+    assert_eq!(
+        content("config/handoffs.yaml"),
+        "handoffs:\n- name: Support Queue\n  description: Route to support\n  is_default: true\n  sip_config:\n    method: invite\n    phone_number: '+441234'\n    outbound_endpoint: sip.example.test\n    outbound_encryption: TLS/SRTP\n  sip_headers:\n  - key: X-Team\n    value: Support\n"
+    );
+    assert_eq!(
+        content("config/sms_templates.yaml"),
+        "sms_templates:\n- name: Reminder\n  text: Your appointment is tomorrow.\n  env_phone_numbers:\n    sandbox: '+100'\n    pre_release: '+200'\n    live: '+300'\n"
+    );
+    assert_eq!(
+        content("voice/response_control/phrase_filtering.yaml"),
+        "phrase_filtering:\n- name: Escalate\n  description: Escalation phrases\n  regular_expressions:\n  - agent\n  - human\n  say_phrase: true\n  language_code: en-GB\n  function: handoff\n"
+    );
+}
+
+#[test]
 fn special_function_paths_emit_start_and_end_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(

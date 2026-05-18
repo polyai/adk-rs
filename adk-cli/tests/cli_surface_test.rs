@@ -5,7 +5,7 @@ use support::cli::{
     make_temp_invalid_yaml_project_dir as support_temp_invalid_yaml_project_dir,
     make_temp_project_dir as support_temp_project_dir,
     make_temp_unformatted_json_project_dir as support_temp_unformatted_json_project_dir,
-    run_poly_offline, run_poly_without_fallback,
+    poly_offline_command, run_poly_offline, run_poly_without_fallback, temp_dir,
 };
 
 fn run_poly(args: &[&str]) -> std::process::Output {
@@ -122,6 +122,10 @@ fn top_level_help_matches_python_command_surface() {
         ),
         ("validate", "Validate the project configuration locally."),
         ("chat", "Start an interactive chat session with the agent."),
+        (
+            "self-update",
+            "Update the ADK CLI installed by the release shell installer.",
+        ),
         ("completion", "Generate shell completion scripts"),
         ("deployments", "Manage deployments for the project."),
     ] {
@@ -136,6 +140,31 @@ fn top_level_help_matches_python_command_surface() {
     }
 
     assert!(!stdout.contains("Agent Development Kit (Rust)"));
+}
+
+#[test]
+fn self_update_without_release_installer_receipt_exits_before_network() {
+    let config_dir = temp_dir("adk-rs-update-no-receipt");
+    fs::create_dir_all(&config_dir).expect("mkdir update test config dir");
+
+    let output = poly_offline_command()
+        .arg("self-update")
+        .env("AXOUPDATER_CONFIG_PATH", &config_dir)
+        .output()
+        .expect("failed to execute poly self-update");
+    assert_eq!(output.status.code(), Some(1));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "Self-update is only supported for ADK installs that were installed via shell; no shell install receipt was found."
+        ),
+        "expected concise shell-install guidance\nstderr={stderr}"
+    );
+    assert!(
+        !stderr.contains("poly-adk"),
+        "expected no receipt details by default\nstderr={stderr}"
+    );
 }
 
 #[test]

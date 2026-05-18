@@ -12,6 +12,7 @@ exclude = ["tests/**"]
 
 [dependencies]
 anyhow.workspace = true
+axoupdater.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 serde.workspace = true

@@ -4,6 +4,7 @@ use adk_api_client::{
 use adk_command_gen::projection_to_resource_map;
 use adk_core::{AdkService, ProjectWorkspace};
 use anyhow::Result;
+use axoupdater::AxoUpdater;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Generator, Shell};
 use serde_json::{Value, json};
@@ -26,6 +27,7 @@ use review::{
 };
 
 const INIT_REGIONS: &[&str] = &["us-1", "euw-1", "uk-1", "studio", "staging", "dev"];
+const CARGO_DIST_APP_NAME: &str = "poly-adk";
 
 macro_rules! with_remote_service {
     ($workspace:expr, $path:expr, $json_mode:expr, |$service:ident| $body:expr) => {{
@@ -88,6 +90,8 @@ enum Commands {
     Validate(ValidateArgs),
     #[command(about = "Start an interactive chat session with the agent.")]
     Chat(ChatArgs),
+    #[command(about = "Update the ADK CLI installed by the release shell installer.")]
+    SelfUpdate(SelfUpdateArgs),
     #[command(about = "Generate shell completion scripts")]
     Completion(CompletionArgs),
     #[command(about = "Manage deployments for the project.")]
@@ -486,6 +490,12 @@ struct CompletionArgs {
 }
 
 #[derive(Debug, clap::Args)]
+struct SelfUpdateArgs {
+    #[arg(long, action = ArgAction::SetTrue, help = "show detailed update errors")]
+    verbose: bool,
+}
+
+#[derive(Debug, clap::Args)]
 struct DeploymentsArgs {
     #[arg(long, action = ArgAction::SetTrue)]
     verbose: bool,
@@ -644,6 +654,7 @@ fn run() -> Result<ExitCode> {
         Commands::Format(args) => cmd_format(args),
         Commands::Validate(args) => cmd_validate(args),
         Commands::Chat(args) => cmd_chat(args),
+        Commands::SelfUpdate(args) => cmd_self_update(args),
         Commands::Completion(args) => cmd_completion(args),
         Commands::Deployments(args) => {
             let path = deployments_path(&args);
@@ -675,9 +686,9 @@ fn print_top_level_help() {
     let mut output = String::from(
         concat!(
             "usage: poly [-h] [-v]\n",
-            "            {docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,completion,deployments} ...\n\n",
+            "            {docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments} ...\n\n",
             "positional arguments:\n",
-            "  {docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,completion,deployments}\n",
+            "  {docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments}\n",
         ),
     );
     for (name, description) in [
@@ -703,6 +714,10 @@ fn print_top_level_help() {
         ),
         ("validate", "Validate the project configuration locally."),
         ("chat", "Start an interactive chat session with the agent."),
+        (
+            "self-update",
+            "Update the ADK CLI installed by the release shell installer.",
+        ),
         ("completion", "Generate shell completion scripts"),
         ("deployments", "Manage deployments for the project."),
     ] {
@@ -768,6 +783,7 @@ fn command_verbose(command: &Commands) -> bool {
         Commands::Format(args) => args.verbose,
         Commands::Validate(args) => args.verbose,
         Commands::Chat(args) => args.verbose,
+        Commands::SelfUpdate(args) => args.verbose,
         Commands::Completion(_) => false,
         Commands::Deployments(args) => deployments_verbose(args),
     }
@@ -3628,6 +3644,81 @@ fn cmd_completion(args: CompletionArgs) -> ExitCode {
     emit_completion(shell, "poly");
     emit_completion(shell, "adk");
     ExitCode::SUCCESS
+}
+
+fn cmd_self_update(args: SelfUpdateArgs) -> ExitCode {
+    let mut updater = AxoUpdater::new_for(CARGO_DIST_APP_NAME);
+
+    if let Err(error) = updater.load_receipt() {
+        emit_update_preflight_error(args.verbose, format!(
+            "Could not load the cargo-dist install receipt for {CARGO_DIST_APP_NAME}: {error}."
+        ));
+        return ExitCode::from(1);
+    }
+
+    match updater.check_receipt_is_for_this_executable() {
+        Ok(true) => {}
+        Ok(false) => {
+            emit_update_preflight_error(
+                args.verbose,
+                "Found a release-installer receipt, but this `poly` executable is not the one that receipt installed."
+                    .to_string()
+            );
+            return ExitCode::from(1);
+        }
+        Err(error) => {
+            emit_update_preflight_error(args.verbose, format!(
+                "Could not verify that this `poly` executable came from the release shell installer: {error}."
+            ));
+            return ExitCode::from(1);
+        }
+    }
+
+    configure_update_auth(&mut updater);
+    console::info("Checking for ADK updates...");
+
+    match updater.run_sync() {
+        Ok(Some(result)) => {
+            let old_version = result
+                .old_version
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "unknown".to_string());
+            console::success(format!(
+                "Updated ADK from {old_version} to {}.",
+                result.new_version
+            ));
+            ExitCode::SUCCESS
+        }
+        Ok(None) => {
+            console::success(format!(
+                "ADK is already up to date ({}).",
+                env!("CARGO_PKG_VERSION")
+            ));
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            console::exception(format!("Failed to update ADK: {error}"));
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn configure_update_auth(updater: &mut AxoUpdater) {
+    if let Ok(token) = std::env::var("POLY_ADK_GITHUB_TOKEN")
+        .or_else(|_| std::env::var("AXOUPDATER_GITHUB_TOKEN"))
+    {
+        updater.set_github_token(&token);
+    }
+}
+
+fn emit_update_preflight_error(verbose: bool, detail: String) {
+    console::error(
+        "Self-update is only supported for ADK installs that were installed via shell; no shell install receipt was found.",
+    );
+    if verbose {
+        console::plain_stderr(format!("[muted]Details: {detail}[/muted]"));
+    }
 }
 
 fn cmd_deployments<C: PlatformClient>(

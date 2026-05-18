@@ -27,6 +27,9 @@
 - Add verification tests with each substantive parity change.
 - Expand unit coverage in sub-crates when gaps are identified.
 - Treat audit findings as actionable backlog unless blocked by missing API/schema contracts.
+- Preserve clean Git diffs for ADK-maintained project files. Users check these files into Git and
+  rely on `pull`/`push` to inspect meaningful backend sync changes, so semantically irrelevant YAML
+  rewrites, key reordering, scalar restyling, and formatting churn should be minimized.
 
 ## Release notes
 
