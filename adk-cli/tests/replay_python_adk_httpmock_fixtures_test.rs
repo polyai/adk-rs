@@ -823,7 +823,7 @@ fn apply_file_edit(
         record.name,
         fixture_paths.diagnostic_lines()
     );
-    let project_root = project_root_for_file_edit(&record.name, tmp);
+    let project_root = project_root_for_file_edit(&record.name, tmp, substitutions);
     let relative_path = substitute(&record.path, substitutions);
     let path = project_root.join(&relative_path);
     let result = match record.operation.as_str() {
@@ -906,7 +906,7 @@ fn apply_file_assertion(
     substitutions: &[(String, String)],
     fixture_paths: &ReplayFixturePaths,
 ) {
-    let project_root = project_root_for_file_edit(&record.name, tmp);
+    let project_root = project_root_for_file_edit(&record.name, tmp, substitutions);
     let relative_path = substitute(&record.path, substitutions);
     let path = project_root.join(&relative_path);
     let content = fs::read_to_string(&path);
@@ -993,7 +993,7 @@ fn read_or_seed_file(
     }
 }
 
-fn project_root_for_file_edit(name: &str, tmp: &Path) -> PathBuf {
+fn project_root_for_file_edit(name: &str, tmp: &Path, substitutions: &[(String, String)]) -> PathBuf {
     let base = if name.contains("remote checkout") || name.contains("remote-only") {
         tmp.join("remote")
     } else if name.contains("local checkout") || name.contains("local-only") {
@@ -1007,7 +1007,11 @@ fn project_root_for_file_edit(name: &str, tmp: &Path) -> PathBuf {
     } else {
         tmp.to_path_buf()
     };
-    base.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID)
+    let account_id =
+        maybe_lookup_substitution("${ACCOUNT_ID}", substitutions).unwrap_or_else(|| TARGET_ACCOUNT_ID.to_string());
+    let project_id =
+        maybe_lookup_substitution("${PROJECT_ID}", substitutions).unwrap_or_else(|| TARGET_PROJECT_ID.to_string());
+    base.join(account_id).join(project_id)
 }
 
 fn substitutions_for(
@@ -1017,6 +1021,8 @@ fn substitutions_for(
     cassette_text: &str,
     manifest: &Manifest,
 ) -> Vec<(String, String)> {
+    let account_id = manifest_target_account_id(manifest);
+    let project_id = manifest_target_project_id(manifest);
     let branch_name = extract_recording_branch_name(cassette_text)
         .unwrap_or_else(|| "adk-rs-recording-replay".to_string());
     let generic_prefix = format!("adk-rs-recording-{scenario}-");
@@ -1028,6 +1034,8 @@ fn substitutions_for(
         .to_string();
     let mut substitutions = vec![
         ("${TMP}".to_string(), tmp.to_string_lossy().to_string()),
+        ("${ACCOUNT_ID}".to_string(), account_id.to_string()),
+        ("${PROJECT_ID}".to_string(), project_id.to_string()),
         (
             "${HTTPMOCK_BASE_URL}".to_string(),
             httpmock_adk_base_url(playback_server),
@@ -1107,6 +1115,24 @@ fn substitutions_for(
         }
     }
     substitutions
+}
+
+fn manifest_target_account_id(manifest: &Manifest) -> &str {
+    manifest
+        .source
+        .as_ref()
+        .map(|source| source.account_id.as_str())
+        .filter(|account_id| !account_id.is_empty())
+        .unwrap_or(TARGET_ACCOUNT_ID)
+}
+
+fn manifest_target_project_id(manifest: &Manifest) -> &str {
+    manifest
+        .source
+        .as_ref()
+        .map(|source| source.project_id.as_str())
+        .filter(|project_id| !project_id.is_empty())
+        .unwrap_or(TARGET_PROJECT_ID)
 }
 
 fn first_recorded_conversation_id(manifest: &Manifest) -> Option<String> {

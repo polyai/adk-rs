@@ -27,3 +27,13 @@
 - Add verification tests with each substantive parity change.
 - Expand unit coverage in sub-crates when gaps are identified.
 - Treat audit findings as actionable backlog unless blocked by missing API/schema contracts.
+
+## Release notes
+
+- Keep `CHANGELOG.md` concise and user-facing; avoid implementation archaeology.
+- When asked to cut a release, update `CHANGELOG.md` before bumping versions/tagging.
+- Build the release entry from recent git history plus the current working memory of the work done.
+- Move relevant `Unreleased` bullets into `## <version> - <YYYY-MM-DD>`, add any missing high-signal
+  items, then reset `Unreleased` for future work.
+- Summaries should fit in a few bullets and describe user-visible behavior, parity fixes, and release
+  process changes.

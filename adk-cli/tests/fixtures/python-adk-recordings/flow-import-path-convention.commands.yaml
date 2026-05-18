@@ -1,0 +1,55 @@
+schema_version: 3
+source:
+  implementation: python-adk
+  recorder: rust-httpmock-forwarding
+  server: real-agent-studio
+  poly_binary: ${PYTHON_ADK_BIN:-poly}
+  region: us-1
+  account_id: ben-ws
+  project_id: PROJECT-NS1Q4DFS
+  project_name: PROJECT-NS1Q4DFS
+replay_notes:
+- Documents Python materialization for flow-scoped function import path naming.
+httpmock_recording: flow-import-path-convention.httpmock.yaml
+workflows:
+- name: flow_import_path_convention
+  description: Pull a complex project and assert that flow function imports use the human-readable `flows.<flow_name>.functions` path form.
+  mutates_real_server: false
+  cleanup: []
+  steps:
+  - kind: file_edit
+    name: seed project config for pull
+    operation: write_text
+    path: project.yaml
+    content: |
+      region: us-1
+      account_id: ben-ws
+      project_id: PROJECT-NS1Q4DFS
+      branch_id: main
+    target: null
+    replacement: null
+    success: true
+    error: null
+  - kind: command
+    name: pull project containing flow function import references
+    argv:
+    - poly
+    - pull
+    - --json
+    - --force
+    - --path
+    - ${TMP}/ben-ws/PROJECT-NS1Q4DFS
+    exit_code: 0
+    stdout_json:
+      files_with_conflicts: []
+      success: true
+    stdout: null
+    stderr: ''
+  - kind: file_assertion
+    name: assert flow-function import path uses flow folder naming
+    path: flows/rapid_reorder/functions/add_hcpc_item_back_after_education.py
+    exists: true
+    contains:
+    - from flows.rapid_reorder.functions.answers_item_question import answers_item_question
+    not_contains:
+    - from functions.flow_435908a2.answers_item_question import answers_item_question

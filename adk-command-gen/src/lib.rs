@@ -28,6 +28,7 @@ mod push_variables;
 pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, CommandGenError> {
     let mut map = ResourceMap::new();
     let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
+    let flow_import_path_maps = flow_import_path_maps_from_projection(projection);
 
     for (id, topic) in push_topics::topic_entries(projection) {
         let name = topic
@@ -67,7 +68,10 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
             .to_string();
         let file_name = clean_name(&name).to_lowercase();
         let file_path = format!("functions/{file_name}.py");
-        let content = push_functions::function_raw_content(&function);
+        let content = replace_flow_import_ids_with_names(
+            &push_functions::function_raw_content(&function),
+            &flow_import_path_maps,
+        );
         insert_content_resource(&mut map, &file_path, &id, &name, content)?;
     }
     for kind in [
@@ -77,13 +81,16 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
         if let Some((id, function)) = push_functions::special_function_entry(projection, kind) {
             let name = push_functions::special_function_name(kind).to_string();
             let file_path = format!("functions/{name}.py");
-            let content = push_functions::function_raw_content(&function);
+            let content = replace_flow_import_ids_with_names(
+                &push_functions::function_raw_content(&function),
+                &flow_import_path_maps,
+            );
             insert_content_resource(&mut map, &file_path, &id, &name, content)?;
         }
     }
 
     for (id, flow) in flow_entries(projection) {
-        insert_flow_resources(&mut map, &id, &flow)?;
+        insert_flow_resources(&mut map, &id, &flow, &flow_import_path_maps)?;
     }
 
     let mut entity_yaml_list = Vec::new();
@@ -445,6 +452,7 @@ fn insert_flow_resources(
     map: &mut ResourceMap,
     flow_id: &str,
     flow: &Value,
+    flow_import_path_maps: &FlowImportPathMaps,
 ) -> Result<(), CommandGenError> {
     let name = flow
         .get("name")
@@ -487,7 +495,10 @@ fn insert_flow_resources(
         match step.get("type").and_then(Value::as_str).unwrap_or("") {
             "function_step" => {
                 let function = step.get("function").unwrap_or(&Value::Null);
-                let code = push_functions::function_raw_content(function);
+                let code = replace_flow_import_ids_with_names(
+                    &push_functions::function_raw_content(function),
+                    flow_import_path_maps,
+                );
                 let file_path = format!(
                     "flows/{folder}/function_steps/{}.py",
                     clean_name(&step_name).to_lowercase()
@@ -517,7 +528,10 @@ fn insert_flow_resources(
             .to_string();
         let file_name = clean_name(&function_name).to_lowercase();
         let file_path = format!("flows/{folder}/functions/{file_name}.py");
-        let content = push_functions::function_raw_content(&function);
+        let content = replace_flow_import_ids_with_names(
+            &push_functions::function_raw_content(&function),
+            flow_import_path_maps,
+        );
         insert_content_resource(map, &file_path, &id, &function_name, content)?;
     }
 
@@ -877,6 +891,69 @@ fn flow_folder_name_for_path(file_path: &str) -> Option<&str> {
     } else {
         None
     }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct FlowImportPathMaps {
+    id_to_flow_folder: HashMap<String, String>,
+    flow_folder_to_id: HashMap<String, String>,
+}
+
+pub(crate) fn flow_import_path_maps_from_projection(projection: &Value) -> FlowImportPathMaps {
+    let mut maps = FlowImportPathMaps::default();
+    for (flow_key, flow) in flow_entries(projection) {
+        let flow_id = flow
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or(flow_key.as_str());
+        let flow_name = flow.get("name").and_then(Value::as_str).unwrap_or(flow_id);
+        maps.insert(flow_id, flow_name);
+        if flow_id != flow_key {
+            maps.insert(flow_key.as_str(), flow_name);
+        }
+    }
+    maps
+}
+
+impl FlowImportPathMaps {
+    fn insert(&mut self, flow_id: &str, flow_name: &str) {
+        let cleaned_id = clean_name(flow_id).to_lowercase();
+        let cleaned_name = clean_name(flow_name).to_lowercase();
+        if cleaned_id.is_empty() || cleaned_name.is_empty() {
+            return;
+        }
+        self.id_to_flow_folder
+            .insert(cleaned_id.clone(), cleaned_name.clone());
+        self.flow_folder_to_id.insert(cleaned_name, cleaned_id);
+    }
+}
+
+pub(crate) fn replace_flow_import_ids_with_names(
+    code: &str,
+    flow_import_path_maps: &FlowImportPathMaps,
+) -> String {
+    let mut normalized = code.to_string();
+    for (flow_id, flow_folder) in &flow_import_path_maps.id_to_flow_folder {
+        normalized = normalized.replace(
+            &format!("functions.{flow_id}"),
+            &format!("flows.{flow_folder}.functions"),
+        );
+    }
+    normalized
+}
+
+pub(crate) fn replace_flow_import_names_with_ids(
+    code: &str,
+    flow_import_path_maps: &FlowImportPathMaps,
+) -> String {
+    let mut normalized = code.to_string();
+    for (flow_folder, flow_id) in &flow_import_path_maps.flow_folder_to_id {
+        normalized = normalized.replace(
+            &format!("flows.{flow_folder}.functions"),
+            &format!("functions.{flow_id}"),
+        );
+    }
+    normalized
 }
 
 fn variant_attributes_yaml(projection: &Value) -> Option<Value> {

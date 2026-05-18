@@ -52,6 +52,8 @@ fn record_scenario_from_manifest(scenario: &str) {
         .unwrap_or_else(|error| panic!("{scenario}: read manifest: {error}"));
     let mut manifest: Manifest = serde_yaml::from_str(&manifest_text)
         .unwrap_or_else(|error| panic!("{scenario}: parse manifest: {error}"));
+    let target_account_id = manifest_target_account_id(&manifest).to_string();
+    let target_project_id = manifest_target_project_id(&manifest).to_string();
 
     let server = MockServer::start();
     server.forward_to(AGENT_STUDIO_HOST_URL, |rule| {
@@ -67,7 +69,13 @@ fn record_scenario_from_manifest(scenario: &str) {
 
     let tmp = temp_recording_dir();
     fs::create_dir_all(&tmp).unwrap_or_else(|error| panic!("{scenario}: create tmp: {error}"));
-    let mut substitutions = substitutions_for_recording(scenario, &tmp, &server);
+    let mut substitutions = substitutions_for_recording(
+        scenario,
+        &tmp,
+        &server,
+        &target_account_id,
+        &target_project_id,
+    );
     let mut file_seeds = HashMap::new();
 
     for workflow in &mut manifest.workflows {
@@ -96,7 +104,8 @@ fn record_scenario_from_manifest(scenario: &str) {
                     *record = actual;
                 }
                 WorkflowStep::Tagged(TaggedWorkflowStep::FileAssertion(assertion)) => {
-                    let project_root = project_root_for_file_edit(&assertion.name, &tmp);
+                    let project_root =
+                        project_root_for_file_edit(&assertion.name, &tmp, &substitutions);
                     let path = project_root.join(substitute(&assertion.path, &substitutions));
                     let content = fs::read_to_string(path).ok();
                     assertion.exists = content.is_some();
@@ -332,7 +341,7 @@ fn apply_file_edit(
     substitutions: &[(String, String)],
     file_seeds: &mut HashMap<String, String>,
 ) {
-    let project_root = project_root_for_file_edit(&record.name, tmp);
+    let project_root = project_root_for_file_edit(&record.name, tmp, substitutions);
     let relative_path = substitute(&record.path, substitutions);
     let path = project_root.join(&relative_path);
     let result = match record.operation.as_str() {
@@ -442,10 +451,14 @@ fn substitutions_for_recording(
     scenario: &str,
     tmp: &Path,
     server: &MockServer,
+    target_account_id: &str,
+    target_project_id: &str,
 ) -> Vec<(String, String)> {
     let run_id = recording_run_id();
     vec![
         ("${TMP}".to_string(), tmp.to_string_lossy().to_string()),
+        ("${ACCOUNT_ID}".to_string(), target_account_id.to_string()),
+        ("${PROJECT_ID}".to_string(), target_project_id.to_string()),
         (
             "${HTTPMOCK_BASE_URL}".to_string(),
             httpmock_adk_base_url(server),
@@ -490,7 +503,7 @@ fn substitutions_for_recording(
     ]
 }
 
-fn project_root_for_file_edit(name: &str, tmp: &Path) -> PathBuf {
+fn project_root_for_file_edit(name: &str, tmp: &Path, substitutions: &[(String, String)]) -> PathBuf {
     let base = if name.contains("remote checkout") || name.contains("remote-only") {
         tmp.join("remote")
     } else if name.contains("local checkout") || name.contains("local-only") {
@@ -504,7 +517,11 @@ fn project_root_for_file_edit(name: &str, tmp: &Path) -> PathBuf {
     } else {
         tmp.to_path_buf()
     };
-    base.join(TARGET_ACCOUNT_ID).join(TARGET_PROJECT_ID)
+    let account_id =
+        lookup_optional("${ACCOUNT_ID}", substitutions).unwrap_or_else(|| TARGET_ACCOUNT_ID.to_string());
+    let project_id =
+        lookup_optional("${PROJECT_ID}", substitutions).unwrap_or_else(|| TARGET_PROJECT_ID.to_string());
+    base.join(account_id).join(project_id)
 }
 
 fn output_replacements(expansions: &[(String, String)]) -> Vec<(String, String)> {
@@ -596,6 +613,30 @@ fn lookup(name: &str, substitutions: &[(String, String)]) -> String {
         .iter()
         .find_map(|(from, to)| (from == name).then(|| to.clone()))
         .unwrap_or_else(|| panic!("missing substitution {name}"))
+}
+
+fn lookup_optional(name: &str, substitutions: &[(String, String)]) -> Option<String> {
+    substitutions
+        .iter()
+        .find_map(|(from, to)| (from == name).then(|| to.clone()))
+}
+
+fn manifest_target_account_id(manifest: &Manifest) -> &str {
+    manifest
+        .source
+        .as_ref()
+        .map(|source| source.account_id.as_str())
+        .filter(|account_id| !account_id.is_empty())
+        .unwrap_or(TARGET_ACCOUNT_ID)
+}
+
+fn manifest_target_project_id(manifest: &Manifest) -> &str {
+    manifest
+        .source
+        .as_ref()
+        .map(|source| source.project_id.as_str())
+        .filter(|project_id| !project_id.is_empty())
+        .unwrap_or(TARGET_PROJECT_ID)
 }
 
 fn api_key_from_env() -> Option<String> {

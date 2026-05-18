@@ -1087,6 +1087,110 @@ fn reference_named_materialization_round_trips_without_push_commands() {
 }
 
 #[test]
+fn projection_materializes_flow_function_imports_with_human_readable_paths() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "FUNCTION-add_hcpc_item_back_after_education": {
+                        "id": "FUNCTION-add_hcpc_item_back_after_education",
+                        "name": "add_hcpc_item_back_after_education",
+                        "code": "from functions.flow_435908a2.answers_item_question import answers_item_question\n\ndef add_hcpc_item_back_after_education(conv):\n    return answers_item_question(conv)\n",
+                        "archived": false
+                    }
+                }
+            }
+        },
+        "flows": {
+            "flows": {
+                "entities": {
+                    "FLOW-435908a2": {
+                        "id": "FLOW-435908a2",
+                        "name": "Rapid Reorder",
+                        "steps": {
+                            "entities": {}
+                        },
+                        "transitionFunctions": {
+                            "entities": {
+                                "FUNCTION-answers_item_question": {
+                                    "id": "FUNCTION-answers_item_question",
+                                    "name": "answers_item_question",
+                                    "code": "def answers_item_question(conv, flow):\n    return {}\n",
+                                    "archived": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let content = resources
+        .get("functions/add_hcpc_item_back_after_education.py")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("global function code");
+    assert!(content.contains(
+        "from flows.rapid_reorder.functions.answers_item_question import answers_item_question"
+    ));
+    assert!(!content.contains("from functions.flow_435908a2.answers_item_question"));
+}
+
+#[test]
+fn flow_function_import_pretty_paths_round_trip_without_push_commands() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "FUNCTION-add_hcpc_item_back_after_education": {
+                        "id": "FUNCTION-add_hcpc_item_back_after_education",
+                        "name": "add_hcpc_item_back_after_education",
+                        "code": "from functions.flow_435908a2.answers_item_question import answers_item_question\n\ndef add_hcpc_item_back_after_education(conv):\n    return answers_item_question(conv)\n",
+                        "archived": false
+                    }
+                }
+            }
+        },
+        "flows": {
+            "flows": {
+                "entities": {
+                    "FLOW-435908a2": {
+                        "id": "FLOW-435908a2",
+                        "name": "Rapid Reorder",
+                        "steps": {
+                            "entities": {}
+                        },
+                        "transitionFunctions": {
+                            "entities": {
+                                "FUNCTION-answers_item_question": {
+                                    "id": "FUNCTION-answers_item_question",
+                                    "name": "answers_item_question",
+                                    "code": "def answers_item_question(conv, flow):\n    return {}\n",
+                                    "archived": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let commands = build_phase1_commands(&resources, &projection);
+    assert!(
+        commands.is_empty(),
+        "expected no commands, got types: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn projection_materializes_flow_config_start_step_as_step_name() {
     let projection = serde_json::json!({
         "flows": {

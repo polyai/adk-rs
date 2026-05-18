@@ -2,8 +2,9 @@
 
 use crate::push_single_file_resources::CommandGroups;
 use crate::{
-    extract_entities_map, extract_variable_names_from_code, generated_or_stable_resource_id,
-    is_synthetic_local_resource_id, push_command,
+    extract_entities_map, extract_variable_names_from_code, flow_import_path_maps_from_projection,
+    generated_or_stable_resource_id, is_synthetic_local_resource_id, push_command,
+    replace_flow_import_names_with_ids,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -28,6 +29,7 @@ pub(crate) fn function_resource_command_groups(
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> CommandGroups {
+    let flow_import_path_maps = flow_import_path_maps_from_projection(projection);
     let remote_functions = function_entries(projection)
         .into_iter()
         .map(|(id, function)| {
@@ -78,7 +80,10 @@ pub(crate) fn function_resource_command_groups(
                 .unwrap_or_else(|| {
                     generated_or_stable_resource_id("function", "FUNCTIONS", &name, path)
                 });
-            let function_code = function_code_from_local_content(content);
+            let function_code = replace_flow_import_names_with_ids(
+                &function_code_from_local_content(content),
+                &flow_import_path_maps,
+            );
             let inferred_description = infer_function_description(content);
             let variable_references = variable_reference_ids_from_code(&function_code, projection);
 
@@ -186,7 +191,10 @@ pub(crate) fn function_resource_command_groups(
             .unwrap_or_else(|| {
                 generated_or_stable_resource_id("function", "FUNCTIONS", &name, path)
             });
-        let function_code = function_code_from_local_content(content);
+        let function_code = replace_flow_import_names_with_ids(
+            &function_code_from_local_content(content),
+            &flow_import_path_maps,
+        );
         let inferred_description = infer_function_description(content);
         let inferred_parameters = infer_function_parameters(content);
         let variable_references = variable_reference_ids_from_code(&function_code, projection);

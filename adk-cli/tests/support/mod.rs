@@ -124,6 +124,7 @@ pub mod python_recordings {
         "format-local",
         "flow-deletion",
         "flow-lifecycle",
+        "flow-import-path-convention",
         "flow-resource-coverage",
         "flow-validation",
         "interactive-contracts",

@@ -9,8 +9,10 @@ use crate::push_functions::{
 };
 use crate::push_single_file_resources::CommandGroups;
 use crate::{
-    PromptReferenceMaps, generated_replay_resource_id, prompt_reference_maps_from_projection,
-    push_command, random_resource_id, replace_resource_names_with_ids, yaml_str,
+    FlowImportPathMaps, PromptReferenceMaps, flow_import_path_maps_from_projection,
+    generated_replay_resource_id, prompt_reference_maps_from_projection, push_command,
+    random_resource_id, replace_flow_import_names_with_ids, replace_resource_names_with_ids,
+    yaml_str,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
@@ -146,8 +148,9 @@ pub(crate) fn flow_resource_command_groups(
 ) -> CommandGroups {
     let mut groups = CommandGroups::default();
     let remote_flows = remote_flows_by_name(projection);
+    let flow_import_path_maps = flow_import_path_maps_from_projection(projection);
     let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
-    let local_flows = local_flows(resources, &prompt_reference_maps);
+    let local_flows = local_flows(resources, &prompt_reference_maps, &flow_import_path_maps);
     let local_flow_names = local_flows
         .iter()
         .map(|flow| flow.name.clone())
@@ -1637,6 +1640,7 @@ fn step_dtmf_config_update(config: &StepDtmfConfig) -> StepDtmfConfigUpdate {
 fn local_flows(
     resources: &ResourceMap,
     prompt_reference_maps: &PromptReferenceMaps,
+    flow_import_path_maps: &FlowImportPathMaps,
 ) -> Vec<LocalFlow> {
     let mut flows: HashMap<String, LocalFlow> = HashMap::new();
 
@@ -1701,7 +1705,10 @@ fn local_flows(
                 path: path.to_string(),
                 name: function_name_from_path(path),
                 content: content.to_string(),
-                code: function_code_from_local_content(content),
+                code: replace_flow_import_names_with_ids(
+                    &function_code_from_local_content(content),
+                    flow_import_path_maps,
+                ),
                 position: None,
             });
         } else if path.starts_with("flows/")
@@ -1712,7 +1719,10 @@ fn local_flows(
                 continue;
             };
             let content = resource_content(resource);
-            let code = function_code_from_local_content(content);
+            let code = replace_flow_import_names_with_ids(
+                &function_code_from_local_content(content),
+                flow_import_path_maps,
+            );
             let entry = flows.entry(folder.clone()).or_insert_with(|| LocalFlow {
                 folder,
                 ..LocalFlow::default()
