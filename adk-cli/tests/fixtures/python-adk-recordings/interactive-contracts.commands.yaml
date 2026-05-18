@@ -9,10 +9,9 @@ source:
   project_id: PROJECT-JTQKOKLM
   project_name: Test
 replay_notes:
-- Pending parity fixture for Python interactive-adjacent CLI behavior.
-- This records the deterministic stdin-backed branch-create prompt path plus JSON-mode failures for missing interactive arguments.
+- Covers deterministic stdin-backed branch-create prompting and JSON-mode failures for missing interactive arguments.
+- Includes project listing data with empty id/name records to verify Python-compatible filtering during init project-name lookup.
 - Questionary menus are intentionally not automated here; they need a separate TTY test harness.
-- This is not in the default replay scenario list until Rust interactive behavior is implemented.
 httpmock_recording: interactive-contracts.httpmock.yaml
 workflows:
 - name: interactive_contracts
@@ -26,7 +25,6 @@ workflows:
     argv:
     - poly
     - init
-    - --json
     - --base-path
     - ${TMP}
     - --region
@@ -36,11 +34,16 @@ workflows:
     - --project_id
     - PROJECT-JTQKOKLM
     exit_code: 0
-    stdout_json:
-      root_path: ${TMP}/ben-ws/PROJECT-JTQKOKLM
-      success: true
+    stdout_json: null
     stdout: null
     stderr: ''
+  - kind: file_assertion
+    name: init lookup filters empty project names
+    path: project.yaml
+    exists: true
+    contains:
+    - 'project_id: PROJECT-JTQKOKLM'
+    - 'project_name: Test'
   - kind: command
     name: branch create prompts for missing branch name
     argv:

@@ -24,6 +24,8 @@ rich_rust.workspace = true
 adk-core.workspace = true
 adk-api-client.workspace = true
 adk-command-gen.workspace = true
+dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }
+ctrlc = "3.5.2"
 
 [dev-dependencies]
 httpmock.workspace = true

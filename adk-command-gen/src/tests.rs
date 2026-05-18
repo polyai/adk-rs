@@ -1262,6 +1262,89 @@ fn projection_to_resource_map_includes_single_file_resource_files() {
 }
 
 #[test]
+fn projection_materializes_broad_resources_without_python_omitted_metadata() {
+    let projection = serde_json::json!({
+        "pronunciations": {"pronunciations": {"entities": {
+            "pron-1": {
+                "name": "Display name",
+                "regex": "ADK",
+                "replacement": "Agent Development Kit",
+                "caseSensitive": false,
+                "languageCode": "",
+                "description": "",
+                "position": 4
+            }
+        }}},
+        "transcriptCorrections": {"transcriptCorrections": {"entities": {
+            "correction-1": {
+                "name": "ADK correction",
+                "description": "",
+                "regularExpressions": [{
+                    "id": "regex-1",
+                    "regularExpression": "agent development kid",
+                    "replacement": "agent development kit",
+                    "replacementType": "full"
+                }]
+            }
+        }}},
+        "stopKeywords": {"filters": {"entities": {
+            "stop-1": {
+                "title": "Hang Up",
+                "description": "",
+                "regularExpressions": ["bye"],
+                "sayPhrase": false,
+                "languageCode": ""
+            }
+        }}},
+        "variantManagement": {
+            "variants": {"entities": {
+                "variant-default": {"name": "default", "isDefault": true},
+                "variant-other": {"name": "other", "isDefault": false}
+            }},
+            "attributes": {"entities": {}},
+            "variantAttributeValues": {"entities": {}}
+        }
+    });
+
+    let map = projection_to_resource_map(&projection).expect("map");
+    let pronunciations = map
+        .get("voice/response_control/pronunciations.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(pronunciations.contains("regex: ADK"));
+    assert!(!pronunciations.contains("name:"));
+    assert!(!pronunciations.contains("position:"));
+    assert!(!pronunciations.contains("description: ''"));
+    assert!(!pronunciations.contains("language_code: ''"));
+
+    let transcript_corrections = map
+        .get("voice/speech_recognition/transcript_corrections.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(transcript_corrections.contains("regular_expression: agent development kid"));
+    assert!(!transcript_corrections.contains("id: regex-1"));
+
+    let phrase_filtering = map
+        .get("voice/response_control/phrase_filtering.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(phrase_filtering.contains("name: Hang Up"));
+    assert!(!phrase_filtering.contains("language_code: ''"));
+    assert!(!phrase_filtering.contains("description: ''"));
+
+    let variants = map
+        .get("config/variant_attributes.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(variants.contains("is_default: true"));
+    assert!(!variants.contains("is_default: false"));
+}
+
+#[test]
 fn single_file_resource_files_emit_real_create_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(

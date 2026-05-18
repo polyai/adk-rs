@@ -156,6 +156,31 @@ fn load_project_config_matches_python_project_test_init() {
     assert_eq!(cfg.branch_id, "main");
 }
 
+#[test]
+fn load_project_config_uses_status_branch_when_project_yaml_omits_branch_id() {
+    let service = service_offline();
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "project_id: proj\naccount_id: test\nregion: eu-west-1\n",
+    )
+    .expect("write project yaml");
+    write_status_snapshot_json(
+        &root,
+        serde_json::json!({
+            "branch_id": "BRANCH-feature",
+            "resources": {},
+            "file_structure_info": {}
+        }),
+    );
+
+    let cfg = service
+        .load_project_config(&root)
+        .expect("project.yaml should parse");
+
+    assert_eq!(cfg.branch_id, "BRANCH-feature");
+}
+
 /// Port: `poly/utils.py` - `export_decorators` and `save_imports`
 #[test]
 fn init_and_pull_write_python_compatible_gen_package() {
@@ -173,12 +198,15 @@ fn init_and_pull_write_python_compatible_gen_package() {
 
     let root = base.join("test-account").join("test-project");
     let gen_dir = root.join("_gen");
+    let project_yaml = fs::read_to_string(root.join("project.yaml")).expect("project yaml");
     let init_py = fs::read_to_string(gen_dir.join("__init__.py")).expect("generated __init__");
     let decorators =
         fs::read_to_string(gen_dir.join("decorators.py")).expect("generated decorators");
     let conversation =
         fs::read_to_string(gen_dir.join("conversation.py")).expect("generated conversation");
 
+    assert!(project_yaml.contains("project_id: test-project"));
+    assert!(!project_yaml.contains("branch_id:"));
     assert!(init_py.contains("from _gen.conversation import ("));
     assert!(init_py.contains("\"func_latency_control\""));
     assert!(!init_py.starts_with("# Copyright PolyAI Limited\n"));

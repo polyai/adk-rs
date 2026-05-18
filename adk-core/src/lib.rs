@@ -98,6 +98,42 @@ pub enum CoreError {
     Json(#[from] serde_json::Error),
 }
 
+fn project_config_yaml(cfg: &ProjectConfig) -> Result<String, CoreError> {
+    let mut map = serde_yaml::Mapping::new();
+    map.insert(
+        serde_yaml::Value::String("project_id".to_string()),
+        serde_yaml::Value::String(cfg.project_id.clone()),
+    );
+    map.insert(
+        serde_yaml::Value::String("account_id".to_string()),
+        serde_yaml::Value::String(cfg.account_id.clone()),
+    );
+    map.insert(
+        serde_yaml::Value::String("region".to_string()),
+        serde_yaml::Value::String(cfg.region.clone()),
+    );
+    if let Some(project_name) = &cfg.project_name
+        && !project_name.is_empty()
+    {
+        map.insert(
+            serde_yaml::Value::String("project_name".to_string()),
+            serde_yaml::Value::String(project_name.clone()),
+        );
+    }
+    serde_yaml::to_string(&serde_yaml::Value::Mapping(map))
+        .map_err(|e| DomainError::InvalidData(e.to_string()).into())
+}
+
+fn project_config_contains_branch_id(raw: &str) -> bool {
+    serde_yaml::from_str::<serde_yaml::Value>(raw)
+        .ok()
+        .and_then(|value| match value {
+            serde_yaml::Value::Mapping(mapping) => Some(mapping),
+            _ => None,
+        })
+        .is_some_and(|mapping| mapping.contains_key("branch_id"))
+}
+
 /// Local project workspace operations that do not require a platform client.
 pub struct ProjectWorkspace<Fs = StdFileSystem> {
     fs: Fs,
@@ -147,8 +183,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
             project_name,
             branch_id: "main".to_string(),
         };
-        let serialized =
-            serde_yaml::to_string(&config).map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        let serialized = project_config_yaml(&config)?;
         self.fs
             .write_string(&root.join(PROJECT_CONFIG_FILE), &serialized)?;
         self.write_python_gen_package(&root)?;
@@ -161,8 +196,13 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         let config_path = discovered.join(PROJECT_CONFIG_FILE);
         if self.fs.exists(&config_path) {
             let raw = self.fs.read_to_string(&config_path)?;
-            let config =
+            let mut config: ProjectConfig =
                 serde_yaml::from_str(&raw).map_err(|e| DomainError::InvalidData(e.to_string()))?;
+            if !project_config_contains_branch_id(&raw)
+                && let Some(snapshot) = self.load_status_snapshot(&discovered)?
+            {
+                config.branch_id = snapshot.branch_id;
+            }
             self.run_and_persist_project_migrations(&discovered)?;
             return Ok(config);
         }
@@ -289,11 +329,25 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
     fn write_project_config(&self, root: &Path, cfg: &ProjectConfig) -> Result<(), CoreError> {
         let project_root = find_project_root_with_fs(&self.fs, root)
             .ok_or_else(|| DomainError::ConfigNotFound(root.to_string_lossy().to_string()))?;
-        let serialized =
-            serde_yaml::to_string(cfg).map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        let serialized = project_config_yaml(cfg)?;
         self.fs
             .write_string(&project_root.join(PROJECT_CONFIG_FILE), &serialized)?;
+        self.write_project_config_status_snapshot(&project_root, cfg)?;
         Ok(())
+    }
+
+    fn write_project_config_status_snapshot(
+        &self,
+        project_root: &Path,
+        cfg: &ProjectConfig,
+    ) -> Result<(), CoreError> {
+        let mut snapshot = self.load_status_snapshot(project_root)?.unwrap_or_default();
+        snapshot.region = cfg.region.clone();
+        snapshot.account_id = cfg.account_id.clone();
+        snapshot.project_id = cfg.project_id.clone();
+        snapshot.project_name = cfg.project_name.clone();
+        snapshot.branch_id = cfg.branch_id.clone();
+        self.write_status_snapshot(project_root, &snapshot)
     }
 
     pub fn collect_local_resources(&self, root: &Path) -> Result<ResourceMap, CoreError> {

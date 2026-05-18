@@ -7,6 +7,8 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::Duration;
 use support::cli::{
     make_temp_project_dir, poly_without_fallback_command, run_poly_offline, temp_dir,
 };
@@ -79,6 +81,7 @@ fn init_text_auto_selects_single_account_and_prompts_for_project() {
         then.status(200).json_body(json!({
             "projects": [
                 {"id": "proj-1", "name": "First Project"},
+                {"id": "", "name": "Hidden Project"},
                 {"id": "proj-2", "name": "Second Project"}
             ]
         }));
@@ -118,6 +121,7 @@ fn init_text_auto_selects_single_account_and_prompts_for_project() {
     assert!(stdout.contains("Initialising project"));
     assert!(stdout.contains("Auto-selected account Test Account."));
     assert!(stdout.contains("Select Project"));
+    assert!(!stdout.contains("Hidden Project"));
     assert!(stdout.contains("Project initialized at"));
     assert_not_json_object(&stdout);
     let project_yaml = fs::read_to_string(base.join("acc-1").join("proj-1").join("project.yaml"))
@@ -243,6 +247,63 @@ fn init_text_project_selection_cancellation_exits_without_error() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn init_text_ctrl_c_exits_cleanly_with_message() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/adk/v1/accounts");
+        then.status(200).json_body(json!([
+            {"id": "acc-1", "name": "Test Account", "active": true}
+        ]));
+    });
+    server.mock(|when, then| {
+        when.method(GET).path("/adk/v1/accounts/acc-1/projects");
+        then.status(200).json_body(json!({
+            "projects": [
+                {"id": "proj-1", "name": "First Project"},
+                {"id": "proj-2", "name": "Second Project"}
+            ]
+        }));
+    });
+
+    let base = temp_dir("adk-rs-init-ctrl-c");
+    let base_url = format!("{}/adk/v1", server.base_url());
+    let mut command = poly_without_fallback_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env("POLY_ADK_BASE_URL_US", &base_url)
+        .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .args([
+            "init",
+            "--base-path",
+            base.to_string_lossy().as_ref(),
+            "--region",
+            "us-1",
+            "--from-projection",
+            "{}",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let child = command.spawn().expect("spawn poly init");
+    thread::sleep(Duration::from_millis(250));
+    let pid = child.id().to_string();
+    let kill_status = Command::new("kill")
+        .args(["-INT", pid.as_str()])
+        .status()
+        .expect("send SIGINT");
+    assert!(
+        kill_status.success(),
+        "kill command failed: {kill_status:?}"
+    );
+    let output = child.wait_with_output().expect("wait poly init");
+
+    assert_eq!(output.status.code(), Some(130));
+    assert!(stdout(&output).contains("Cancelled by user"));
+}
+
 #[test]
 fn branch_switch_text_prompts_for_branch_when_name_is_omitted() {
     let server = MockServer::start();
@@ -294,7 +355,7 @@ fn branch_switch_text_prompts_for_branch_when_name_is_omitted() {
     assert!(stdout.contains("feature"));
     assert!(stdout.contains("Command completed."));
     let project_yaml = fs::read_to_string(project_dir.join("project.yaml")).expect("config");
-    assert!(project_yaml.contains("branch_id: BRANCH-1"));
+    assert!(!project_yaml.contains("branch_id:"));
 }
 
 #[test]
@@ -372,7 +433,7 @@ fn branch_delete_text_prompts_for_multiple_branches_and_switches_current_to_main
     assert!(stdout.contains("Deleted 2 branch(es)."));
     assert!(stderr(&output).trim().is_empty());
     let project_yaml = fs::read_to_string(project_dir.join("project.yaml")).expect("config");
-    assert!(project_yaml.contains("branch_id: main"));
+    assert!(!project_yaml.contains("branch_id:"));
     branches.assert_calls(4);
     delete_a.assert();
     delete_b.assert();
@@ -498,7 +559,7 @@ fn branch_merge_interactive_accepts_auto_merge_and_retries() {
     assert!(stdout.contains("Branch 'feature-a' merged successfully."));
     assert!(stdout.contains("Switched to \"main\" branch after merge."));
     let project_yaml = fs::read_to_string(project_dir.join("project.yaml")).expect("config");
-    assert!(project_yaml.contains("branch_id: main"));
+    assert!(!project_yaml.contains("branch_id:"));
     blocked_merge.assert();
     resolved_merge.assert();
 }

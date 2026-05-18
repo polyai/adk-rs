@@ -9,7 +9,7 @@ use clap_complete::{generate, Generator, Shell};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, VecDeque};
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -596,6 +596,7 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<ExitCode> {
+    install_ctrlc_handler()?;
     let first_arg = std::env::args().nth(1);
     if first_arg
         .as_deref()
@@ -653,6 +654,21 @@ fn run() -> Result<ExitCode> {
         }
     };
     Ok(result)
+}
+
+fn install_ctrlc_handler() -> Result<()> {
+    ctrlc::set_handler(|| {
+        restore_terminal_state_after_interrupt();
+        let _ = writeln!(io::stdout());
+        console::plain("Cancelled by user");
+        std::process::exit(130);
+    })
+    .map_err(|error| anyhow::anyhow!("failed to install Ctrl+C handler: {error}"))
+}
+
+fn restore_terminal_state_after_interrupt() {
+    let _ = dialoguer::console::Term::stderr().show_cursor();
+    let _ = dialoguer::console::Term::stdout().show_cursor();
 }
 
 fn print_top_level_help() {
@@ -1242,6 +1258,20 @@ fn project_choice(project: &ProjectSummary) -> (String, String) {
 }
 
 fn prompt_select(label: &str, choices: &[(String, String)]) -> Result<Option<String>, String> {
+    if io::stdin().is_terminal() && io::stdout().is_terminal() {
+        let labels = choices
+            .iter()
+            .map(|(_, title)| title.as_str())
+            .collect::<Vec<_>>();
+        let selection = dialoguer::FuzzySelect::with_theme(&dialoguer::theme::ColorfulTheme::default())
+            .with_prompt(label)
+            .items(&labels)
+            .default(0)
+            .interact_opt()
+            .map_err(|error| format!("Failed to read selection: {error}"))?;
+        return Ok(selection.map(|index| choices[index].0.clone()));
+    }
+
     console::plain(format!("[label]{label}[/label]"));
     for (index, (_, title)) in choices.iter().enumerate() {
         console::plain(format!("  {}. {}", index + 1, title));

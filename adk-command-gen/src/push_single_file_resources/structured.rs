@@ -1908,7 +1908,6 @@ fn pronunciation_item_needs_update(local: &PronunciationItem, remote: &Pronuncia
         || local.language_code != remote.language_code
         || local.description != remote.description
         || local.position != remote.position
-        || local.name != remote.name
 }
 
 fn content_filter_settings_from_yaml(

@@ -9,7 +9,7 @@ then:
   - name: content-type
     value: application/json
   - name: content-length
-    value: '396'
+    value: '1147'
   - name: connection
     value: keep-alive
   - name: server
@@ -29,7 +29,7 @@ then:
   - name: x-kong-request-id
     value: 494ee22506ca380e68630d511464f574
   body: |
-    {"projects":[{"active":true,"created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","genai_account_id":"ben-ws","id":"PROJECT-JTQKOKLM","is_draft":null,"is_template":false,"last_updated":"Fri, 08 May 2026 18:26:17 GMT","metrics":{"total_conversations":null,"total_minutes":null},"name":"Test","parent_template_id":null,"phone_number":null,"phone_numbers":[],"type":"genai"}]}
+    {"projects":[{"active":true,"created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","genai_account_id":"ben-ws","id":"PROJECT-JTQKOKLM","is_draft":null,"is_template":false,"last_updated":"Fri, 08 May 2026 18:26:17 GMT","metrics":{"total_conversations":null,"total_minutes":null},"name":"","parent_template_id":null,"phone_number":null,"phone_numbers":[],"type":"genai"},{"active":true,"created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","genai_account_id":"ben-ws","id":"","is_draft":null,"is_template":false,"last_updated":"Fri, 08 May 2026 18:26:17 GMT","metrics":{"total_conversations":null,"total_minutes":null},"name":"Ghost Project","parent_template_id":null,"phone_number":null,"phone_numbers":[],"type":"genai"},{"active":true,"created_at":"Fri, 20 Mar 2026 15:00:26 GMT","created_by":"ben@poly-ai.com","genai_account_id":"ben-ws","id":"PROJECT-JTQKOKLM","is_draft":null,"is_template":false,"last_updated":"Fri, 08 May 2026 18:26:17 GMT","metrics":{"total_conversations":null,"total_minutes":null},"name":"Test","parent_template_id":null,"phone_number":null,"phone_numbers":[],"type":"genai"}]}
 ---
 when:
   path: /adk/v1/accounts/ben-ws/projects/PROJECT-JTQKOKLM/branches/main/projection

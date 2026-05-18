@@ -185,28 +185,61 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
         .collect::<HashMap<_, _>>();
     let mut phrase_yaml_list = Vec::new();
     for (_id, pf) in phrase_filter_entries(projection) {
-        let mut phrase = serde_json::json!({
-            "name": pf.get("title").and_then(Value::as_str).unwrap_or(""),
-            "description": pf.get("description").and_then(Value::as_str).unwrap_or(""),
-            "regular_expressions": pf.get("regularExpressions").and_then(Value::as_array).cloned().unwrap_or_default(),
-            "say_phrase": pf.get("sayPhrase").and_then(Value::as_bool).unwrap_or(false),
-            "language_code": pf.get("languageCode").and_then(Value::as_str).unwrap_or(""),
-        });
+        let mut phrase = serde_json::Map::new();
+        phrase.insert(
+            "name".to_string(),
+            Value::String(
+                pf.get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            ),
+        );
+        insert_non_empty_string(
+            &mut phrase,
+            "description",
+            pf.get("description").and_then(Value::as_str).unwrap_or(""),
+        );
+        phrase.insert(
+            "regular_expressions".to_string(),
+            Value::Array(
+                pf.get("regularExpressions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+        );
+        phrase.insert(
+            "say_phrase".to_string(),
+            Value::Bool(
+                pf.get("sayPhrase")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            ),
+        );
+        insert_non_empty_string(
+            &mut phrase,
+            "language_code",
+            pf.get("languageCode").and_then(Value::as_str).unwrap_or(""),
+        );
         if let Some(function_id) = pf
             .pointer("/references/globalFunctions")
             .or_else(|| pf.pointer("/references/global_functions"))
             .and_then(Value::as_object)
             .and_then(|refs| refs.keys().next())
         {
-            phrase["function"] = Value::String(
-                global_function_names
-                    .get(function_id)
-                    .filter(|name| !name.is_empty())
-                    .cloned()
-                    .unwrap_or_else(|| function_id.to_string()),
+            phrase.insert(
+                "function".to_string(),
+                Value::String(
+                    global_function_names
+                        .get(function_id)
+                        .filter(|name| !name.is_empty())
+                        .cloned()
+                        .unwrap_or_else(|| function_id.to_string()),
+                ),
             );
         }
-        phrase_yaml_list.push(phrase);
+        phrase_yaml_list.push(Value::Object(phrase));
     }
     if !phrase_yaml_list.is_empty() {
         let content = serde_yaml::to_string(&serde_json::json!({
@@ -590,10 +623,17 @@ fn variant_attributes_yaml(projection: &Value) -> Option<Value> {
         .iter()
         .filter_map(|(_, variant)| {
             let name = variant.get("name")?.as_str()?;
-            Some(serde_json::json!({
-                "name": name,
-                "is_default": variant.get("isDefault").or_else(|| variant.get("is_default")).and_then(Value::as_bool).unwrap_or(false),
-            }))
+            let mut variant_yaml = serde_json::Map::new();
+            variant_yaml.insert("name".to_string(), Value::String(name.to_string()));
+            if variant
+                .get("isDefault")
+                .or_else(|| variant.get("is_default"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                variant_yaml.insert("is_default".to_string(), Value::Bool(true));
+            }
+            Some(Value::Object(variant_yaml))
         })
         .collect::<Vec<_>>();
     let values_by_attribute =
@@ -768,7 +808,6 @@ fn transcript_corrections_yaml(projection: &Value) -> Option<Value> {
                         .into_iter()
                         .flatten()
                         .map(|regex| serde_json::json!({
-                            "id": regex.get("id").and_then(Value::as_str).unwrap_or(""),
                             "regular_expression": regex.get("regularExpression").or_else(|| regex.get("regular_expression")).and_then(Value::as_str).unwrap_or(""),
                             "replacement": regex.get("replacement").and_then(Value::as_str).unwrap_or(""),
                             "replacement_type": regex.get("replacementType").or_else(|| regex.get("replacement_type")).and_then(Value::as_str).unwrap_or(""),
@@ -792,18 +831,49 @@ fn pronunciations_yaml(projection: &Value) -> Option<Value> {
             .iter()
             .filter_map(|(_, item)| {
                 let regex = item.get("regex")?.as_str()?;
-                Some(serde_json::json!({
-                    "regex": regex,
-                    "replacement": item.get("replacement").and_then(Value::as_str).unwrap_or(""),
-                    "case_sensitive": item.get("caseSensitive").or_else(|| item.get("case_sensitive")).and_then(Value::as_bool).unwrap_or(false),
-                    "language_code": item.get("languageCode").or_else(|| item.get("language_code")).and_then(Value::as_str).unwrap_or(""),
-                    "description": item.get("description").and_then(Value::as_str).unwrap_or(""),
-                    "position": item.get("position").and_then(Value::as_i64).unwrap_or(0),
-                    "name": item.get("name").and_then(Value::as_str).unwrap_or(""),
-                }))
+                let mut pronunciation = serde_json::Map::new();
+                pronunciation.insert("regex".to_string(), Value::String(regex.to_string()));
+                pronunciation.insert(
+                    "replacement".to_string(),
+                    Value::String(
+                        item.get("replacement")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                    ),
+                );
+                pronunciation.insert(
+                    "case_sensitive".to_string(),
+                    Value::Bool(
+                        item.get("caseSensitive")
+                            .or_else(|| item.get("case_sensitive"))
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    ),
+                );
+                insert_non_empty_string(
+                    &mut pronunciation,
+                    "language_code",
+                    item.get("languageCode")
+                        .or_else(|| item.get("language_code"))
+                        .and_then(Value::as_str)
+                        .unwrap_or(""),
+                );
+                insert_non_empty_string(
+                    &mut pronunciation,
+                    "description",
+                    item.get("description").and_then(Value::as_str).unwrap_or(""),
+                );
+                Some(Value::Object(pronunciation))
             })
             .collect::<Vec<_>>()
     }))
+}
+
+fn insert_non_empty_string(map: &mut serde_json::Map<String, Value>, key: &str, value: &str) {
+    if !value.is_empty() {
+        map.insert(key.to_string(), Value::String(value.to_string()));
+    }
 }
 
 fn insert_flow_step_resource(

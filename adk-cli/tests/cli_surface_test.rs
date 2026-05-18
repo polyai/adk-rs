@@ -830,7 +830,7 @@ fn pull_json_reconciles_deleted_current_branch_to_main() {
         Some("main")
     );
     let project_yaml = fs::read_to_string(p.join("project.yaml")).expect("project config");
-    assert!(project_yaml.contains("branch_id: main"));
+    assert!(!project_yaml.contains("branch_id:"));
 }
 
 #[test]

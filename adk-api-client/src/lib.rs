@@ -220,9 +220,14 @@ impl HttpPlatformClient {
         Ok(projects
             .iter()
             .filter_map(|project| {
+                let id = project.get("id")?.as_str()?;
+                let name = project.get("name")?.as_str()?;
+                if id.is_empty() || name.is_empty() {
+                    return None;
+                }
                 Some(ProjectSummary {
-                    id: project.get("id")?.as_str()?.to_string(),
-                    name: project.get("name")?.as_str()?.to_string(),
+                    id: id.to_string(),
+                    name: name.to_string(),
                 })
             })
             .collect())
