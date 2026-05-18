@@ -996,19 +996,8 @@ fn legacy_python_local_function_raw(
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or_default();
-    let mut decorators = Vec::new();
-    let mut code = String::new();
-    for line in raw.split_inclusive('\n') {
-        if let Some(decorator) =
-            normalize_python_adk_decorator_line(line, include_metadata_decorators)
-        {
-            if !decorator.is_empty() {
-                decorators.push(decorator);
-            }
-        } else {
-            code.push_str(line);
-        }
-    }
+    let (code, decorators) =
+        extract_normalized_python_adk_decorators(&raw, include_metadata_decorators);
     insert_python_function_decorators(code, function_name, decorators)
 }
 
@@ -1092,36 +1081,147 @@ fn normalize_legacy_python_status_function_resources(
     }
 }
 
-fn normalize_python_adk_decorator_line(
-    line: &str,
+fn extract_normalized_python_adk_decorators(
+    code: &str,
+    include_metadata_decorators: bool,
+) -> (String, Vec<String>) {
+    let mut out = String::new();
+    let mut decorators = Vec::new();
+    let mut active: Option<(&'static str, PythonDecoratorCallScan)> = None;
+
+    for line in code.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if let Some((name, mut state)) = active.take() {
+            state.args.push('\n');
+            if state.scan(trimmed) {
+                if let Some(decorator) =
+                    normalize_python_adk_decorator(name, &state.args, include_metadata_decorators)
+                    && !decorator.is_empty()
+                {
+                    decorators.push(decorator);
+                }
+            } else {
+                active = Some((name, state));
+            }
+            continue;
+        }
+
+        if let Some((name, rest)) = python_adk_decorator_start(trimmed) {
+            let mut state = PythonDecoratorCallScan::default();
+            if state.scan(rest) {
+                if let Some(decorator) =
+                    normalize_python_adk_decorator(name, &state.args, include_metadata_decorators)
+                    && !decorator.is_empty()
+                {
+                    decorators.push(decorator);
+                }
+            } else {
+                active = Some((name, state));
+            }
+            continue;
+        }
+
+        out.push_str(line);
+    }
+
+    (out, decorators)
+}
+
+fn python_adk_decorator_start(line: &str) -> Option<(&'static str, &str)> {
+    [
+        ("func_description", "@func_description("),
+        ("func_parameter", "@func_parameter("),
+        ("func_latency_control", "@func_latency_control("),
+    ]
+    .iter()
+    .find_map(|(name, prefix)| line.strip_prefix(prefix).map(|rest| (*name, rest)))
+}
+
+fn normalize_python_adk_decorator(
+    name: &str,
+    args: &str,
     include_metadata_decorators: bool,
 ) -> Option<String> {
-    let trimmed = line.trim();
-    if let Some(rest) = trimmed.strip_prefix("@func_description(") {
-        if !include_metadata_decorators {
-            return Some(String::new());
+    match name {
+        "func_description" => {
+            if !include_metadata_decorators {
+                return Some(String::new());
+            }
+            let args = parse_python_string_args(args.trim().trim_end_matches(','));
+            args.first().map(|description| {
+                format!("@func_description({})\n", python_repr_string(description))
+            })
         }
-        let args = parse_python_string_args(rest.strip_suffix(')').unwrap_or(rest));
-        return args.first().map(|description| {
-            format!("@func_description({})\n", python_repr_string(description))
-        });
+        "func_parameter" => {
+            if !include_metadata_decorators {
+                return Some(String::new());
+            }
+            let args = parse_python_string_args(args.trim().trim_end_matches(','));
+            if args.len() >= 2 {
+                return Some(format!(
+                    "@func_parameter({}, {})\n",
+                    python_repr_string(&args[0]),
+                    python_repr_string(&args[1])
+                ));
+            }
+            None
+        }
+        "func_latency_control" => Some(format!(
+            "@func_latency_control({})\n",
+            args.trim().trim_end_matches(',')
+        )),
+        _ => None,
     }
-    if let Some(rest) = trimmed.strip_prefix("@func_parameter(") {
-        if !include_metadata_decorators {
-            return Some(String::new());
+}
+
+#[derive(Default)]
+struct PythonDecoratorCallScan {
+    args: String,
+    quote: Option<char>,
+    escaped: bool,
+    depth: i32,
+}
+
+impl PythonDecoratorCallScan {
+    fn scan(&mut self, fragment: &str) -> bool {
+        for ch in fragment.chars() {
+            if let Some(quote) = self.quote {
+                self.args.push(ch);
+                if self.escaped {
+                    self.escaped = false;
+                } else if ch == '\\' {
+                    self.escaped = true;
+                } else if ch == quote {
+                    self.quote = None;
+                }
+                continue;
+            }
+
+            match ch {
+                '\'' | '"' => {
+                    self.quote = Some(ch);
+                    self.args.push(ch);
+                }
+                '(' | '[' | '{' => {
+                    self.depth += 1;
+                    self.args.push(ch);
+                }
+                ')' => {
+                    if self.depth == 0 {
+                        return true;
+                    }
+                    self.depth -= 1;
+                    self.args.push(ch);
+                }
+                ']' | '}' => {
+                    self.depth -= 1;
+                    self.args.push(ch);
+                }
+                _ => self.args.push(ch),
+            }
         }
-        let args = parse_python_string_args(rest.strip_suffix(')').unwrap_or(rest));
-        if args.len() >= 2 {
-            return Some(format!(
-                "@func_parameter({}, {})\n",
-                python_repr_string(&args[0]),
-                python_repr_string(&args[1])
-            ));
-        }
+        false
     }
-    trimmed
-        .strip_prefix("@func_latency_control(")
-        .map(|_| format!("{trimmed}\n"))
 }
 
 fn python_repr_string(value: &str) -> String {
@@ -2211,20 +2311,23 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             {
                 continue;
             }
-            let content = resource
+            let resource_content = resource
                 .payload
                 .get("content")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            let formatted = if path.ends_with(".yaml") || path.ends_with(".yml") {
-                match serde_yaml::from_str::<serde_yaml::Value>(content) {
-                    Ok(serde_yaml::Value::Null) | Err(_) => content.to_string(),
+            let (content, formatted, write_pretty_resource) = if path.ends_with(".yaml")
+                || path.ends_with(".yml")
+            {
+                let formatted = match serde_yaml::from_str::<serde_yaml::Value>(resource_content) {
+                    Ok(serde_yaml::Value::Null) | Err(_) => resource_content.to_string(),
                     Ok(parsed) => serde_yaml::to_string(&parsed).map_err(|e| {
                         DomainError::InvalidData(format!("{path}: yaml error: {e}"))
                     })?,
-                }
+                };
+                (resource_content.to_string(), formatted, true)
             } else if path.ends_with(".json") && !files.is_empty() {
-                match serde_json::from_str::<serde_json::Value>(content) {
+                let formatted = match serde_json::from_str::<serde_json::Value>(resource_content) {
                     Ok(parsed) => {
                         let mut formatted = serde_json::to_string_pretty(&parsed).map_err(|e| {
                             DomainError::InvalidData(format!("{path}: json error: {e}"))
@@ -2232,20 +2335,29 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                         formatted.push('\n');
                         formatted
                     }
-                    Err(_) => content.to_string(),
-                }
+                    Err(_) => resource_content.to_string(),
+                };
+                (resource_content.to_string(), formatted, true)
             } else if path.ends_with(".py") {
-                format_python_content(root.join(&path).as_path(), content)
+                let file_content = self
+                    .workspace
+                    .fs
+                    .read_to_string(&root.join(&path))
+                    .unwrap_or_else(|_| resource_file_content(&path, resource_content));
+                let formatted = format_python_content(root.join(&path).as_path(), &file_content);
+                (file_content, formatted, false)
             } else {
                 continue;
             };
             if formatted.trim() != content.trim() {
                 changed_files.push(path.clone());
                 if !check {
-                    self.workspace.fs.write_string(
-                        &root.join(&path),
-                        &resource_file_content(&path, &formatted),
-                    )?;
+                    let output = if write_pretty_resource {
+                        resource_file_content(&path, &formatted)
+                    } else {
+                        formatted
+                    };
+                    self.workspace.fs.write_string(&root.join(&path), &output)?;
                 }
             }
         }
@@ -3875,31 +3987,28 @@ fn is_python_function_name(name: &str) -> bool {
         && chars.all(|ch| ch == '_' || ch.is_ascii_lowercase() || ch.is_ascii_digit())
 }
 
-fn format_python_content(filename: &Path, content: &str) -> String {
+fn format_python_content(_filename: &Path, content: &str) -> String {
     let fallback = || ensure_trailing_newline(content);
-    let filename = filename.to_string_lossy().to_string();
-    let Ok(mut child) = Command::new("ruff")
-        .args(["format", "--stdin-filename", &filename, "-"])
+    let Some(formatted) = run_ruff_stdin(&["format", "-"], content) else {
+        return fallback();
+    };
+    run_ruff_stdin(&["check", "--fix", "-"], &formatted).unwrap_or(formatted)
+}
+
+fn run_ruff_stdin(args: &[&str], content: &str) -> Option<String> {
+    let mut child = Command::new("ruff")
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-    else {
-        return fallback();
-    };
-    let Some(stdin) = child.stdin.as_mut() else {
-        return fallback();
-    };
-    if stdin.write_all(content.as_bytes()).is_err() {
-        return fallback();
-    }
-    let Ok(output) = child.wait_with_output() else {
-        return fallback();
-    };
+        .ok()?;
+    child.stdin.as_mut()?.write_all(content.as_bytes()).ok()?;
+    let output = child.wait_with_output().ok()?;
     if !output.status.success() {
-        return fallback();
+        return None;
     }
-    String::from_utf8(output.stdout).unwrap_or_else(|_| fallback())
+    String::from_utf8(output.stdout).ok()
 }
 
 fn ensure_trailing_newline(content: &str) -> String {
@@ -5128,6 +5237,20 @@ mod tests {
         assert_eq!(
             normalize_python_function_metadata_spacing(with_python_status_spacing),
             normalize_python_function_metadata_spacing(with_local_pretty_spacing)
+        );
+    }
+
+    #[test]
+    fn legacy_function_status_hash_understands_multiline_decorators() {
+        let snapshot_hashes = indexmap::IndexMap::new();
+        let content = "from _gen import *  # <AUTO GENERATED>\n\n@func_description(\n    'Transfers a caller.'\n)\n@func_parameter(\n    'handoff_reason',\n    'Reason copied from context.',\n)\ndef handoff(conv: Conversation, handoff_reason: str):\n    return handoff_reason\n";
+
+        let normalized =
+            legacy_python_local_function_raw("functions/handoff.py", content, &snapshot_hashes);
+
+        assert_eq!(
+            normalized,
+            "@func_description('Transfers a caller.')\n@func_parameter('handoff_reason', 'Reason copied from context.')\ndef handoff(conv: Conversation, handoff_reason: str):\n    return handoff_reason\n"
         );
     }
 

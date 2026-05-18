@@ -499,6 +499,39 @@ fn projection_materializes_global_functions_as_raw_content() {
 }
 
 #[test]
+fn multiline_function_metadata_decorators_match_python_ast_behavior() {
+    let content = r#"from _gen import *  # <AUTO GENERATED>
+
+@func_description(
+    "Transfers a caller."
+)
+@func_parameter(
+    "handoff_reason",
+    "Reason copied from the instruction context.",
+)
+def handoff(conv: Conversation, handoff_reason: str):
+    return {"reason": handoff_reason}
+"#;
+
+    assert_eq!(
+        push_functions::infer_function_description(content),
+        "Transfers a caller."
+    );
+    let parameters = push_functions::infer_function_parameters(content);
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(parameters[0].name, "handoff_reason");
+    assert_eq!(
+        parameters[0].description,
+        "Reason copied from the instruction context."
+    );
+    assert_eq!(parameters[0].r#type, "string");
+    assert_eq!(
+        push_functions::function_code_from_local_content(content),
+        "def handoff(conv: Conversation, handoff_reason: str):\n    return {\"reason\": handoff_reason}\n"
+    );
+}
+
+#[test]
 fn projection_ignores_archived_global_functions() {
     let projection = serde_json::json!({
         "functions": {

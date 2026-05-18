@@ -539,14 +539,25 @@ fn python_string_literal(value: &str) -> String {
 
 pub(crate) fn function_code_from_local_content(content: &str) -> String {
     let mut out = String::new();
+    let mut skipping_decorator: Option<DecoratorCallScan> = None;
     for line in content.lines() {
         let trimmed = line.trim_start();
+        if let Some(mut state) = skipping_decorator.take() {
+            if !state.scan(line.trim()) {
+                skipping_decorator = Some(state);
+            }
+            continue;
+        }
         if line == "from _gen import *  # <AUTO GENERATED>"
             || line == "from imports import *  # <AUTO GENERATED>"
-            || trimmed.starts_with("@func_description(")
-            || trimmed.starts_with("@func_parameter(")
-            || trimmed.starts_with("@func_latency_control(")
         {
+            continue;
+        }
+        if let Some(rest) = adk_decorator_call_rest(trimmed) {
+            let mut state = DecoratorCallScan::default();
+            if !state.scan(rest) {
+                skipping_decorator = Some(state);
+            }
             continue;
         }
         out.push_str(line);
@@ -601,15 +612,10 @@ pub(crate) fn infer_function_description(code: &str) -> String {
 }
 
 fn function_description_decorator(code: &str) -> Option<String> {
-    for line in code.lines() {
-        let line = line.trim();
-        let Some(rest) = line.strip_prefix("@func_description(") else {
-            continue;
-        };
-        let arg = rest.strip_suffix(')').unwrap_or(rest).trim();
-        return Some(parse_python_string_literal(arg));
-    }
-    None
+    adk_decorator_args(code, "func_description")
+        .into_iter()
+        .filter_map(|args| parse_python_string_args(&args).into_iter().next())
+        .next()
 }
 
 fn parse_python_string_literal(value: &str) -> String {
@@ -683,15 +689,101 @@ pub(crate) fn infer_function_parameters(code: &str) -> Vec<FunctionParameterUpda
 }
 
 fn function_parameter_decorators(code: &str) -> HashMap<String, String> {
-    code.lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            let rest = line.strip_prefix("@func_parameter(")?;
-            let args = rest.strip_suffix(')').unwrap_or(rest);
-            let args = parse_python_string_args(args);
+    adk_decorator_args(code, "func_parameter")
+        .into_iter()
+        .filter_map(|args| {
+            let args = parse_python_string_args(&args);
             (args.len() == 2).then(|| (args[0].clone(), args[1].clone()))
         })
         .collect()
+}
+
+fn adk_decorator_args(code: &str, decorator_name: &str) -> Vec<String> {
+    let prefix = format!("@{decorator_name}(");
+    let mut calls = Vec::new();
+    let mut active: Option<DecoratorCallScan> = None;
+    for raw in code.lines() {
+        if let Some(mut state) = active.take() {
+            state.args.push('\n');
+            if state.scan(raw.trim()) {
+                calls.push(state.args.trim().trim_end_matches(',').to_string());
+            } else {
+                active = Some(state);
+            }
+            continue;
+        }
+
+        let Some(rest) = raw.trim().strip_prefix(&prefix) else {
+            continue;
+        };
+        let mut state = DecoratorCallScan::default();
+        if state.scan(rest) {
+            calls.push(state.args.trim().trim_end_matches(',').to_string());
+        } else {
+            active = Some(state);
+        }
+    }
+    calls
+}
+
+fn adk_decorator_call_rest(line: &str) -> Option<&str> {
+    [
+        "@func_description(",
+        "@func_parameter(",
+        "@func_latency_control(",
+    ]
+    .iter()
+    .find_map(|prefix| line.strip_prefix(prefix))
+}
+
+#[derive(Default)]
+struct DecoratorCallScan {
+    args: String,
+    quote: Option<char>,
+    escaped: bool,
+    depth: i32,
+}
+
+impl DecoratorCallScan {
+    fn scan(&mut self, fragment: &str) -> bool {
+        for ch in fragment.chars() {
+            if let Some(quote) = self.quote {
+                self.args.push(ch);
+                if self.escaped {
+                    self.escaped = false;
+                } else if ch == '\\' {
+                    self.escaped = true;
+                } else if ch == quote {
+                    self.quote = None;
+                }
+                continue;
+            }
+
+            match ch {
+                '\'' | '"' => {
+                    self.quote = Some(ch);
+                    self.args.push(ch);
+                }
+                '(' | '[' | '{' => {
+                    self.depth += 1;
+                    self.args.push(ch);
+                }
+                ')' => {
+                    if self.depth == 0 {
+                        return true;
+                    }
+                    self.depth -= 1;
+                    self.args.push(ch);
+                }
+                ']' | '}' => {
+                    self.depth -= 1;
+                    self.args.push(ch);
+                }
+                _ => self.args.push(ch),
+            }
+        }
+        false
+    }
 }
 
 fn parse_python_string_args(value: &str) -> Vec<String> {
@@ -914,36 +1006,9 @@ fn function_delay_response(response: &ParsedDelayResponse) -> FunctionDelayRespo
 }
 
 fn latency_control_decorator_args(code: &str) -> Option<String> {
-    let mut collecting = false;
-    let mut args = String::new();
-    let mut depth = 0_i32;
-    for raw in code.lines() {
-        let trimmed = raw.trim();
-        let line = if collecting {
-            trimmed
-        } else if let Some(rest) = trimmed.strip_prefix("@func_latency_control(") {
-            collecting = true;
-            rest
-        } else {
-            continue;
-        };
-        for ch in line.chars() {
-            match ch {
-                '(' | '[' => depth += 1,
-                ')' => {
-                    if depth == 0 {
-                        return Some(args.trim().trim_end_matches(',').to_string());
-                    }
-                    depth -= 1;
-                }
-                ']' => depth -= 1,
-                _ => {}
-            }
-            args.push(ch);
-        }
-        args.push('\n');
-    }
-    collecting.then(|| args.trim().trim_end_matches(')').trim().to_string())
+    adk_decorator_args(code, "func_latency_control")
+        .into_iter()
+        .next()
 }
 
 fn latency_i32_arg(args: &str, name: &str) -> Option<i32> {
