@@ -4,6 +4,8 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+## 0.0.4 - 2026-05-19
+
 - Added `poly self-update` for shell-installed ADK releases.
 - Improved status snapshots for function metadata and key resource types.
 - Fixed formatting baselines and YAML/resource ordering parity.
