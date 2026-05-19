@@ -296,3 +296,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+  custom-slack-release-notification:
+    needs:
+      - plan
+      - announce
+    uses: ./.github/workflows/slack-release-notification.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit

@@ -1,0 +1,134 @@
+name: Slack Release Notification
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: true
+
+permissions: {}
+
+jobs:
+  notify-slack:
+    name: Notify Slack
+    runs-on: ubuntu-latest
+    if: ${{ inputs.plan != '' && !fromJson(inputs.plan).announcement_tag_is_implicit }}
+    steps:
+      - name: Build Slack payload
+        shell: bash
+        env:
+          PLAN_JSON: ${{ inputs.plan }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          release_tag="$(jq -r '.announcement_tag' <<< "${PLAN_JSON}")"
+          release_body="$(jq -r '.announcement_github_body // "No release notes provided."' <<< "${PLAN_JSON}")"
+          is_prerelease="$(jq -r '.announcement_is_prerelease' <<< "${PLAN_JSON}")"
+
+          release_url="${REPOSITORY_URL}/releases/tag/${release_tag}"
+          release_kind="New Release"
+          release_icon=":rocket:"
+
+          if [ "${is_prerelease}" = "true" ]; then
+            release_kind="Pre-release"
+            release_icon=":construction:"
+          fi
+
+          notes="${release_body}"
+          if [ "${#notes}" -gt 500 ]; then
+            notes="${notes:0:500}... <${release_url}|Read more>"
+          fi
+
+          jq -n \
+            --arg text "${release_kind} Alert: ${REPOSITORY} ${release_tag}" \
+            --arg header "${release_icon} ${release_kind}: ${REPOSITORY}" \
+            --arg tag "${release_tag}" \
+            --arg actor "${GITHUB_ACTOR}" \
+            --arg notes "${notes}" \
+            --arg release_url "${release_url}" \
+            --arg repository_url "${REPOSITORY_URL}" \
+            '{
+              text: $text,
+              blocks: [
+                {
+                  type: "header",
+                  text: {
+                    type: "plain_text",
+                    text: $header,
+                    emoji: true
+                  }
+                },
+                {
+                  type: "section",
+                  fields: [
+                    {
+                      type: "mrkdwn",
+                      text: ("*Version:*\n" + $tag)
+                    },
+                    {
+                      type: "mrkdwn",
+                      text: ("*Released by:*\n" + $actor)
+                    }
+                  ]
+                },
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: ("*Release Notes:*\n" + $notes)
+                  }
+                },
+                {
+                  type: "actions",
+                  elements: [
+                    {
+                      type: "button",
+                      text: {
+                        type: "plain_text",
+                        text: "View Release",
+                        emoji: true
+                      },
+                      url: $release_url,
+                      style: "primary"
+                    },
+                    {
+                      type: "button",
+                      text: {
+                        type: "plain_text",
+                        text: "View Repository",
+                        emoji: true
+                      },
+                      url: $repository_url
+                    }
+                  ]
+                },
+                {
+                  type: "context",
+                  elements: [
+                    {
+                      type: "mrkdwn",
+                      text: "Run `poly self-update` to update to the latest version."
+                    }
+                  ]
+                }
+              ]
+            }' > slack-payload.json
+
+      - name: Send Slack notification
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "${SLACK_WEBHOOK_URL}" ]; then
+            echo "SLACK_WEBHOOK_URL is not configured"
+            exit 1
+          fi
+
+          curl --fail --show-error --silent \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data @slack-payload.json \
+            "${SLACK_WEBHOOK_URL}"

@@ -13,6 +13,8 @@ targets = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
 github-build-setup = "dist/github-build-setup.yml"
 # Keep release PR checks cheap; tagged releases build and upload artifacts.
 pr-run-mode = "plan"
+# Send Slack notifications after cargo-dist finishes announcing a release.
+post-announce-jobs = ["./slack-release-notification"]
 # Use the product name in release notes, while keeping the crates.io package name.
 display-name = "poly"
 

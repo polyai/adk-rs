@@ -3,14 +3,14 @@
 //! This module owns both literal single-resource files (for example
 //! `agent_settings/role.yaml`) and multi-entry files (for example
 //! `config/api_integrations.yaml`). Directory and derived resources live in
-//! `push_topics`, `push_functions`, `push_flows`, and `push_variables`.
+//! `topics`, `functions`, `flows`, and `variables`.
 //!
 //! The private submodules below are just readability chunks within this resource
 //! family; the top-level push ownership remains the five resource-family files.
 
-#[path = "push_single_file_resources/interaction_files.rs"]
+#[path = "single_file_resources/interaction_files.rs"]
 mod interaction_files;
-#[path = "push_single_file_resources/structured.rs"]
+#[path = "single_file_resources/structured.rs"]
 mod structured;
 
 use adk_protobuf::agent::RulesUpdateRules;

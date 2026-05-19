@@ -1,5 +1,8 @@
 use super::*;
+use crate::command_gen::functions;
 use adk_protobuf::channels::ChannelType;
+use adk_protobuf::command::Payload as CommandPayload;
+use adk_types::{Resource, ResourceMap};
 
 #[test]
 fn builds_create_topic_command_when_remote_missing() {
@@ -518,10 +521,10 @@ def handoff(conv: Conversation, handoff_reason: str):
 "#;
 
     assert_eq!(
-        push_functions::infer_function_description(content),
+        functions::infer_function_description(content),
         "Transfers a caller."
     );
-    let parameters = push_functions::infer_function_parameters(content);
+    let parameters = functions::infer_function_parameters(content);
     assert_eq!(parameters.len(), 1);
     assert_eq!(parameters[0].name, "handoff_reason");
     assert_eq!(
@@ -530,7 +533,7 @@ def handoff(conv: Conversation, handoff_reason: str):
     );
     assert_eq!(parameters[0].r#type, "string");
     assert_eq!(
-        push_functions::function_code_from_local_content(content),
+        functions::function_code_from_local_content(content),
         "def handoff(conv: Conversation, handoff_reason: str):\n    return {\"reason\": handoff_reason}\n"
     );
 }

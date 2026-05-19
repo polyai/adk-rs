@@ -3,6 +3,13 @@
 
 Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be covered by a Python recording fixture first where practical, then brought to parity in Rust.
 
+- [ ] **Modularize large Rust implementation files** (`code-quality-modularization`)
+  - Keep `adk-core/src/lib.rs` as a facade and move unrelated implementation clusters into focused modules.
+  - Core sequence done: Python helpers, status snapshot helpers, validation, `AdkService`, and `ProjectWorkspace` now live in focused modules.
+  - Follow-up progress: command JSON summaries, CLI completion, CLI self-update, CLI deployments, CLI branch, CLI chat, shared CLI output helpers, `adk-push-pull` materialization, command generation, and function parsing are now split into focused modules.
+  - Follow-up targets: continue splitting `adk-cli/src/main.rs` by remaining command/prompt concerns, and split any remaining large `adk-push-pull` lifecycle files by resource family.
+  - Keep each slice mechanical first: move code, preserve signatures/behavior, and run the existing tests before making semantic changes.
+
 - [x] **Restore flow transition-function parity** (`flow-transition-function-parity`)
   - Python treats `flows/<flow>/functions/*.py` as transition-function resources, materializes them from remote flow transition functions, validates them with `Conversation, Flow` signatures, and pushes create/update/delete transition-function commands plus latency-control updates.
   - Rust currently discovers these files but does not materialize transition functions from projections, and `push_functions.rs` ignores paths outside `functions/`, so local transition-function changes can be invisible to push.

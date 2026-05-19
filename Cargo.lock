@@ -12,6 +12,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "adk-push-pull"
+version = "0.0.3"
+dependencies = [
+ "indexmap",
+ "poly-adk-protobuf",
+ "poly-adk-types",
+ "prost-types",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "uuid",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1995,6 +2010,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 name = "poly-adk"
 version = "0.0.3"
 dependencies = [
+ "adk-push-pull",
  "anyhow",
  "axoupdater",
  "clap",
@@ -2004,7 +2020,6 @@ dependencies = [
  "httpmock",
  "indexmap",
  "poly-adk-api-client",
- "poly-adk-command-gen",
  "poly-adk-core",
  "reqwest 0.12.28",
  "rich_rust",
@@ -2019,8 +2034,8 @@ dependencies = [
 name = "poly-adk-api-client"
 version = "0.0.3"
 dependencies = [
+ "adk-push-pull",
  "indexmap",
- "poly-adk-command-gen",
  "poly-adk-protobuf",
  "poly-adk-types",
  "prost",
@@ -2028,21 +2043,6 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "url",
- "uuid",
-]
-
-[[package]]
-name = "poly-adk-command-gen"
-version = "0.0.3"
-dependencies = [
- "indexmap",
- "poly-adk-protobuf",
- "poly-adk-types",
- "prost-types",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 1.0.69",
  "uuid",
 ]
 
