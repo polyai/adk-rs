@@ -1882,7 +1882,9 @@ fn projection_to_resource_map_includes_func_parameter_decorators() {
         .and_then(Value::as_str)
         .expect("function file content");
     assert!(content.contains("@func_description("));
-    assert!(content.contains("@func_parameter('dob', 'Date of birth, formatted as \"MM-DD-YYYY\"')"));
+    assert!(
+        content.contains("@func_parameter('dob', 'Date of birth, formatted as \"MM-DD-YYYY\"')")
+    );
     assert!(content.contains("def verify_dob("));
 }
 
@@ -1920,7 +1922,9 @@ fn projection_to_resource_map_includes_func_parameter_decorators_from_entities_s
         .and_then(Value::as_str)
         .expect("function file content");
     assert!(content.contains("@func_description("));
-    assert!(content.contains("@func_parameter('dob', 'Date of birth, formatted as \"MM-DD-YYYY\"')"));
+    assert!(
+        content.contains("@func_parameter('dob', 'Date of birth, formatted as \"MM-DD-YYYY\"')")
+    );
     assert!(content.contains("def verify_dob("));
 }
 
@@ -2066,9 +2070,18 @@ fn projection_to_resource_map_includes_flow_transition_function_decorators() {
         .and_then(|r| r.payload.get("content"))
         .and_then(Value::as_str)
         .expect("transition function file content");
-    assert!(content.contains("@func_description("), "missing @func_description: {content}");
-    assert!(content.contains("@func_parameter('dept',"), "missing @func_parameter: {content}");
-    assert!(content.contains("@func_latency_control("), "missing @func_latency_control: {content}");
+    assert!(
+        content.contains("@func_description("),
+        "missing @func_description: {content}"
+    );
+    assert!(
+        content.contains("@func_parameter('dept',"),
+        "missing @func_parameter: {content}"
+    );
+    assert!(
+        content.contains("@func_latency_control("),
+        "missing @func_latency_control: {content}"
+    );
 }
 
 #[test]

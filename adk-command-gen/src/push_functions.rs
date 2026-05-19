@@ -466,13 +466,7 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
             let responses: Vec<_> = latency
                 .delay_responses
                 .iter()
-                .map(|r| {
-                    format!(
-                        "({}, {})",
-                        python_string_literal(&r.message),
-                        r.duration
-                    )
-                })
+                .map(|r| format!("({}, {})", python_string_literal(&r.message), r.duration))
                 .collect();
             parts.push(format!("delay_responses=[{}]", responses.join(", ")));
         }
@@ -480,7 +474,6 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
     }
     insert_python_function_decorators(code, name, decorators)
 }
-
 
 fn insert_python_function_decorators(
     code: &str,
