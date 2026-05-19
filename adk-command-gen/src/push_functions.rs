@@ -444,20 +444,16 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
             python_string_literal(description)
         ));
     }
-    for parameter in function_parameter_values(function) {
-        let param_name = parameter
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let description = parameter
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if !param_name.is_empty() && !description.is_empty() {
+    if let Some(parameters) = function_parameters_update_from_projection(function) {
+        let annotated_parameter_names = annotated_function_parameter_names(code);
+        for parameter in parameters.parameters {
+            if parameter.name.is_empty() || !annotated_parameter_names.contains(&parameter.name) {
+                continue;
+            }
             decorators.push(format!(
                 "@func_parameter({}, {})\n",
-                python_string_literal(param_name),
-                python_string_literal(description)
+                python_string_literal(&parameter.name),
+                python_string_literal(&parameter.description)
             ));
         }
     }
@@ -491,50 +487,40 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
     insert_python_function_decorators(code, name, decorators)
 }
 
-fn function_parameter_values(function: &Value) -> Vec<Value> {
-    if let Some(parameters) = function.get("parameters").and_then(Value::as_array) {
-        return parameters.clone();
-    }
-    let Some(parameters_obj) = function.get("parameters") else {
-        return Vec::new();
+fn annotated_function_parameter_names(code: &str) -> HashSet<String> {
+    let signature = code.lines().find_map(|line| {
+        let trimmed = line.trim();
+        trimmed
+            .strip_prefix("def ")
+            .or_else(|| trimmed.strip_prefix("async def "))
+            .map(ToString::to_string)
+    });
+    let Some(signature) = signature else {
+        return HashSet::new();
     };
-    let entities = parameters_obj
-        .get("entities")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    if entities.is_empty() {
-        return Vec::new();
-    }
-    let ids = parameters_obj
-        .get("ids")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str);
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    for id in ids {
-        if let Some(parameter) = entities.get(id) {
-            out.push(parameter.clone());
-            seen.insert(id.to_string());
-        }
-    }
-    let mut remaining: Vec<_> = entities
-        .iter()
-        .filter(|(id, _)| !seen.contains(*id))
-        .collect();
-    remaining.sort_by_key(|(id, _)| *id);
-    for (_, parameter) in remaining {
-        out.push(parameter.clone());
-    }
-    out
+    let Some(open) = signature.find('(') else {
+        return HashSet::new();
+    };
+    let Some(close) = signature[open + 1..].find(')') else {
+        return HashSet::new();
+    };
+    signature[open + 1..open + 1 + close]
+        .split(',')
+        .map(str::trim)
+        .filter_map(|param| {
+            let before_default = param.split('=').next().unwrap_or_default().trim();
+            let (name, _) = before_default.split_once(':')?;
+            let name = name.trim();
+            (!name.is_empty() && !matches!(name, "self" | "conv" | "flow"))
+                .then(|| name.to_string())
+        })
+        .collect()
 }
 
 fn latency_delay_responses(latency: &Value) -> Vec<String> {
     if let Some(array) = latency
-        .get("delay_responses")
-        .or_else(|| latency.get("delayResponses"))
+        .get("delayResponses")
+        .or_else(|| latency.get("delay_responses"))
         .and_then(Value::as_array)
     {
         return array

@@ -4421,6 +4421,9 @@ fn strip_generated_flow_function_imports(content: &str) -> String {
 fn status_function_payload(logical_path: &str, content: &str, fallback_name: &str) -> Value {
     let name = path_stem(logical_path).unwrap_or(fallback_name).to_string();
     let flow_name = flow_folder_name(logical_path);
+    let code = raw_function_content(content);
+    let description = status_function_description(&code);
+    let parameters = status_function_parameters(&code, &name);
     let function_type = if logical_path.starts_with("flows/") {
         "transition"
     } else if logical_path == "functions/start_function.py" {
@@ -4432,9 +4435,9 @@ fn status_function_payload(logical_path: &str, content: &str, fallback_name: &st
     };
     let mut payload = serde_json::json!({
         "name": name,
-        "description": "",
-        "code": raw_function_content(content),
-        "parameters": [],
+        "description": description,
+        "code": code,
+        "parameters": parameters,
         "latency_control": {},
         "function_type": function_type,
         "variable_references": {},
@@ -4443,6 +4446,167 @@ fn status_function_payload(logical_path: &str, content: &str, fallback_name: &st
         payload["flow_name"] = Value::String(flow_name);
     }
     payload
+}
+
+fn status_function_description(code: &str) -> String {
+    if let Some(description) = python_decorator_args(code, "func_description")
+        .into_iter()
+        .filter_map(|args| {
+            parse_python_string_args(args.trim().trim_end_matches(','))
+                .into_iter()
+                .next()
+        })
+        .next()
+    {
+        return description;
+    }
+
+    let mut in_docstring = false;
+    let mut delimiter = "";
+    for raw in code.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if !in_docstring && (line.starts_with("\"\"\"") || line.starts_with("'''")) {
+            delimiter = if line.starts_with("\"\"\"") {
+                "\"\"\""
+            } else {
+                "'''"
+            };
+            let stripped = line.trim_start_matches(delimiter).trim();
+            if let Some((first, _)) = stripped.split_once(delimiter) {
+                return first.trim().to_string();
+            }
+            if !stripped.is_empty() {
+                return stripped.to_string();
+            }
+            in_docstring = true;
+            continue;
+        }
+        if in_docstring {
+            if line.contains(delimiter) {
+                return line
+                    .split(delimiter)
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+            }
+            return line.to_string();
+        }
+    }
+    String::new()
+}
+
+fn status_function_parameters(code: &str, function_name: &str) -> Vec<Value> {
+    let decorator_descriptions = python_decorator_args(code, "func_parameter")
+        .into_iter()
+        .filter_map(|args| {
+            let args = parse_python_string_args(args.trim().trim_end_matches(','));
+            (args.len() >= 2).then(|| (args[0].clone(), args[1].clone()))
+        })
+        .collect::<HashMap<_, _>>();
+    let Some(parameters) = function_signature_parameter_list(code, function_name) else {
+        return vec![];
+    };
+    parameters
+        .into_iter()
+        .filter(|parameter| !matches!(parameter.name.as_str(), "self" | "conv" | "flow"))
+        .map(|parameter| {
+            let name = parameter.name;
+            let parameter_type = parameter
+                .annotation
+                .as_deref()
+                .and_then(status_schema_type_from_python_annotation)
+                .unwrap_or("string");
+            let id = generated_or_stable_status_resource_id(
+                "function_parameter",
+                "PARAMETER",
+                &name,
+                &name,
+            );
+            let description = decorator_descriptions
+                .get(&name)
+                .cloned()
+                .unwrap_or_default();
+            serde_json::json!({
+                "id": id,
+                "name": name,
+                "description": description,
+                "type": parameter_type,
+            })
+        })
+        .collect()
+}
+
+fn python_decorator_args(code: &str, decorator_name: &str) -> Vec<String> {
+    let prefix = format!("@{decorator_name}(");
+    let mut calls = Vec::new();
+    let mut active: Option<PythonDecoratorCallScan> = None;
+    for raw in code.lines() {
+        if let Some(mut state) = active.take() {
+            state.args.push('\n');
+            if state.scan(raw.trim()) {
+                calls.push(state.args.trim().trim_end_matches(',').to_string());
+            } else {
+                active = Some(state);
+            }
+            continue;
+        }
+
+        let Some(rest) = raw.trim().strip_prefix(&prefix) else {
+            continue;
+        };
+        let mut state = PythonDecoratorCallScan::default();
+        if state.scan(rest) {
+            calls.push(state.args.trim().trim_end_matches(',').to_string());
+        } else {
+            active = Some(state);
+        }
+    }
+    calls
+}
+
+fn status_schema_type_from_python_annotation(annotation: &str) -> Option<&'static str> {
+    match annotation
+        .split([' ', ')', ','])
+        .next()
+        .unwrap_or_default()
+        .trim()
+    {
+        "str" => Some("string"),
+        "int" => Some("integer"),
+        "float" => Some("number"),
+        "bool" => Some("boolean"),
+        _ => None,
+    }
+}
+
+fn generated_or_stable_status_resource_id(
+    kind: &str,
+    prefix: &str,
+    name: &str,
+    path: &str,
+) -> String {
+    let env_name = format!("POLY_ADK_GENERATED_{}_IDS", kind.to_ascii_uppercase());
+    if let Ok(mappings) = std::env::var(env_name) {
+        for raw in mappings.lines() {
+            let Some((key, id)) = raw.split_once('=') else {
+                continue;
+            };
+            if key == name || key == path {
+                return id.to_string();
+            }
+        }
+    }
+
+    let mut hash = 0x811c9dc5_u32;
+    for byte in format!("{name}\0{path}").bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    format!("{prefix}-{hash:08x}")
 }
 
 fn status_function_step_payload(logical_path: &str, content: &str, fallback_name: &str) -> Value {
