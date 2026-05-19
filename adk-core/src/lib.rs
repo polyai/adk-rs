@@ -1406,6 +1406,20 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         self.workspace.status(root)
     }
 
+    /// Computes resource diffs for either local project changes or named states.
+    ///
+    /// With `before` or `after` set, this resolves both sides as named states
+    /// such as a deployment version, environment, branch snapshot, or `local`.
+    /// If `before` is omitted, it derives the previous deployment version for
+    /// `after`, matching the Python CLI's `--after` behavior. Both sides are then
+    /// normalized before diffing so flow imports and function references compare
+    /// by the same logical identity.
+    ///
+    /// With neither side set, this compares the current local resources against
+    /// the best available baseline: replay state, typed status snapshot, or a
+    /// fresh remote pull. Typed snapshots are used to limit the diff to resources
+    /// that are new, deleted, or hash-modified, which avoids reporting
+    /// materialization-only churn. `files` is applied last as a path/glob filter.
     pub fn diff(
         &self,
         root: &Path,
@@ -1580,6 +1594,19 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         self.push_with_options(root, force, skip_validation, dry_run, None, None)
     }
 
+    /// Pushes local project changes to Agent Studio with explicit CLI options.
+    ///
+    /// This is the full push implementation behind the simpler `push` wrapper.
+    /// Unless `force` is set, it refuses to continue when conflict markers are
+    /// present. Unless `skip_validation` is set, it runs local semantic and
+    /// Python validation before generating commands. `dry_run` routes the command
+    /// batch through preview endpoints instead of mutating remote state.
+    ///
+    /// `projection` lets tests and offline workflows provide the remote Agent
+    /// Studio state directly; otherwise the platform client supplies it. `actor`
+    /// overrides generated command metadata. On a successful real push, the
+    /// method persists replay/status baselines so later `status`, `diff`, and
+    /// conflict checks compare against the state that was just accepted remotely.
     pub fn push_with_options(
         &self,
         root: &Path,
@@ -4423,9 +4450,10 @@ fn strip_generated_flow_function_imports(content: &str) -> String {
 fn status_function_payload(logical_path: &str, content: &str, fallback_name: &str) -> Value {
     let name = path_stem(logical_path).unwrap_or(fallback_name).to_string();
     let flow_name = flow_folder_name(logical_path);
-    let code = raw_function_content(content);
-    let description = status_function_description(&code);
-    let parameters = status_function_parameters(&code, &name);
+    let raw_code = raw_function_content(content);
+    let description = status_function_description(&raw_code);
+    let parameters = status_function_parameters(&raw_code, &name);
+    let code = status_function_code_without_metadata_decorators(&raw_code, &name);
     let function_type = if logical_path.starts_with("flows/") {
         "transition"
     } else if logical_path == "functions/start_function.py" {
@@ -4448,6 +4476,11 @@ fn status_function_payload(logical_path: &str, content: &str, fallback_name: &st
         payload["flow_name"] = Value::String(flow_name);
     }
     payload
+}
+
+fn status_function_code_without_metadata_decorators(code: &str, function_name: &str) -> String {
+    let (code, decorators) = extract_normalized_python_adk_decorators(code, false);
+    insert_python_function_decorators(code, function_name, decorators)
 }
 
 fn status_function_description(code: &str) -> String {

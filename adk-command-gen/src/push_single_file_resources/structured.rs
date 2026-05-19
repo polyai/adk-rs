@@ -49,6 +49,18 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
+/// Builds push commands for structured one-file and multi-item resources.
+///
+/// This is the aggregation point for resources whose local representation is YAML
+/// or JSON rather than Python code: variants, API integrations, ASR resources,
+/// pronunciations, agent settings, channel configuration, and safety filters.
+/// Each sub-family owns its detailed lifecycle comparison; this function combines
+/// those lifecycles with single-file update checks and places the resulting
+/// commands into the delete/create/update phases expected by push.
+///
+/// The comparison uses `projection_to_resource_map` as the remote baseline so the
+/// command generator can distinguish real edits from materialization details such
+/// as YAML key order or local file grouping.
 pub(crate) fn structured_file_resource_command_groups(
     resources: &ResourceMap,
     projection: &Value,
