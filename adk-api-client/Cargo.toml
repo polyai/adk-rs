@@ -21,4 +21,4 @@ uuid.workspace = true
 prost.workspace = true
 adk-protobuf.workspace = true
 adk-types.workspace = true
-adk-command-gen.workspace = true
+adk-push-pull.workspace = true

@@ -1,9 +1,10 @@
 //! Push commands for virtual variable resources derived from `conv.state.*` usage.
 
-use crate::push_single_file_resources::CommandGroups;
+use super::functions;
+use super::single_file_resources::CommandGroups;
 use crate::{
     extract_entities_map, extract_variable_names_from_code, generated_or_stable_resource_id,
-    push_command, push_functions,
+    push_command,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -224,8 +225,8 @@ fn function_reference_target(
             .get("content")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let name = push_functions::local_function_name(path, resource, content);
-        let remote_id = push_functions::function_entries(projection)
+        let name = functions::local_function_name(path, resource, content);
+        let remote_id = functions::function_entries(projection)
             .into_iter()
             .find_map(|(id, function)| {
                 (function.get("name").and_then(Value::as_str) == Some(name.as_str())).then_some(id)

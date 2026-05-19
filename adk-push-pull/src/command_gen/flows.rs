@@ -1,13 +1,13 @@
 //! Push command generation for flow config, advanced/default steps, and function steps.
 
-use crate::push_functions::{
+use super::functions::{
     function_code_from_local_content, function_create_latency_control,
     function_errors_update_from_projection, function_parameters_update_from_projection,
     function_update_latency_control, infer_function_description, infer_function_parameters,
     latency_control_from_projection, local_latency_control_from_code,
     variable_reference_ids_from_code,
 };
-use crate::push_single_file_resources::CommandGroups;
+use super::single_file_resources::CommandGroups;
 use crate::{
     FlowImportPathMaps, PromptReferenceMaps, flow_import_path_maps_from_projection,
     generated_replay_resource_id, prompt_reference_maps_from_projection, push_command,

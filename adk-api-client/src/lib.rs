@@ -1,8 +1,8 @@
-use adk_command_gen::{
+use adk_protobuf::{Command, CommandBatch};
+use adk_push_pull::{
     CommandGenError, build_phase1_commands_for_changed_resources, build_phase1_commands_with_actor,
     command_to_json_summary, projection_to_resource_map,
 };
-use adk_protobuf::{Command, CommandBatch};
 use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
 use prost::Message;
 use serde_json::Value;
