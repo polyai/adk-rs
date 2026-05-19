@@ -457,30 +457,25 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
             ));
         }
     }
-    if let Some(latency) = function
-        .get("latencyControl")
-        .or_else(|| function.get("latency_control"))
-        && latency
-            .get("enabled")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-    {
-        let initial_delay = latency
-            .get("initialDelay")
-            .or_else(|| latency.get("initial_delay"))
-            .and_then(Value::as_i64)
-            .unwrap_or(0);
-        let interval = latency
-            .get("interval")
-            .and_then(Value::as_i64)
-            .unwrap_or(0);
+    let latency = latency_control_from_projection(function);
+    if latency.enabled {
         let mut parts = vec![
-            format!("delay_before_responses_start={initial_delay}"),
-            format!("silence_after_each_response={interval}"),
+            format!("delay_before_responses_start={}", latency.initial_delay),
+            format!("silence_after_each_response={}", latency.interval),
         ];
-        let delay_responses = latency_delay_responses(latency);
-        if !delay_responses.is_empty() {
-            parts.push(format!("delay_responses=[{}]", delay_responses.join(", ")));
+        if !latency.delay_responses.is_empty() {
+            let responses: Vec<_> = latency
+                .delay_responses
+                .iter()
+                .map(|r| {
+                    format!(
+                        "({}, {})",
+                        python_string_literal(&r.message),
+                        r.duration
+                    )
+                })
+                .collect();
+            parts.push(format!("delay_responses=[{}]", responses.join(", ")));
         }
         decorators.push(format!("@func_latency_control({})\n", parts.join(", ")));
     }
@@ -515,71 +510,6 @@ fn annotated_function_parameter_names(code: &str) -> HashSet<String> {
                 .then(|| name.to_string())
         })
         .collect()
-}
-
-fn latency_delay_responses(latency: &Value) -> Vec<String> {
-    if let Some(array) = latency
-        .get("delayResponses")
-        .or_else(|| latency.get("delay_responses"))
-        .and_then(Value::as_array)
-    {
-        return array
-            .iter()
-            .filter_map(|response| {
-                let message = response.get("message").and_then(Value::as_str)?;
-                let duration = response.get("duration").and_then(Value::as_i64)?;
-                Some(format!("({}, {duration})", python_string_literal(message)))
-            })
-            .collect();
-    }
-    if let Some(entities_obj) = latency
-        .get("delayResponses")
-        .or_else(|| latency.get("delay_responses"))
-    {
-        let entities = entities_obj
-            .get("entities")
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
-        let ids = entities_obj
-            .get("ids")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str);
-        let mut out = Vec::new();
-        let mut seen = HashSet::new();
-        for id in ids {
-            if let Some(response) = entities.get(id) {
-                if let Some(message) = response.get("message").and_then(Value::as_str)
-                    && let Some(duration) = response.get("duration").and_then(Value::as_i64)
-                {
-                    out.push(format!(
-                        "({}, {duration})",
-                        python_string_literal(message)
-                    ));
-                }
-                seen.insert(id.to_string());
-            }
-        }
-        let mut remaining: Vec<_> = entities
-            .iter()
-            .filter(|(id, _)| !seen.contains(*id))
-            .collect();
-        remaining.sort_by_key(|(id, _)| *id);
-        for (_, response) in remaining {
-            if let Some(message) = response.get("message").and_then(Value::as_str)
-                && let Some(duration) = response.get("duration").and_then(Value::as_i64)
-            {
-                out.push(format!(
-                    "({}, {duration})",
-                    python_string_literal(message)
-                ));
-            }
-        }
-        return out;
-    }
-    Vec::new()
 }
 
 fn insert_python_function_decorators(
