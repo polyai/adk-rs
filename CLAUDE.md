@@ -21,22 +21,22 @@
   `FileSystem`/`StdFileSystem`/`MemoryFileSystem`. Direct `std::fs` usage is acceptable in
   `adk-cli` and test harnesses. Once remaining library call sites are gone, enforce this
   mechanically with Clippy `disallowed-methods`.
+- Preserve clean Git diffs for ADK-maintained project files. Users check these files into Git and
+  rely on `pull`/`push` to inspect meaningful backend sync changes, so semantically irrelevant YAML
+  rewrites, key reordering, scalar restyling, and formatting churn should be minimized.
 
 ## Quality expectations
 
 - Add verification tests with each substantive parity change.
 - Expand unit coverage in sub-crates when gaps are identified.
 - Treat audit findings as actionable backlog unless blocked by missing API/schema contracts.
-- Preserve clean Git diffs for ADK-maintained project files. Users check these files into Git and
-  rely on `pull`/`push` to inspect meaningful backend sync changes, so semantically irrelevant YAML
-  rewrites, key reordering, scalar restyling, and formatting churn should be minimized.
+- Add Rust doc comments for public or crate-public functions when they are long, multi-parameter,
+  or orchestrate non-obvious behavior. Prefer information-dense docs that explain modes, side
+  effects, ordering constraints, and Python parity assumptions rather than restating the signature.
 
 ## Release notes
 
-- Keep `CHANGELOG.md` concise and user-facing; avoid implementation archaeology.
-- When asked to cut a release, update `CHANGELOG.md` before bumping versions/tagging.
-- Build the release entry from recent git history plus the current working memory of the work done.
-- Move relevant `Unreleased` bullets into `## <version> - <YYYY-MM-DD>`, add any missing high-signal
-  items, then reset `Unreleased` for future work.
-- Summaries should fit in a few bullets and describe user-visible behavior, parity fixes, and release
-  process changes.
+- When cutting a release, update `CHANGELOG.md` before bumping versions/tagging.
+- Keep `CHANGELOG.md` concise, user-facing, and free of implementation archaeology.
+- Cover only the 3-5 highest-signal user-visible behavior changes and parity fixes.
+- Move relevant `Unreleased` bullets into `## <version> - <YYYY-MM-DD>`, then reset `Unreleased`.

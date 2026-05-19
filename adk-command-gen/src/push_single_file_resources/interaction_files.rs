@@ -888,6 +888,17 @@ fn yaml_string_list(value: Option<&serde_yaml::Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Builds push commands for interaction resources stored in shared config files.
+///
+/// This covers handoffs, SMS templates, stop-keyword phrase filters, and the
+/// experimental config JSON. Each resource type can be represented either as a
+/// whole local YAML file or as per-item logical resources from the status
+/// snapshot, so this function accepts both forms, normalizes them into local
+/// item sets, and compares those sets with the Agent Studio projection.
+///
+/// Handoff default changes intentionally go into `post_updates`, matching the
+/// Python ADK ordering where default selection is applied after handoff
+/// create/update commands have established the target IDs.
 pub(crate) fn interaction_file_resource_command_groups(
     resources: &ResourceMap,
     projection: &Value,
