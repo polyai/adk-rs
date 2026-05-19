@@ -278,7 +278,7 @@ fn pushed_status_snapshot_contains_python_loadable_resource_payloads() {
     fs::create_dir_all(root.join("config")).expect("mkdir config");
     fs::write(
         root.join("functions/lookup.py"),
-        "from _gen import *  # <AUTO GENERATED>\ndef lookup(conv):\n    conv.state.saved_value = 'yes'\n    return 'ok'\n",
+        "from _gen import *  # <AUTO GENERATED>\n@func_description('Look up saved value.')\n@func_parameter('customer_id', 'Customer id')\ndef lookup(conv, customer_id: str):\n    conv.state.saved_value = customer_id\n    return 'ok'\n",
     )
     .expect("write function");
     fs::write(
@@ -291,6 +291,26 @@ fn pushed_status_snapshot_contains_python_loadable_resource_payloads() {
         "variants:\n  - name: default\n    is_default: true\nattributes:\n  - name: tone\n    values:\n      default: friendly\n",
     )
     .expect("write variant attributes");
+    fs::write(
+        root.join("config/api_integrations.yaml"),
+        "api_integrations:\n  - name: crm_lookup\n    description: CRM lookup\n",
+    )
+    .expect("write api integrations");
+    fs::write(
+        root.join("config/entities.yaml"),
+        "entities:\n  - name: account_id\n    description: Account id\n    entity_type: free_text\n",
+    )
+    .expect("write entities");
+    fs::write(
+        root.join("config/handoffs.yaml"),
+        "handoffs:\n  - name: support\n    description: Support handoff\n",
+    )
+    .expect("write handoffs");
+    fs::write(
+        root.join("config/sms_templates.yaml"),
+        "sms_templates:\n  - name: booking_confirmed\n    body: Booking confirmed\n",
+    )
+    .expect("write sms templates");
 
     service_offline()
         .push(root.as_path(), true, true, false)
@@ -319,7 +339,64 @@ fn pushed_status_snapshot_contains_python_loadable_resource_payloads() {
     ] {
         assert!(function.get(key).is_some(), "missing function key {key}");
     }
+    assert_eq!(
+        function
+            .get("description")
+            .and_then(serde_json::Value::as_str),
+        Some("Look up saved value.")
+    );
+    let parameters = function
+        .get("parameters")
+        .and_then(serde_json::Value::as_array)
+        .expect("function parameters");
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(
+        parameters[0]
+            .get("name")
+            .and_then(serde_json::Value::as_str),
+        Some("customer_id")
+    );
+    assert_eq!(
+        parameters[0]
+            .get("description")
+            .and_then(serde_json::Value::as_str),
+        Some("Customer id")
+    );
+    assert_eq!(
+        parameters[0]
+            .get("type")
+            .and_then(serde_json::Value::as_str),
+        Some("string")
+    );
+    assert!(
+        parameters[0]
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|id| id.starts_with("PARAMETER-"))
+    );
     assert!(function.get("file_path").is_some());
+
+    for (resource_name, expected_id) in [
+        (
+            "api_integration",
+            "api_integration:api_integrations:crm_lookup",
+        ),
+        ("entities", "entities:entities:account_id"),
+        ("handoffs", "handoffs:handoffs:support"),
+        (
+            "sms_templates",
+            "sms_templates:sms_templates:booking_confirmed",
+        ),
+    ] {
+        let entries = status
+            .pointer(&format!("/resources/{resource_name}"))
+            .and_then(serde_json::Value::as_object)
+            .unwrap_or_else(|| panic!("missing {resource_name} status resources"));
+        assert!(
+            entries.contains_key(expected_id),
+            "missing {expected_id} in {resource_name} status resources"
+        );
+    }
 
     let variables = status
         .pointer("/resources/variables")

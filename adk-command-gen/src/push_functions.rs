@@ -444,7 +444,50 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
             python_string_literal(description)
         ));
     }
+    if let Some(parameters) = function_parameters_update_from_projection(function) {
+        let annotated_parameter_names = annotated_function_parameter_names(code);
+        for parameter in parameters.parameters {
+            if parameter.name.is_empty() || !annotated_parameter_names.contains(&parameter.name) {
+                continue;
+            }
+            decorators.push(format!(
+                "@func_parameter({}, {})\n",
+                python_string_literal(&parameter.name),
+                python_string_literal(&parameter.description)
+            ));
+        }
+    }
     insert_python_function_decorators(code, name, decorators)
+}
+
+fn annotated_function_parameter_names(code: &str) -> HashSet<String> {
+    let signature = code.lines().find_map(|line| {
+        let trimmed = line.trim();
+        trimmed
+            .strip_prefix("def ")
+            .or_else(|| trimmed.strip_prefix("async def "))
+            .map(ToString::to_string)
+    });
+    let Some(signature) = signature else {
+        return HashSet::new();
+    };
+    let Some(open) = signature.find('(') else {
+        return HashSet::new();
+    };
+    let Some(close) = signature[open + 1..].find(')') else {
+        return HashSet::new();
+    };
+    signature[open + 1..open + 1 + close]
+        .split(',')
+        .map(str::trim)
+        .filter_map(|param| {
+            let before_default = param.split('=').next().unwrap_or_default().trim();
+            let (name, _) = before_default.split_once(':')?;
+            let name = name.trim();
+            (!name.is_empty() && !matches!(name, "self" | "conv" | "flow"))
+                .then(|| name.to_string())
+        })
+        .collect()
 }
 
 fn insert_python_function_decorators(

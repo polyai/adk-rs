@@ -474,7 +474,11 @@ fn projection_materializes_global_functions_as_raw_content() {
                     "fn-1": {
                         "name": "lookup_customer",
                         "description": "Look up a customer.",
-                        "code": "from functions.helpers import normalize\n\n\ndef lookup_customer(conv: Conversation):\n    return normalize({'ok': True})\n"
+                        "parameters": [
+                            {"id": "param-1", "name": "customer_id", "description": "Customer id", "type": "string"},
+                            {"id": "param-2", "name": "age", "description": "Customer age", "type": "integer"}
+                        ],
+                        "code": "from functions.helpers import normalize\n\n\ndef lookup_customer(conv: Conversation, customer_id: str, age: int = 0):\n    return normalize({'ok': True})\n"
                     }
                 }
             }
@@ -494,7 +498,7 @@ fn projection_materializes_global_functions_as_raw_content() {
     assert!(!content.contains("from _gen import *  # <AUTO GENERATED>"));
     assert_eq!(
         content,
-        "from functions.helpers import normalize\n\n\n@func_description('Look up a customer.')\ndef lookup_customer(conv: Conversation):\n    return normalize({'ok': True})\n"
+        "from functions.helpers import normalize\n\n\n@func_description('Look up a customer.')\n@func_parameter('customer_id', 'Customer id')\n@func_parameter('age', 'Customer age')\ndef lookup_customer(conv: Conversation, customer_id: str, age: int = 0):\n    return normalize({'ok': True})\n"
     );
 }
 
