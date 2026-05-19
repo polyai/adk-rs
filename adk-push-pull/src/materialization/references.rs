@@ -1,4 +1,4 @@
-use super::{flow_entries, projection_entities, projection_nested_entities};
+use super::{flows::flow_entries, projection_entities, projection_nested_entities};
 use crate::clean_name;
 use adk_types::ResourceMap;
 use serde_json::Value;
