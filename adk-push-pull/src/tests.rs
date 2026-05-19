@@ -1860,6 +1860,234 @@ fn projection_materializes_broad_resources_without_python_omitted_metadata() {
 }
 
 #[test]
+fn projection_to_resource_map_includes_func_parameter_decorators() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "verify_dob",
+                        "description": "Verify date of birth",
+                        "code": "def verify_dob(conv: Conversation, dob: str):\n    return dob\n",
+                        "parameters": [
+                            {"id": "p1", "name": "dob", "description": "Date of birth, formatted as \"MM-DD-YYYY\"", "type": "string"}
+                        ]
+                    }
+                }
+            }
+        }
+    });
+    let map = projection_to_resource_map(&projection).expect("map");
+    let content = map
+        .get("functions/verify_dob.py")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("function file content");
+    assert!(content.contains("@func_description("));
+    assert!(
+        content.contains("@func_parameter('dob', 'Date of birth, formatted as \"MM-DD-YYYY\"')")
+    );
+    assert!(content.contains("def verify_dob("));
+}
+
+#[test]
+fn projection_to_resource_map_includes_func_parameter_decorators_from_entities_shape() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "verify_dob",
+                        "description": "Verify date of birth",
+                        "code": "def verify_dob(conv: Conversation, dob: str):\n    return dob\n",
+                        "parameters": {
+                            "entities": {
+                                "p1": {
+                                    "id": "p1",
+                                    "name": "dob",
+                                    "description": "Date of birth, formatted as \"MM-DD-YYYY\"",
+                                    "type": "string"
+                                }
+                            },
+                            "ids": ["p1"]
+                        }
+                    }
+                }
+            }
+        }
+    });
+    let map = projection_to_resource_map(&projection).expect("map");
+    let content = map
+        .get("functions/verify_dob.py")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("function file content");
+    assert!(content.contains("@func_description("));
+    assert!(
+        content.contains("@func_parameter('dob', 'Date of birth, formatted as \"MM-DD-YYYY\"')")
+    );
+    assert!(content.contains("def verify_dob("));
+}
+
+#[test]
+fn projection_to_resource_map_orders_func_parameter_decorators_by_ids() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "start_warm_transfer_flow",
+                        "description": "Start warm transfer",
+                        "code": "def start_warm_transfer_flow(conv: Conversation, handoff_reason: str, handoff_to: str):\n    return None\n",
+                        "parameters": {
+                            "entities": {
+                                "p-handoff-to": {
+                                    "id": "p-handoff-to",
+                                    "name": "handoff_to",
+                                    "description": "Destination queue",
+                                    "type": "string"
+                                },
+                                "p-handoff-reason": {
+                                    "id": "p-handoff-reason",
+                                    "name": "handoff_reason",
+                                    "description": "Why the transfer is needed",
+                                    "type": "string"
+                                }
+                            },
+                            "ids": ["p-handoff-reason", "p-handoff-to"]
+                        }
+                    }
+                }
+            }
+        }
+    });
+    let map = projection_to_resource_map(&projection).expect("map");
+    let content = map
+        .get("functions/start_warm_transfer_flow.py")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("function file content");
+    assert!(
+        content.contains("@func_parameter('handoff_reason', 'Why the transfer is needed')"),
+        "missing handoff_reason decorator:\n{content}"
+    );
+    assert!(
+        content.contains("@func_parameter('handoff_to', 'Destination queue')"),
+        "missing handoff_to decorator:\n{content}"
+    );
+}
+
+#[test]
+fn projection_to_resource_map_includes_func_latency_control_decorator() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "slow_lookup",
+                        "description": "",
+                        "code": "def slow_lookup(conv: Conversation):\n    return None\n",
+                        "latencyControl": {
+                            "enabled": true,
+                            "initialDelay": 3,
+                            "interval": 1,
+                            "delayResponses": {
+                                "entities": {
+                                    "dr-1": {"message": "Please wait", "duration": 2}
+                                },
+                                "ids": ["dr-1"]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+    let map = projection_to_resource_map(&projection).expect("map");
+    let content = map
+        .get("functions/slow_lookup.py")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("function file content");
+    assert!(
+        content.contains("@func_latency_control(delay_before_responses_start=3, silence_after_each_response=1, delay_responses=[('Please wait', 2)])"),
+        "expected latency control decorator, got:\n{content}"
+    );
+}
+
+#[test]
+fn projection_to_resource_map_includes_flow_transition_function_decorators() {
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "verify_flow",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "name": "start",
+                                    "type": "advanced_step",
+                                    "prompt": "Verify the caller."
+                                }
+                            }
+                        },
+                        "transitionFunctions": {
+                            "entities": {
+                                "tf-1": {
+                                    "id": "tf-1",
+                                    "name": "route_call",
+                                    "description": "Route to the correct department",
+                                    "code": "def route_call(conv: Conversation, dept: str):\n    return dept\n",
+                                    "parameters": [
+                                        {"id": "p1", "name": "dept", "description": "Must be one of \"billing\", \"support\"", "type": "string"}
+                                    ],
+                                    "latencyControl": {
+                                        "enabled": true,
+                                        "initialDelay": 2,
+                                        "interval": 1,
+                                        "delayResponses": {
+                                            "entities": {
+                                                "dr-1": {"message": "Routing", "duration": 2}
+                                            },
+                                            "ids": ["dr-1"]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+    let map = projection_to_resource_map(&projection).expect("map");
+    let content = map
+        .get("flows/verify_flow/functions/route_call.py")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("transition function file content");
+    assert!(
+        content.contains("@func_description("),
+        "missing @func_description: {content}"
+    );
+    assert!(
+        content.contains("@func_parameter('dept',"),
+        "missing @func_parameter: {content}"
+    );
+    assert!(
+        content.contains("@func_latency_control("),
+        "missing @func_latency_control: {content}"
+    );
+}
+
+#[test]
 fn single_file_resource_files_emit_real_create_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(

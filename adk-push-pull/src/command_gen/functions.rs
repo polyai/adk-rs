@@ -474,6 +474,22 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
             ));
         }
     }
+    let latency = latency_control_from_projection(function);
+    if latency.enabled {
+        let mut parts = vec![
+            format!("delay_before_responses_start={}", latency.initial_delay),
+            format!("silence_after_each_response={}", latency.interval),
+        ];
+        if !latency.delay_responses.is_empty() {
+            let responses: Vec<_> = latency
+                .delay_responses
+                .iter()
+                .map(|r| format!("({}, {})", python_string_literal(&r.message), r.duration))
+                .collect();
+            parts.push(format!("delay_responses=[{}]", responses.join(", ")));
+        }
+        decorators.push(format!("@func_latency_control({})\n", parts.join(", ")));
+    }
     insert_python_function_decorators(code, name, decorators)
 }
 
