@@ -1,10 +1,14 @@
-# adk-rs
+# adk-rs (WIP)
 
 [![Tests](https://github.com/polyai/adk-rs/actions/workflows/lint-and-test.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/lint-and-test.yml)
 [![Release](https://github.com/polyai/adk-rs/actions/workflows/release.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/release.yml)
 
 Workspace for the Rust port of PolyAI's ADK. The goal is feature parity with the
 Python ADK while making it easier to test and ship the CLI, as well as embed the tooling itself.
+
+> [!NOTE]
+> This repository is a work-in-progress Rust rewrite of the original Python ADK.
+> New users should install [the Python ADK](https://github.com/polyai/adk), not this one.
 
 ## Layout
 

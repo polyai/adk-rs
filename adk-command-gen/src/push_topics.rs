@@ -15,6 +15,16 @@ use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
+/// Builds create/update/delete commands for knowledge-base topics.
+///
+/// Local topic YAML stores readable names and prompt references, while Agent
+/// Studio commands expect stable topic IDs and reference IDs. This function
+/// resolves the remote topic set from the projection, translates local reference
+/// names back to IDs, emits creates or updates for changed local topics, and
+/// deletes remote topics that are no longer present on disk.
+///
+/// The returned commands are grouped into the standard push phases so topic
+/// lifecycle changes compose predictably with the other command generators.
 pub(crate) fn topic_resource_command_groups(
     resources: &ResourceMap,
     projection: &Value,

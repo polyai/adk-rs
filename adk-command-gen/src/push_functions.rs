@@ -24,6 +24,19 @@ use adk_types::{Resource, ResourceMap};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
+/// Builds phase-ordered push commands for top-level Python functions.
+///
+/// This compares the local `functions/*.py` resources with the function state in
+/// the Agent Studio projection and emits create/update/delete commands for global
+/// functions plus the special start/end functions. It also performs the local
+/// Python-to-Agent-Studio translation that is easy to miss at call sites:
+/// metadata decorators become descriptions/parameters, latency decorators become
+/// separate latency-control commands, variable references are resolved, and
+/// flow-function import paths are converted back to projection IDs.
+///
+/// The returned groups preserve the push phase ordering expected by the Python
+/// ADK: deletes first, then creates, updates, and finally post-updates such as
+/// latency-control changes.
 pub(crate) fn function_resource_command_groups(
     resources: &ResourceMap,
     projection: &Value,
