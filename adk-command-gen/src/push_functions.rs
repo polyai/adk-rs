@@ -458,9 +458,8 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
         ));
     }
     if let Some(parameters) = function_parameters_update_from_projection(function) {
-        let annotated_parameter_names = annotated_function_parameter_names(code);
         for parameter in parameters.parameters {
-            if parameter.name.is_empty() || !annotated_parameter_names.contains(&parameter.name) {
+            if parameter.name.is_empty() {
                 continue;
             }
             decorators.push(format!(
@@ -470,37 +469,23 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
             ));
         }
     }
+    let latency = latency_control_from_projection(function);
+    if latency.enabled {
+        let mut parts = vec![
+            format!("delay_before_responses_start={}", latency.initial_delay),
+            format!("silence_after_each_response={}", latency.interval),
+        ];
+        if !latency.delay_responses.is_empty() {
+            let responses: Vec<_> = latency
+                .delay_responses
+                .iter()
+                .map(|r| format!("({}, {})", python_string_literal(&r.message), r.duration))
+                .collect();
+            parts.push(format!("delay_responses=[{}]", responses.join(", ")));
+        }
+        decorators.push(format!("@func_latency_control({})\n", parts.join(", ")));
+    }
     insert_python_function_decorators(code, name, decorators)
-}
-
-fn annotated_function_parameter_names(code: &str) -> HashSet<String> {
-    let signature = code.lines().find_map(|line| {
-        let trimmed = line.trim();
-        trimmed
-            .strip_prefix("def ")
-            .or_else(|| trimmed.strip_prefix("async def "))
-            .map(ToString::to_string)
-    });
-    let Some(signature) = signature else {
-        return HashSet::new();
-    };
-    let Some(open) = signature.find('(') else {
-        return HashSet::new();
-    };
-    let Some(close) = signature[open + 1..].find(')') else {
-        return HashSet::new();
-    };
-    signature[open + 1..open + 1 + close]
-        .split(',')
-        .map(str::trim)
-        .filter_map(|param| {
-            let before_default = param.split('=').next().unwrap_or_default().trim();
-            let (name, _) = before_default.split_once(':')?;
-            let name = name.trim();
-            (!name.is_empty() && !matches!(name, "self" | "conv" | "flow"))
-                .then(|| name.to_string())
-        })
-        .collect()
 }
 
 fn insert_python_function_decorators(

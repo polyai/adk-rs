@@ -927,7 +927,9 @@ fn legacy_python_function_raw(
     payload: &Value,
     include_metadata_decorators: bool,
 ) -> Option<String> {
-    let code = payload.get("code").and_then(Value::as_str)?.to_string();
+    let raw_code = payload.get("code").and_then(Value::as_str)?.to_string();
+    let (code, _existing_decorators) =
+        extract_normalized_python_adk_decorators(&raw_code, include_metadata_decorators);
     let name = payload
         .get("name")
         .and_then(Value::as_str)
