@@ -6,8 +6,12 @@ Concrete follow-ups from the latest Python-vs-Rust audit. Each item should be co
 - [ ] **Modularize large Rust implementation files** (`code-quality-modularization`)
   - Keep `adk-core/src/lib.rs` as a facade and move unrelated implementation clusters into focused modules.
   - Core sequence done: Python helpers, status snapshot helpers, validation, `AdkService`, and `ProjectWorkspace` now live in focused modules.
-  - Follow-up progress: command JSON summaries, CLI completion, CLI self-update, CLI deployments, CLI branch, CLI chat, shared CLI output helpers, `adk-push-pull` materialization, command generation, and function parsing are now split into focused modules.
-  - Follow-up targets: continue splitting `adk-cli/src/main.rs` by remaining command/prompt concerns, and split any remaining large `adk-push-pull` lifecycle files by resource family.
+  - Follow-up progress: command JSON summaries, CLI completion, CLI self-update, CLI deployments, CLI branch, CLI chat, shared CLI output helpers, CLI args/revert/review, `adk-push-pull` materialization, command generation, structured single-file command generation, and function parsing are now split into focused modules.
+  - CLI progress: `adk-cli/src/main.rs` now keeps parser dispatch and shared service/prompt helpers while command args, `revert`, and `review` live in focused modules.
+  - Materialization progress: `adk-push-pull/src/materialization/mod.rs` now stays as the `projection_to_resource_map` facade, with broad resources, channels, synthetic interaction/config files, and agent settings split into focused modules.
+  - Command-generation progress: `single_file_resources/structured.rs` now stays as the structured-resource aggregation point, with variants, API integrations, keyphrases, transcript corrections, pronunciations, settings, summaries, and common helpers split into focused modules.
+  - Next command-generation target: continue splitting flow command generation internals where useful, especially `command_gen/flows/summary.rs`, `command_gen/flows/parsing.rs`, and remaining lifecycle code in `command_gen/flows.rs`.
+  - Later core target: split `adk-core/src/service.rs` by workflow after push/pull boundaries settle.
   - Keep each slice mechanical first: move code, preserve signatures/behavior, and run the existing tests before making semantic changes.
 
 - [x] **Restore flow transition-function parity** (`flow-transition-function-parity`)

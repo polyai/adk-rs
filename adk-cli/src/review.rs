@@ -1,7 +1,162 @@
+use crate::{
+    ReviewArgs, ReviewCommands, ReviewCreateArgs, console, emit_inmemory_fallback_warning,
+    emit_remote_service_error, ensure_project_loaded, http_service_for_path, local_service,
+    normalize_cli_file_args, should_warn_inmemory_fallback,
+};
+use adk_api_client::PlatformClient;
+use adk_core::{AdkService, ProjectWorkspace};
 use serde_json::json;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, ExitCode};
+
+macro_rules! with_remote_service {
+    ($workspace:expr, $path:expr, $json_mode:expr, |$service:ident| $body:expr) => {{
+        match http_service_for_path($workspace, $path) {
+            Ok($service) => $body,
+            Err(error) if crate::allow_inmemory_fallback() => {
+                if should_warn_inmemory_fallback(&error) {
+                    emit_inmemory_fallback_warning($json_mode, &error);
+                }
+                let $service = local_service();
+                $body
+            }
+            Err(error) => {
+                emit_remote_service_error($json_mode, &error);
+                ExitCode::from(1)
+            }
+        }
+    }};
+}
+
+pub(crate) fn cmd_review(args: ReviewArgs) -> ExitCode {
+    match args.command {
+        None => ExitCode::SUCCESS,
+        Some(ReviewCommands::List(list)) => match github_list_diff_gists() {
+            Ok(gists) => {
+                if args.json || list.json {
+                    println!("{}", json!(gists));
+                } else if gists.is_empty() {
+                    console::plain("[muted]No review gists found.[/muted]");
+                } else if let Err(error) = prompt_open_review_gist(&gists) {
+                    emit_review_message(false, &error);
+                } else {
+                    console::success("Opened gist.");
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                emit_review_message(args.json || list.json, &error);
+                ExitCode::SUCCESS
+            }
+        },
+        Some(ReviewCommands::Delete(delete)) => {
+            let json_mode = args.json || delete.json;
+            let delete_result = if let Some(id) = delete.id.as_deref() {
+                github_delete_review_gist(id).map(usize::from)
+            } else {
+                prompt_delete_review_gists(json_mode)
+            };
+            match delete_result {
+                Ok(deleted_count) => {
+                    let deleted = deleted_count > 0;
+                    if args.json || delete.json {
+                        println!("{}", json!({"success": deleted}));
+                    } else if deleted_count > 1 {
+                        console::success(format!("Deleted {deleted_count} gists."));
+                    } else if deleted {
+                        console::success("Deleted gist.");
+                    } else {
+                        console::plain("[muted]No review gists found.[/muted]");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    emit_review_message(args.json || delete.json, &error);
+                    ExitCode::SUCCESS
+                }
+            }
+        }
+        Some(ReviewCommands::Create(create)) => {
+            if create.hash.is_some() && (create.before.is_some() || create.after.is_some()) {
+                console::error("Cannot specify both hash and before/after versions.");
+                return ExitCode::SUCCESS;
+            }
+            let json_mode = args.json || create.json;
+            let needs_remote =
+                create.hash.is_some() || create.before.is_some() || create.after.is_some();
+            if needs_remote {
+                let workspace = ProjectWorkspace::new();
+                with_remote_service!(&workspace, &args.path, json_mode, |service| {
+                    cmd_review_create(&service, &args.path, args.json, create)
+                })
+            } else {
+                let service = local_service();
+                cmd_review_create(&service, &args.path, args.json, create)
+            }
+        }
+    }
+}
+
+fn cmd_review_create<C: PlatformClient>(
+    service: &AdkService<C>,
+    path: &str,
+    parent_json: bool,
+    create: ReviewCreateArgs,
+) -> ExitCode {
+    let json_mode = parent_json || create.json;
+    if !ensure_project_loaded(service, path, json_mode) {
+        return ExitCode::from(1);
+    }
+    let after = create.hash.clone().or(create.after.clone());
+    let root = PathBuf::from(path);
+    let files = normalize_cli_file_args(root.as_path(), &create.files);
+    let diffs = match service.diff(root.as_path(), &files, create.before.clone(), after.clone()) {
+        Ok(diffs) => diffs,
+        Err(_) => {
+            if json_mode {
+                println!(
+                    "{}",
+                    json!({"success": false, "message": "Failed to compute diffs."})
+                );
+            } else {
+                console::plain("[muted]No changes detected.[/muted]");
+            }
+            return ExitCode::SUCCESS;
+        }
+    };
+    if diffs.is_empty() {
+        if json_mode {
+            println!(
+                "{}",
+                json!({"success": false, "message": "No changes to review."})
+            );
+        } else {
+            console::plain("[muted]No changes detected.[/muted]");
+        }
+        return ExitCode::SUCCESS;
+    }
+    let description = review_description(
+        path,
+        create.hash.as_deref(),
+        create.before.as_deref(),
+        after.as_deref(),
+    );
+    match github_create_review_gist(diffs.iter(), &description) {
+        Ok(url) => {
+            if json_mode {
+                println!("{}", json!({"success": true, "link": url}));
+            } else {
+                console::success(format!("Gist created: {url}"));
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            emit_review_message(json_mode, &error);
+            ExitCode::SUCCESS
+        }
+    }
+}
 
 pub fn emit_review_message(json_mode: bool, message: &str) {
     if json_mode {
