@@ -758,54 +758,12 @@ fn assert_json_contract(assertion: JsonContractAssertion<'_>) {
     } = assertion;
     let expected = substitute_json(expected, substitutions, Some(actual));
     let actual = actual.clone();
-    let (expected, actual) = if scenario == "python-syntax-validation" {
-        (
-            normalize_python_syntax_diagnostics(&expected),
-            normalize_python_syntax_diagnostics(&actual),
-        )
-    } else {
-        (expected, actual)
-    };
     assert_eq!(
         expected,
         actual,
         "{scenario}/{workflow}/{command_name}: JSON stdout mismatch\n{}\nargv={argv:?}\nexpected={expected}\nactual={actual}\nstdout={actual_stdout}\nstderr={actual_stderr}",
         fixture_paths.diagnostic_lines()
     );
-}
-
-fn normalize_python_syntax_diagnostics(value: &Value) -> Value {
-    match value {
-        Value::String(text) => Value::String(normalize_python_syntax_diagnostic_text(text)),
-        Value::Array(items) => Value::Array(
-            items
-                .iter()
-                .map(normalize_python_syntax_diagnostics)
-                .collect(),
-        ),
-        Value::Object(object) => Value::Object(
-            object
-                .iter()
-                .map(|(key, value)| (key.clone(), normalize_python_syntax_diagnostics(value)))
-                .collect(),
-        ),
-        other => other.clone(),
-    }
-}
-
-fn normalize_python_syntax_diagnostic_text(text: &str) -> String {
-    if text.contains("Error reading resource ")
-        && let Some(index) = text.find(".py: ")
-    {
-        return format!("{}${{PYTHON_SYNTAX_ERROR}}", &text[..index + ".py: ".len()]);
-    }
-    if let Some(index) = text.find("Syntax error in function code: ") {
-        return format!(
-            "{}${{PYTHON_SYNTAX_ERROR}}",
-            &text[..index + "Syntax error in function code: ".len()]
-        );
-    }
-    text.to_string()
 }
 
 fn apply_file_edit(

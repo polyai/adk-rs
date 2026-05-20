@@ -16,7 +16,7 @@ pr-run-mode = "plan"
 # Send Slack notifications after cargo-dist finishes announcing a release.
 post-announce-jobs = ["./slack-release-notification"]
 # Use the product name in release notes, while keeping the crates.io package name.
-display-name = "poly"
+display-name = "PolyAI ADK"
 
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"

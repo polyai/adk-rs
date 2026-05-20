@@ -99,6 +99,10 @@ fn run() -> Result<ExitCode> {
     let workspace = ProjectWorkspace::new();
 
     let result = match cli.command {
+        Commands::Help => {
+            print_top_level_help();
+            ExitCode::SUCCESS
+        }
         Commands::Docs(args) => cmd_docs(args),
         Commands::Init(args) => cmd_init(&workspace, args),
         Commands::Project(args) => cmd_project(&workspace, args),
@@ -157,12 +161,13 @@ fn print_top_level_help() {
     let mut output = String::from(
         concat!(
             "usage: poly [-h] [-v]\n",
-            "            {docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments} ...\n\n",
+            "            {help,docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments} ...\n\n",
             "positional arguments:\n",
-            "  {docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments}\n",
+            "  {help,docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments}\n",
         ),
     );
     for (name, description) in [
+        ("help", "Show this help message and exit."),
         ("docs", "Outputs documentation for a given topic."),
         ("init", "Initialize a new Agent Studio project."),
         ("project", "Manage Agent Studio projects."),
@@ -174,10 +179,7 @@ fn print_top_level_help() {
         ("status", "Check the changed files of the project."),
         ("revert", "Revert changes in the project."),
         ("diff", "Show the changes made to the project."),
-        (
-            "review",
-            "Create a GitHub Gist of Agent Studio project changes to share changes.",
-        ),
+        ("review", "Incomplete: review Agent Studio project changes."),
         ("branch", "Manage branches in the Agent Studio project."),
         (
             "format",
@@ -235,6 +237,7 @@ fn deployments_json(args: &DeploymentsArgs) -> bool {
 
 fn command_verbose(command: &Commands) -> bool {
     match command {
+        Commands::Help => false,
         Commands::Docs(args) => args.verbose,
         Commands::Init(args) => args.verbose,
         Commands::Project(args) => project_verbose(args),

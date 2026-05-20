@@ -16,6 +16,8 @@ pub(crate) struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Commands {
+    #[command(about = "Show this help message and exit.")]
+    Help,
     #[command(about = "Outputs documentation for a given topic.")]
     Docs(DocsArgs),
     #[command(about = "Initialize a new Agent Studio project.")]
@@ -32,7 +34,7 @@ pub(crate) enum Commands {
     Revert(RevertArgs),
     #[command(about = "Show the changes made to the project.")]
     Diff(DiffArgs),
-    #[command(about = "Create a GitHub Gist of Agent Studio project changes to share changes.")]
+    #[command(about = "Incomplete: review Agent Studio project changes.")]
     Review(ReviewArgs),
     #[command(about = "Manage branches in the Agent Studio project.")]
     Branch(BranchArgs),

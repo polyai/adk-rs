@@ -9,13 +9,13 @@ source:
   project_id: PROJECT-JTQKOKLM
   project_name: Test
 replay_notes:
-- Pending parity fixture for Python CLI surface details and diff/review edge behavior.
-- This records parser-level invalid region behavior, default init base path, verbose flag placement, hidden/visible help text, file filters, review filtering, and --before main local diff behavior.
+- Pending parity fixture for Python CLI surface details and diff edge behavior.
+- This records parser-level invalid region behavior, default init base path, verbose flag placement, hidden/visible help text, file filters, and --before main local diff behavior.
 - This is not in the default replay scenario list until these surface contracts are implemented in Rust.
 httpmock_recording: cli-diff-edges.httpmock.yaml
 workflows:
 - name: cli_diff_edges
-  description: Record Python CLI parser contracts plus file-filtered diff/review and named diff behavior on a dirty local checkout.
+  description: Record Python CLI parser contracts plus file-filtered diff and named diff behavior on a dirty local checkout.
   mutates_real_server: false
   cleanup: []
   steps:
@@ -166,22 +166,5 @@ workflows:
       diffs:
         agent_settings/rules.txt: "--- original\n+++ updated\n@@ -78,3 +78,7 @@\n \n \n # ADK recording conflict branch 56de8e44\n+\n+\n+# ADK recording diff edge\n+This line records Python diff edge behavior."
       success: true
-    stdout: null
-    stderr: ''
-  - kind: command
-    name: review create relative file filter without github token
-    argv:
-    - poly
-    - review
-    - --path
-    - ${TMP}/ben-ws/PROJECT-JTQKOKLM
-    - create
-    - --json
-    - --files
-    - agent_settings/rules.txt
-    exit_code: 0
-    stdout_json:
-      message: No changes to review.
-      success: false
     stdout: null
     stderr: ''

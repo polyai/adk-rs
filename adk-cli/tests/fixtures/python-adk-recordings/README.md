@@ -66,6 +66,11 @@ Each scenario has a command manifest and a matching raw `httpmock` cassette:
 Step-level manifests include command steps plus explicit `file_edit` steps that
 a replay test must apply to the temp checkout.
 
+Recording scenarios should exercise real Agent Studio HTTP traffic. Local-only
+contracts such as `--from-projection` materialization, validation errors, status,
+diff, and dry-run command generation live in regular Rust unit or CLI tests
+instead.
+
 ## Additional Replay Scenarios
 
 These fixtures are also included in the cheap Rust replay suite and cover
@@ -80,38 +85,15 @@ focused parity behavior beyond the larger workflows above:
   pronunciations, transcript corrections, variants, and API integrations.
 - `semantic-validation.*`
   Documents Python semantic validation beyond YAML/JSON parsing.
-- `python-syntax-validation.*`
-  Documents Python `compile()` validation for global functions, start/end
-  special functions, and flow function steps.
 - `special-functions.*`
   Documents Python start/end special-function pull materialization, create,
   update, delete, and related `conv.state.*` variable command behavior.
 - `format-local.*`
   Documents Python formatting for YAML resources, Python function files, and
   observed `--ty` behavior. Replay needs `ruff` and `ty` on `PATH`.
-- `flow-validation.*`
-  Documents Python validation errors for invalid flow config, step YAML, and
-  function-step signatures.
-- `flow-deletion.*`
-  Documents Python dry-run command behavior for no-code condition deletion and
-  whole-flow deletion.
-- `flow-lifecycle.*`
-  Documents Python status, diff, and dry-run command behavior for existing flow
-  edits, including `flow_config`, `flow_steps`, and function-step create/delete.
-- `flow-resource-coverage.*`
-  Documents Python dry-run command generation for `flow_config`, advanced and
-  default `flow_steps`, `function_steps`, and no-code exit conditions.
 - `live-resource-push.*`
   Documents Python non-dry-run push behavior for a representative flow create
   plus keyphrase boosting create on a throwaway branch.
-- `resource-materialization.*`
-  Documents Python pull materialization for flow resources, broad multi-resource
-  files, and synthetic interaction/config families using explicit file
-  assertions.
-- `synthetic-lifecycle.*`
-  Documents Python create, update, delete, and default-handoff command contracts
-  for entities, experimental config, SMS templates, handoffs, and phrase
-  filtering.
 - `interactive-contracts.*`
   Documents deterministic interactive-adjacent behavior: stdin-backed branch
   creation and JSON-mode errors for missing interactive arguments.
@@ -119,8 +101,8 @@ focused parity behavior beyond the larger workflows above:
   Documents Python chat JSON output shape, metadata filtering, and current
   input-file behavior.
 - `cli-diff-edges.*`
-  Documents parser edge cases, default path behavior, file-filtered diff/review,
-  and `--before main` against a dirty local checkout.
+  Documents parser edge cases, default path behavior, file-filtered diff, and
+  `--before main` against a dirty local checkout.
 
 ## Recorder-Only TDD Scenarios
 
@@ -137,8 +119,9 @@ to parity, then add the scenario name to `tests/support/mod.rs`.
   real Agent Studio API, and overwrites the manifest plus matching cassette.
 - `python_adk_recording_fixture_integrity_test.rs`
   Cheap fixture checks. These validate that every scenario has both files, that
-  manifests point at the right cassette, and that saved text is portable. They
-  do not run the Rust CLI against the recordings.
+  manifests point at the right cassette, that cassettes contain at least one
+  recorded request, and that saved text is portable. They do not run the Rust
+  CLI against the recordings.
 - `replay_python_adk_httpmock_fixtures_test.rs`
   Cheap replay tests. By default these run the Rust CLI against each saved
   cassette and compare JSON output plus exit codes to Python's recorded
@@ -177,22 +160,22 @@ and writes fixture files.
 Refresh all enabled scenarios:
 
 ```bash
-cargo test -p poly-adk-cli --test record_python_adk_from_manifest_test \
+cargo test -p poly-adk --test record_python_adk_from_manifest_test \
   -- --ignored --nocapture
 ```
 
 To refresh a single scenario:
 
 ```bash
-PYTHON_ADK_RECORD_SCENARIO=python-syntax-validation \
-  cargo test -p poly-adk-cli --test record_python_adk_from_manifest_test \
+PYTHON_ADK_RECORD_SCENARIO=cli-diff-edges \
+  cargo test -p poly-adk --test record_python_adk_from_manifest_test \
   -- --ignored --nocapture
 ```
 
 To regenerate everything deterministically, run ignored tests sequentially:
 
 ```bash
-cargo test -p poly-adk-cli --test record_python_adk_from_manifest_test \
+cargo test -p poly-adk --test record_python_adk_from_manifest_test \
   -- --ignored --nocapture --test-threads=1
 ```
 
@@ -247,7 +230,7 @@ can be more flexible, but JSON is treated as a contract.
 To opt into the Python replay check, run:
 
 ```bash
-cargo test -p poly-adk-cli --test replay_python_adk_httpmock_fixtures_test \
+cargo test -p poly-adk --test replay_python_adk_httpmock_fixtures_test \
   python_adk_replays_saved_python_adk_httpmock_recordings \
   -- --ignored --nocapture
 ```
@@ -256,7 +239,7 @@ To check one saved Python scenario:
 
 ```bash
 PYTHON_ADK_REPLAY_SCENARIO=chat-session-controls \
-  cargo test -p poly-adk-cli --test replay_python_adk_httpmock_fixtures_test \
+  cargo test -p poly-adk --test replay_python_adk_httpmock_fixtures_test \
   python_adk_replays_saved_python_adk_httpmock_recordings \
   -- --ignored --nocapture
 ```

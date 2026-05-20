@@ -725,6 +725,88 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         ))
     }
 
+    fn pull_status_hashes_for_file<'a>(
+        path: &str,
+        snapshot_hashes: &'a indexmap::IndexMap<String, String>,
+    ) -> Option<Vec<(&'a str, &'a str)>> {
+        let entries = snapshot_hashes
+            .iter()
+            .filter_map(|(hash_path, expected_hash)| {
+                let hash_path = hash_path.as_str();
+                if hash_path == path
+                    || (hash_path.contains(".yaml/")
+                        && parse_multi_resource_path(hash_path).0 == path)
+                {
+                    Some((hash_path, expected_hash.as_str()))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        if entries.is_empty() {
+            None
+        } else {
+            Some(entries)
+        }
+    }
+
+    fn status_hashes_for_content(
+        status_hashes: &[(&str, &str)],
+        content: &str,
+        snapshot_hashes: &indexmap::IndexMap<String, String>,
+    ) -> Vec<String> {
+        status_hashes
+            .iter()
+            .map(|(hash_path, expected_hash)| {
+                current_status_hash_for_expected(hash_path, content, expected_hash, snapshot_hashes)
+            })
+            .collect()
+    }
+
+    fn status_hashes_changed(status_hashes: &[(&str, &str)], current_hashes: &[String]) -> bool {
+        status_hashes
+            .iter()
+            .zip(current_hashes)
+            .any(|((_, expected_hash), current_hash)| current_hash != expected_hash)
+    }
+
+    fn status_resource_paths(status_hashes: &[(&str, &str)]) -> BTreeSet<String> {
+        status_hashes
+            .iter()
+            .filter_map(|(hash_path, _)| {
+                parse_multi_resource_path(hash_path)
+                    .1
+                    .map(|_| (*hash_path).to_string())
+            })
+            .collect()
+    }
+
+    fn yaml_status_resource_paths(path: &str, content: &str) -> Option<BTreeSet<String>> {
+        let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+        let mapping = yaml.as_mapping()?;
+        let mut paths = BTreeSet::new();
+        for (key, value) in mapping {
+            let Some(top_level_name) = key.as_str() else {
+                continue;
+            };
+            if let Some(items) = value.as_sequence() {
+                for (index, item) in items.iter().enumerate() {
+                    if top_level_name == "pronunciations" {
+                        paths.insert(format!("{path}/{top_level_name}/{index}"));
+                        continue;
+                    }
+                    if let Some(name) = item.get("name").and_then(serde_yaml::Value::as_str) {
+                        let name = crate::discover::clean_name(name, false);
+                        paths.insert(format!("{path}/{top_level_name}/{name}"));
+                    }
+                }
+            } else {
+                paths.insert(format!("{path}/{top_level_name}"));
+            }
+        }
+        Some(paths)
+    }
+
     fn write_pulled_resources(
         &self,
         root: &Path,
@@ -763,19 +845,27 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                     continue;
                 }
                 if let Some(hashes) = snapshot_hashes.as_ref()
-                    && let Some(snapshot_hash) = hashes.get(path)
+                    && let Some(status_hashes) = Self::pull_status_hashes_for_file(path, hashes)
                 {
-                    let local_hash =
-                        current_status_hash_for_expected(path, &existing, snapshot_hash, hashes);
-                    let incoming_hash = current_status_hash_for_expected(
-                        path,
-                        &file_content,
-                        snapshot_hash,
-                        hashes,
-                    );
-                    let local_changed = local_hash != *snapshot_hash;
-                    let incoming_changed = incoming_hash != *snapshot_hash;
-                    if local_changed && !incoming_changed {
+                    let local_hashes =
+                        Self::status_hashes_for_content(&status_hashes, &existing, hashes);
+                    let incoming_hashes =
+                        Self::status_hashes_for_content(&status_hashes, &file_content, hashes);
+                    let snapshot_resource_paths = Self::status_resource_paths(&status_hashes);
+                    let local_resource_paths_changed = !snapshot_resource_paths.is_empty()
+                        && Self::yaml_status_resource_paths(path, &existing)
+                            .is_some_and(|paths| paths != snapshot_resource_paths);
+                    let incoming_resource_paths_changed = !snapshot_resource_paths.is_empty()
+                        && Self::yaml_status_resource_paths(path, &file_content)
+                            .is_some_and(|paths| paths != snapshot_resource_paths);
+                    let local_changed = Self::status_hashes_changed(&status_hashes, &local_hashes)
+                        || local_resource_paths_changed;
+                    let incoming_changed =
+                        Self::status_hashes_changed(&status_hashes, &incoming_hashes)
+                            || incoming_resource_paths_changed;
+                    if !incoming_changed
+                        || (local_hashes == incoming_hashes && !incoming_resource_paths_changed)
+                    {
                         continue;
                     }
                     if local_changed && incoming_changed && existing != file_content {
