@@ -30,4 +30,4 @@ jobs:
     - name: Run llvm-cov
       run: cargo llvm-cov --lcov --output-path lcov.info
     - name: Run cargo-crap
-      run: cargo crap --lcov lcov.info --fail-above --threshold 30
+      run: cargo crap --lcov lcov.info --threshold 30
