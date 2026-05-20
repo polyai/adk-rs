@@ -9,9 +9,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
-use support::cli::{
-    make_temp_project_dir, poly_without_fallback_command, run_poly_offline, temp_dir,
-};
+use support::cli::{make_temp_project_dir, poly_offline_command, run_poly_offline, temp_dir};
 
 fn run_poly(args: &[&str]) -> Output {
     run_poly_offline(args)
@@ -89,7 +87,7 @@ fn init_text_auto_selects_single_account_and_prompts_for_project() {
 
     let base = temp_dir("adk-rs-init-interactive");
     let base_url = format!("{}/adk/v1", server.base_url());
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env("POLY_ADK_BASE_URL_US", &base_url)
@@ -153,7 +151,7 @@ fn init_text_auto_selects_single_accessible_region() {
     });
 
     let base = temp_dir("adk-rs-init-region-selection");
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env(
@@ -206,7 +204,7 @@ fn init_text_project_selection_cancellation_exits_without_error() {
 
     let base = temp_dir("adk-rs-init-cancel");
     let base_url = format!("{}/adk/v1", server.base_url());
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env("POLY_ADK_BASE_URL_US", &base_url)
@@ -269,7 +267,7 @@ fn init_text_ctrl_c_exits_cleanly_with_message() {
 
     let base = temp_dir("adk-rs-init-ctrl-c");
     let base_url = format!("{}/adk/v1", server.base_url());
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env("POLY_ADK_BASE_URL_US", &base_url)
@@ -328,7 +326,7 @@ fn branch_switch_text_prompts_for_branch_when_name_is_omitted() {
     )
     .expect("write config");
     let base_url = format!("{}/adk/v1", server.base_url());
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env("POLY_ADK_BASE_URL_US", &base_url)
@@ -402,7 +400,7 @@ fn branch_delete_text_prompts_for_multiple_branches_and_switches_current_to_main
     )
     .expect("write config");
     let base_url = format!("{}/adk/v1", server.base_url());
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env("POLY_ADK_BASE_URL_US", &base_url)
@@ -456,7 +454,7 @@ fn branch_delete_text_reports_no_deletable_branches() {
     )
     .expect("write config");
     let base_url = format!("{}/adk/v1", server.base_url());
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env("POLY_ADK_BASE_URL_US", &base_url)
@@ -528,7 +526,7 @@ fn branch_merge_interactive_accepts_auto_merge_and_retries() {
     )
     .expect("write config");
     let base_url = format!("{}/adk/v1", server.base_url());
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env("POLY_ADK_BASE_URL_US", &base_url)
@@ -599,7 +597,7 @@ fn chat_text_echoes_scripted_turns_and_ends_session() {
     )
     .expect("write config");
     let base_url = format!("{}/adk/v1", server.base_url());
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env("POLY_ADK_BASE_URL_US", &base_url)
@@ -629,20 +627,58 @@ fn chat_text_echoes_scripted_turns_and_ends_session() {
 
 #[test]
 fn chat_json_restart_collects_multiple_conversations() {
-    let project_dir = make_temp_project_dir("adk-rs-chat-json-restart");
+    let server = MockServer::start();
+    let create = server.mock(|when, then| {
+        when.method(POST)
+            .path("/adk/v1/accounts/test/projects/proj/chat");
+        then.status(200).json_body(json!({
+            "conversation_id": "conv-1",
+            "response": "Ready",
+            "conversation_ended": false
+        }));
+    });
+    let send_hello = server.mock(|when, then| {
+        when.method(POST)
+            .path("/adk/v1/accounts/test/projects/proj/chat/conv-1")
+            .body_includes("Hello");
+        then.status(200).json_body(json!({
+            "response": "First reply",
+            "conversation_ended": false
+        }));
+    });
+    let send_again = server.mock(|when, then| {
+        when.method(POST)
+            .path("/adk/v1/accounts/test/projects/proj/chat/conv-1")
+            .body_includes("Again");
+        then.status(200).json_body(json!({
+            "response": "Second reply",
+            "conversation_ended": false
+        }));
+    });
+    let end = server.mock(|when, then| {
+        when.method(POST)
+            .path("/adk/v1/accounts/test/projects/proj/chat/conv-1/end");
+        then.status(200).json_body(json!({"success": true}));
+    });
 
-    let output = run_poly(&[
-        "chat",
-        "--json",
-        "--path",
-        &project_dir,
-        "-m",
-        "Hello",
-        "-m",
-        "/restart",
-        "-m",
-        "Again",
-    ]);
+    let project_dir = temp_dir("adk-rs-chat-json-restart");
+    fs::create_dir_all(&project_dir).expect("create project dir");
+    fs::write(
+        project_dir.join("project.yaml"),
+        "region: us-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write config");
+    let base_url = format!("{}/adk/v1", server.base_url());
+    let mut command = poly_offline_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env("POLY_ADK_BASE_URL_US", &base_url)
+        .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .args(["chat", "--json", "--path"])
+        .arg(project_dir.to_string_lossy().as_ref())
+        .args(["-m", "Hello", "-m", "/restart", "-m", "Again"]);
+
+    let output = command.output().expect("run poly chat");
 
     assert_eq!(output.status.code(), Some(0));
     let payload: serde_json::Value =
@@ -670,6 +706,10 @@ fn chat_json_restart_collects_multiple_conversations() {
             .and_then(serde_json::Value::as_str),
         Some("Again")
     );
+    create.assert_calls(2);
+    send_hello.assert();
+    send_again.assert();
+    end.assert();
 }
 
 #[test]
@@ -713,7 +753,7 @@ fn deployments_list_text_honors_details_flag() {
     .expect("write config");
     let base_url = format!("{}/adk/v1", server.base_url());
 
-    let mut compact = poly_without_fallback_command();
+    let mut compact = poly_offline_command();
     compact
         .env("POLY_ADK_KEY", "test-key")
         .env("POLY_ADK_BASE_URL_US", &base_url)
@@ -730,7 +770,7 @@ fn deployments_list_text_honors_details_flag() {
     assert!(compact_stdout.contains("sandbox"));
     assert!(!compact_stdout.contains("Deployment ID:"));
 
-    let mut detailed = poly_without_fallback_command();
+    let mut detailed = poly_offline_command();
     detailed
         .env("POLY_ADK_KEY", "test-key")
         .env("POLY_ADK_BASE_URL_US", &base_url)
@@ -787,7 +827,7 @@ fn deployments_show_json_resolves_included_deployments_from_sandbox_history() {
     );
     let project_dir = write_us_project("adk-rs-deployments-show-json");
 
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env(
@@ -861,7 +901,7 @@ fn deployments_promote_json_posts_to_platform_root_endpoint() {
     });
     let project_dir = write_us_project("adk-rs-deployments-promote-json");
 
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env(
@@ -926,7 +966,7 @@ fn deployments_rollback_json_dry_run_matches_python_contract() {
     );
     let project_dir = write_us_project("adk-rs-deployments-rollback-dry-run");
 
-    let mut command = poly_without_fallback_command();
+    let mut command = poly_offline_command();
     command
         .env("POLY_ADK_KEY", "test-key")
         .env(
@@ -984,14 +1024,19 @@ fn verbose_flag_controls_human_error_tracebacks() {
 
 #[test]
 fn debug_flag_enables_debug_logging() {
-    let project_dir = make_temp_project_dir("adk-rs-debug-logging");
+    let missing_project_dir = temp_dir("adk-rs-debug-logging-missing");
 
-    let normal = run_poly(&["branch", "current", "--path", &project_dir]);
-    assert_eq!(normal.status.code(), Some(0));
+    let normal = run_poly(&["pull", "--path", missing_project_dir.to_str().unwrap()]);
+    assert_eq!(normal.status.code(), Some(1));
     assert!(!stderr(&normal).contains("debug logging enabled"));
 
-    let debug = run_poly(&["branch", "current", "--debug", "--path", &project_dir]);
-    assert_eq!(debug.status.code(), Some(0));
+    let debug = run_poly(&[
+        "pull",
+        "--debug",
+        "--path",
+        missing_project_dir.to_str().unwrap(),
+    ]);
+    assert_eq!(debug.status.code(), Some(1));
     assert!(stderr(&debug).contains("debug logging enabled"));
 }
 
@@ -1048,9 +1093,30 @@ fn status_text_summarizes_changed_files_without_rust_debug_dump() {
 
 #[test]
 fn branch_list_text_prints_human_table() {
-    let project_dir = make_temp_project_dir("adk-rs-human-output");
+    let server = MockServer::start();
+    let branches = server.mock(|when, then| {
+        when.method(GET)
+            .path("/adk/v1/accounts/test/projects/proj/branches");
+        then.status(200).json_body(json!({"branches": []}));
+    });
 
-    let output = run_poly(&["branch", "list", "--path", &project_dir]);
+    let project_dir = temp_dir("adk-rs-human-output");
+    fs::create_dir_all(&project_dir).expect("create project dir");
+    fs::write(
+        project_dir.join("project.yaml"),
+        "region: us-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write config");
+    let base_url = format!("{}/adk/v1", server.base_url());
+    let mut command = poly_offline_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env("POLY_ADK_BASE_URL_US", &base_url)
+        .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .args(["branch", "list", "--path"])
+        .arg(project_dir.to_string_lossy().as_ref());
+
+    let output = command.output().expect("run branch list");
 
     assert_eq!(output.status.code(), Some(0));
     let stdout = stdout(&output);
@@ -1059,6 +1125,7 @@ fn branch_list_text_prints_human_table() {
     assert_not_json_object(&stdout);
     assert!(!stdout.contains("IndexMap"));
     assert!(!stdout.contains("branch_id"));
+    branches.assert_calls(2);
 }
 
 #[test]

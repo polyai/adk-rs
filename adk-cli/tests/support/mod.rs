@@ -19,28 +19,17 @@ pub mod cli {
     pub fn poly_offline_command() -> Command {
         let mut command = Command::new(poly_bin());
         command.env_remove("POLY_ADK_KEY");
+        command.env_remove("POLY_ADK_KEY_US");
+        command.env_remove("POLY_ADK_KEY_US_1");
+        command.env_remove("POLY_ADK_BASE_URL");
+        command.env_remove("POLY_ADK_BASE_URL_US");
+        command.env_remove("POLY_ADK_BASE_URL_US_1");
         command.env_remove("GITHUB_ACCESS_TOKEN");
-        command.env("POLY_ADK_ALLOW_INMEMORY_FALLBACK", "1");
-        command
-    }
-
-    pub fn poly_without_fallback_command() -> Command {
-        let mut command = Command::new(poly_bin());
-        command.env_remove("POLY_ADK_KEY");
-        command.env_remove("GITHUB_ACCESS_TOKEN");
-        command.env_remove("POLY_ADK_ALLOW_INMEMORY_FALLBACK");
         command
     }
 
     pub fn run_poly_offline(args: &[&str]) -> Output {
         poly_offline_command()
-            .args(args)
-            .output()
-            .expect("failed to execute poly")
-    }
-
-    pub fn run_poly_without_fallback(args: &[&str]) -> Output {
-        poly_without_fallback_command()
             .args(args)
             .output()
             .expect("failed to execute poly")

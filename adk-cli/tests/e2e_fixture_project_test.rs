@@ -2,7 +2,7 @@
 //! `poly/tests/test_projects/`. For **in-process** domain tests on the same fixtures (no
 //! subprocess), see `adk-core/tests/project_fixture_test.rs`.
 //!
-//! No network: `POLY_ADK_KEY` is stripped and test-only in-memory fallback is enabled.
+//! No network: real API credentials and base URLs are stripped from the spawned process.
 //!
 //! Fixture provenance: `adk/src/poly/tests/test_projects/` in the Python ADK repo.
 //!
@@ -14,8 +14,8 @@ mod support;
 use std::path::PathBuf;
 use support::cli::{copy_dir_recursive, poly_offline_command, temp_dir};
 
-/// Tests remove real credentials and opt into `InMemoryPlatformClient`, keeping behavior
-/// deterministic in CI and on developer machines that export API credentials.
+/// Tests remove real credentials, keeping behavior deterministic in CI and on developer
+/// machines that export API credentials.
 fn poly_offline() -> std::process::Command {
     poly_offline_command()
 }
@@ -81,7 +81,7 @@ fn status_json_succeeds_on_full_fixture() {
         .get("new_files")
         .and_then(|v| v.as_array())
         .expect("new_files array");
-    // In-memory remote is empty: every tracked file is "new".
+    // With no saved resource snapshot, every tracked file is "new".
     assert!(
         new_files.len() >= 40,
         "expected many new_files against empty remote, got {}",
@@ -168,63 +168,4 @@ fn format_json_succeeds_on_full_fixture() {
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be JSON");
     assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
-}
-
-/// Related (CLI): `poly/tests/project_test.py` - `GetDiffsTest` (invokes `get_diffs`).
-#[test]
-fn diff_json_reports_changes_on_full_fixture() {
-    let dir = full_fixture_dir();
-    let output = poly_offline()
-        .args(["diff", "--json", "--path"])
-        .arg(&dir)
-        .output()
-        .expect("spawn poly diff");
-
-    assert_eq!(output.status.code(), Some(0));
-    let payload: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("stdout must be JSON");
-    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
-    let diffs = payload
-        .get("diffs")
-        .and_then(|v| v.as_object())
-        .expect("diffs object");
-    assert!(
-        diffs.len() >= 40,
-        "expected many file diffs vs empty remote, got {}",
-        diffs.len()
-    );
-}
-
-/// Related (CLI): basic `chat` JSON contract against offline in-memory client.
-#[test]
-fn chat_json_succeeds_on_full_fixture() {
-    let dir = full_fixture_dir();
-    let output = poly_offline()
-        .args(["chat", "--json", "--path"])
-        .arg(&dir)
-        .args(["--message", "hello"])
-        .output()
-        .expect("spawn poly chat");
-
-    assert_eq!(output.status.code(), Some(0));
-    let payload: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("stdout must be JSON");
-    let conversation = payload
-        .get("conversations")
-        .and_then(|v| v.as_array())
-        .and_then(|v| v.first())
-        .expect("conversation entry");
-    assert_eq!(
-        conversation.get("conversation_id").and_then(|v| v.as_str()),
-        Some("local-conversation")
-    );
-    let turns = conversation
-        .get("turns")
-        .and_then(|v| v.as_array())
-        .expect("turns array");
-    assert_eq!(turns.len(), 2);
-    assert_eq!(
-        turns[1].get("input").and_then(|v| v.as_str()),
-        Some("hello")
-    );
 }

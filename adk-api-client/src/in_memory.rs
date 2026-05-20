@@ -1,9 +1,13 @@
 use crate::{ApiError, PlatformClient};
+use adk_push_pull::{
+    build_phase1_commands_for_changed_resources, build_phase1_commands_with_actor,
+    command_to_json_summary,
+};
 use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
-/// Deterministic non-network client used by local tests and explicit offline fallback.
+/// Deterministic non-network client used by local tests and explicit local/projection flows.
 #[derive(Debug, Clone)]
 pub struct InMemoryPlatformClient {
     resources: Arc<Mutex<ResourceMap>>,
@@ -53,6 +57,14 @@ impl InMemoryPlatformClient {
             deployments: Arc::new(Mutex::new(deployments)),
         }
     }
+
+    fn preview_projection(&self, projection: Option<&Value>) -> Result<Value, ApiError> {
+        if let Some(projection) = projection {
+            Ok(projection.clone())
+        } else {
+            self.pull_projection_json()
+        }
+    }
 }
 
 fn default_branches() -> indexmap::IndexMap<String, String> {
@@ -68,11 +80,38 @@ impl PlatformClient for InMemoryPlatformClient {
     }
 
     fn preview_push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
-        let _ = resources;
+        self.preview_push_resources_with_options(resources, None, None)
+    }
+
+    fn preview_push_resources_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, ApiError> {
+        let projection = self.preview_projection(projection)?;
+        let commands = build_phase1_commands_with_actor(resources, &projection, actor);
+        let summaries = commands.iter().map(command_to_json_summary).collect();
         Ok(PushResult {
             success: true,
             message: "Dry run completed. No changes were pushed.".to_string(),
-            commands: vec![],
+            commands: summaries,
+        })
+    }
+
+    fn preview_push_changed_resources_with_options(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&Value>,
+        actor: Option<&str>,
+    ) -> Result<PushResult, ApiError> {
+        let projection = self.preview_projection(projection)?;
+        let commands = build_phase1_commands_for_changed_resources(resources, &projection, actor);
+        let summaries = commands.iter().map(command_to_json_summary).collect();
+        Ok(PushResult {
+            success: true,
+            message: "Dry run completed. No changes were pushed.".to_string(),
+            commands: summaries,
         })
     }
 

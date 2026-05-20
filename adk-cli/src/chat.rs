@@ -1,7 +1,6 @@
 use crate::{
-    AdkService, ChatArgs, ProjectWorkspace, allow_inmemory_fallback, console, emit_error,
-    emit_inmemory_fallback_warning, emit_remote_service_error, ensure_project_loaded,
-    http_service_for_path, local_service, should_warn_inmemory_fallback,
+    AdkService, ChatArgs, ProjectWorkspace, console, emit_error, ensure_project_loaded,
+    remote_service_for_path,
 };
 use adk_api_client::PlatformClient;
 use serde_json::json;
@@ -11,30 +10,12 @@ use std::io::{self, Read};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-macro_rules! with_remote_service {
-    ($workspace:expr, $path:expr, $json_mode:expr, |$service:ident| $body:expr) => {{
-        match http_service_for_path($workspace, $path) {
-            Ok($service) => $body,
-            Err(error) if allow_inmemory_fallback() => {
-                if should_warn_inmemory_fallback(&error) {
-                    emit_inmemory_fallback_warning($json_mode, &error);
-                }
-                let $service = local_service();
-                $body
-            }
-            Err(error) => {
-                emit_remote_service_error($json_mode, &error);
-                ExitCode::from(1)
-            }
-        }
-    }};
-}
-
 pub(crate) fn cmd_chat(args: ChatArgs) -> ExitCode {
     let workspace = ProjectWorkspace::new();
-    with_remote_service!(&workspace, &args.path, args.json, |service| {
-        cmd_chat_with_service(&service, args)
-    })
+    match remote_service_for_path(&workspace, &args.path, args.json) {
+        Ok(service) => cmd_chat_with_service(&service, args),
+        Err(code) => code,
+    }
 }
 
 fn cmd_chat_with_service<C: PlatformClient>(service: &AdkService<C>, args: ChatArgs) -> ExitCode {

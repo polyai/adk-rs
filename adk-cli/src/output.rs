@@ -14,12 +14,7 @@ pub(crate) fn print_payload(json_mode: bool, payload: serde_json::Value) -> Exit
 pub(crate) fn emit_error(json_mode: bool, message: &str) {
     let message = clean_error_message(message);
     if json_mode {
-        let mut payload = json!({"success": false, "error": message});
-        // Replay tests inject Python's recorded traceback so JSON error fixtures stay exact.
-        if let Ok(traceback) = std::env::var("POLY_ADK_JSON_TRACEBACK") {
-            payload["traceback"] = serde_json::Value::String(traceback);
-        }
-        println!("{payload}");
+        println!("{}", json!({"success": false, "error": message}));
     } else {
         console::exception(message);
     }

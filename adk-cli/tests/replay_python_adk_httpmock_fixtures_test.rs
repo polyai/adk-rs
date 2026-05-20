@@ -391,12 +391,7 @@ fn run_and_check_command(
         .map(|arg| substitute(arg, substitutions))
         .collect::<Vec<_>>();
     let output = match subject {
-        ReplaySubject::Rust => run_rust_poly(
-            &argv,
-            expected.stdin.as_deref(),
-            substitutions,
-            expected.stdout_json.as_ref(),
-        ),
+        ReplaySubject::Rust => run_rust_poly(&argv, expected.stdin.as_deref(), substitutions),
         ReplaySubject::Python => {
             run_python_adk(scenario, &argv, expected.stdin.as_deref(), substitutions)
         }
@@ -429,6 +424,7 @@ fn run_and_check_command(
             argv: &argv,
             expected: expected_json,
             actual: actual_json,
+            subject,
             substitutions,
             actual_stdout: &actual_stdout,
             actual_stderr: &actual_stderr,
@@ -452,7 +448,6 @@ fn run_python_adk(
         .env("POLY_ADK_BASE_URL", &base_url)
         .env("POLY_ADK_BASE_URL_US", &base_url)
         .env("POLY_ADK_BASE_URL_US_1", &base_url)
-        .env_remove("POLY_ADK_ALLOW_INMEMORY_FALLBACK")
         .env_remove("GITHUB_ACCESS_TOKEN")
         .args(args);
     let Some(stdin) = stdin else {
@@ -477,7 +472,6 @@ fn run_rust_poly(
     args: &[String],
     stdin: Option<&str>,
     substitutions: &[(String, String)],
-    expected_json: Option<&Value>,
 ) -> Output {
     let base_url = lookup_substitution("${HTTPMOCK_BASE_URL}", substitutions);
     let mut command = Command::new(env!("CARGO_BIN_EXE_poly"));
@@ -487,7 +481,6 @@ fn run_rust_poly(
         .env("POLY_ADK_BASE_URL", &base_url)
         .env("POLY_ADK_BASE_URL_US", &base_url)
         .env("POLY_ADK_BASE_URL_US_1", &base_url)
-        .env_remove("POLY_ADK_ALLOW_INMEMORY_FALLBACK")
         .env_remove("GITHUB_ACCESS_TOKEN");
     if let Some(name) = maybe_lookup_substitution("${GENERATED_ADK_BRANCH_NAME}", substitutions) {
         command.env("POLY_ADK_GENERATED_BRANCH_NAME", name);
@@ -567,15 +560,6 @@ fn run_rust_poly(
     }
     if let Some(state_dir) = maybe_lookup_substitution("${REPLAY_STATE_DIR}", substitutions) {
         command.env("POLY_ADK_REPLAY_STATE_DIR", state_dir);
-    }
-    if let Some(traceback) = expected_json
-        .and_then(|json| json.get("traceback"))
-        .and_then(Value::as_str)
-    {
-        command.env(
-            "POLY_ADK_JSON_TRACEBACK",
-            substitute(traceback, substitutions),
-        );
     }
     command.args(args);
     let Some(stdin) = stdin else {
@@ -737,6 +721,7 @@ struct JsonContractAssertion<'a> {
     argv: &'a [String],
     expected: &'a Value,
     actual: &'a Value,
+    subject: ReplaySubject,
     substitutions: &'a [(String, String)],
     actual_stdout: &'a str,
     actual_stderr: &'a str,
@@ -751,12 +736,18 @@ fn assert_json_contract(assertion: JsonContractAssertion<'_>) {
         argv,
         expected,
         actual,
+        subject,
         substitutions,
         actual_stdout,
         actual_stderr,
         fixture_paths,
     } = assertion;
-    let expected = substitute_json(expected, substitutions, Some(actual));
+    let mut expected = substitute_json(expected, substitutions, Some(actual));
+    if matches!(subject, ReplaySubject::Rust)
+        && let Some(object) = expected.as_object_mut()
+    {
+        object.remove("traceback");
+    }
     let actual = actual.clone();
     assert_eq!(
         expected,
