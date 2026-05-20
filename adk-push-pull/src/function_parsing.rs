@@ -10,18 +10,7 @@ pub(crate) fn annotated_function_parameter_names(
     code: &str,
     function_name: &str,
 ) -> HashSet<String> {
-    let def_prefix = format!("def {function_name}(");
-    let async_def_prefix = format!("async def {function_name}(");
-    let signature = code.lines().find_map(|line| {
-        let trimmed = line.trim();
-        if trimmed.starts_with(&def_prefix) {
-            trimmed.strip_prefix("def ").map(ToString::to_string)
-        } else if trimmed.starts_with(&async_def_prefix) {
-            trimmed.strip_prefix("async def ").map(ToString::to_string)
-        } else {
-            None
-        }
-    });
+    let signature = python_signature_for_function(code, function_name);
     let Some(signature) = signature else {
         return HashSet::new();
     };
@@ -44,6 +33,18 @@ pub(crate) fn annotated_function_parameter_names(
         .collect()
 }
 
+pub(crate) fn python_signature_for_function(code: &str, function_name: &str) -> Option<String> {
+    code.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let signature = trimmed
+            .strip_prefix("def ")
+            .or_else(|| trimmed.strip_prefix("async def "))?;
+        let open = signature.find('(')?;
+        let name = signature[..open].trim();
+        (name == function_name).then(|| signature.to_string())
+    })
+}
+
 pub(crate) fn insert_python_function_decorators(
     code: &str,
     function_name: &str,
@@ -58,8 +59,16 @@ pub(crate) fn insert_python_function_decorators(
     }
     let target_idx = lines.iter().position(|line| {
         let trimmed = line.trim_start();
-        trimmed.starts_with(&format!("def {function_name}("))
-            || trimmed.starts_with(&format!("async def {function_name}("))
+        let Some(signature) = trimmed
+            .strip_prefix("def ")
+            .or_else(|| trimmed.strip_prefix("async def "))
+        else {
+            return false;
+        };
+        let Some(open) = signature.find('(') else {
+            return false;
+        };
+        signature[..open].trim() == function_name
     });
     let Some(target_idx) = target_idx else {
         let mut out = decorators.concat();
@@ -225,18 +234,7 @@ pub(crate) fn infer_function_parameters(
     function_name: &str,
 ) -> Vec<FunctionParameterUpdate> {
     let decorator_descriptions = function_parameter_decorators(code);
-    let def_prefix = format!("def {function_name}(");
-    let async_def_prefix = format!("async def {function_name}(");
-    let signature = code.lines().find_map(|line| {
-        let trimmed = line.trim();
-        if trimmed.starts_with(&def_prefix) {
-            trimmed.strip_prefix("def ").map(ToString::to_string)
-        } else if trimmed.starts_with(&async_def_prefix) {
-            trimmed.strip_prefix("async def ").map(ToString::to_string)
-        } else {
-            None
-        }
-    });
+    let signature = python_signature_for_function(code, function_name);
     let Some(signature) = signature else {
         return vec![];
     };

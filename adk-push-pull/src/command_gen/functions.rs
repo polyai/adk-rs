@@ -5,12 +5,12 @@ pub(crate) use crate::function_parsing::{
     annotated_function_parameter_names, function_code_from_local_content,
     function_create_latency_control, function_update_latency_control, infer_function_description,
     infer_function_parameters, insert_python_function_decorators, latency_control_from_projection,
-    local_latency_control_from_code, python_string_literal,
+    local_latency_control_from_code, python_signature_for_function, python_string_literal,
 };
 use crate::{
-    extract_entities_map, extract_variable_names_from_code, flow_import_path_maps_from_projection,
-    generated_or_stable_resource_id, is_synthetic_local_resource_id, push_command,
-    replace_flow_import_names_with_ids,
+    clean_name, extract_entities_map, extract_variable_names_from_code,
+    flow_import_path_maps_from_projection, generated_or_stable_resource_id,
+    is_synthetic_local_resource_id, push_command, replace_flow_import_names_with_ids,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -377,6 +377,15 @@ fn inferred_function_name(content: &str) -> Option<String> {
 }
 
 pub(crate) fn python_function_symbol(content: &str, fallback: &str) -> String {
+    let cleaned_fallback = clean_name(fallback).to_lowercase();
+    if !cleaned_fallback.is_empty()
+        && python_signature_for_function(content, &cleaned_fallback).is_some()
+    {
+        return cleaned_fallback;
+    }
+    if python_signature_for_function(content, fallback).is_some() {
+        return fallback.to_string();
+    }
     inferred_function_name(content).unwrap_or_else(|| fallback.to_string())
 }
 

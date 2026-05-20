@@ -296,7 +296,7 @@ fn create_function_infers_parameters_from_def_when_display_name_differs() {
             name: "Lookup Customer".to_string(),
             file_path: "functions/lookup_customer.py".to_string(),
             payload: serde_json::json!({
-                "content": "@func_parameter('customer_id', 'Customer id')\ndef lookup_customer(conv: Conversation, customer_id: str):\n    return customer_id\n"
+                "content": "@func_parameter('customer_id', 'Customer id')\ndef lookup_customer (conv: Conversation, customer_id: str):\n    return customer_id\n"
             }),
         },
     );
@@ -1931,7 +1931,7 @@ fn projection_to_resource_map_uses_def_name_for_parameter_decorators() {
                         "id": "fn-1",
                         "name": "Lookup Customer",
                         "description": "Look up a customer",
-                        "code": "def lookup_customer(conv: Conversation, customer_id: str):\n    return customer_id\n",
+                        "code": "def helper(conv):\n    return None\n\n\ndef lookup_customer (conv: Conversation, customer_id: str):\n    return customer_id\n",
                         "parameters": [
                             {"id": "p1", "name": "customer_id", "description": "Customer id", "type": "string"}
                         ]
@@ -1950,7 +1950,12 @@ fn projection_to_resource_map_uses_def_name_for_parameter_decorators() {
         content.contains("@func_parameter('customer_id', 'Customer id')"),
         "missing customer_id decorator:\n{content}"
     );
-    assert!(content.contains("def lookup_customer("));
+    assert!(
+        content.contains(
+            "def helper(conv):\n    return None\n\n\n@func_description('Look up a customer')\n@func_parameter('customer_id', 'Customer id')\ndef lookup_customer ("
+        ),
+        "decorators were not inserted before lookup_customer:\n{content}"
+    );
 }
 
 #[test]
