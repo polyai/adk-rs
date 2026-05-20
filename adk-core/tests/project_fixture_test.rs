@@ -1364,6 +1364,35 @@ fn pull_preserves_semantically_unchanged_multi_resource_yaml_bytes() {
 }
 
 #[test]
+fn pull_applies_remote_multi_resource_additions_when_existing_entries_are_unchanged() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("config")).expect("mkdir config");
+    let local_content = "entities:\n- name: Age\n  description: Customer age\n  entity_type: numeric\n  config:\n    min: 1\n    max: 120\n";
+    let remote_content = "entities:\n- name: Age\n  description: Customer age\n  entity_type: numeric\n  config:\n    min: 1\n    max: 120\n- name: Code\n  description: Customer code\n  entity_type: alphanumeric\n  config: {}\n";
+    fs::write(root.join("config/entities.yaml"), local_content).expect("write entities");
+
+    let client = InMemoryPlatformClient::default();
+    let service = AdkService::new(client.clone());
+    service
+        .push(root.as_path(), false, true, false)
+        .expect("seed status snapshot and remote");
+    replace_remote_resource_content(&client, "config/entities.yaml", remote_content);
+
+    let conflicts = service.pull(root.as_path(), false).expect("pull");
+
+    assert!(conflicts.is_empty(), "{conflicts:#?}");
+    assert_eq!(
+        fs::read_to_string(root.join("config/entities.yaml")).expect("read entities"),
+        remote_content
+    );
+}
+
+#[test]
 fn validate_flow_config_start_step_matches_step_display_name() {
     let root = make_temp_project_dir();
     fs::write(

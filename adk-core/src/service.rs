@@ -770,6 +770,43 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             .any(|((_, expected_hash), current_hash)| current_hash != expected_hash)
     }
 
+    fn status_resource_paths(status_hashes: &[(&str, &str)]) -> BTreeSet<String> {
+        status_hashes
+            .iter()
+            .filter_map(|(hash_path, _)| {
+                parse_multi_resource_path(hash_path)
+                    .1
+                    .map(|_| (*hash_path).to_string())
+            })
+            .collect()
+    }
+
+    fn yaml_status_resource_paths(path: &str, content: &str) -> Option<BTreeSet<String>> {
+        let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+        let mapping = yaml.as_mapping()?;
+        let mut paths = BTreeSet::new();
+        for (key, value) in mapping {
+            let Some(top_level_name) = key.as_str() else {
+                continue;
+            };
+            if let Some(items) = value.as_sequence() {
+                for (index, item) in items.iter().enumerate() {
+                    if top_level_name == "pronunciations" {
+                        paths.insert(format!("{path}/{top_level_name}/{index}"));
+                        continue;
+                    }
+                    if let Some(name) = item.get("name").and_then(serde_yaml::Value::as_str) {
+                        let name = crate::discover::clean_name(name, false);
+                        paths.insert(format!("{path}/{top_level_name}/{name}"));
+                    }
+                }
+            } else {
+                paths.insert(format!("{path}/{top_level_name}"));
+            }
+        }
+        Some(paths)
+    }
+
     fn write_pulled_resources(
         &self,
         root: &Path,
@@ -814,10 +851,21 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                         Self::status_hashes_for_content(&status_hashes, &existing, hashes);
                     let incoming_hashes =
                         Self::status_hashes_for_content(&status_hashes, &file_content, hashes);
-                    let local_changed = Self::status_hashes_changed(&status_hashes, &local_hashes);
+                    let snapshot_resource_paths = Self::status_resource_paths(&status_hashes);
+                    let local_resource_paths_changed = !snapshot_resource_paths.is_empty()
+                        && Self::yaml_status_resource_paths(path, &existing)
+                            .is_some_and(|paths| paths != snapshot_resource_paths);
+                    let incoming_resource_paths_changed = !snapshot_resource_paths.is_empty()
+                        && Self::yaml_status_resource_paths(path, &file_content)
+                            .is_some_and(|paths| paths != snapshot_resource_paths);
+                    let local_changed = Self::status_hashes_changed(&status_hashes, &local_hashes)
+                        || local_resource_paths_changed;
                     let incoming_changed =
-                        Self::status_hashes_changed(&status_hashes, &incoming_hashes);
-                    if !incoming_changed || local_hashes == incoming_hashes {
+                        Self::status_hashes_changed(&status_hashes, &incoming_hashes)
+                            || incoming_resource_paths_changed;
+                    if !incoming_changed
+                        || (local_hashes == incoming_hashes && !incoming_resource_paths_changed)
+                    {
                         continue;
                     }
                     if local_changed && incoming_changed && existing != file_content {
