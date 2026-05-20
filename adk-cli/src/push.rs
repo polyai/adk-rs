@@ -7,6 +7,14 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub(crate) fn validate_inline_projection_arg(args: &PushArgs) -> Option<String> {
+    let raw = args.from_projection.as_deref()?;
+    if raw.trim() == "-" {
+        return None;
+    }
+    parse_optional_json_arg(Some(raw)).err()
+}
+
 pub(crate) fn cmd_push<C: PlatformClient>(service: &AdkService<C>, args: PushArgs) -> ExitCode {
     let json_mode = args.json || args.output_json_commands;
     if !ensure_project_loaded(service, &args.path, json_mode) {

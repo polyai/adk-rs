@@ -6,13 +6,21 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+pub(crate) fn validate_diff_args(args: &DiffArgs) -> Option<&'static str> {
+    if args.hash.is_some() && (args.before.is_some() || args.after.is_some()) {
+        Some("Cannot specify both hash and before/after versions.")
+    } else {
+        None
+    }
+}
+
 pub(crate) fn cmd_diff<C: PlatformClient>(service: &AdkService<C>, args: DiffArgs) -> ExitCode {
+    if let Some(message) = validate_diff_args(&args) {
+        console::error(message);
+        return ExitCode::SUCCESS;
+    }
     if !ensure_project_loaded(service, &args.path, args.json) {
         return ExitCode::from(1);
-    }
-    if args.hash.is_some() && (args.before.is_some() || args.after.is_some()) {
-        console::error("Cannot specify both hash and before/after versions.");
-        return ExitCode::SUCCESS;
     }
     let named_diff = args.hash.is_some() || args.before.is_some() || args.after.is_some();
     let before_main_local =

@@ -3,7 +3,6 @@ use adk_core::{AdkService, ProjectWorkspace};
 use adk_push_pull::projection_to_resource_map;
 use anyhow::Result;
 use clap::Parser;
-use serde_json::json;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -46,25 +45,6 @@ use review::cmd_review;
 use self_update::cmd_self_update;
 use status::cmd_status;
 use validate::cmd_validate;
-
-macro_rules! with_remote_service {
-    ($workspace:expr, $path:expr, $json_mode:expr, |$service:ident| $body:expr) => {{
-        match http_service_for_path($workspace, $path) {
-            Ok($service) => $body,
-            Err(error) if allow_inmemory_fallback() => {
-                if should_warn_inmemory_fallback(&error) {
-                    emit_inmemory_fallback_warning($json_mode, &error);
-                }
-                let $service = local_service();
-                $body
-            }
-            Err(error) => {
-                emit_remote_service_error($json_mode, &error);
-                ExitCode::from(1)
-            }
-        }
-    }};
-}
 
 fn main() -> ExitCode {
     match run() {
@@ -110,20 +90,40 @@ fn run() -> Result<ExitCode> {
             if args.from_projection.is_some() {
                 return Ok(cmd_pull(&local_service(), args));
             }
-            with_remote_service!(&workspace, &args.path, args.json, |service| {
-                cmd_pull(&service, args)
-            })
+            match remote_service_for_path(&workspace, &args.path, args.json) {
+                Ok(service) => cmd_pull(&service, args),
+                Err(code) => code,
+            }
         }
-        Commands::Push(args) => with_remote_service!(&workspace, &args.path, args.json, |service| {
-            cmd_push(&service, args)
-        }),
+        Commands::Push(args) => {
+            if let Some(error) = push::validate_inline_projection_arg(&args) {
+                emit_error(args.json || args.output_json_commands, &error);
+                ExitCode::from(1)
+            } else if args.dry_run && args.from_projection.is_some() {
+                cmd_push(&local_service(), args)
+            } else {
+                match remote_service_for_path(&workspace, &args.path, args.json) {
+                    Ok(service) => cmd_push(&service, args),
+                    Err(code) => code,
+                }
+            }
+        }
         Commands::Status(args) => cmd_status(&workspace, args),
-        Commands::Revert(args) => with_remote_service!(&workspace, &args.path, args.json, |service| {
-            cmd_revert(&service, args)
-        }),
-        Commands::Diff(args) => with_remote_service!(&workspace, &args.path, args.json, |service| {
-            cmd_diff(&service, args)
-        }),
+        Commands::Revert(args) => match remote_service_for_path(&workspace, &args.path, args.json) {
+            Ok(service) => cmd_revert(&service, args),
+            Err(code) => code,
+        },
+        Commands::Diff(args) => {
+            if let Some(message) = diff::validate_diff_args(&args) {
+                console::error(message);
+                ExitCode::SUCCESS
+            } else {
+                match remote_service_for_path(&workspace, &args.path, args.json) {
+                    Ok(service) => cmd_diff(&service, args),
+                    Err(code) => code,
+                }
+            }
+        }
         Commands::Review(args) => cmd_review(args),
         Commands::Branch(args) => cmd_branch(args),
         Commands::Format(args) => cmd_format(args),
@@ -134,9 +134,10 @@ fn run() -> Result<ExitCode> {
         Commands::Deployments(args) => {
             let path = deployments_path(&args);
             let json_mode = deployments_json(&args);
-            with_remote_service!(&workspace, path, json_mode, |service| {
-                cmd_deployments(&service, args)
-            })
+            match remote_service_for_path(&workspace, path, json_mode) {
+                Ok(service) => cmd_deployments(&service, args),
+                Err(code) => code,
+            }
         }
     };
     Ok(result)
@@ -622,34 +623,20 @@ fn http_service_for_path(
     .map_err(|error| format!("remote platform client unavailable: {error}"))
 }
 
-fn allow_inmemory_fallback() -> bool {
-    std::env::var("POLY_ADK_ALLOW_INMEMORY_FALLBACK").unwrap_or_default() == "1"
-}
-
-fn should_warn_inmemory_fallback(error: &str) -> bool {
-    error.starts_with("remote platform client unavailable")
-}
-
-fn emit_inmemory_fallback_warning(json_mode: bool, error: &str) {
-    if json_mode {
-        eprintln!(
-            "{}",
-            json!({"warning": format!("{error}, using in-memory fallback")})
-        );
-    } else {
-        console::warning(format!("{error}, using in-memory fallback"));
+fn remote_service_for_path(
+    workspace: &ProjectWorkspace,
+    path: &str,
+    json_mode: bool,
+) -> Result<AdkService<HttpPlatformClient>, ExitCode> {
+    match http_service_for_path(workspace, path) {
+        Ok(service) => Ok(service),
+        Err(error) => {
+            emit_remote_service_error(json_mode, &error);
+            Err(ExitCode::from(1))
+        }
     }
 }
 
 fn emit_remote_service_error(json_mode: bool, error: &str) {
-    if error.starts_with("remote platform client unavailable") {
-        emit_error(
-            json_mode,
-            &format!(
-                "{error} (set POLY_ADK_ALLOW_INMEMORY_FALLBACK=1 to opt into local fallback)"
-            ),
-        );
-    } else {
-        emit_error(json_mode, error);
-    }
+    emit_error(json_mode, error);
 }

@@ -1,11 +1,9 @@
 use crate::{
     AdkService, BranchArgs, BranchCommands, BranchCreateArgs, BranchDeleteArgs, BranchMergeArgs,
-    BranchSwitchArgs, CommonPathArgs, ProjectWorkspace, allow_inmemory_fallback,
-    clean_error_message, console, emit_error, emit_inmemory_fallback_warning,
-    emit_remote_service_error, ensure_project_loaded, http_service_for_path, local_service,
-    parse_optional_json_arg, print_payload, prompt_branch_switch, prompt_confirm,
-    prompt_multi_select, prompt_select, pull_projection_into_path, read_stdin_line,
-    should_warn_inmemory_fallback,
+    BranchSwitchArgs, CommonPathArgs, ProjectWorkspace, clean_error_message, console, emit_error,
+    ensure_project_loaded, local_service, parse_optional_json_arg, print_payload,
+    prompt_branch_switch, prompt_confirm, prompt_multi_select, prompt_select,
+    pull_projection_into_path, read_stdin_line, remote_service_for_path,
 };
 use adk_api_client::PlatformClient;
 use serde_json::json;
@@ -15,34 +13,17 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-macro_rules! with_remote_service {
-    ($workspace:expr, $path:expr, $json_mode:expr, |$service:ident| $body:expr) => {{
-        match http_service_for_path($workspace, $path) {
-            Ok($service) => $body,
-            Err(error) if allow_inmemory_fallback() => {
-                if should_warn_inmemory_fallback(&error) {
-                    emit_inmemory_fallback_warning($json_mode, &error);
-                }
-                let $service = local_service();
-                $body
-            }
-            Err(error) => {
-                emit_remote_service_error($json_mode, &error);
-                ExitCode::from(1)
-            }
-        }
-    }};
-}
-
 pub(crate) fn cmd_branch(args: BranchArgs) -> ExitCode {
     let workspace = ProjectWorkspace::new();
     match args.command {
-        BranchCommands::List(a) => with_remote_service!(&workspace, &a.path, a.json, |service| {
-            cmd_branch_list_with_service(&service, a)
-        }),
-        BranchCommands::Create(a) => with_remote_service!(&workspace, &a.path, a.json, |service| {
-            cmd_branch_create_with_service(&service, a)
-        }),
+        BranchCommands::List(a) => match remote_service_for_path(&workspace, &a.path, a.json) {
+            Ok(service) => cmd_branch_list_with_service(&service, a),
+            Err(code) => code,
+        },
+        BranchCommands::Create(a) => match remote_service_for_path(&workspace, &a.path, a.json) {
+            Ok(service) => cmd_branch_create_with_service(&service, a),
+            Err(code) => code,
+        },
         BranchCommands::Switch(a) => {
             let projection_json = match parse_optional_json_arg(a.from_projection.as_deref()) {
                 Ok(value) => value,
@@ -55,29 +36,38 @@ pub(crate) fn cmd_branch(args: BranchArgs) -> ExitCode {
                 let service = local_service();
                 cmd_branch_switch_with_service(&service, a, projection_json)
             } else {
-                with_remote_service!(
+                match remote_service_for_path(
                     &workspace,
                     &a.path,
                     a.json || a.output_json_projection,
-                    |service| cmd_branch_switch_with_service(&service, a, projection_json)
-                )
+                ) {
+                    Ok(service) => cmd_branch_switch_with_service(&service, a, projection_json),
+                    Err(code) => code,
+                }
             }
         }
-        BranchCommands::Current(a) => with_remote_service!(&workspace, &a.path, a.json, |service| {
-            cmd_branch_current_with_service(&service, a)
-        }),
-        BranchCommands::Delete(a) => with_remote_service!(&workspace, &a.path, a.json, |service| {
-            if !ensure_project_loaded(&service, &a.path, a.json) {
-                return ExitCode::from(1);
+        BranchCommands::Current(a) => match remote_service_for_path(&workspace, &a.path, a.json) {
+            Ok(service) => cmd_branch_current_with_service(&service, a),
+            Err(code) => code,
+        },
+        BranchCommands::Delete(a) => match remote_service_for_path(&workspace, &a.path, a.json) {
+            Ok(service) => {
+                if !ensure_project_loaded(&service, &a.path, a.json) {
+                    return ExitCode::from(1);
+                }
+                cmd_branch_delete(&service, a)
             }
-            cmd_branch_delete(&service, a)
-        }),
-        BranchCommands::Merge(a) => with_remote_service!(&workspace, &a.path, a.json, |service| {
-            if !ensure_project_loaded(&service, &a.path, a.json) {
-                return ExitCode::from(1);
+            Err(code) => code,
+        },
+        BranchCommands::Merge(a) => match remote_service_for_path(&workspace, &a.path, a.json) {
+            Ok(service) => {
+                if !ensure_project_loaded(&service, &a.path, a.json) {
+                    return ExitCode::from(1);
+                }
+                cmd_branch_merge(&service, a)
             }
-            cmd_branch_merge(&service, a)
-        }),
+            Err(code) => code,
+        },
     }
 }
 

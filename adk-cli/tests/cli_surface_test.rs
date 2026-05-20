@@ -5,7 +5,7 @@ use support::cli::{
     make_temp_invalid_yaml_project_dir as support_temp_invalid_yaml_project_dir,
     make_temp_project_dir as support_temp_project_dir,
     make_temp_unformatted_json_project_dir as support_temp_unformatted_json_project_dir,
-    poly_offline_command, run_poly_offline, run_poly_without_fallback, temp_dir,
+    poly_offline_command, run_poly_offline, temp_dir,
 };
 
 fn run_poly(args: &[&str]) -> std::process::Output {
@@ -383,9 +383,9 @@ fn status_json_uses_python_payload_shape() {
 }
 
 #[test]
-fn status_json_does_not_require_remote_fallback() {
+fn status_json_does_not_require_remote_configuration() {
     let project_dir = make_temp_project_dir();
-    let output = run_poly_without_fallback(&["status", "--json", "--path", &project_dir]);
+    let output = run_poly(&["status", "--json", "--path", &project_dir]);
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -419,21 +419,6 @@ fn diff_hash_and_before_after_is_nonfatal() {
     assert_eq!(output.status.code(), Some(0));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Cannot specify both hash and before/after versions."));
-}
-
-#[test]
-fn diff_files_accepts_python_nargs_style() {
-    let project_dir = make_temp_project_dir();
-    let output = run_poly(&[
-        "diff",
-        "--json",
-        "--path",
-        &project_dir,
-        "--files",
-        "sample-a.yaml",
-        "sample-b.yaml",
-    ]);
-    assert_eq!(output.status.code(), Some(0));
 }
 
 #[test]
@@ -684,33 +669,6 @@ fn branch_switch_from_projection_format_formats_python_and_baselines_snapshot() 
 
     assert_eq!(output.status.code(), Some(0));
     assert_formatted_function_and_clean_status(&project_dir);
-}
-
-#[test]
-fn branch_switch_output_json_projection_returns_remote_projection_without_from_projection() {
-    let project_dir = make_temp_project_dir();
-
-    let output = run_poly(&[
-        "branch",
-        "switch",
-        "--output-json-projection",
-        "--path",
-        &project_dir,
-        "feature-y",
-    ]);
-
-    assert_eq!(output.status.code(), Some(0));
-    let payload: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert_eq!(
-        payload.get("branch_name").and_then(|v| v.as_str()),
-        Some("feature-y")
-    );
-    assert!(
-        payload
-            .get("projection")
-            .is_some_and(|value| !value.is_null())
-    );
 }
 
 #[test]
@@ -1197,93 +1155,6 @@ fn format_ty_json_fails_when_ty_is_not_on_path() {
 }
 
 #[test]
-fn branch_current_reports_null_when_configured_branch_is_missing_remotely() {
-    let project_dir = make_temp_project_dir();
-    let p = std::path::PathBuf::from(&project_dir);
-    fs::write(
-        p.join("project.yaml"),
-        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: feature-x\n",
-    )
-    .expect("rewrite config");
-    let output = run_poly(&["branch", "current", "--json", "--path", &project_dir]);
-    assert_eq!(output.status.code(), Some(0));
-    let payload: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert!(payload.get("current_branch").is_some_and(|v| v.is_null()));
-}
-
-#[test]
-fn branch_switch_updates_project_branch() {
-    let project_dir = make_temp_project_dir();
-    let output = run_poly(&[
-        "branch",
-        "switch",
-        "--json",
-        "--path",
-        &project_dir,
-        "feature-y",
-    ]);
-    assert_eq!(output.status.code(), Some(0));
-
-    let output2 = run_poly(&["branch", "current", "--json", "--path", &project_dir]);
-    assert_eq!(output2.status.code(), Some(0));
-    let payload: serde_json::Value =
-        serde_json::from_slice(&output2.stdout).expect("valid JSON output");
-    assert!(payload.get("current_branch").is_some_and(|v| v.is_null()));
-}
-
-#[test]
-fn pull_json_reconciles_deleted_current_branch_to_main() {
-    let project_dir = make_temp_project_dir();
-    let p = std::path::PathBuf::from(&project_dir);
-    fs::write(
-        p.join("project.yaml"),
-        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: deleted-branch\n",
-    )
-    .expect("rewrite config");
-
-    let output = run_poly(&["pull", "--json", "--path", &project_dir]);
-
-    assert_eq!(output.status.code(), Some(0));
-    let payload: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert_eq!(
-        payload.get("new_branch_name").and_then(|v| v.as_str()),
-        Some("main")
-    );
-    assert_eq!(
-        payload.get("new_branch_id").and_then(|v| v.as_str()),
-        Some("main")
-    );
-    let project_yaml = fs::read_to_string(p.join("project.yaml")).expect("project config");
-    assert!(!project_yaml.contains("branch_id:"));
-}
-
-#[test]
-fn branch_create_env_force_uses_hotfix_path() {
-    let project_dir = make_temp_project_dir();
-    let output = run_poly(&[
-        "branch",
-        "create",
-        "--json",
-        "--path",
-        &project_dir,
-        "--env",
-        "live",
-        "--force",
-        "hotfix-branch",
-    ]);
-    assert_eq!(output.status.code(), Some(0));
-    let payload: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(
-        payload.get("branch_name").and_then(|v| v.as_str()),
-        Some("hotfix-branch")
-    );
-}
-
-#[test]
 fn review_text_reports_incomplete() {
     let project_dir = make_temp_project_dir();
     let output = run_poly(&["review", "--path", &project_dir, "list"]);
@@ -1293,40 +1164,14 @@ fn review_text_reports_incomplete() {
 }
 
 #[test]
-fn revert_json_returns_files_reverted_payload() {
+fn pull_requires_remote_configuration() {
     let project_dir = make_temp_project_dir();
-    let output = run_poly(&["revert", "--json", "--path", &project_dir]);
-    assert_eq!(output.status.code(), Some(0));
-    let payload: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert_eq!(payload.get("success").and_then(|v| v.as_bool()), Some(true));
-    assert!(
-        payload
-            .get("files_reverted")
-            .and_then(|v| v.as_array())
-            .is_some()
-    );
-}
-
-#[test]
-fn revert_text_prints_no_changes_when_nothing_reverted() {
-    let project_dir = make_temp_project_dir();
-    let output = run_poly(&["revert", "--path", &project_dir]);
-    assert_eq!(output.status.code(), Some(0));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("No changes to revert."));
-}
-
-#[test]
-fn pull_requires_remote_or_explicit_fallback_opt_in() {
-    let project_dir = make_temp_project_dir();
-    let output = run_poly_without_fallback(&["pull", "--json", "--path", &project_dir]);
+    let output = run_poly(&["pull", "--json", "--path", &project_dir]);
     assert_eq!(output.status.code(), Some(1));
     let payload: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
     let error = payload.get("error").and_then(|v| v.as_str()).unwrap_or("");
     assert!(error.contains("remote platform client unavailable"));
-    assert!(error.contains("POLY_ADK_ALLOW_INMEMORY_FALLBACK"));
 }
 
 #[test]
