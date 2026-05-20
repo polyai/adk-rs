@@ -524,7 +524,7 @@ def handoff(conv: Conversation, handoff_reason: str):
         functions::infer_function_description(content),
         "Transfers a caller."
     );
-    let parameters = functions::infer_function_parameters(content);
+    let parameters = functions::infer_function_parameters(content, "handoff");
     assert_eq!(parameters.len(), 1);
     assert_eq!(parameters[0].name, "handoff_reason");
     assert_eq!(

@@ -213,7 +213,7 @@ pub(crate) fn function_resource_command_groups(
             &flow_import_path_maps,
         );
         let inferred_description = infer_function_description(content);
-        let inferred_parameters = infer_function_parameters(content);
+        let inferred_parameters = infer_function_parameters(content, &name);
         let variable_references = variable_reference_ids_from_code(&function_code, projection);
         let local_latency =
             local_latency_control_from_code(content, remote_function.map(|(_, function)| function));
@@ -462,7 +462,7 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
         ));
     }
     if let Some(parameters) = function_parameters_update_from_projection(function) {
-        let annotated_parameter_names = annotated_function_parameter_names(code);
+        let annotated_parameter_names = annotated_function_parameter_names(code, name);
         for parameter in parameters.parameters {
             if parameter.name.is_empty() || !annotated_parameter_names.contains(&parameter.name) {
                 continue;

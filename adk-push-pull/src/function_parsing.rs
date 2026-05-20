@@ -6,13 +6,21 @@ use adk_protobuf::functions::{
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
-pub(crate) fn annotated_function_parameter_names(code: &str) -> HashSet<String> {
+pub(crate) fn annotated_function_parameter_names(
+    code: &str,
+    function_name: &str,
+) -> HashSet<String> {
+    let def_prefix = format!("def {function_name}(");
+    let async_def_prefix = format!("async def {function_name}(");
     let signature = code.lines().find_map(|line| {
         let trimmed = line.trim();
-        trimmed
-            .strip_prefix("def ")
-            .or_else(|| trimmed.strip_prefix("async def "))
-            .map(ToString::to_string)
+        if trimmed.starts_with(&def_prefix) {
+            trimmed.strip_prefix("def ").map(ToString::to_string)
+        } else if trimmed.starts_with(&async_def_prefix) {
+            trimmed.strip_prefix("async def ").map(ToString::to_string)
+        } else {
+            None
+        }
     });
     let Some(signature) = signature else {
         return HashSet::new();
@@ -212,11 +220,18 @@ fn parse_python_string_literal(value: &str) -> String {
     out
 }
 
-pub(crate) fn infer_function_parameters(code: &str) -> Vec<FunctionParameterUpdate> {
+pub(crate) fn infer_function_parameters(
+    code: &str,
+    function_name: &str,
+) -> Vec<FunctionParameterUpdate> {
     let decorator_descriptions = function_parameter_decorators(code);
-    let signature = code
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("def ").map(ToString::to_string));
+    let def_prefix = format!("def {function_name}(");
+    let signature = code.lines().find_map(|line| {
+        let trimmed = line.trim();
+        trimmed
+            .starts_with(&def_prefix)
+            .then(|| trimmed.strip_prefix("def ").unwrap().to_string())
+    });
     let Some(signature) = signature else {
         return vec![];
     };
