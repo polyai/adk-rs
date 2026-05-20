@@ -213,7 +213,8 @@ pub(crate) fn function_resource_command_groups(
             &flow_import_path_maps,
         );
         let inferred_description = infer_function_description(content);
-        let inferred_parameters = infer_function_parameters(content, &name);
+        let function_symbol = python_function_symbol(content, &name);
+        let inferred_parameters = infer_function_parameters(content, &function_symbol);
         let variable_references = variable_reference_ids_from_code(&function_code, projection);
         let local_latency =
             local_latency_control_from_code(content, remote_function.map(|(_, function)| function));
@@ -375,6 +376,10 @@ fn inferred_function_name(content: &str) -> Option<String> {
     })
 }
 
+pub(crate) fn python_function_symbol(content: &str, fallback: &str) -> String {
+    inferred_function_name(content).unwrap_or_else(|| fallback.to_string())
+}
+
 fn meaningful_resource_name(resource: &Resource, path: &str) -> Option<String> {
     let name = resource.name.trim();
     (!name.is_empty()
@@ -452,6 +457,7 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    let function_symbol = python_function_symbol(code, name);
     let mut decorators = Vec::new();
     if let Some(description) = function.get("description").and_then(Value::as_str)
         && !description.is_empty()
@@ -462,7 +468,7 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
         ));
     }
     if let Some(parameters) = function_parameters_update_from_projection(function) {
-        let annotated_parameter_names = annotated_function_parameter_names(code, name);
+        let annotated_parameter_names = annotated_function_parameter_names(code, &function_symbol);
         for parameter in parameters.parameters {
             if parameter.name.is_empty() || !annotated_parameter_names.contains(&parameter.name) {
                 continue;
@@ -490,7 +496,7 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
         }
         decorators.push(format!("@func_latency_control({})\n", parts.join(", ")));
     }
-    insert_python_function_decorators(code, name, decorators)
+    insert_python_function_decorators(code, &function_symbol, decorators)
 }
 
 pub(crate) fn variable_reference_ids_from_code(

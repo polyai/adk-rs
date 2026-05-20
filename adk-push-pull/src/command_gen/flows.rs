@@ -17,7 +17,7 @@ use self::parsing::{
 use super::functions::{
     function_errors_update_from_projection, function_parameters_update_from_projection,
     function_update_latency_control, infer_function_parameters, latency_control_from_projection,
-    local_latency_control_from_code, variable_reference_ids_from_code,
+    local_latency_control_from_code, python_function_symbol, variable_reference_ids_from_code,
 };
 use super::single_file_resources::CommandGroups;
 use crate::{
@@ -238,7 +238,8 @@ fn transition_function_create_payload(
     id_override: Option<String>,
     projection: &Value,
 ) -> TransitionFunctionCreateTransitionFunction {
-    let parameters = infer_function_parameters(&function.code, &function.name);
+    let function_symbol = python_function_symbol(&function.content, &function.name);
+    let parameters = infer_function_parameters(&function.code, &function_symbol);
     TransitionFunctionCreateTransitionFunction {
         id: id_override.unwrap_or_else(|| {
             generated_replay_resource_id("flow_transition_function", &function.name, &function.path)
@@ -566,7 +567,9 @@ fn update_flow_commands(
             if transition_function_changed(function, remote_function) {
                 let parameters = function_parameters_update_from_projection(&remote_function.raw)
                     .or_else(|| {
-                        let params = infer_function_parameters(&function.code, &function.name);
+                        let function_symbol =
+                            python_function_symbol(&function.content, &function.name);
+                        let params = infer_function_parameters(&function.code, &function_symbol);
                         (!params.is_empty()).then_some(adk_protobuf::functions::ParametersUpdate {
                             parameters: params,
                         })

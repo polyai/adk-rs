@@ -287,6 +287,36 @@ fn create_function_infers_description_and_parameters_from_code() {
 }
 
 #[test]
+fn create_function_infers_parameters_from_def_when_display_name_differs() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "functions/lookup_customer.py".to_string(),
+        Resource {
+            resource_id: "functions/lookup_customer.py".to_string(),
+            name: "Lookup Customer".to_string(),
+            file_path: "functions/lookup_customer.py".to_string(),
+            payload: serde_json::json!({
+                "content": "@func_parameter('customer_id', 'Customer id')\ndef lookup_customer(conv: Conversation, customer_id: str):\n    return customer_id\n"
+            }),
+        },
+    );
+    let commands = build_phase1_commands(&resources, &serde_json::json!({}));
+    let create = commands
+        .iter()
+        .find(|c| c.r#type == "create_function")
+        .expect("create function command");
+    match &create.payload {
+        Some(CommandPayload::CreateFunction(msg)) => {
+            assert_eq!(msg.name, "Lookup Customer");
+            assert_eq!(msg.parameters.len(), 1);
+            assert_eq!(msg.parameters[0].name, "customer_id");
+            assert_eq!(msg.parameters[0].description, "Customer id");
+        }
+        _ => panic!("unexpected payload variant for create function command"),
+    }
+}
+
+#[test]
 fn function_latency_control_decorator_populates_create_and_update_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(
@@ -1889,6 +1919,38 @@ fn projection_to_resource_map_includes_func_parameter_decorators() {
         content.contains("@func_parameter('dob', 'Date of birth, formatted as \"MM-DD-YYYY\"')")
     );
     assert!(content.contains("def verify_dob("));
+}
+
+#[test]
+fn projection_to_resource_map_uses_def_name_for_parameter_decorators() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "Lookup Customer",
+                        "description": "Look up a customer",
+                        "code": "def lookup_customer(conv: Conversation, customer_id: str):\n    return customer_id\n",
+                        "parameters": [
+                            {"id": "p1", "name": "customer_id", "description": "Customer id", "type": "string"}
+                        ]
+                    }
+                }
+            }
+        }
+    });
+    let map = projection_to_resource_map(&projection).expect("map");
+    let content = map
+        .get("functions/lookup_customer.py")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("function file content");
+    assert!(
+        content.contains("@func_parameter('customer_id', 'Customer id')"),
+        "missing customer_id decorator:\n{content}"
+    );
+    assert!(content.contains("def lookup_customer("));
 }
 
 #[test]

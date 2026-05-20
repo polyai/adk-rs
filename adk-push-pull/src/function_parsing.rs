@@ -226,11 +226,16 @@ pub(crate) fn infer_function_parameters(
 ) -> Vec<FunctionParameterUpdate> {
     let decorator_descriptions = function_parameter_decorators(code);
     let def_prefix = format!("def {function_name}(");
+    let async_def_prefix = format!("async def {function_name}(");
     let signature = code.lines().find_map(|line| {
         let trimmed = line.trim();
-        trimmed
-            .starts_with(&def_prefix)
-            .then(|| trimmed.strip_prefix("def ").unwrap().to_string())
+        if trimmed.starts_with(&def_prefix) {
+            trimmed.strip_prefix("def ").map(ToString::to_string)
+        } else if trimmed.starts_with(&async_def_prefix) {
+            trimmed.strip_prefix("async def ").map(ToString::to_string)
+        } else {
+            None
+        }
     });
     let Some(signature) = signature else {
         return vec![];
