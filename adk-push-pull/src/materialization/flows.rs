@@ -78,7 +78,8 @@ fn insert_flow_resource(
                     "flows/{folder}/function_steps/{}.py",
                     clean_name(&step_name).to_lowercase()
                 );
-                insert_content_resource(map, &file_path, &id, &step_name, code)?;
+                let resource_id = format!("{folder}_{id}");
+                insert_content_resource(map, &file_path, &resource_id, &step_name, code)?;
             }
             "default_step" => insert_flow_step_resource(map, &folder, id, step, true)?,
             _ => insert_flow_step_resource(map, &folder, id, step, false)?,
@@ -198,7 +199,8 @@ fn insert_flow_step_resource(
         "flows/{folder}/steps/{}.yaml",
         clean_name(&name).to_lowercase()
     );
-    insert_yaml_resource(map, &file_path, &id, &name, value)
+    let resource_id = format!("{folder}_{id}");
+    insert_yaml_resource(map, &file_path, &resource_id, &name, value)
 }
 
 fn asr_biasing_yaml(config: Option<&Value>) -> AsrBiasingYaml {

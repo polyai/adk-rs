@@ -5,12 +5,12 @@ pub(crate) use crate::function_parsing::{
     annotated_function_parameter_names, function_code_from_local_content,
     function_create_latency_control, function_update_latency_control, infer_function_description,
     infer_function_parameters, insert_python_function_decorators, latency_control_from_projection,
-    local_latency_control_from_code, python_string_literal,
+    local_latency_control_from_code, python_signature_for_function, python_string_literal,
 };
 use crate::{
-    extract_entities_map, extract_variable_names_from_code, flow_import_path_maps_from_projection,
-    generated_or_stable_resource_id, is_synthetic_local_resource_id, push_command,
-    replace_flow_import_names_with_ids,
+    clean_name, extract_entities_map, extract_variable_names_from_code,
+    flow_import_path_maps_from_projection, generated_or_stable_resource_id,
+    is_synthetic_local_resource_id, push_command, replace_flow_import_names_with_ids,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -213,7 +213,8 @@ pub(crate) fn function_resource_command_groups(
             &flow_import_path_maps,
         );
         let inferred_description = infer_function_description(content);
-        let inferred_parameters = infer_function_parameters(content);
+        let function_symbol = python_function_symbol(content, &name);
+        let inferred_parameters = infer_function_parameters(content, &function_symbol);
         let variable_references = variable_reference_ids_from_code(&function_code, projection);
         let local_latency =
             local_latency_control_from_code(content, remote_function.map(|(_, function)| function));
@@ -375,6 +376,19 @@ fn inferred_function_name(content: &str) -> Option<String> {
     })
 }
 
+pub(crate) fn python_function_symbol(content: &str, fallback: &str) -> String {
+    let cleaned_fallback = clean_name(fallback).to_lowercase();
+    if !cleaned_fallback.is_empty()
+        && python_signature_for_function(content, &cleaned_fallback).is_some()
+    {
+        return cleaned_fallback;
+    }
+    if python_signature_for_function(content, fallback).is_some() {
+        return fallback.to_string();
+    }
+    inferred_function_name(content).unwrap_or_else(|| fallback.to_string())
+}
+
 fn meaningful_resource_name(resource: &Resource, path: &str) -> Option<String> {
     let name = resource.name.trim();
     (!name.is_empty()
@@ -452,6 +466,7 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    let function_symbol = python_function_symbol(code, name);
     let mut decorators = Vec::new();
     if let Some(description) = function.get("description").and_then(Value::as_str)
         && !description.is_empty()
@@ -462,7 +477,7 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
         ));
     }
     if let Some(parameters) = function_parameters_update_from_projection(function) {
-        let annotated_parameter_names = annotated_function_parameter_names(code);
+        let annotated_parameter_names = annotated_function_parameter_names(code, &function_symbol);
         for parameter in parameters.parameters {
             if parameter.name.is_empty() || !annotated_parameter_names.contains(&parameter.name) {
                 continue;
@@ -490,7 +505,7 @@ pub(crate) fn function_raw_content(function: &Value) -> String {
         }
         decorators.push(format!("@func_latency_control({})\n", parts.join(", ")));
     }
-    insert_python_function_decorators(code, name, decorators)
+    insert_python_function_decorators(code, &function_symbol, decorators)
 }
 
 pub(crate) fn variable_reference_ids_from_code(
