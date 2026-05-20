@@ -1,6 +1,10 @@
 //! Platform projection to local resource materialization.
 
+mod entities;
+mod flows;
+mod functions;
 mod references;
+mod topics;
 
 pub(crate) use references::{
     FlowImportPathMaps, PromptReferenceMaps, flow_import_path_maps_from_projection,
@@ -10,14 +14,10 @@ pub(crate) use references::{
 };
 
 use crate::yaml_resources::{
-    AsrBiasingYaml, DtmfConfigYaml, EntitiesYaml, EntityYaml, EnvPhoneNumbersYaml, FlowConfigYaml,
-    FlowStepYaml, HandoffYaml, HandoffsYaml, PhraseFilterYaml, PhraseFilteringYaml,
-    SmsTemplateYaml, SmsTemplatesYaml, TopicYaml, to_yaml_string,
+    EnvPhoneNumbersYaml, HandoffYaml, HandoffsYaml, PhraseFilterYaml, PhraseFilteringYaml,
+    SmsTemplateYaml, SmsTemplatesYaml, to_yaml_string,
 };
-use crate::{
-    CommandGenError, clean_name, command_gen, extract_entities_vec, snake_case_json_keys,
-    to_snake_case,
-};
+use crate::{CommandGenError, command_gen, extract_entities_vec};
 use adk_types::{Resource, ResourceMap};
 use serde::Serialize;
 use serde_json::Value;
@@ -29,121 +29,10 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
     let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
     let flow_import_path_maps = flow_import_path_maps_from_projection(projection);
 
-    for (id, topic) in command_gen::topics::topic_entries(projection) {
-        let name = topic
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or(id.as_str())
-            .to_string();
-        let file_name = clean_name(&name).to_lowercase();
-        let file_path = format!("topics/{file_name}.yaml");
-        let content = to_yaml_string(&TopicYaml {
-            name: name.clone(),
-            enabled: topic
-                .get("isActive")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
-            actions: topic
-                .get("actions")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            content: topic
-                .get("content")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            example_queries: topic
-                .get("exampleQueries")
-                .and_then(Value::as_array)
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|x| {
-                            x.get("query")
-                                .and_then(Value::as_str)
-                                .map(ToString::to_string)
-                        })
-                        .collect::<Vec<String>>()
-                })
-                .unwrap_or_default(),
-        })
-        .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
-        insert_content_resource(&mut map, &file_path, &id, &name, content)?;
-    }
-
-    for (id, function) in command_gen::functions::function_entries(projection) {
-        if function
-            .get("archived")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        let name = function
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or(id.as_str())
-            .to_string();
-        let file_name = clean_name(&name).to_lowercase();
-        let file_path = format!("functions/{file_name}.py");
-        let content = replace_flow_import_ids_with_names(
-            &command_gen::functions::function_raw_content(&function),
-            &flow_import_path_maps,
-        );
-        insert_content_resource(&mut map, &file_path, &id, &name, content)?;
-    }
-    for kind in [
-        command_gen::functions::SpecialFunctionKind::Start,
-        command_gen::functions::SpecialFunctionKind::End,
-    ] {
-        if let Some((id, function)) =
-            command_gen::functions::special_function_entry(projection, kind)
-        {
-            let name = command_gen::functions::special_function_name(kind).to_string();
-            let file_path = format!("functions/{name}.py");
-            let content = replace_flow_import_ids_with_names(
-                &command_gen::functions::function_raw_content(&function),
-                &flow_import_path_maps,
-            );
-            insert_content_resource(&mut map, &file_path, &id, &name, content)?;
-        }
-    }
-
-    for (id, flow) in flow_entries(projection) {
-        insert_flow_resources(&mut map, &id, &flow, &flow_import_path_maps)?;
-    }
-
-    let mut entity_yaml_list = Vec::new();
-    for (id, entity) in entity_entries_vec(projection) {
-        let name = entity
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or(id.as_str())
-            .to_string();
-        entity_yaml_list.push(EntityYaml {
-            name,
-            description: entity
-                .get("description")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            entity_type: to_snake_case(entity.get("type").and_then(Value::as_str).unwrap_or("")),
-            config: projection_entity_config(&entity),
-        });
-    }
-    if !entity_yaml_list.is_empty() {
-        let content = to_yaml_string(&EntitiesYaml {
-            entities: entity_yaml_list,
-        })
-        .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
-        insert_content_resource(
-            &mut map,
-            "config/entities.yaml",
-            "entities",
-            "entities",
-            content,
-        )?;
-    }
+    topics::insert_topic_resources(&mut map, projection)?;
+    functions::insert_function_resources(&mut map, projection, &flow_import_path_maps)?;
+    flows::insert_flow_resources(&mut map, projection, &flow_import_path_maps)?;
+    entities::insert_entity_resources(&mut map, projection)?;
 
     // config/handoffs.yaml multi-resource file
     let mut handoff_yaml_list = Vec::new();
@@ -496,125 +385,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
     Ok(map)
 }
 
-fn insert_flow_resources(
-    map: &mut ResourceMap,
-    flow_id: &str,
-    flow: &Value,
-    flow_import_path_maps: &FlowImportPathMaps,
-) -> Result<(), CommandGenError> {
-    let name = flow
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or("flow")
-        .to_string();
-    let folder = clean_name(&name).to_lowercase();
-    let start_step_id = flow.get("startStepId").and_then(Value::as_str);
-    let steps = projection_nested_entities(flow, &["steps"]);
-    let start_step = start_step_id
-        .map(|id| python_pretty_flow_start_step(&name, id, &steps))
-        .unwrap_or_default()
-        .to_string();
-
-    let flow_config = FlowConfigYaml {
-        name,
-        description: flow
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        start_step,
-    };
-    let flow_config_path = format!("flows/{folder}/flow_config.yaml");
-    let flow_name = flow_config.name.clone();
-    insert_yaml_resource(
-        map,
-        &flow_config_path,
-        flow.get("id").and_then(Value::as_str).unwrap_or(flow_id),
-        &flow_name,
-        flow_config,
-    )?;
-
-    for (id, step) in steps {
-        let step_name = step
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or(id.as_str())
-            .to_string();
-        match step.get("type").and_then(Value::as_str).unwrap_or("") {
-            "function_step" => {
-                let function = step.get("function").unwrap_or(&Value::Null);
-                let code = replace_flow_import_ids_with_names(
-                    &command_gen::functions::function_raw_content(function),
-                    flow_import_path_maps,
-                );
-                let file_path = format!(
-                    "flows/{folder}/function_steps/{}.py",
-                    clean_name(&step_name).to_lowercase()
-                );
-                insert_content_resource(map, &file_path, &id, &step_name, code)?;
-            }
-            "default_step" => insert_flow_step_resource(map, &folder, id, step, true)?,
-            _ => insert_flow_step_resource(map, &folder, id, step, false)?,
-        }
-    }
-
-    for (id, function) in projection_nested_entities(flow, &["transitionFunctions"])
-        .into_iter()
-        .chain(projection_nested_entities(flow, &["transition_functions"]))
-    {
-        if function
-            .get("archived")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        let function_name = function
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or(id.as_str())
-            .to_string();
-        let file_name = clean_name(&function_name).to_lowercase();
-        let file_path = format!("flows/{folder}/functions/{file_name}.py");
-        let content = replace_flow_import_ids_with_names(
-            &command_gen::functions::function_raw_content(&function),
-            flow_import_path_maps,
-        );
-        insert_content_resource(map, &file_path, &id, &function_name, content)?;
-    }
-
-    Ok(())
-}
-
-fn python_pretty_flow_start_step<'a>(
-    flow_name: &str,
-    start_step_id: &'a str,
-    steps: &'a [(String, Value)],
-) -> &'a str {
-    steps
-        .iter()
-        .find_map(|(step_id, step)| {
-            let resource_id = step
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or(step_id.as_str());
-            let normalized_id = resource_id
-                .strip_prefix(&format!("{flow_name}_"))
-                .unwrap_or(resource_id);
-            if normalized_id == start_step_id {
-                step.get("name").and_then(Value::as_str)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(start_step_id)
-}
-
-fn flow_entries(projection: &Value) -> Vec<(String, Value)> {
-    projection_entities(projection, &["flows", "flows"])
-}
-
-pub(crate) fn projection_entities(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
+pub(super) fn projection_entities(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
     let mut current = root;
     for key in path {
         let Some(next) = current.get(*key) else {
@@ -625,7 +396,7 @@ pub(crate) fn projection_entities(root: &Value, path: &[&str]) -> Vec<(String, V
     projection_entities_at(current)
 }
 
-fn projection_nested_entities(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
+pub(super) fn projection_nested_entities(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
     let mut current = root;
     for key in path {
         let Some(next) = current.get(*key) else {
@@ -636,7 +407,7 @@ fn projection_nested_entities(root: &Value, path: &[&str]) -> Vec<(String, Value
     projection_entities_at(current)
 }
 
-fn projection_entities_at(value: &Value) -> Vec<(String, Value)> {
+pub(super) fn projection_entities_at(value: &Value) -> Vec<(String, Value)> {
     let Some(entities) = value.get("entities").and_then(Value::as_object) else {
         return Vec::new();
     };
@@ -940,175 +711,6 @@ fn insert_non_empty_string(map: &mut serde_json::Map<String, Value>, key: &str, 
     }
 }
 
-fn insert_flow_step_resource(
-    map: &mut ResourceMap,
-    folder: &str,
-    id: String,
-    step: Value,
-    is_default: bool,
-) -> Result<(), CommandGenError> {
-    let name = step
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or(id.as_str())
-        .to_string();
-    let value = if !is_default {
-        FlowStepYaml {
-            step_type: "advanced_step".to_string(),
-            name: name.clone(),
-            asr_biasing: Some(asr_biasing_yaml(
-                step.get("asrBiasing").or_else(|| step.get("asr_biasing")),
-            )),
-            dtmf_config: Some(dtmf_config_yaml(
-                step.get("dtmfConfig").or_else(|| step.get("dtmf_config")),
-            )),
-            conditions: None,
-            extracted_entities: None,
-            prompt: step
-                .get("prompt")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-        }
-    } else {
-        FlowStepYaml {
-            step_type: "default_step".to_string(),
-            name: name.clone(),
-            asr_biasing: None,
-            dtmf_config: None,
-            conditions: Some(flow_conditions_yaml(&step)),
-            extracted_entities: Some(
-                step.pointer("/references/extractedEntities")
-                    .or_else(|| step.pointer("/references/extracted_entities"))
-                    .and_then(Value::as_object)
-                    .map(|refs| {
-                        refs.keys()
-                            .cloned()
-                            .map(Value::String)
-                            .collect::<Vec<Value>>()
-                    })
-                    .map(Value::Array)
-                    .unwrap_or_else(|| Value::Array(vec![])),
-            ),
-            prompt: step
-                .get("prompt")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-        }
-    };
-    let file_path = format!(
-        "flows/{folder}/steps/{}.yaml",
-        clean_name(&name).to_lowercase()
-    );
-    insert_yaml_resource(map, &file_path, &id, &name, value)
-}
-
-fn asr_biasing_yaml(config: Option<&Value>) -> AsrBiasingYaml {
-    AsrBiasingYaml {
-        is_enabled: json_bool_value(config, &["isEnabled", "is_enabled"], false),
-        alphanumeric: json_bool_value(config, &["alphanumeric"], false),
-        name_spelling: json_bool_value(config, &["nameSpelling", "name_spelling"], false),
-        numeric: json_bool_value(config, &["numeric"], false),
-        party_size: json_bool_value(config, &["partySize", "party_size"], false),
-        precise_date: json_bool_value(config, &["preciseDate", "precise_date"], false),
-        relative_date: json_bool_value(config, &["relativeDate", "relative_date"], false),
-        single_number: json_bool_value(config, &["singleNumber", "single_number"], false),
-        time: json_bool_value(config, &["time"], false),
-        yes_no: json_bool_value(config, &["yesNo", "yes_no"], false),
-        address: json_bool_value(config, &["address"], false),
-        custom_keywords: json_string_list_value(config, &["customKeywords", "custom_keywords"]),
-    }
-}
-
-fn dtmf_config_yaml(config: Option<&Value>) -> DtmfConfigYaml {
-    DtmfConfigYaml {
-        is_enabled: json_bool_value(config, &["isEnabled", "is_enabled"], false),
-        inter_digit_timeout: json_i32_value(
-            config,
-            &["interDigitTimeout", "inter_digit_timeout"],
-            0,
-        ),
-        max_digits: json_i32_value(config, &["maxDigits", "max_digits"], 0),
-        end_key: json_string_value(config, &["endKey", "end_key"], ""),
-        collect_while_agent_speaking: json_bool_value(
-            config,
-            &["collectWhileAgentSpeaking", "collect_while_agent_speaking"],
-            false,
-        ),
-        is_pii: json_bool_value(config, &["isPii", "is_pii"], false),
-    }
-}
-
-fn json_bool_value(config: Option<&Value>, keys: &[&str], default: bool) -> bool {
-    keys.iter()
-        .find_map(|key| config.and_then(|config| config.get(*key)))
-        .and_then(Value::as_bool)
-        .unwrap_or(default)
-}
-
-fn json_i32_value(config: Option<&Value>, keys: &[&str], default: i32) -> i32 {
-    keys.iter()
-        .find_map(|key| config.and_then(|config| config.get(*key)))
-        .and_then(Value::as_i64)
-        .and_then(|value| i32::try_from(value).ok())
-        .unwrap_or(default)
-}
-
-fn json_string_value(config: Option<&Value>, keys: &[&str], default: &str) -> String {
-    keys.iter()
-        .find_map(|key| config.and_then(|config| config.get(*key)))
-        .and_then(Value::as_str)
-        .unwrap_or(default)
-        .to_string()
-}
-
-fn json_string_list_value(config: Option<&Value>, keys: &[&str]) -> Vec<String> {
-    keys.iter()
-        .find_map(|key| config.and_then(|config| config.get(*key)))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(ToString::to_string)
-        .collect()
-}
-
-fn flow_conditions_yaml(step: &Value) -> Value {
-    let items = step
-        .get("conditions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|condition| {
-            let config = condition.get("config")?;
-            let case = config.get("$case").and_then(Value::as_str).unwrap_or("");
-            if case != "exitFlowCondition" {
-                return None;
-            }
-            let value = config.get("value").unwrap_or(&Value::Null);
-            let details = value.get("details").unwrap_or(&Value::Null);
-            let mut out = serde_json::json!({
-                "name": details.get("label").and_then(Value::as_str).unwrap_or(""),
-                "condition_type": "exit_flow_condition",
-                "description": details.get("description").and_then(Value::as_str).unwrap_or(""),
-                "required_entities": details.get("requiredEntities").and_then(Value::as_array).cloned().unwrap_or_default(),
-            });
-            if let Some(ingress) = details.get("ingressPosition").and_then(Value::as_str) {
-                out["ingress_position"] = Value::String(ingress.to_string());
-            }
-            if let Some(position) = details.get("position") {
-                out["position"] = position.clone();
-            }
-            if let Some(position) = value.get("exitFlowPosition") {
-                out["exit_flow_position"] = position.clone();
-            }
-            Some(out)
-        })
-        .collect::<Vec<_>>();
-    Value::Array(items)
-}
-
 fn asr_settings_yaml(settings: &Value) -> Value {
     let latency_config = settings
         .get("latencyConfig")
@@ -1313,7 +915,7 @@ fn role_yaml(role: &Value) -> Value {
     })
 }
 
-fn insert_yaml_resource(
+pub(super) fn insert_yaml_resource(
     map: &mut ResourceMap,
     file_path: &str,
     resource_id: &str,
@@ -1325,7 +927,7 @@ fn insert_yaml_resource(
     insert_content_resource(map, file_path, resource_id, name, content)
 }
 
-fn insert_content_resource(
+pub(super) fn insert_content_resource(
     map: &mut ResourceMap,
     file_path: &str,
     resource_id: &str,
@@ -1352,49 +954,6 @@ fn insert_resource(map: &mut ResourceMap, resource: Resource) -> Result<(), Comm
     }
     map.insert(resource.file_path.clone(), resource);
     Ok(())
-}
-
-fn projection_entity_config(entity: &Value) -> Value {
-    if let Some(cfg) = entity.pointer("/config/value") {
-        let mut cfg = cfg.clone();
-        snake_case_json_keys(&mut cfg);
-        return cfg;
-    }
-    if let Some(cfg) = entity.get("config") {
-        let mut cfg = cfg.clone();
-        snake_case_json_keys(&mut cfg);
-        return cfg;
-    }
-    let entity_type = to_snake_case(entity.get("type").and_then(Value::as_str).unwrap_or(""));
-    let mut cfg = match entity_type.as_str() {
-        "numeric" => entity
-            .get("numberConfig")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({})),
-        "alphanumeric" => entity
-            .get("alphanumericConfig")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({})),
-        "enum" => entity
-            .get("multipleOptionsConfig")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({})),
-        "date" => entity
-            .get("dateConfig")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({})),
-        "phone_number" => entity
-            .get("phoneNumberConfig")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({})),
-        "time" => entity
-            .get("timeConfig")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({})),
-        _ => serde_json::json!({}),
-    };
-    snake_case_json_keys(&mut cfg);
-    cfg
 }
 
 fn handoff_sip_config_yaml(handoff: &Value) -> Value {
@@ -1454,10 +1013,6 @@ fn handoff_sip_headers_yaml(handoff: &Value) -> Value {
         })
         .collect();
     Value::Array(yaml_headers)
-}
-
-fn entity_entries_vec(projection: &Value) -> Vec<(String, Value)> {
-    extract_entities_vec(projection, &["entities", "entities", "entities"])
 }
 
 fn handoff_entries_vec(projection: &Value) -> Vec<(String, Value)> {
