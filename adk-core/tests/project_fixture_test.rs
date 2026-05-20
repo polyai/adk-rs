@@ -13,7 +13,7 @@
 
 #![allow(clippy::disallowed_methods)]
 
-use adk_api_client::InMemoryPlatformClient;
+use adk_api_client::{InMemoryPlatformClient, PlatformClient};
 use adk_core::AdkService;
 use adk_io::{compute_hash, parse_multi_resource_path};
 use adk_types::{DeploymentList, Resource, ResourceMap};
@@ -140,6 +140,19 @@ fn write_status_snapshot_json(project_root: &std::path::Path, status: serde_json
     let gen_dir = project_root.join("_gen");
     fs::create_dir_all(&gen_dir).expect("mkdir _gen");
     fs::write(gen_dir.join(".agent_studio_config"), encoded).expect("write status snapshot");
+}
+
+fn replace_remote_resource_content(client: &InMemoryPlatformClient, path: &str, content: &str) {
+    let mut remote = client.pull_resources().expect("pull remote resources");
+    let resource = remote.get_mut(path).expect("remote resource");
+    let payload = resource.payload.as_object_mut().expect("resource payload");
+    payload.insert(
+        "content".to_string(),
+        serde_json::Value::String(content.to_string()),
+    );
+    client
+        .push_resources(&remote)
+        .expect("replace remote resources");
 }
 
 /// Port: `poly/tests/project_test.py` - `InitTest.test_init`
@@ -1290,6 +1303,64 @@ fn format_check_ignores_python_trailing_whitespace_only_differences() {
         .expect("format check");
 
     assert!(changed.is_empty(), "{changed:#?}");
+}
+
+#[test]
+fn pull_preserves_semantically_unchanged_yaml_bytes() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    let local_content = "name: Billing General\nenabled: true\nactions: Transfer the caller.\ncontent: |-\n  Line one.\n  Line two.\nexample_queries:\n- Question about my bill\n";
+    let remote_content = "name: \"Billing General\"\nenabled: true\nactions: \"Transfer the caller.\"\ncontent: |-\n  Line one.\n  Line two.\nexample_queries:\n  - Question about my bill\n";
+    fs::write(root.join("topics/billing_general.yaml"), local_content).expect("write topic");
+
+    let client = InMemoryPlatformClient::default();
+    let service = AdkService::new(client.clone());
+    service
+        .push(root.as_path(), false, true, false)
+        .expect("seed status snapshot and remote");
+    replace_remote_resource_content(&client, "topics/billing_general.yaml", remote_content);
+
+    let conflicts = service.pull(root.as_path(), false).expect("pull");
+
+    assert!(conflicts.is_empty(), "{conflicts:#?}");
+    assert_eq!(
+        fs::read_to_string(root.join("topics/billing_general.yaml")).expect("read topic"),
+        local_content
+    );
+}
+
+#[test]
+fn pull_preserves_semantically_unchanged_multi_resource_yaml_bytes() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("config")).expect("mkdir config");
+    let local_content = "entities:\n- name: Age\n  description: Customer age\n  entity_type: numeric\n  config:\n    min: 1\n    max: 120\n";
+    let remote_content = "entities:\n  - name: \"Age\"\n    description: \"Customer age\"\n    entity_type: numeric\n    config:\n      min: 1\n      max: 120\n";
+    fs::write(root.join("config/entities.yaml"), local_content).expect("write entities");
+
+    let client = InMemoryPlatformClient::default();
+    let service = AdkService::new(client.clone());
+    service
+        .push(root.as_path(), false, true, false)
+        .expect("seed status snapshot and remote");
+    replace_remote_resource_content(&client, "config/entities.yaml", remote_content);
+
+    let conflicts = service.pull(root.as_path(), false).expect("pull");
+
+    assert!(conflicts.is_empty(), "{conflicts:#?}");
+    assert_eq!(
+        fs::read_to_string(root.join("config/entities.yaml")).expect("read entities"),
+        local_content
+    );
 }
 
 #[test]

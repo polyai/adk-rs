@@ -54,6 +54,11 @@ fn saved_python_adk_recording_fixtures_are_complete_and_portable() {
         let cassette_text = fs::read_to_string(&httpmock_path)
             .unwrap_or_else(|error| panic!("read {}: {error}", httpmock_path.display()));
         assert!(
+            cassette_text.lines().any(|line| line.trim() == "when:"),
+            "httpmock cassette has no recorded requests; local-only scenarios belong in regular tests: {}",
+            httpmock_path.display()
+        );
+        assert!(
             !cassette_text.contains("X-API-KEY") && !cassette_text.contains("x-api-key"),
             "cassette appears to contain an API key header: {}",
             httpmock_path.display()

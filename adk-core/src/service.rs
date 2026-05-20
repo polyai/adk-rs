@@ -725,6 +725,51 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         ))
     }
 
+    fn pull_status_hashes_for_file<'a>(
+        path: &str,
+        snapshot_hashes: &'a indexmap::IndexMap<String, String>,
+    ) -> Option<Vec<(&'a str, &'a str)>> {
+        let entries = snapshot_hashes
+            .iter()
+            .filter_map(|(hash_path, expected_hash)| {
+                let hash_path = hash_path.as_str();
+                if hash_path == path
+                    || (hash_path.contains(".yaml/")
+                        && parse_multi_resource_path(hash_path).0 == path)
+                {
+                    Some((hash_path, expected_hash.as_str()))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        if entries.is_empty() {
+            None
+        } else {
+            Some(entries)
+        }
+    }
+
+    fn status_hashes_for_content(
+        status_hashes: &[(&str, &str)],
+        content: &str,
+        snapshot_hashes: &indexmap::IndexMap<String, String>,
+    ) -> Vec<String> {
+        status_hashes
+            .iter()
+            .map(|(hash_path, expected_hash)| {
+                current_status_hash_for_expected(hash_path, content, expected_hash, snapshot_hashes)
+            })
+            .collect()
+    }
+
+    fn status_hashes_changed(status_hashes: &[(&str, &str)], current_hashes: &[String]) -> bool {
+        status_hashes
+            .iter()
+            .zip(current_hashes)
+            .any(|((_, expected_hash), current_hash)| current_hash != expected_hash)
+    }
+
     fn write_pulled_resources(
         &self,
         root: &Path,
@@ -763,19 +808,16 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                     continue;
                 }
                 if let Some(hashes) = snapshot_hashes.as_ref()
-                    && let Some(snapshot_hash) = hashes.get(path)
+                    && let Some(status_hashes) = Self::pull_status_hashes_for_file(path, hashes)
                 {
-                    let local_hash =
-                        current_status_hash_for_expected(path, &existing, snapshot_hash, hashes);
-                    let incoming_hash = current_status_hash_for_expected(
-                        path,
-                        &file_content,
-                        snapshot_hash,
-                        hashes,
-                    );
-                    let local_changed = local_hash != *snapshot_hash;
-                    let incoming_changed = incoming_hash != *snapshot_hash;
-                    if local_changed && !incoming_changed {
+                    let local_hashes =
+                        Self::status_hashes_for_content(&status_hashes, &existing, hashes);
+                    let incoming_hashes =
+                        Self::status_hashes_for_content(&status_hashes, &file_content, hashes);
+                    let local_changed = Self::status_hashes_changed(&status_hashes, &local_hashes);
+                    let incoming_changed =
+                        Self::status_hashes_changed(&status_hashes, &incoming_hashes);
+                    if !incoming_changed || local_hashes == incoming_hashes {
                         continue;
                     }
                     if local_changed && incoming_changed && existing != file_content {

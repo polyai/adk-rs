@@ -64,6 +64,138 @@ fn unformatted_function_projection_json() -> String {
     .to_string()
 }
 
+fn synthetic_resource_projection_json() -> String {
+    serde_json::json!({
+        "entities": {
+            "entities": {
+                "entities": {
+                    "ENTITY-age": {
+                        "name": "Age",
+                        "description": "Customer age.",
+                        "type": "numeric",
+                        "config": {
+                            "value": {
+                                "has_range": true,
+                                "min": 1,
+                                "max": 120
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "experimentalConfig": {
+            "experimentalConfigs": {
+                "entities": {
+                    "default": {
+                        "features": {
+                            "recording_flag": true,
+                            "nested": { "enabled": true }
+                        }
+                    }
+                }
+            }
+        },
+        "flows": {
+            "flows": {
+                "entities": {
+                    "FLOW-recording": {
+                        "id": "FLOW-recording",
+                        "name": "adk_recording_flow",
+                        "description": "Flow recording baseline.",
+                        "startStepId": "STEP-start",
+                        "steps": {
+                            "entities": {
+                                "STEP-start": {
+                                    "name": "start_step",
+                                    "type": "advanced_step",
+                                    "prompt": "Welcome to the flow recording.",
+                                    "asrBiasing": { "isEnabled": false },
+                                    "dtmfConfig": { "isEnabled": false }
+                                },
+                                "STEP-default": {
+                                    "name": "default_step",
+                                    "type": "default_step",
+                                    "prompt": "What do you need?",
+                                    "conditions": [{
+                                        "id": "COND-exit",
+                                        "config": {
+                                            "$case": "exitFlowCondition",
+                                            "value": {
+                                                "details": {
+                                                    "label": "exit",
+                                                    "description": "Exit the flow.",
+                                                    "ingressPosition": "top",
+                                                    "requiredEntities": []
+                                                }
+                                            }
+                                        }
+                                    }]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "handoff": {
+            "handoffs": {
+                "entities": {
+                    "HANDOFF-sales": {
+                        "name": "Sales",
+                        "description": "Route to sales.",
+                        "isDefault": true,
+                        "active": true,
+                        "sipConfig": {
+                            "config": {
+                                "$case": "invite",
+                                "value": {
+                                    "phoneNumber": "+15551234567",
+                                    "outboundEndpoint": "sales-trunk",
+                                    "outboundEncryption": "TLS/SRTP"
+                                }
+                            }
+                        },
+                        "sipHeaders": {
+                            "headers": [{ "key": "X-Recording", "value": "sales" }]
+                        }
+                    }
+                }
+            }
+        },
+        "sms": {
+            "templates": {
+                "entities": {
+                    "SMS-welcome": {
+                        "name": "Welcome SMS",
+                        "text": "Hello {recording_state}",
+                        "active": true,
+                        "envPhoneNumbers": {
+                            "sandbox": "+15550000001",
+                            "preRelease": "+15550000002",
+                            "live": "+15550000003"
+                        }
+                    }
+                }
+            }
+        },
+        "stopKeywords": {
+            "filters": {
+                "entities": {
+                    "STOP-hangup": {
+                        "title": "Hang Up",
+                        "description": "End the conversation.",
+                        "regularExpressions": ["(?i)bye"],
+                        "sayPhrase": false,
+                        "languageCode": "en-US"
+                    }
+                }
+            }
+        }
+    })
+    .to_string()
+}
+
 fn assert_formatted_function_and_clean_status(project_dir: &str) {
     let function_path = std::path::PathBuf::from(project_dir).join("functions/format_local.py");
     let content = fs::read_to_string(function_path).expect("formatted function");
@@ -87,6 +219,18 @@ fn invalid_subcommand_returns_parser_error() {
 }
 
 #[test]
+fn help_subcommand_prints_top_level_help() {
+    let output = run_poly(&["help"]);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("usage: poly [-h] [-v]"));
+    assert!(stdout.contains("help"));
+    assert!(stdout.contains("Show this help message and exit."));
+    assert!(stdout.contains("Outputs documentation for a given topic."));
+}
+
+#[test]
 fn top_level_help_matches_python_command_surface() {
     let output = run_poly(&["--help"]);
     assert_eq!(output.status.code(), Some(0));
@@ -100,6 +244,7 @@ fn top_level_help_matches_python_command_surface() {
     }
 
     for (command, description) in [
+        ("help", "Show this help message and exit."),
         ("docs", "Outputs documentation for a given topic."),
         ("init", "Initialize a new Agent Studio project."),
         ("project", "Manage Agent Studio projects."),
@@ -111,10 +256,7 @@ fn top_level_help_matches_python_command_surface() {
         ("status", "Check the changed files of the project."),
         ("revert", "Revert changes in the project."),
         ("diff", "Show the changes made to the project."),
-        (
-            "review",
-            "Create a GitHub Gist of Agent Studio project changes to share changes.",
-        ),
+        ("review", "Incomplete: review Agent Studio project changes."),
         ("branch", "Manage branches in the Agent Studio project."),
         (
             "format",
@@ -341,6 +483,71 @@ fn pull_from_projection_preserves_current_branch_config() {
 }
 
 #[test]
+fn pull_from_projection_materializes_synthetic_resources_and_clean_status() {
+    let project_dir = make_temp_project_dir();
+    let project_root = std::path::PathBuf::from(&project_dir);
+    let projection_arg = synthetic_resource_projection_json();
+
+    let output = run_poly(&[
+        "pull",
+        "--json",
+        "--path",
+        &project_dir,
+        "--from-projection",
+        &projection_arg,
+    ]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let flow_config =
+        fs::read_to_string(project_root.join("flows/adk_recording_flow/flow_config.yaml"))
+            .expect("flow config");
+    assert!(flow_config.contains("name: adk_recording_flow"));
+    assert!(flow_config.contains("Flow recording baseline."));
+
+    let flow_step =
+        fs::read_to_string(project_root.join("flows/adk_recording_flow/steps/start_step.yaml"))
+            .expect("flow step");
+    assert!(flow_step.contains("step_type: advanced_step"));
+    assert!(flow_step.contains("Welcome to the flow recording."));
+
+    let entities = fs::read_to_string(project_root.join("config/entities.yaml")).expect("entities");
+    assert!(entities.contains("Age"));
+    assert!(entities.contains("has_range"));
+
+    let handoffs = fs::read_to_string(project_root.join("config/handoffs.yaml")).expect("handoffs");
+    assert!(handoffs.contains("Sales"));
+    assert!(handoffs.contains("TLS/SRTP"));
+
+    let sms =
+        fs::read_to_string(project_root.join("config/sms_templates.yaml")).expect("sms templates");
+    assert!(sms.contains("Welcome SMS"));
+    assert!(sms.contains("Hello {recording_state}"));
+
+    let phrase_filtering =
+        fs::read_to_string(project_root.join("voice/response_control/phrase_filtering.yaml"))
+            .expect("phrase filtering");
+    assert!(phrase_filtering.contains("Hang Up"));
+    assert!(phrase_filtering.contains("(?i)bye"));
+
+    let status = run_poly(&["status", "--json", "--path", &project_dir]);
+    assert_eq!(status.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&status.stdout).expect("valid status JSON output");
+    for field in [
+        "new_files",
+        "modified_files",
+        "deleted_files",
+        "files_with_conflicts",
+    ] {
+        let values = payload
+            .get(field)
+            .and_then(|value| value.as_array())
+            .unwrap_or_else(|| panic!("{field} array"));
+        assert!(values.is_empty(), "{field} should be empty: {values:?}");
+    }
+}
+
+#[test]
 fn pull_from_projection_format_formats_python_and_baselines_snapshot() {
     let project_dir = make_temp_project_dir();
     let projection_arg = unformatted_function_projection_json();
@@ -507,7 +714,7 @@ fn branch_switch_output_json_projection_returns_remote_projection_without_from_p
 }
 
 #[test]
-fn review_subcommands_accept_json_after_subcommand() {
+fn review_subcommands_report_incomplete() {
     let project_dir = make_temp_project_dir();
     for args in [
         vec!["review", "--path", &project_dir, "create", "--json"],
@@ -515,12 +722,16 @@ fn review_subcommands_accept_json_after_subcommand() {
         vec!["review", "delete", "--json"],
     ] {
         let output = run_poly(&args);
-        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(output.status.code(), Some(1));
         let payload: serde_json::Value =
             serde_json::from_slice(&output.stdout).expect("valid JSON output");
         assert_eq!(
             payload.get("success").and_then(|v| v.as_bool()),
             Some(false)
+        );
+        assert_eq!(
+            payload.get("message").and_then(|v| v.as_str()),
+            Some("The review subcommand is not implemented in adk-rs yet.")
         );
     }
 }
@@ -609,6 +820,89 @@ fn validate_json_reports_python_function_syntax_errors() {
 }
 
 #[test]
+fn validate_json_reports_special_and_flow_function_syntax_errors() {
+    for (path, name, content) in [
+        (
+            "functions/start_function.py",
+            "start_function",
+            "from _gen import *  # <AUTO GENERATED>\n\n\ndef start_function(conv: Conversation):\n    return (\n",
+        ),
+        (
+            "functions/end_function.py",
+            "end_function",
+            "from _gen import *  # <AUTO GENERATED>\n\n\ndef end_function(conv: Conversation):\n    if True\n        return None\n",
+        ),
+        (
+            "flows/bad_flow/function_steps/bad_func.py",
+            "bad_func",
+            "from _gen import *  # <AUTO GENERATED>\n\n\ndef bad_func(conv: Conversation, flow: Flow):\n    if True\n        return None\n",
+        ),
+    ] {
+        let project_dir = make_temp_project_dir();
+        let root = std::path::PathBuf::from(&project_dir);
+        let file_path = root.join(path);
+        fs::create_dir_all(file_path.parent().expect("parent")).expect("mkdir resource dir");
+        fs::write(&file_path, content).expect("write invalid function");
+
+        let output = run_poly(&["validate", "--json", "--path", &project_dir]);
+
+        assert_eq!(output.status.code(), Some(1), "{path}");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("valid JSON output");
+        assert_eq!(
+            payload.get("success").and_then(|v| v.as_bool()),
+            Some(false),
+            "{path}"
+        );
+        let error = payload
+            .get("error")
+            .and_then(|v| v.as_str())
+            .expect("error string");
+        assert!(
+            error.contains(&format!("Error reading resource {name}")),
+            "{path}: {error}"
+        );
+        assert!(error.contains(path), "{path}: {error}");
+    }
+}
+
+#[test]
+fn push_json_dry_run_reports_python_syntax_read_errors_without_http_recording() {
+    let project_dir = make_temp_project_dir();
+    let root = std::path::PathBuf::from(&project_dir);
+    fs::create_dir_all(root.join("functions")).expect("mkdir functions");
+    fs::write(
+        root.join("functions/bad_global.py"),
+        "from _gen import *  # <AUTO GENERATED>\n\n\ndef bad_global(conv: Conversation):\n    if True\n        return None\n",
+    )
+    .expect("write invalid global function");
+
+    let output = run_poly(&[
+        "push",
+        "--json",
+        "--dry-run",
+        "--from-projection",
+        "{}",
+        "--path",
+        &project_dir,
+    ]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(
+        payload.get("success").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    let error = payload
+        .get("error")
+        .and_then(|v| v.as_str())
+        .expect("error string");
+    assert!(error.contains("Error reading resource bad_global"));
+    assert!(error.contains("functions/bad_global.py"));
+}
+
+#[test]
 fn validate_json_reports_transition_function_signature_errors() {
     let project_dir = make_temp_project_dir();
     let root = std::path::PathBuf::from(&project_dir);
@@ -638,6 +932,109 @@ fn validate_json_reports_transition_function_signature_errors() {
                 "Function definition 'def route_account(conv: Conversation, flow: Flow)' not found",
             )
     }));
+}
+
+fn write_invalid_flow_validation_project(root: &std::path::Path) {
+    fs::create_dir_all(root.join("config")).expect("mkdir config");
+    fs::create_dir_all(root.join("flows/bad_flow/steps")).expect("mkdir flow steps");
+    fs::create_dir_all(root.join("flows/bad_flow/function_steps")).expect("mkdir function steps");
+    fs::write(
+        root.join("config/entities.yaml"),
+        "entities:\n  - name: Age\n    description: Age.\n    entity_type: numeric\n    config:\n      has_range: false\n",
+    )
+    .expect("write entities");
+    fs::write(
+        root.join("flows/bad_flow/flow_config.yaml"),
+        "name: bad_flow\ndescription: Valid description.\nstart_step: missing_start\n",
+    )
+    .expect("write flow config");
+    fs::write(
+        root.join("flows/bad_flow/steps/bad_condition.yaml"),
+        "step_type: default_step\nname: bad_condition\nprompt: Continue.\nconditions:\n  - name: go\n    condition_type: step_condition\n    description: Go.\n    child_step: missing_step\n    required_entities:\n      - ENTITY-missing\n",
+    )
+    .expect("write bad condition step");
+    fs::write(
+        root.join("flows/bad_flow/steps/default_func.yaml"),
+        "step_type: default_step\nname: default_func\nprompt: \"Use {{fn:recording_handler}}.\"\nconditions: []\n",
+    )
+    .expect("write default function step");
+    fs::write(
+        root.join("flows/bad_flow/steps/empty_prompt.yaml"),
+        "step_type: advanced_step\nname: empty_prompt\nprompt: \"\"\n",
+    )
+    .expect("write empty prompt step");
+    fs::write(
+        root.join("flows/bad_flow/function_steps/bad_func.py"),
+        "from _gen import *  # <AUTO GENERATED>\n\n@func_parameter(\"x\", \"bad\")\ndef bad_func(conv: Conversation, flow: Flow, x: str):\n    return x\n",
+    )
+    .expect("write bad function step");
+}
+
+#[test]
+fn validate_json_reports_flow_resource_errors_without_http_recording() {
+    let project_dir = make_temp_project_dir();
+    let root = std::path::PathBuf::from(&project_dir);
+    write_invalid_flow_validation_project(root.as_path());
+
+    let output = run_poly(&["validate", "--json", "--path", &project_dir]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(payload.get("valid").and_then(|v| v.as_bool()), Some(false));
+    let errors = payload
+        .get("errors")
+        .and_then(|v| v.as_array())
+        .expect("errors array")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>();
+    for expected in [
+        "Step 'missing_step' not found",
+        "Default steps cannot reference functions",
+        "Prompt cannot be empty",
+        "Function definition 'def bad_func(conv: Conversation, flow: Flow)' not found",
+        "Start step 'missing_start' not found",
+    ] {
+        assert!(
+            errors.iter().any(|error| error.contains(expected)),
+            "missing {expected:?}: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn push_json_dry_run_reports_flow_validation_errors_without_http_recording() {
+    let project_dir = make_temp_project_dir();
+    let root = std::path::PathBuf::from(&project_dir);
+    write_invalid_flow_validation_project(root.as_path());
+
+    let output = run_poly(&[
+        "push",
+        "--json",
+        "--dry-run",
+        "--from-projection",
+        "{}",
+        "--path",
+        &project_dir,
+    ]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(
+        payload.get("success").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    let message = payload
+        .get("message")
+        .and_then(|v| v.as_str())
+        .expect("message string");
+    assert!(message.contains("Validation errors detected:"));
+    assert!(message.contains("Step 'missing_step' not found"));
+    assert!(message.contains("Default steps cannot reference functions"));
+    assert!(message.contains("Prompt cannot be empty"));
+    assert!(message.contains("Start step 'missing_start' not found"));
 }
 
 #[test]
@@ -887,30 +1284,12 @@ fn branch_create_env_force_uses_hotfix_path() {
 }
 
 #[test]
-fn review_json_reports_missing_github_token() {
-    let project_dir = make_temp_project_dir();
-    let output = run_poly(&["review", "--json", "--path", &project_dir, "list"]);
-    assert_eq!(output.status.code(), Some(0));
-    let payload: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("valid JSON output");
-    assert_eq!(
-        payload.get("success").and_then(|v| v.as_bool()),
-        Some(false)
-    );
-    let message = payload
-        .get("message")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    assert!(message.contains("GITHUB_ACCESS_TOKEN"));
-}
-
-#[test]
-fn review_text_reports_missing_github_token() {
+fn review_text_reports_incomplete() {
     let project_dir = make_temp_project_dir();
     let output = run_poly(&["review", "--path", &project_dir, "list"]);
-    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("GITHUB_ACCESS_TOKEN"));
+    assert!(stderr.contains("The review subcommand is not implemented in adk-rs yet."));
 }
 
 #[test]
