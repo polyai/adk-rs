@@ -1,4 +1,4 @@
 interface:
   display_name: "Multi-Agent PR Babysitter"
   short_description: "Coordinate subagent PRs, CI, review, and merges."
-  default_prompt: "Coordinate subagents on separate branches, review their draft PRs, watch checks, and merge low-risk changes."
+  default_prompt: "Coordinate subagents on separate branches, review their PRs, watch checks, and merge low-risk changes."

@@ -14,7 +14,7 @@ Use this workflow only after the user explicitly authorizes subagents or paralle
 - Split work into independent scopes with disjoint write ownership.
 - Give every worker a branch name, PR title, changed-file ownership, and required checks.
 - Tell workers they are not alone in the repo: do not revert unrelated edits, keep changes mechanically scoped, and adapt to nearby work instead of clobbering it.
-- Prefer each worker opening a draft PR. Ask for a final report with PR URL, branch, changed paths, checks run, and known risks.
+- Prefer each worker opening a PR. Ask for a final report with PR URL, branch, changed paths, checks run, and known risks.
 - Keep doing non-overlapping main-agent work while workers run. Wait only when the next critical step needs a worker result.
 
 ## Main-Agent Review
@@ -27,11 +27,10 @@ Use this workflow only after the user explicitly authorizes subagents or paralle
 
 ## Ready And Merge Decisions
 
-- If the user only asked to open PRs or wants human review, leave PRs as draft and summarize readiness.
-- If the user asked to babysit, merge, or handle the workflow end to end, do not stop at "checks passed." Review the PRs and take the next appropriate action.
-- Mark a PR ready for review when it is low risk, scoped as requested, locally reviewed by the main agent, has passing required checks, and does not depend on an unmerged sibling PR.
-- Merge low-risk PRs when the user has delegated merging authority and branch protection allows it.
-- Ask the human user before marking ready or merging when risk is moderate or high.
+- If the user asked for human review, leave PRs as draft and summarize readiness.
+- If the user asked to babysit, merge, or handle the workflow end to end, do not stop at "checks passed." Review the PRs and take the next appropriate action until you are ready to merge them yourself, or request human review.
+- You are authorized to merge a PR when it is low or medium risk, scoped as requested, locally reviewed by the main agent, has passing required checks, and does not depend on an unmerged sibling PR.
+- Ask the human user for review before merging when risk is high.
 
 Low-risk examples: docs-only changes, mechanical code moves with passing full tests, narrow test additions, isolated refactors with no behavior change, or one-file fixes with clear coverage.
 
