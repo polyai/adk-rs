@@ -20,7 +20,7 @@ Each crate also has a short local README.
 
 Resource type metadata and behavior are intentionally split by responsibility:
 
-- `adk-types/src/lib.rs` owns the central `RESOURCE_TYPE_REGISTRY`: Python class name, status-file resource name, ID prefix, and registry order.
+- `adk-types/src/lib.rs` owns the central `RESOURCE_TYPE_REGISTRY`: Python class name, status resource key, ID prefix, and registry order.
 - `adk-core/src/resources/` owns resource/domain behavior used by core workflows: local discovery and resource-local validation.
 - `adk-core/src/validation.rs` owns validation orchestration plus cross-resource checks, such as flow step references, entity references, and flow-scoped function call-site rules.
 - `adk-push-pull` owns projection materialization and push command generation.

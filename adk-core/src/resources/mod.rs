@@ -1,7 +1,7 @@
 //! Resource-specific local discovery and validation implementations.
 //!
-//! Resource type metadata, including Python class names, status-file names, ID
-//! prefixes, and registry order, lives in `adk-types`. This module owns
+//! Resource type metadata, including Python class names, status resource keys,
+//! ID prefixes, and registry order, lives in `adk-types`. This module owns
 //! resource/domain behavior that belongs in `adk-core`: local filesystem
 //! discovery and validation that can be decided from one resource file or one
 //! resource-owned collection file.
