@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::{clean_name, rel_under_root};
+use crate::resource_utils::{clean_name, rel_under_root};
 use crate::resources::common::{is_file, read_yaml_mapping, validate_named_sequence};
 use serde_yaml::Value;
 use std::path::Path;
@@ -7,8 +7,6 @@ use std::path::Path;
 // poly/resources/api_integration.py
 pub(crate) struct ApiIntegration;
 impl DiscoverResources for ApiIntegration {
-    const TYPE_NAME: &'static str = "ApiIntegration";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/api_integrations.yaml");
         if !is_file(&path) {

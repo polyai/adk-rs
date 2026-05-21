@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::{clean_name, rel_under_root};
+use crate::resource_utils::{clean_name, rel_under_root};
 use crate::resources::common::{is_file, read_yaml_mapping};
 use serde_yaml::Value;
 use std::path::Path;
@@ -7,8 +7,6 @@ use std::path::Path;
 // poly/resources/phrase_filter.py
 pub(crate) struct PhraseFilter;
 impl DiscoverResources for PhraseFilter {
-    const TYPE_NAME: &'static str = "PhraseFilter";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let yaml_path = base_path.join("voice/response_control/phrase_filtering.yaml");
         if !is_file(&yaml_path) {

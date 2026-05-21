@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::{clean_name, rel_under_root};
+use crate::resource_utils::{clean_name, rel_under_root};
 use crate::resources::common::{is_file, read_yaml_mapping};
 use serde_yaml::Value;
 use std::path::Path;
@@ -7,8 +7,6 @@ use std::path::Path;
 // poly/resources/transcript_correction.py
 pub(crate) struct TranscriptCorrection;
 impl DiscoverResources for TranscriptCorrection {
-    const TYPE_NAME: &'static str = "TranscriptCorrection";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let yaml_path = base_path.join("voice/speech_recognition/transcript_corrections.yaml");
         if !is_file(&yaml_path) {

@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::{clean_name, rel_under_root};
+use crate::resource_utils::{clean_name, rel_under_root};
 use crate::resources::common::{is_file, read_yaml_mapping, validate_duplicate_names};
 use serde_yaml::Value;
 use std::path::Path;
@@ -7,8 +7,6 @@ use std::path::Path;
 // poly/resources/variant_attributes.py
 pub(crate) struct Variant;
 impl DiscoverResources for Variant {
-    const TYPE_NAME: &'static str = "Variant";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/variant_attributes.yaml");
         if !is_file(&path) {
@@ -77,8 +75,6 @@ pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<Str
 
 pub(crate) struct VariantAttribute;
 impl DiscoverResources for VariantAttribute {
-    const TYPE_NAME: &'static str = "VariantAttribute";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/variant_attributes.yaml");
         if !is_file(&path) {

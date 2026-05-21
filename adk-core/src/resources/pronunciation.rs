@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::{clean_name, rel_under_root};
+use crate::resource_utils::{clean_name, rel_under_root};
 use crate::resources::common::{is_file, read_yaml_mapping};
 use serde_yaml::Value;
 use std::path::Path;
@@ -7,8 +7,6 @@ use std::path::Path;
 // poly/resources/pronunciation.py
 pub(crate) struct Pronunciation;
 impl DiscoverResources for Pronunciation {
-    const TYPE_NAME: &'static str = "Pronunciation";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let yaml_path = base_path.join("voice/response_control/pronunciations.yaml");
         if !is_file(&yaml_path) {

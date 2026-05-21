@@ -3,6 +3,7 @@ use adk_types::{DiffMap, DomainError, ProjectConfig, ResourceMap};
 pub mod discover;
 mod python_functions;
 mod python_syntax;
+mod resource_utils;
 mod resources;
 mod service;
 mod status_snapshot;
@@ -12,8 +13,6 @@ mod workspace;
 use adk_api_client::ApiError;
 use adk_io::{FileSystem, StdFileSystem, compute_hash, parse_multi_resource_path};
 use anyhow::Result;
-pub use discover::discover_local_resources;
-pub use discover::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 use globset::{Glob, GlobSetBuilder};
 use python_functions::{
     PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX, PYTHON_FUNCTION_STATUS_HASH_PREFIX,
@@ -21,6 +20,7 @@ use python_functions::{
     normalize_legacy_python_status_function_resources, normalize_python_function_metadata_spacing,
     resource_file_content,
 };
+pub use resources::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 use serde_json::Value;
 pub use service::{AdkService, PullOutcome};
 use status_snapshot::{StatusResourcePayload, current_status_hash_for_expected};
@@ -99,12 +99,12 @@ fn legacy_python_status_resource_path(
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let clean_name = |lowercase| discover::clean_name(name, lowercase);
+    let clean_name = |lowercase| resource_utils::clean_name(name, lowercase);
     let flow_folder = || {
         payload
             .get("flow_name")
             .and_then(Value::as_str)
-            .map(|flow_name| discover::clean_name(flow_name, true))
+            .map(|flow_name| resource_utils::clean_name(flow_name, true))
     };
     match resource_name {
         "api_integration" => Some(format!(
@@ -165,7 +165,7 @@ fn legacy_python_status_resource_path(
                 .unwrap_or(name);
             Some(format!(
                 "voice/speech_recognition/keyphrase_boosting.yaml/keyphrases/{}",
-                discover::clean_name(keyphrase, false)
+                resource_utils::clean_name(keyphrase, false)
             ))
         }
         "transcript_corrections" => Some(format!(
@@ -185,7 +185,7 @@ fn legacy_python_status_resource_path(
                 .unwrap_or_else(|| ordinal.to_string());
             Some(format!(
                 "voice/response_control/pronunciations.yaml/pronunciations/{}",
-                discover::clean_name(&position, false)
+                resource_utils::clean_name(&position, false)
             ))
         }
         _ => None,
@@ -360,7 +360,7 @@ fn migrate_legacy_topic_files<Fs: FileSystem>(
             .with_extension("")
             .to_string_lossy()
             .replace('\\', "/");
-        let clean_file_name = discover::clean_name(&topic_name, true);
+        let clean_file_name = resource_utils::clean_name(&topic_name, true);
         let clean_file_path = topics_dir.join(format!("{clean_file_name}.yaml"));
         if migrated_topics.contains_key(&clean_file_path) {
             return Err(DomainError::InvalidData(format!(
@@ -568,14 +568,13 @@ fn flatten_discovered_paths(paths: &DiscoveredResourcePaths) -> Vec<String> {
 
 fn flatten_discovered_paths_by_type_order(paths: &DiscoveredResourcePaths) -> Vec<String> {
     let mut out = Vec::new();
-    for type_name in discover::ordered_type_names() {
-        if let Some(type_paths) = paths.get(*type_name) {
+    for type_name in adk_types::ORDERED_TYPE_NAMES {
+        if let Some(type_paths) = paths.get(type_name) {
             out.extend(type_paths.iter().cloned());
         }
     }
-    let known_types = discover::ordered_type_names()
-        .iter()
-        .copied()
+    let known_types = adk_types::ORDERED_TYPE_NAMES
+        .into_iter()
         .collect::<HashSet<_>>();
     let mut remaining = paths
         .iter()
@@ -630,7 +629,7 @@ fn deleted_status_type_rank(type_name: &str) -> usize {
         "PhraseFilter" => 9,
         "Handoff" => 10,
         "SMSTemplate" => 11,
-        other => discover::ordered_type_names()
+        other => adk_types::ORDERED_TYPE_NAMES
             .iter()
             .position(|name| *name == other)
             .map(|position| position + 100)

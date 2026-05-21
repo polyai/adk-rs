@@ -1,3 +1,4 @@
+use crate::resource_utils::{clean_name, extract_variable_names_from_code};
 use crate::status_snapshot::{
     FileStructureEntry, StatusResourcePayload, StatusSnapshot, flow_folder_name,
     python_json_dumps_pretty_sorted, python_json_dumps_sorted, snake_case_json_keys,
@@ -531,7 +532,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         let variable_names = local
             .values()
             .filter_map(|resource| resource.payload.get("content").and_then(Value::as_str))
-            .flat_map(discover::extract_variable_names_from_code)
+            .flat_map(extract_variable_names_from_code)
             .collect::<BTreeSet<_>>();
         for name in variable_names {
             let logical_path = format!("variables/{name}");
@@ -796,7 +797,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                         continue;
                     }
                     if let Some(name) = item.get("name").and_then(serde_yaml::Value::as_str) {
-                        let name = crate::discover::clean_name(name, false);
+                        let name = clean_name(name, false);
                         paths.insert(format!("{path}/{top_level_name}/{name}"));
                     }
                 }
@@ -1240,8 +1241,8 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         let mut ordered = Vec::new();
 
         for paths_by_type in [&typed_changes.new_resources, &typed_changes.kept_resources] {
-            for type_name in discover::ordered_type_names() {
-                let Some(paths) = paths_by_type.get(*type_name) else {
+            for type_name in adk_types::ORDERED_TYPE_NAMES {
+                let Some(paths) = paths_by_type.get(type_name) else {
                     continue;
                 };
                 for logical_path in paths {
@@ -1389,7 +1390,9 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         let mut file_structure_metadata = BTreeMap::new();
 
         for (type_name, paths) in discovered {
-            let Some(resource_name) = discover::type_name_to_resource_name(&type_name) else {
+            let Some(resource_name) =
+                adk_types::descriptor_by_type_name(&type_name).map(|d| d.status_resource_name)
+            else {
                 continue;
             };
             let mut entries = indexmap::IndexMap::new();
@@ -1693,7 +1696,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             };
             let logical_path = format!(
                 "config/variant_attributes.yaml/variants/{}",
-                discover::clean_name(name, false)
+                clean_name(name, false)
             );
             if let Some(id) = existing_resource_ids.get(&logical_path) {
                 map.insert(name.to_string(), id.clone());

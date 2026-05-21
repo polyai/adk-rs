@@ -1,4 +1,4 @@
-use crate::discover;
+use crate::resource_utils::clean_name;
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -188,7 +188,7 @@ fn normalize_legacy_python_flow_imports(
         };
         out = out.replace(
             &format!("flows.{flow_folder}.functions"),
-            &format!("functions.{}", discover::clean_name(flow_id, true)),
+            &format!("functions.{}", clean_name(flow_id, true)),
         );
     }
     out

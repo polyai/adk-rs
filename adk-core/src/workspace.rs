@@ -1,4 +1,5 @@
 use crate::python_functions::local_resource_content;
+use crate::resource_utils::clean_name;
 use crate::status_snapshot::StatusSnapshot;
 use crate::{
     CoreError, DiscoveredResourceChanges, DiscoveredResourcePaths, MIGRATED_LEGACY_TOPIC_FILES,
@@ -10,7 +11,8 @@ use crate::{
     legacy_python_rules_reference_names, legacy_python_status_resource_content,
     legacy_python_status_resource_file_hash, legacy_python_status_resource_path,
     migrate_legacy_topic_files, migration_flags_from_status, project_config_contains_branch_id,
-    project_config_yaml, recursive_file_paths, reference_name_from_logical_path, stable_dedup,
+    project_config_yaml, recursive_file_paths, reference_name_from_logical_path, resources,
+    stable_dedup,
 };
 use adk_io::{FileSystem, StdFileSystem, parse_multi_resource_path};
 use adk_types::{DomainError, ProjectConfig, Resource, ResourceMap, StatusSummary};
@@ -326,7 +328,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         discovered_resources: &DiscoveredResourcePaths,
         existing_resources: &DiscoveredResourcePaths,
     ) -> DiscoveredResourceChanges {
-        discover::find_new_kept_deleted(discovered_resources, existing_resources)
+        resources::find_new_kept_deleted(discovered_resources, existing_resources)
     }
 
     pub fn typed_resource_lifecycle(
@@ -335,7 +337,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
     ) -> Result<Vec<TypedResourceLifecycle>, CoreError> {
         let discovered = self.discover_local_resources(root);
         let existing_resource_ids = self.load_status_snapshot_resource_ids(root)?;
-        Ok(discover::build_typed_resource_lifecycle(
+        Ok(resources::build_typed_resource_lifecycle(
             &discovered,
             &existing_resource_ids,
         ))
@@ -352,7 +354,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
 
         let existing_typed = self
             .load_status_snapshot_discovered_resources(root)?
-            .unwrap_or_else(discover::empty_discovered_resource_paths);
+            .unwrap_or_else(resources::empty_discovered_resource_paths);
         let discovered_typed = self.discover_local_resources(root);
         let typed_changes = self.find_new_kept_deleted(&discovered_typed, &existing_typed);
         summary.new_files = flatten_discovered_paths_by_type_order(&typed_changes.new_resources);
@@ -394,9 +396,11 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
             return Ok(None);
         };
 
-        let mut discovered = discover::empty_discovered_resource_paths();
+        let mut discovered = resources::empty_discovered_resource_paths();
         for (resource_name, resource_entries) in &snapshot.resources {
-            let Some(type_name) = discover::resource_name_to_type_name(resource_name) else {
+            let Some(type_name) =
+                adk_types::descriptor_by_status_name(resource_name).map(|d| d.type_name)
+            else {
                 continue;
             };
             let mut paths = Vec::new();
@@ -427,7 +431,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         let existing_resource_ids = self.load_status_snapshot_resource_ids(root)?;
         let mut replacements = Vec::new();
         for (type_name, paths) in deleted_resources {
-            let Some(prefix) = discover::type_name_to_resource_prefix(type_name) else {
+            let Some(prefix) = resources::type_name_to_resource_prefix(type_name) else {
                 continue;
             };
             for logical_path in paths {
@@ -485,7 +489,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
                         out.insert(
                             format!(
                                 "{PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX}{}",
-                                discover::clean_name(flow_name, true)
+                                clean_name(flow_name, true)
                             ),
                             flow_id.to_string(),
                         );

@@ -1,13 +1,11 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::rel_under_root;
+use crate::resource_utils::rel_under_root;
 use crate::resources::common::{is_dir, sorted_read_dir};
 use std::path::Path;
 
 // poly/resources/function.py
 pub(crate) struct Function;
 impl DiscoverResources for Function {
-    const TYPE_NAME: &'static str = "Function";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         let flows = base_path.join("flows");

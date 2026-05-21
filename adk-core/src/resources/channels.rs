@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::rel_under_root;
+use crate::resource_utils::rel_under_root;
 use crate::resources::common::{is_file, read_yaml_mapping};
 use serde_yaml::Value;
 use std::path::Path;
@@ -7,8 +7,6 @@ use std::path::Path;
 // poly/resources/channel_settings.py
 pub(crate) struct VoiceGreeting;
 impl DiscoverResources for VoiceGreeting {
-    const TYPE_NAME: &'static str = "VoiceGreeting";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("voice/configuration.yaml");
         if !is_file(&file_path) {
@@ -30,8 +28,6 @@ impl DiscoverResources for VoiceGreeting {
 
 pub(crate) struct VoiceSafetyFilters;
 impl DiscoverResources for VoiceSafetyFilters {
-    const TYPE_NAME: &'static str = "VoiceSafetyFilters";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let p = base_path.join("voice/safety_filters.yaml");
         if is_file(&p) {
@@ -44,8 +40,6 @@ impl DiscoverResources for VoiceSafetyFilters {
 
 pub(crate) struct VoiceStylePrompt;
 impl DiscoverResources for VoiceStylePrompt {
-    const TYPE_NAME: &'static str = "VoiceStylePrompt";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("voice/configuration.yaml");
         if !is_file(&file_path) {
@@ -67,8 +61,6 @@ impl DiscoverResources for VoiceStylePrompt {
 
 pub(crate) struct VoiceDisclaimerMessage;
 impl DiscoverResources for VoiceDisclaimerMessage {
-    const TYPE_NAME: &'static str = "VoiceDisclaimerMessage";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("voice/configuration.yaml");
         if !is_file(&file_path) {
@@ -96,8 +88,6 @@ impl DiscoverResources for VoiceDisclaimerMessage {
 
 pub(crate) struct ChatGreeting;
 impl DiscoverResources for ChatGreeting {
-    const TYPE_NAME: &'static str = "ChatGreeting";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("chat/configuration.yaml");
         if !is_file(&file_path) {
@@ -119,8 +109,6 @@ impl DiscoverResources for ChatGreeting {
 
 pub(crate) struct ChatSafetyFilters;
 impl DiscoverResources for ChatSafetyFilters {
-    const TYPE_NAME: &'static str = "ChatSafetyFilters";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let p = base_path.join("chat/safety_filters.yaml");
         if is_file(&p) {
@@ -133,8 +121,6 @@ impl DiscoverResources for ChatSafetyFilters {
 
 pub(crate) struct ChatStylePrompt;
 impl DiscoverResources for ChatStylePrompt {
-    const TYPE_NAME: &'static str = "ChatStylePrompt";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("chat/configuration.yaml");
         if !is_file(&file_path) {

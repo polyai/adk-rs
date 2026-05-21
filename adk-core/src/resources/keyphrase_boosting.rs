@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::{clean_name, rel_under_root};
+use crate::resource_utils::{clean_name, rel_under_root};
 use crate::resources::common::{is_file, read_yaml_mapping};
 use serde_yaml::Value;
 use std::path::Path;
@@ -7,8 +7,6 @@ use std::path::Path;
 // poly/resources/keyphrase_boosting.py
 pub(crate) struct KeyphraseBoosting;
 impl DiscoverResources for KeyphraseBoosting {
-    const TYPE_NAME: &'static str = "KeyphraseBoosting";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let candidates = [
             base_path.join("voice/speech_recognition/keyphrase_boosting.yaml"),
