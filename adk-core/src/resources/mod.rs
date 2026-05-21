@@ -3,8 +3,8 @@
 //! Resource type metadata, including Python class names, status resource keys,
 //! ID prefixes, and registry order, lives in `adk-types`. This module owns
 //! resource/domain behavior that belongs in `adk-core`: local filesystem
-//! discovery and validation that can be decided from one resource file or one
-//! resource-owned collection file.
+//! discovery, typed resource lifecycle bookkeeping, and validation that can be
+//! decided from one resource file or one resource-owned collection file.
 //!
 //! Cross-resource validation, such as flow step references, entity references,
 //! and function call-site checks, remains in `crate::validation`. Projection
@@ -22,6 +22,7 @@ mod flow;
 mod function;
 mod handoff;
 mod keyphrase_boosting;
+mod lifecycle;
 mod phrase_filter;
 mod pronunciation;
 mod safety_filters;
@@ -44,6 +45,11 @@ pub(crate) use flow::{FlowConfig, FlowStep, FunctionStep};
 pub(crate) use function::Function;
 pub(crate) use handoff::Handoff;
 pub(crate) use keyphrase_boosting::KeyphraseBoosting;
+pub use lifecycle::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
+pub(crate) use lifecycle::{
+    build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
+    type_name_to_resource_prefix,
+};
 pub(crate) use phrase_filter::PhraseFilter;
 pub(crate) use pronunciation::Pronunciation;
 pub(crate) use safety_filters::GeneralSafetyFilters;
