@@ -1,8 +1,15 @@
-//! Resource-specific local discovery implementations.
+//! Resource-specific local discovery and validation implementations.
 //!
-//! The central resource metadata registry lives in `adk-types`. This module owns
-//! per-resource filesystem discovery so the details for a resource can live near
-//! its resource-domain code.
+//! Resource type metadata, including Python class names, status-file names, ID
+//! prefixes, and registry order, lives in `adk-types`. This module owns
+//! resource/domain behavior that belongs in `adk-core`: local filesystem
+//! discovery and validation that can be decided from one resource file or one
+//! resource-owned collection file.
+//!
+//! Cross-resource validation, such as flow step references, entity references,
+//! and function call-site checks, remains in `crate::validation`. Projection
+//! materialization and push command generation remain in `adk-push-pull` so
+//! protobuf-heavy push/pull behavior stays out of `adk-core`.
 
 mod agent_settings;
 mod api_integration;
