@@ -1,4 +1,4 @@
-//! Mirrors `poly/resources/resource_utils.py` helpers used by resource discovery.
+//! Mirrors `poly/resources/resource_utils.py` helpers used by resource workflows.
 
 use fancy_regex::Regex as FancyRegex;
 use regex::Regex;

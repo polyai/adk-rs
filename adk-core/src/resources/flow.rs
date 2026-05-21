@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::rel_under_root;
+use crate::resource_utils::rel_under_root;
 use crate::resources::common::{is_dir, is_file, read_yaml_mapping, sorted_read_dir};
 use std::path::Path;
 
@@ -19,8 +19,6 @@ fn step_file_stem(path: &Path) -> Option<String> {
 // poly/resources/flows.py
 pub(crate) struct FlowStep;
 impl DiscoverResources for FlowStep {
-    const TYPE_NAME: &'static str = "FlowStep";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let flows_path = base_path.join("flows");
         if !is_dir(&flows_path) {
@@ -62,8 +60,6 @@ impl DiscoverResources for FlowStep {
 
 pub(crate) struct FunctionStep;
 impl DiscoverResources for FunctionStep {
-    const TYPE_NAME: &'static str = "FunctionStep";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let flows_path = base_path.join("flows");
         if !is_dir(&flows_path) {
@@ -91,8 +87,6 @@ impl DiscoverResources for FunctionStep {
 
 pub(crate) struct FlowConfig;
 impl DiscoverResources for FlowConfig {
-    const TYPE_NAME: &'static str = "FlowConfig";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let flows_path = base_path.join("flows");
         if !is_dir(&flows_path) {

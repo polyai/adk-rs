@@ -1,4 +1,3 @@
-use crate::discover;
 use crate::python_functions::{
     PYTHON_FUNCTION_STATUS_HASH_PREFIX, PythonDecoratorCallScan,
     extract_normalized_python_adk_decorators, function_signature_parameter_list,
@@ -6,6 +5,7 @@ use crate::python_functions::{
     legacy_python_local_function_raw, normalize_python_function_metadata_spacing,
     parse_python_string_args, raw_function_content,
 };
+use crate::resource_utils::clean_name;
 use adk_io::{compute_hash, parse_multi_resource_path};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -589,7 +589,7 @@ pub(crate) fn status_yaml_payload(logical_path: &str, content: &str) -> Option<V
                     .find(|item| {
                         item.get("name")
                             .and_then(serde_yaml::Value::as_str)
-                            .is_some_and(|name| discover::clean_name(name, false) == resource_name)
+                            .is_some_and(|name| clean_name(name, false) == resource_name)
                     })
                     .cloned()?
             } else {

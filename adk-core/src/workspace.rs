@@ -1,4 +1,5 @@
 use crate::python_functions::local_resource_content;
+use crate::resource_utils::clean_name;
 use crate::status_snapshot::StatusSnapshot;
 use crate::{
     CoreError, DiscoveredResourceChanges, DiscoveredResourcePaths, MIGRATED_LEGACY_TOPIC_FILES,
@@ -397,7 +398,9 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
 
         let mut discovered = resources::empty_discovered_resource_paths();
         for (resource_name, resource_entries) in &snapshot.resources {
-            let Some(type_name) = discover::resource_name_to_type_name(resource_name) else {
+            let Some(type_name) =
+                adk_types::descriptor_by_status_name(resource_name).map(|d| d.type_name)
+            else {
                 continue;
             };
             let mut paths = Vec::new();
@@ -486,7 +489,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
                         out.insert(
                             format!(
                                 "{PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX}{}",
-                                discover::clean_name(flow_name, true)
+                                clean_name(flow_name, true)
                             ),
                             flow_id.to_string(),
                         );

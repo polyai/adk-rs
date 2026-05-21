@@ -1,7 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::{
-    extract_variable_names_from_code, join_under_root, rel_under_root,
-};
+use crate::resource_utils::{extract_variable_names_from_code, join_under_root, rel_under_root};
 use crate::resources::common::{is_dir, sorted_read_dir};
 use adk_io::{FileSystem, StdFileSystem};
 use std::path::{Path, PathBuf};
@@ -9,8 +7,6 @@ use std::path::{Path, PathBuf};
 // poly/resources/variable.py
 pub(crate) struct Variable;
 impl DiscoverResources for Variable {
-    const TYPE_NAME: &'static str = "Variable";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let mut function_files: Vec<PathBuf> = Vec::new();
         let global_functions = base_path.join("functions");

@@ -1,10 +1,6 @@
 //! Typed local resource discovery aligned with `poly/project.py` `discover_local_resources`
 //! and each resource class `discover_resources(base_path)`.
 
-pub(crate) mod resource_utils;
-
-pub use resource_utils::{clean_name, extract_variable_names_from_code};
-
 use crate::resources::DiscoveredResourcePaths;
 use crate::resources::{
     ApiIntegration, AsrSettings, ChatGreeting, ChatSafetyFilters, ChatStylePrompt, Entity,
@@ -14,27 +10,20 @@ use crate::resources::{
     VoiceDisclaimerMessage, VoiceGreeting, VoiceSafetyFilters, VoiceStylePrompt,
 };
 use adk_io::{FileSystem, StdFileSystem};
-use adk_types::{ORDERED_TYPE_NAMES, RESOURCE_TYPE_REGISTRY, ResourceTypeDescriptor};
 use indexmap::IndexMap;
 use std::path::Path;
 
 /// Mirrors each Python resource class exposing `discover_resources(base_path)`.
-pub trait DiscoverResources {
-    /// Python class name (e.g. `Topic`, `Entity`).
-    const TYPE_NAME: &'static str;
+pub(crate) trait DiscoverResources {
     /// Logical paths relative to `base_path`, `/`-separated, matching Python logical paths.
     fn discover_resources(base_path: &Path) -> Vec<String>;
 }
 
-pub use adk_types::ResourceTypeDescriptor as ResourceTypeMetadata;
-
-pub type DiscoverFn = fn(&Path) -> Vec<String>;
-
 /// Maps each resource type to its discovery function.
-pub const DISCOVER_DISPATCH: &[(&str, DiscoverFn)] = &[
+pub const DISCOVER_DISPATCH: &[(&str, fn(&Path) -> Vec<String>)] = &[
     (
         "ApiIntegration",
-        ApiIntegration::discover_resources as DiscoverFn,
+        ApiIntegration::discover_resources as fn(&Path) -> Vec<String>,
     ),
     ("Function", Function::discover_resources),
     ("Topic", Topic::discover_resources),
@@ -77,24 +66,6 @@ pub const DISCOVER_DISPATCH: &[(&str, DiscoverFn)] = &[
     ("PhraseFilter", PhraseFilter::discover_resources),
     ("Pronunciation", Pronunciation::discover_resources),
 ];
-
-pub fn resource_type_metadata() -> &'static [ResourceTypeDescriptor] {
-    RESOURCE_TYPE_REGISTRY
-}
-
-/// Ordered Python class names in `RESOURCE_NAME_TO_CLASS` order.
-pub fn ordered_type_names() -> &'static [&'static str] {
-    &ORDERED_TYPE_NAMES
-}
-
-/// Python status JSON key (RESOURCE_NAME_TO_CLASS key) -> class name.
-pub fn resource_name_to_type_name(resource_name: &str) -> Option<&'static str> {
-    adk_types::descriptor_by_status_name(resource_name).map(|d| d.type_name)
-}
-
-pub fn type_name_to_resource_name(type_name: &str) -> Option<&'static str> {
-    adk_types::descriptor_by_type_name(type_name).map(|d| d.status_resource_name)
-}
 
 /// Same iteration order as `RESOURCE_NAME_TO_CLASS` in `poly/project.py`.
 pub fn discover_local_resources(root: &Path) -> DiscoveredResourcePaths {

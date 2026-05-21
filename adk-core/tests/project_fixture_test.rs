@@ -14,9 +14,9 @@
 #![allow(clippy::disallowed_methods)]
 
 use adk_api_client::{InMemoryPlatformClient, PlatformClient};
-use adk_core::{AdkService, discover};
+use adk_core::AdkService;
 use adk_io::{compute_hash, parse_multi_resource_path};
-use adk_types::{DeploymentList, Resource, ResourceMap};
+use adk_types::{DeploymentList, ORDERED_TYPE_NAMES, Resource, ResourceMap};
 use base64::Engine;
 use std::fs;
 use std::path::PathBuf;
@@ -94,7 +94,9 @@ fn write_status_snapshot_from_discovered(
     let mut resources = serde_json::Map::new();
     let mut file_paths = std::collections::BTreeSet::new();
     for (type_name, paths) in discovered {
-        let Some(resource_name) = adk_core::discover::type_name_to_resource_name(type_name) else {
+        let Some(resource_name) =
+            adk_types::descriptor_by_type_name(type_name).map(|d| d.status_resource_name)
+        else {
             continue;
         };
         let mut entries = serde_json::Map::new();
@@ -865,7 +867,7 @@ fn discover_empty_fixture_typed_lists_all_empty() {
     let root = fixture_empty_project();
     let map = service_offline().discover_local_resources(&root);
     let discovered_types = map.keys().map(String::as_str).collect::<Vec<_>>();
-    assert_eq!(discovered_types, discover::ordered_type_names());
+    assert_eq!(discovered_types, ORDERED_TYPE_NAMES.as_slice());
     for (_k, paths) in map {
         assert!(
             paths.is_empty(),

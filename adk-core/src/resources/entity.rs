@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::discover::resource_utils::{clean_name, rel_under_root};
+use crate::resource_utils::{clean_name, rel_under_root};
 use crate::resources::common::{is_file, read_yaml_mapping, validate_named_sequence};
 use serde_yaml::Value;
 use std::path::Path;
@@ -7,8 +7,6 @@ use std::path::Path;
 // poly/resources/entities.py
 pub(crate) struct Entity;
 impl DiscoverResources for Entity {
-    const TYPE_NAME: &'static str = "Entity";
-
     fn discover_resources(base_path: &Path) -> Vec<String> {
         let entities_path = base_path.join("config/entities.yaml");
         if !is_file(&entities_path) {
