@@ -1,8 +1,10 @@
 use adk_protobuf::agent::RulesReferences;
 use adk_protobuf::entities;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::env;
+use std::fmt::Write as _;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -305,14 +307,24 @@ pub(crate) fn generated_or_stable_resource_id(
     name: &str,
     path: &str,
 ) -> String {
-    generated_replay_resource_id(kind, name, path).unwrap_or_else(|| {
-        let mut hash = 0x811c9dc5_u32;
-        for byte in format!("{name}\0{path}").bytes() {
-            hash ^= u32::from(byte);
-            hash = hash.wrapping_mul(0x0100_0193);
-        }
-        format!("{prefix}-{hash:08x}")
-    })
+    generated_replay_resource_id(kind, name, path)
+        .unwrap_or_else(|| stable_resource_id(prefix, name, path))
+}
+
+fn stable_resource_id(prefix: &str, name: &str, path: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(name.as_bytes());
+    digest.update(b"\0");
+    digest.update(path.as_bytes());
+    let hash = digest.finalize();
+
+    let mut id = String::with_capacity(prefix.len() + 17);
+    id.push_str(prefix);
+    id.push('-');
+    for byte in &hash[..8] {
+        write!(&mut id, "{byte:02x}").expect("writing to a string cannot fail");
+    }
+    id
 }
 
 pub(crate) fn build_entity_create_config(
