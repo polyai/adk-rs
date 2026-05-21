@@ -1,7 +1,8 @@
 use super::{
-    FlowImportPathMaps, insert_content_resource, insert_yaml_resource, projection_entities,
-    projection_nested_entities, replace_flow_import_ids_with_names,
+    FlowImportPathMaps, insert_content_resource, insert_yaml_resource,
+    replace_flow_import_ids_with_names,
 };
+use crate::projection::projection_entity_values;
 use crate::yaml_resources::{AsrBiasingYaml, DtmfConfigYaml, FlowConfigYaml, FlowStepYaml};
 use crate::{CommandGenError, clean_name, command_gen};
 use adk_types::ResourceMap;
@@ -20,7 +21,7 @@ pub(super) fn insert_flow_resources(
 }
 
 pub(super) fn flow_entries(projection: &Value) -> Vec<(String, Value)> {
-    projection_entities(projection, &["flows", "flows"])
+    projection_entity_values(projection, &["flows", "flows"])
 }
 
 fn insert_flow_resource(
@@ -36,7 +37,7 @@ fn insert_flow_resource(
         .to_string();
     let folder = clean_name(&name).to_lowercase();
     let start_step_id = flow.get("startStepId").and_then(Value::as_str);
-    let steps = projection_nested_entities(flow, &["steps"]);
+    let steps = projection_entity_values(flow, &["steps"]);
     let start_step = start_step_id
         .map(|id| python_pretty_flow_start_step(&name, id, &steps))
         .unwrap_or_default()
@@ -86,9 +87,9 @@ fn insert_flow_resource(
         }
     }
 
-    for (id, function) in projection_nested_entities(flow, &["transitionFunctions"])
+    for (id, function) in projection_entity_values(flow, &["transitionFunctions"])
         .into_iter()
-        .chain(projection_nested_entities(flow, &["transition_functions"]))
+        .chain(projection_entity_values(flow, &["transition_functions"]))
     {
         if function
             .get("archived")

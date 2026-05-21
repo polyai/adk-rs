@@ -15,6 +15,8 @@ pub enum CommandGenError {
 mod command_gen;
 mod function_parsing;
 mod materialization;
+mod projection;
+mod resource_specs;
 mod yaml_resources;
 
 pub use command_gen::{

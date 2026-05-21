@@ -1,6 +1,6 @@
 use adk_types::ResourceMap;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub(super) struct SimpleLifecycleCommands {
@@ -53,42 +53,6 @@ pub(super) fn yaml_bool(yaml: &serde_yaml::Value, key: &str) -> bool {
     yaml.get(key)
         .and_then(serde_yaml::Value::as_bool)
         .unwrap_or(false)
-}
-
-pub(super) fn projection_entities<'a>(root: &'a Value, path: &[&str]) -> Vec<(String, &'a Value)> {
-    let mut current = root;
-    for key in path {
-        let Some(next) = current.get(*key) else {
-            return Vec::new();
-        };
-        current = next;
-    }
-    let Some(entities) = current.get("entities").and_then(Value::as_object) else {
-        return Vec::new();
-    };
-
-    let mut ordered = Vec::new();
-    let mut seen = HashSet::new();
-    if let Some(ids) = current.get("ids").and_then(Value::as_array) {
-        for id in ids.iter().filter_map(Value::as_str) {
-            if let Some(entity) = entities.get(id) {
-                ordered.push((id.to_string(), entity));
-                seen.insert(id.to_string());
-            }
-        }
-    }
-
-    let mut remaining = entities
-        .iter()
-        .filter(|(id, _)| !seen.contains(*id))
-        .collect::<Vec<_>>();
-    remaining.sort_by_key(|(left, _)| *left);
-    ordered.extend(
-        remaining
-            .into_iter()
-            .map(|(id, entity)| (id.clone(), entity)),
-    );
-    ordered
 }
 
 pub(super) fn json_str(value: &Value, keys: &[&str]) -> String {

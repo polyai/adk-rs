@@ -1,6 +1,5 @@
-use super::common::{
-    SimpleLifecycleCommands, json_str, projection_entities, resource_yaml, yaml_sequence,
-};
+use super::common::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
+use crate::resource_specs::TRANSCRIPT_CORRECTIONS;
 use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -26,10 +25,7 @@ pub(super) fn transcript_lifecycle_commands(
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(
-        resources,
-        "voice/speech_recognition/transcript_corrections.yaml",
-    ) else {
+    let Some(yaml) = resource_yaml(resources, TRANSCRIPT_CORRECTIONS.file.file_path) else {
         return SimpleLifecycleCommands::default();
     };
     let local_items = local_transcript_items(&yaml);
@@ -69,11 +65,11 @@ pub(super) fn transcript_lifecycle_commands(
             }
             None => {
                 let id = generated_replay_resource_id(
-                    "transcript_corrections",
+                    TRANSCRIPT_CORRECTIONS.replay_kind,
                     &local.name,
-                    "voice/speech_recognition/transcript_corrections.yaml",
+                    TRANSCRIPT_CORRECTIONS.file.file_path,
                 )
-                .unwrap_or_else(|| random_resource_id("TRANSCRIPT_CORRECTIONS"));
+                .unwrap_or_else(|| random_resource_id(TRANSCRIPT_CORRECTIONS.id_prefix));
                 push_command(
                     &mut commands.creates,
                     metadata,
@@ -108,7 +104,7 @@ pub(super) fn transcript_lifecycle_commands(
 }
 
 fn local_transcript_items(yaml: &serde_yaml::Value) -> Vec<TranscriptItem> {
-    yaml_sequence(yaml, "corrections")
+    yaml_sequence(yaml, TRANSCRIPT_CORRECTIONS.yaml_key)
         .into_iter()
         .filter_map(|item| {
             let name = yaml_str(item, "name");
@@ -126,24 +122,22 @@ fn local_transcript_items(yaml: &serde_yaml::Value) -> Vec<TranscriptItem> {
 }
 
 fn remote_transcript_items(projection: &Value) -> Vec<TranscriptItem> {
-    projection_entities(
-        projection,
-        &["transcriptCorrections", "transcriptCorrections"],
-    )
-    .into_iter()
-    .filter_map(|(id, value)| {
-        let name = json_str(value, &["name"]);
-        if name.is_empty() {
-            return None;
-        }
-        Some(TranscriptItem {
-            id,
-            name,
-            description: json_str(value, &["description"]),
-            regular_expressions: regexes_from_projection(value),
+    TRANSCRIPT_CORRECTIONS
+        .entries(projection)
+        .into_iter()
+        .filter_map(|(id, value)| {
+            let name = json_str(value, &["name"]);
+            if name.is_empty() {
+                return None;
+            }
+            Some(TranscriptItem {
+                id,
+                name,
+                description: json_str(value, &["description"]),
+                regular_expressions: regexes_from_projection(value),
+            })
         })
-    })
-    .collect()
+        .collect()
 }
 
 fn regexes_from_yaml(item: &serde_yaml::Value) -> Vec<RegularExpression> {

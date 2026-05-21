@@ -1,5 +1,7 @@
-use super::{flows::flow_entries, projection_entities, projection_nested_entities};
+use super::flows::flow_entries;
 use crate::clean_name;
+use crate::projection::projection_entity_values;
+use crate::resource_specs::{AGENT_RULES_FILE, VARIANT_ATTRIBUTES};
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -101,7 +103,7 @@ impl PromptReferenceMaps {
 pub(crate) fn prompt_reference_maps_from_projection(projection: &Value) -> PromptReferenceMaps {
     let mut maps = PromptReferenceMaps::default();
 
-    for (id, function) in projection_entities(projection, &["functions", "functions"]) {
+    for (id, function) in projection_entity_values(projection, &["functions", "functions"]) {
         if function
             .get("archived")
             .and_then(Value::as_bool)
@@ -119,7 +121,7 @@ pub(crate) fn prompt_reference_maps_from_projection(projection: &Value) -> Promp
         }
     }
 
-    for (id, variable) in projection_entities(projection, &["variables", "variables"]) {
+    for (id, variable) in projection_entity_values(projection, &["variables", "variables"]) {
         if variable
             .get("archived")
             .and_then(Value::as_bool)
@@ -137,7 +139,7 @@ pub(crate) fn prompt_reference_maps_from_projection(projection: &Value) -> Promp
         }
     }
 
-    for (id, attribute) in projection_entities(projection, &["variantManagement", "attributes"]) {
+    for (id, attribute) in VARIANT_ATTRIBUTES.owned_entries(projection) {
         if attribute
             .get("archived")
             .and_then(Value::as_bool)
@@ -161,9 +163,9 @@ pub(crate) fn prompt_reference_maps_from_projection(projection: &Value) -> Promp
             .and_then(Value::as_str)
             .unwrap_or(flow_id.as_str());
         let flow_folder_name = clean_name(flow_name).to_lowercase();
-        for (transition_id, function) in projection_nested_entities(&flow, &["transitionFunctions"])
+        for (transition_id, function) in projection_entity_values(&flow, &["transitionFunctions"])
             .into_iter()
-            .chain(projection_nested_entities(&flow, &["transition_functions"]))
+            .chain(projection_entity_values(&flow, &["transition_functions"]))
         {
             if function
                 .get("archived")
@@ -266,7 +268,7 @@ pub(crate) fn rewrite_materialized_prompt_references(
 }
 
 fn materialized_prompt_reference_file(file_path: &str) -> bool {
-    file_path == "agent_settings/rules.txt"
+    file_path == AGENT_RULES_FILE.file_path
         || (file_path.starts_with("topics/") && file_path.ends_with(".yaml"))
         || (file_path.starts_with("flows/")
             && file_path.contains("/steps/")

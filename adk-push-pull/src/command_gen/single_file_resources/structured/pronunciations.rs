@@ -1,7 +1,7 @@
 use super::common::{
-    SimpleLifecycleCommands, json_bool, json_i32, json_str, projection_entities, resource_yaml,
-    yaml_bool, yaml_sequence,
+    SimpleLifecycleCommands, json_bool, json_i32, json_str, resource_yaml, yaml_bool, yaml_sequence,
 };
+use crate::resource_specs::PRONUNCIATIONS;
 use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -30,7 +30,7 @@ pub(super) fn pronunciation_lifecycle_commands(
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, "voice/response_control/pronunciations.yaml") else {
+    let Some(yaml) = resource_yaml(resources, PRONUNCIATIONS.file.file_path) else {
         return SimpleLifecycleCommands::default();
     };
     let local_items = local_pronunciation_items(&yaml);
@@ -81,11 +81,11 @@ pub(super) fn pronunciation_lifecycle_commands(
             Some(_) => {}
             None => {
                 let id = generated_replay_resource_id(
-                    "pronunciations",
+                    PRONUNCIATIONS.replay_kind,
                     &local.regex,
-                    "voice/response_control/pronunciations.yaml",
+                    PRONUNCIATIONS.file.file_path,
                 )
-                .unwrap_or_else(|| random_resource_id("PRONUNCIATIONS"));
+                .unwrap_or_else(|| random_resource_id(PRONUNCIATIONS.id_prefix));
                 push_command(
                     &mut commands.creates,
                     metadata,
@@ -110,7 +110,7 @@ pub(super) fn pronunciation_lifecycle_commands(
 }
 
 fn local_pronunciation_items(yaml: &serde_yaml::Value) -> Vec<PronunciationItem> {
-    yaml_sequence(yaml, "pronunciations")
+    yaml_sequence(yaml, PRONUNCIATIONS.yaml_key)
         .into_iter()
         .enumerate()
         .filter_map(|(idx, item)| {
@@ -137,7 +137,8 @@ fn local_pronunciation_items(yaml: &serde_yaml::Value) -> Vec<PronunciationItem>
 }
 
 fn remote_pronunciation_items(projection: &Value) -> Vec<PronunciationItem> {
-    projection_entities(projection, &["pronunciations", "pronunciations"])
+    PRONUNCIATIONS
+        .entries(projection)
         .into_iter()
         .filter_map(|(id, value)| {
             let regex = json_str(value, &["regex"]);

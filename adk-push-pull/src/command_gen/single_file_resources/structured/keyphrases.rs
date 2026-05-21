@@ -1,6 +1,5 @@
-use super::common::{
-    SimpleLifecycleCommands, json_str, projection_entities, resource_yaml, yaml_sequence,
-};
+use super::common::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
+use crate::resource_specs::{KEYPHRASE_BOOSTING, LEGACY_KEYPHRASE_BOOSTING_FILE_PATH};
 use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -24,11 +23,9 @@ pub(super) fn keyphrase_lifecycle_commands(
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(
-        resources,
-        "voice/speech_recognition/keyphrase_boosting.yaml",
-    )
-    .or_else(|| resource_yaml(resources, "speech_recognition/keyphrase_boosting.yaml")) else {
+    let Some(yaml) = resource_yaml(resources, KEYPHRASE_BOOSTING.file.file_path)
+        .or_else(|| resource_yaml(resources, LEGACY_KEYPHRASE_BOOSTING_FILE_PATH))
+    else {
         return SimpleLifecycleCommands::default();
     };
     let local_items = local_keyphrase_items(&yaml);
@@ -70,11 +67,11 @@ pub(super) fn keyphrase_lifecycle_commands(
             Some(_) => {}
             None => {
                 let id = generated_replay_resource_id(
-                    "keyphrase_boosting",
+                    KEYPHRASE_BOOSTING.replay_kind,
                     &local.keyphrase,
-                    "voice/speech_recognition/keyphrase_boosting.yaml",
+                    KEYPHRASE_BOOSTING.file.file_path,
                 )
-                .unwrap_or_else(|| random_resource_id("KEYPHRASE_BOOSTING"));
+                .unwrap_or_else(|| random_resource_id(KEYPHRASE_BOOSTING.id_prefix));
                 push_command(
                     &mut commands.creates,
                     metadata,
@@ -92,7 +89,7 @@ pub(super) fn keyphrase_lifecycle_commands(
 }
 
 fn local_keyphrase_items(yaml: &serde_yaml::Value) -> Vec<KeyphraseItem> {
-    yaml_sequence(yaml, "keyphrases")
+    yaml_sequence(yaml, KEYPHRASE_BOOSTING.yaml_key)
         .into_iter()
         .filter_map(|item| {
             let keyphrase = yaml_str(item, "keyphrase");
@@ -109,7 +106,8 @@ fn local_keyphrase_items(yaml: &serde_yaml::Value) -> Vec<KeyphraseItem> {
 }
 
 fn remote_keyphrase_items(projection: &Value) -> Vec<KeyphraseItem> {
-    projection_entities(projection, &["keyphraseBoosting", "keyphraseBoosting"])
+    KEYPHRASE_BOOSTING
+        .entries(projection)
         .into_iter()
         .filter_map(|(id, value)| {
             let keyphrase = json_str(value, &["keyphrase"]);

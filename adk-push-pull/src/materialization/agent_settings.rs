@@ -1,5 +1,8 @@
 use super::{channels::safety_filters_yaml, insert_content_resource, insert_yaml_resource};
 use crate::CommandGenError;
+use crate::resource_specs::{
+    AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_RULES_FILE, AGENT_SAFETY_FILTERS_FILE,
+};
 use adk_types::ResourceMap;
 use serde_json::Value;
 
@@ -10,9 +13,9 @@ pub(super) fn insert_profile_and_safety_resources(
     if let Some(personality) = projection.pointer("/agentSettings/personality") {
         insert_yaml_resource(
             map,
-            "agent_settings/personality.yaml",
-            "personality",
-            "personality",
+            AGENT_PERSONALITY_FILE.file_path,
+            AGENT_PERSONALITY_FILE.resource_id,
+            AGENT_PERSONALITY_FILE.name,
             personality_yaml(personality),
         )?;
     }
@@ -20,9 +23,9 @@ pub(super) fn insert_profile_and_safety_resources(
     if let Some(role) = projection.pointer("/agentSettings/role") {
         insert_yaml_resource(
             map,
-            "agent_settings/role.yaml",
-            "role",
-            "role",
+            AGENT_ROLE_FILE.file_path,
+            AGENT_ROLE_FILE.resource_id,
+            AGENT_ROLE_FILE.name,
             role_yaml(role),
         )?;
     }
@@ -30,9 +33,9 @@ pub(super) fn insert_profile_and_safety_resources(
     if let Some(safety_filters) = projection.get("contentFilterSettings") {
         insert_yaml_resource(
             map,
-            "agent_settings/safety_filters.yaml",
-            "safety_filters",
-            "safety_filters",
+            AGENT_SAFETY_FILTERS_FILE.file_path,
+            AGENT_SAFETY_FILTERS_FILE.resource_id,
+            AGENT_SAFETY_FILTERS_FILE.name,
             safety_filters_yaml(safety_filters, false),
         )?;
     }
@@ -50,9 +53,9 @@ pub(super) fn insert_rules_resource(
     {
         insert_content_resource(
             map,
-            "agent_settings/rules.txt",
-            "rules",
-            "rules",
+            AGENT_RULES_FILE.file_path,
+            AGENT_RULES_FILE.resource_id,
+            AGENT_RULES_FILE.name,
             behaviour.to_string(),
         )?;
     }

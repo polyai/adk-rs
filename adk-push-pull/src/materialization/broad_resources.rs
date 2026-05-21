@@ -1,5 +1,11 @@
-use super::{insert_yaml_resource, projection_entities, projection_entities_at};
+use super::insert_yaml_resource;
 use crate::CommandGenError;
+use crate::projection::projection_entity_values_at;
+use crate::resource_specs::FileResourceSpec;
+use crate::resource_specs::{
+    API_INTEGRATIONS, KEYPHRASE_BOOSTING, PRONUNCIATIONS, TRANSCRIPT_CORRECTIONS,
+    VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS,
+};
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -9,61 +15,39 @@ pub(super) fn insert_broad_resources(
     projection: &Value,
 ) -> Result<(), CommandGenError> {
     if let Some(value) = variant_attributes_yaml(projection) {
-        insert_yaml_resource(
-            map,
-            "config/variant_attributes.yaml",
-            "variant_attributes",
-            "variant_attributes",
-            value,
-        )?;
+        insert_spec_yaml_resource(map, VARIANTS.file, value)?;
     }
 
     if let Some(value) = api_integrations_yaml(projection) {
-        insert_yaml_resource(
-            map,
-            "config/api_integrations.yaml",
-            "api_integrations",
-            "api_integrations",
-            value,
-        )?;
+        insert_spec_yaml_resource(map, API_INTEGRATIONS.file, value)?;
     }
 
     if let Some(value) = keyphrase_boosting_yaml(projection) {
-        insert_yaml_resource(
-            map,
-            "voice/speech_recognition/keyphrase_boosting.yaml",
-            "keyphrase_boosting",
-            "keyphrase_boosting",
-            value,
-        )?;
+        insert_spec_yaml_resource(map, KEYPHRASE_BOOSTING.file, value)?;
     }
 
     if let Some(value) = transcript_corrections_yaml(projection) {
-        insert_yaml_resource(
-            map,
-            "voice/speech_recognition/transcript_corrections.yaml",
-            "transcript_corrections",
-            "transcript_corrections",
-            value,
-        )?;
+        insert_spec_yaml_resource(map, TRANSCRIPT_CORRECTIONS.file, value)?;
     }
 
     if let Some(value) = pronunciations_yaml(projection) {
-        insert_yaml_resource(
-            map,
-            "voice/response_control/pronunciations.yaml",
-            "pronunciations",
-            "pronunciations",
-            value,
-        )?;
+        insert_spec_yaml_resource(map, PRONUNCIATIONS.file, value)?;
     }
 
     Ok(())
 }
 
+fn insert_spec_yaml_resource(
+    map: &mut ResourceMap,
+    spec: FileResourceSpec,
+    value: Value,
+) -> Result<(), CommandGenError> {
+    insert_yaml_resource(map, spec.file_path, spec.resource_id, spec.name, value)
+}
+
 fn variant_attributes_yaml(projection: &Value) -> Option<Value> {
-    let variants = projection_entities(projection, &["variantManagement", "variants"]);
-    let attributes = projection_entities(projection, &["variantManagement", "attributes"]);
+    let variants = VARIANTS.owned_entries(projection);
+    let attributes = VARIANT_ATTRIBUTES.owned_entries(projection);
     if variants.is_empty() && attributes.is_empty() {
         return None;
     }
@@ -127,9 +111,7 @@ fn variant_attribute_values_by_attribute(
     variant_names_by_id: &HashMap<String, String>,
 ) -> HashMap<String, HashMap<String, String>> {
     let mut out: HashMap<String, HashMap<String, String>> = HashMap::new();
-    for (variant_id, values) in
-        projection_entities(projection, &["variantManagement", "variantAttributeValues"])
-    {
+    for (variant_id, values) in VARIANT_ATTRIBUTE_VALUES.owned_entries(projection) {
         let Some(variant_name) = variant_names_by_id.get(&variant_id) else {
             continue;
         };
@@ -147,7 +129,7 @@ fn variant_attribute_values_by_attribute(
 }
 
 fn api_integrations_yaml(projection: &Value) -> Option<Value> {
-    let integrations = projection_entities(projection, &["apiIntegrations", "apiIntegrations"]);
+    let integrations = API_INTEGRATIONS.owned_entries(projection);
     if integrations.is_empty() {
         return None;
     }
@@ -196,7 +178,7 @@ fn api_integration_environments_yaml(integration: &Value) -> Value {
 fn api_integration_operations_yaml(integration: &Value) -> Value {
     let operations = integration
         .get("operations")
-        .map(projection_entities_at)
+        .map(projection_entity_values_at)
         .unwrap_or_default();
     let operations = if operations.is_empty() {
         integration
@@ -230,7 +212,7 @@ fn api_integration_operations_yaml(integration: &Value) -> Value {
 }
 
 fn keyphrase_boosting_yaml(projection: &Value) -> Option<Value> {
-    let keyphrases = projection_entities(projection, &["keyphraseBoosting", "keyphraseBoosting"]);
+    let keyphrases = KEYPHRASE_BOOSTING.owned_entries(projection);
     if keyphrases.is_empty() {
         return None;
     }
@@ -248,10 +230,7 @@ fn keyphrase_boosting_yaml(projection: &Value) -> Option<Value> {
 }
 
 fn transcript_corrections_yaml(projection: &Value) -> Option<Value> {
-    let corrections = projection_entities(
-        projection,
-        &["transcriptCorrections", "transcriptCorrections"],
-    );
+    let corrections = TRANSCRIPT_CORRECTIONS.owned_entries(projection);
     if corrections.is_empty() {
         return None;
     }
@@ -282,7 +261,7 @@ fn transcript_corrections_yaml(projection: &Value) -> Option<Value> {
 }
 
 fn pronunciations_yaml(projection: &Value) -> Option<Value> {
-    let mut pronunciations = projection_entities(projection, &["pronunciations", "pronunciations"]);
+    let mut pronunciations = PRONUNCIATIONS.owned_entries(projection);
     if pronunciations.is_empty() {
         return None;
     }

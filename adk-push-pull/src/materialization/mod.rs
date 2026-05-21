@@ -44,55 +44,6 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
     Ok(map)
 }
 
-pub(super) fn projection_entities(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
-    let mut current = root;
-    for key in path {
-        let Some(next) = current.get(*key) else {
-            return Vec::new();
-        };
-        current = next;
-    }
-    projection_entities_at(current)
-}
-
-pub(super) fn projection_nested_entities(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
-    let mut current = root;
-    for key in path {
-        let Some(next) = current.get(*key) else {
-            return Vec::new();
-        };
-        current = next;
-    }
-    projection_entities_at(current)
-}
-
-pub(super) fn projection_entities_at(value: &Value) -> Vec<(String, Value)> {
-    let Some(entities) = value.get("entities").and_then(Value::as_object) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    if let Some(ids) = value.get("ids").and_then(Value::as_array) {
-        for id in ids.iter().filter_map(Value::as_str) {
-            if let Some(entity) = entities.get(id) {
-                out.push((id.to_string(), entity.clone()));
-                seen.insert(id.to_string());
-            }
-        }
-    }
-    let mut remaining = entities
-        .iter()
-        .filter(|(id, _)| !seen.contains(*id))
-        .collect::<Vec<_>>();
-    remaining.sort_by_key(|(left, _)| *left);
-    out.extend(
-        remaining
-            .into_iter()
-            .map(|(id, entity)| (id.clone(), entity.clone())),
-    );
-    out
-}
-
 pub(super) fn insert_yaml_resource(
     map: &mut ResourceMap,
     file_path: &str,

@@ -1,4 +1,5 @@
 use super::insert_content_resource;
+use crate::resource_specs::ENTITIES_FILE;
 use crate::yaml_resources::{EntitiesYaml, EntityYaml, to_yaml_string};
 use crate::{CommandGenError, extract_entities_vec, snake_case_json_keys, to_snake_case};
 use adk_types::ResourceMap;
@@ -31,7 +32,13 @@ pub(super) fn insert_entity_resources(
             entities: entity_yaml_list,
         })
         .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
-        insert_content_resource(map, "config/entities.yaml", "entities", "entities", content)?;
+        insert_content_resource(
+            map,
+            ENTITIES_FILE.file_path,
+            ENTITIES_FILE.resource_id,
+            ENTITIES_FILE.name,
+            content,
+        )?;
     }
 
     Ok(())

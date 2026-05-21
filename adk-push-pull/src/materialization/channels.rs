@@ -1,5 +1,9 @@
 use super::insert_yaml_resource;
 use crate::CommandGenError;
+use crate::resource_specs::{
+    ASR_SETTINGS_FILE, CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
+    VOICE_SAFETY_FILTERS_FILE,
+};
 use adk_types::ResourceMap;
 use serde_json::Value;
 
@@ -10,9 +14,9 @@ pub(super) fn insert_channel_resources(
     if let Some(voice_safety_filters) = projection.pointer("/channels/voice/config/safetyFilters") {
         insert_yaml_resource(
             map,
-            "voice/safety_filters.yaml",
-            "voice_safety_filters",
-            "voice_safety_filters",
+            VOICE_SAFETY_FILTERS_FILE.file_path,
+            VOICE_SAFETY_FILTERS_FILE.resource_id,
+            VOICE_SAFETY_FILTERS_FILE.name,
             safety_filters_yaml(voice_safety_filters, true),
         )?;
     }
@@ -23,9 +27,9 @@ pub(super) fn insert_channel_resources(
     {
         insert_yaml_resource(
             map,
-            "voice/speech_recognition/asr_settings.yaml",
-            "asr_settings",
-            "asr_settings",
+            ASR_SETTINGS_FILE.file_path,
+            ASR_SETTINGS_FILE.resource_id,
+            ASR_SETTINGS_FILE.name,
             asr_settings_yaml(asr_settings),
         )?;
     }
@@ -40,9 +44,9 @@ pub(super) fn insert_channel_resources(
     if voice_greeting.is_some() || voice_style_prompt.is_some() || voice_disclaimer.is_some() {
         insert_yaml_resource(
             map,
-            "voice/configuration.yaml",
-            "voice_configuration",
-            "voice_configuration",
+            VOICE_CONFIGURATION_FILE.file_path,
+            VOICE_CONFIGURATION_FILE.resource_id,
+            VOICE_CONFIGURATION_FILE.name,
             channel_configuration_yaml(
                 voice_greeting.as_ref(),
                 voice_style_prompt.as_ref(),
@@ -61,9 +65,9 @@ pub(super) fn insert_channel_resources(
         if chat_greeting.is_some() || chat_style_prompt.is_some() {
             insert_yaml_resource(
                 map,
-                "chat/configuration.yaml",
-                "chat_configuration",
-                "chat_configuration",
+                CHAT_CONFIGURATION_FILE.file_path,
+                CHAT_CONFIGURATION_FILE.resource_id,
+                CHAT_CONFIGURATION_FILE.name,
                 channel_configuration_yaml(
                     chat_greeting.as_ref(),
                     chat_style_prompt.as_ref(),
@@ -76,9 +80,9 @@ pub(super) fn insert_channel_resources(
         {
             insert_yaml_resource(
                 map,
-                "chat/safety_filters.yaml",
-                "chat_safety_filters",
-                "chat_safety_filters",
+                CHAT_SAFETY_FILTERS_FILE.file_path,
+                CHAT_SAFETY_FILTERS_FILE.resource_id,
+                CHAT_SAFETY_FILTERS_FILE.name,
                 safety_filters_yaml(chat_safety_filters, true),
             )?;
         }

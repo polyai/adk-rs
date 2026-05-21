@@ -1,4 +1,9 @@
 use super::common::{first_yaml_mapping, resource_changed, resource_yaml};
+use crate::resource_specs::{
+    AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_SAFETY_FILTERS_FILE, ASR_SETTINGS_FILE,
+    CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
+    VOICE_SAFETY_FILTERS_FILE,
+};
 use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::agent::{
@@ -27,8 +32,8 @@ pub(super) fn append_agent_settings_updates(
     if resource_changed(
         resources,
         remote_resources,
-        "agent_settings/personality.yaml",
-    ) && let Some(yaml) = resource_yaml(resources, "agent_settings/personality.yaml")
+        AGENT_PERSONALITY_FILE.file_path,
+    ) && let Some(yaml) = resource_yaml(resources, AGENT_PERSONALITY_FILE.file_path)
     {
         let values = yaml
             .get("adjectives")
@@ -52,8 +57,8 @@ pub(super) fn append_agent_settings_updates(
         );
     }
 
-    if resource_changed(resources, remote_resources, "agent_settings/role.yaml")
-        && let Some(yaml) = resource_yaml(resources, "agent_settings/role.yaml")
+    if resource_changed(resources, remote_resources, AGENT_ROLE_FILE.file_path)
+        && let Some(yaml) = resource_yaml(resources, AGENT_ROLE_FILE.file_path)
     {
         push_command(
             commands,
@@ -71,8 +76,8 @@ pub(super) fn append_agent_settings_updates(
     if resource_changed(
         resources,
         remote_resources,
-        "agent_settings/safety_filters.yaml",
-    ) && let Some(yaml) = resource_yaml(resources, "agent_settings/safety_filters.yaml")
+        AGENT_SAFETY_FILTERS_FILE.file_path,
+    ) && let Some(yaml) = resource_yaml(resources, AGENT_SAFETY_FILTERS_FILE.file_path)
     {
         push_command(
             commands,
@@ -89,14 +94,20 @@ pub(super) fn append_channel_settings_updates(
     remote_resources: &ResourceMap,
     metadata: &Option<Metadata>,
 ) {
-    if resource_changed(resources, remote_resources, "voice/safety_filters.yaml")
-        && let Some(yaml) = resource_yaml(resources, "voice/safety_filters.yaml")
+    if resource_changed(
+        resources,
+        remote_resources,
+        VOICE_SAFETY_FILTERS_FILE.file_path,
+    ) && let Some(yaml) = resource_yaml(resources, VOICE_SAFETY_FILTERS_FILE.file_path)
     {
         push_channel_safety_filters_update(commands, metadata, ChannelType::Voice, &yaml);
     }
 
-    if resource_changed(resources, remote_resources, "voice/configuration.yaml")
-        && let Some(yaml) = resource_yaml(resources, "voice/configuration.yaml")
+    if resource_changed(
+        resources,
+        remote_resources,
+        VOICE_CONFIGURATION_FILE.file_path,
+    ) && let Some(yaml) = resource_yaml(resources, VOICE_CONFIGURATION_FILE.file_path)
     {
         if let Some(greeting) = yaml.get("greeting") {
             push_command(
@@ -151,12 +162,15 @@ pub(super) fn append_channel_settings_updates(
         }
     }
 
-    let chat_configuration_yaml =
-        if resource_changed(resources, remote_resources, "chat/configuration.yaml") {
-            resource_yaml(resources, "chat/configuration.yaml")
-        } else {
-            None
-        };
+    let chat_configuration_yaml = if resource_changed(
+        resources,
+        remote_resources,
+        CHAT_CONFIGURATION_FILE.file_path,
+    ) {
+        resource_yaml(resources, CHAT_CONFIGURATION_FILE.file_path)
+    } else {
+        None
+    };
 
     if let Some(yaml) = chat_configuration_yaml.as_ref()
         && let Some(greeting) = yaml.get("greeting")
@@ -176,8 +190,11 @@ pub(super) fn append_channel_settings_updates(
         );
     }
 
-    if resource_changed(resources, remote_resources, "chat/safety_filters.yaml")
-        && let Some(yaml) = resource_yaml(resources, "chat/safety_filters.yaml")
+    if resource_changed(
+        resources,
+        remote_resources,
+        CHAT_SAFETY_FILTERS_FILE.file_path,
+    ) && let Some(yaml) = resource_yaml(resources, CHAT_SAFETY_FILTERS_FILE.file_path)
     {
         push_channel_safety_filters_update(commands, metadata, ChannelType::WebChat, &yaml);
     }
@@ -198,11 +215,8 @@ pub(super) fn append_channel_settings_updates(
         );
     }
 
-    if resource_changed(
-        resources,
-        remote_resources,
-        "voice/speech_recognition/asr_settings.yaml",
-    ) && let Some(yaml) = resource_yaml(resources, "voice/speech_recognition/asr_settings.yaml")
+    if resource_changed(resources, remote_resources, ASR_SETTINGS_FILE.file_path)
+        && let Some(yaml) = resource_yaml(resources, ASR_SETTINGS_FILE.file_path)
     {
         push_command(
             commands,

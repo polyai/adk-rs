@@ -25,8 +25,9 @@ use crate::{
     build_entity_create_config, build_entity_update_config, entity_entries,
     generated_replay_resource_id, is_synthetic_local_resource_id,
     prompt_reference_maps_from_projection, push_command, random_resource_id,
-    replace_resource_names_with_ids, rules_references_from_behaviour,
-    rules_references_from_projection, to_camel_case,
+    replace_resource_names_with_ids,
+    resource_specs::{AGENT_RULES_FILE, ENTITIES_FILE, ENTITY_ID_PREFIX, ENTITY_REPLAY_KIND},
+    rules_references_from_behaviour, rules_references_from_projection, to_camel_case,
 };
 
 #[derive(Debug, Default)]
@@ -88,7 +89,7 @@ fn fixed_single_file_resource_command_groups(
             .and_then(Value::as_str)
             .unwrap_or_default();
 
-        if path == "agent_settings/rules.txt" {
+        if path == AGENT_RULES_FILE.file_path {
             let normalized_content =
                 replace_resource_names_with_ids(content, &prompt_reference_maps, None);
             let remote_behaviour = projection
@@ -107,7 +108,7 @@ fn fixed_single_file_resource_command_groups(
                     }),
                 );
             }
-        } else if path == "config/entities.yaml"
+        } else if path == ENTITIES_FILE.file_path
             && let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
             && let Some(items) = yaml
                 .get("entities")
@@ -131,8 +132,12 @@ fn fixed_single_file_resource_command_groups(
                             .then_some(resource.resource_id.clone())
                     })
                     .unwrap_or_else(|| {
-                        generated_replay_resource_id("entity", &name, "config/entities.yaml")
-                            .unwrap_or_else(|| random_resource_id("ENTITIES"))
+                        generated_replay_resource_id(
+                            ENTITY_REPLAY_KIND,
+                            &name,
+                            ENTITIES_FILE.file_path,
+                        )
+                        .unwrap_or_else(|| random_resource_id(ENTITY_ID_PREFIX))
                     });
                 let entity_type = item
                     .get("entity_type")

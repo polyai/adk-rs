@@ -1,7 +1,7 @@
 use super::common::{
-    json_bool, json_str, projection_entities, resource_yaml, yaml_bool, yaml_sequence,
-    yaml_string_map,
+    json_bool, json_str, resource_yaml, yaml_bool, yaml_sequence, yaml_string_map,
 };
+use crate::resource_specs::{VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS};
 use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -43,7 +43,7 @@ pub(super) fn variant_lifecycle_commands(
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> VariantLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, "config/variant_attributes.yaml") else {
+    let Some(yaml) = resource_yaml(resources, VARIANTS.file.file_path) else {
         return VariantLifecycleCommands::default();
     };
 
@@ -108,9 +108,12 @@ pub(super) fn variant_lifecycle_commands(
         if remote_variants_by_name.contains_key(&local.name) {
             continue;
         }
-        let id =
-            generated_replay_resource_id("variant", &local.name, "config/variant_attributes.yaml")
-                .unwrap_or_else(|| random_resource_id("VARIANTS"));
+        let id = generated_replay_resource_id(
+            VARIANTS.replay_kind,
+            &local.name,
+            VARIANTS.file.file_path,
+        )
+        .unwrap_or_else(|| random_resource_id(VARIANTS.id_prefix));
         local.id = id.clone();
         variant_ids_by_name.insert(local.name.clone(), id.clone());
         push_command(
@@ -146,11 +149,11 @@ pub(super) fn variant_lifecycle_commands(
             continue;
         }
         let id = generated_replay_resource_id(
-            "variant_attribute",
+            VARIANT_ATTRIBUTES.replay_kind,
             &local.name,
-            "config/variant_attributes.yaml",
+            VARIANT_ATTRIBUTES.file.file_path,
         )
-        .unwrap_or_else(|| random_resource_id("VARIANT_ATTRIBUTES"));
+        .unwrap_or_else(|| random_resource_id(VARIANT_ATTRIBUTES.id_prefix));
         local.id = id.clone();
         push_command(
             &mut commands.attribute_creates,
@@ -192,7 +195,7 @@ pub(super) fn variant_lifecycle_commands(
 }
 
 fn local_variant_items(yaml: &serde_yaml::Value) -> Vec<VariantItem> {
-    yaml_sequence(yaml, "variants")
+    yaml_sequence(yaml, VARIANTS.yaml_key)
         .into_iter()
         .filter_map(|item| {
             let name = yaml_str(item, "name");
@@ -209,7 +212,8 @@ fn local_variant_items(yaml: &serde_yaml::Value) -> Vec<VariantItem> {
 }
 
 fn remote_variant_items(projection: &Value) -> Vec<VariantItem> {
-    projection_entities(projection, &["variantManagement", "variants"])
+    VARIANTS
+        .entries(projection)
         .into_iter()
         .filter_map(|(id, value)| {
             let name = json_str(value, &["name"]);
@@ -226,7 +230,7 @@ fn remote_variant_items(projection: &Value) -> Vec<VariantItem> {
 }
 
 fn local_variant_attribute_items(yaml: &serde_yaml::Value) -> Vec<VariantAttributeItem> {
-    yaml_sequence(yaml, "attributes")
+    yaml_sequence(yaml, VARIANT_ATTRIBUTES.yaml_key)
         .into_iter()
         .filter_map(|item| {
             let name = yaml_str(item, "name");
@@ -247,7 +251,8 @@ fn remote_variant_attribute_items(projection: &Value) -> Vec<VariantAttributeIte
         .into_iter()
         .map(|item| (item.id, item.name))
         .collect::<HashMap<_, _>>();
-    let mut attributes = projection_entities(projection, &["variantManagement", "attributes"])
+    let mut attributes = VARIANT_ATTRIBUTES
+        .entries(projection)
         .into_iter()
         .filter_map(|(id, value)| {
             if json_bool(value, &["archived"]) {
@@ -270,9 +275,7 @@ fn remote_variant_attribute_items(projection: &Value) -> Vec<VariantAttributeIte
         .map(|(idx, item)| (item.id.clone(), idx))
         .collect::<HashMap<_, _>>();
 
-    for (variant_id, value) in
-        projection_entities(projection, &["variantManagement", "variantAttributeValues"])
-    {
+    for (variant_id, value) in VARIANT_ATTRIBUTE_VALUES.entries(projection) {
         if !variants_by_id.contains_key(&variant_id) {
             continue;
         }

@@ -1,4 +1,5 @@
-use super::common::{json_str, projection_entities, resource_yaml, yaml_sequence};
+use super::common::{json_str, resource_yaml, yaml_sequence};
+use crate::resource_specs::{API_INTEGRATION_OPERATION_REPLAY_KIND, API_INTEGRATIONS};
 use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::api_integrations::{
@@ -51,7 +52,7 @@ pub(super) fn api_integration_lifecycle_commands(
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> ApiIntegrationLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, "config/api_integrations.yaml") else {
+    let Some(yaml) = resource_yaml(resources, API_INTEGRATIONS.file.file_path) else {
         return ApiIntegrationLifecycleCommands::default();
     };
 
@@ -89,11 +90,11 @@ pub(super) fn api_integration_lifecycle_commands(
             continue;
         }
         let id = generated_replay_resource_id(
-            "api_integration",
+            API_INTEGRATIONS.replay_kind,
             &local.name,
-            "config/api_integrations.yaml",
+            API_INTEGRATIONS.file.file_path,
         )
-        .unwrap_or_else(|| random_resource_id("API-INTEGRATION"));
+        .unwrap_or_else(|| random_resource_id(API_INTEGRATIONS.id_prefix));
         integration_ids_by_name.insert(local.name.clone(), id.clone());
         push_command(
             &mut commands.integration_creates,
@@ -222,7 +223,7 @@ pub(super) fn api_integration_lifecycle_commands(
 }
 
 fn local_api_integration_items(yaml: &serde_yaml::Value) -> Vec<ApiIntegrationItem> {
-    yaml_sequence(yaml, "api_integrations")
+    yaml_sequence(yaml, API_INTEGRATIONS.yaml_key)
         .into_iter()
         .filter_map(|item| {
             let name = yaml_str(item, "name");
@@ -241,7 +242,8 @@ fn local_api_integration_items(yaml: &serde_yaml::Value) -> Vec<ApiIntegrationIt
 }
 
 fn remote_api_integration_items(projection: &Value) -> Vec<ApiIntegrationItem> {
-    projection_entities(projection, &["apiIntegrations", "apiIntegrations"])
+    API_INTEGRATIONS
+        .entries(projection)
         .into_iter()
         .filter_map(|(id, value)| {
             let name = json_str(value, &["name"]);
@@ -408,9 +410,9 @@ fn push_create_api_operation(
     operation: &ApiOperationItem,
 ) {
     let id = generated_replay_resource_id(
-        "api_integration_operation",
+        API_INTEGRATION_OPERATION_REPLAY_KIND,
         &operation.name,
-        "config/api_integrations.yaml",
+        API_INTEGRATIONS.file.file_path,
     )
     .unwrap_or_else(|| Uuid::new_v4().to_string());
     push_command(
