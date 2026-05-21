@@ -64,8 +64,9 @@
 - Prefer concise, actionable findings. Do not block on style-only issues unless they obscure behavior
   or violate established project conventions.
 
-## PR babysitting
+## Pull Requests
 
+- Pull request titles and commit messages should follow the Conventional Commits spec.
 - When asked to babysit a PR through review and merge, mark it ready and wait for Codex review.
   Passing CI and an absence of early comments is not enough; keep checking review submissions and
   threads until Codex or a human has approved, or the user explicitly says to merge anyway.
