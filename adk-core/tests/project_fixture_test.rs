@@ -14,7 +14,7 @@
 #![allow(clippy::disallowed_methods)]
 
 use adk_api_client::{InMemoryPlatformClient, PlatformClient};
-use adk_core::AdkService;
+use adk_core::{AdkService, discover};
 use adk_io::{compute_hash, parse_multi_resource_path};
 use adk_types::{DeploymentList, Resource, ResourceMap};
 use base64::Engine;
@@ -45,6 +45,20 @@ fn service_offline() -> AdkService<InMemoryPlatformClient> {
 
 fn discovered_total_count(map: &indexmap::IndexMap<String, Vec<String>>) -> usize {
     map.values().map(|v| v.len()).sum()
+}
+
+fn assert_discovered_paths(
+    map: &indexmap::IndexMap<String, Vec<String>>,
+    type_name: &str,
+    expected: &[&str],
+) {
+    let mut actual = map
+        .get(type_name)
+        .unwrap_or_else(|| panic!("{type_name}"))
+        .clone();
+    actual.sort();
+    let actual = actual.iter().map(String::as_str).collect::<Vec<_>>();
+    assert_eq!(actual, expected, "{type_name} discovery paths");
 }
 
 fn make_temp_project_dir() -> PathBuf {
@@ -615,6 +629,12 @@ fn discover_local_resources_matches_python_discover_local_resources_test() {
 
     let speech = "voice/speech_recognition";
 
+    assert_discovered_paths(
+        &map,
+        "ApiIntegration",
+        &["config/api_integrations.yaml/api_integrations/customer_api"],
+    );
+
     assert_eq!(map.get("Entity").map(|v| v.len()), Some(6));
     let mut entities = map.get("Entity").expect("Entity").clone();
     entities.sort();
@@ -646,6 +666,7 @@ fn discover_local_resources_matches_python_discover_local_resources_test() {
             "voice/configuration.yaml/disclaimer_messages"
         )])
     );
+    assert_discovered_paths(&map, "VoiceSafetyFilters", &["voice/safety_filters.yaml"]);
     assert_eq!(
         map.get("VoiceGreeting").cloned(),
         Some(vec!["voice/configuration.yaml/greeting".into()])
@@ -658,6 +679,7 @@ fn discover_local_resources_matches_python_discover_local_resources_test() {
         map.get("ChatGreeting").cloned(),
         Some(vec!["chat/configuration.yaml/greeting".into()])
     );
+    assert_discovered_paths(&map, "ChatSafetyFilters", &["chat/safety_filters.yaml"]);
     assert_eq!(
         map.get("ChatStylePrompt").cloned(),
         Some(vec!["chat/configuration.yaml/style_prompt".into()])
@@ -674,6 +696,11 @@ fn discover_local_resources_matches_python_discover_local_resources_test() {
     assert_eq!(
         map.get("SettingsRules").cloned(),
         Some(vec!["agent_settings/rules.txt".into()])
+    );
+    assert_discovered_paths(
+        &map,
+        "GeneralSafetyFilters",
+        &["agent_settings/safety_filters.yaml"],
     );
 
     assert_eq!(map.get("Function").map(|v| v.len()), Some(13));
@@ -694,6 +721,30 @@ fn discover_local_resources_matches_python_discover_local_resources_test() {
             "config/sms_templates.yaml/sms_templates/test_template_1",
             "config/sms_templates.yaml/sms_templates/test_template_2",
         ]
+    );
+    assert_discovered_paths(
+        &map,
+        "Handoff",
+        &[
+            "config/handoffs.yaml/handoffs/default",
+            "config/handoffs.yaml/handoffs/front_desk",
+            "config/handoffs.yaml/handoffs/urgent_support",
+        ],
+    );
+    assert_discovered_paths(
+        &map,
+        "Variant",
+        &["config/variant_attributes.yaml/variants/default"],
+    );
+    assert_discovered_paths(
+        &map,
+        "VariantAttribute",
+        &[
+            "config/variant_attributes.yaml/attributes/booking_status",
+            "config/variant_attributes.yaml/attributes/customer_name",
+            "config/variant_attributes.yaml/attributes/email_address",
+            "config/variant_attributes.yaml/attributes/member_status",
+        ],
     );
 
     assert_eq!(map.get("Variable").map(|v| v.len()), Some(3));
@@ -740,6 +791,22 @@ fn discover_local_resources_matches_python_discover_local_resources_test() {
     assert_eq!(
         map.get("AsrSettings").cloned(),
         Some(vec![format!("{speech}/asr_settings.yaml")])
+    );
+    assert_discovered_paths(
+        &map,
+        "PhraseFilter",
+        &[
+            "voice/response_control/phrase_filtering.yaml/phrase_filtering/Block_Competitor_Names",
+            "voice/response_control/phrase_filtering.yaml/phrase_filtering/Block_Profanity",
+        ],
+    );
+    assert_discovered_paths(
+        &map,
+        "Pronunciation",
+        &[
+            "voice/response_control/pronunciations.yaml/pronunciations/0",
+            "voice/response_control/pronunciations.yaml/pronunciations/1",
+        ],
     );
 }
 
@@ -797,6 +864,8 @@ fn collect_local_resources_counts_files_like_flat_inventory() {
 fn discover_empty_fixture_typed_lists_all_empty() {
     let root = fixture_empty_project();
     let map = service_offline().discover_local_resources(&root);
+    let discovered_types = map.keys().map(String::as_str).collect::<Vec<_>>();
+    assert_eq!(discovered_types, discover::ordered_type_names());
     for (_k, paths) in map {
         assert!(
             paths.is_empty(),
