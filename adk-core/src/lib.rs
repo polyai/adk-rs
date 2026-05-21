@@ -13,7 +13,6 @@ use adk_api_client::ApiError;
 use adk_io::{FileSystem, StdFileSystem, compute_hash, parse_multi_resource_path};
 use anyhow::Result;
 pub use discover::discover_local_resources;
-pub use discover::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 use globset::{Glob, GlobSetBuilder};
 use python_functions::{
     PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX, PYTHON_FUNCTION_STATUS_HASH_PREFIX,
@@ -21,6 +20,7 @@ use python_functions::{
     normalize_legacy_python_status_function_resources, normalize_python_function_metadata_spacing,
     resource_file_content,
 };
+pub use resources::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 use serde_json::Value;
 pub use service::{AdkService, PullOutcome};
 use status_snapshot::{StatusResourcePayload, current_status_hash_for_expected};

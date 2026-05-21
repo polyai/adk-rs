@@ -5,6 +5,7 @@ pub(crate) mod resource_utils;
 
 pub use resource_utils::{clean_name, extract_variable_names_from_code};
 
+use crate::resources::DiscoveredResourcePaths;
 use crate::resources::{
     ApiIntegration, AsrSettings, ChatGreeting, ChatSafetyFilters, ChatStylePrompt, Entity,
     ExperimentalConfig, FlowConfig, FlowStep, Function, FunctionStep, GeneralSafetyFilters,
@@ -16,10 +17,6 @@ use adk_io::{FileSystem, StdFileSystem};
 use adk_types::{ORDERED_TYPE_NAMES, RESOURCE_TYPE_REGISTRY, ResourceTypeDescriptor};
 use indexmap::IndexMap;
 use std::path::Path;
-
-pub use crate::resources::{
-    DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
-};
 
 /// Mirrors each Python resource class exposing `discover_resources(base_path)`.
 pub trait DiscoverResources {
@@ -99,29 +96,6 @@ pub fn type_name_to_resource_name(type_name: &str) -> Option<&'static str> {
     adk_types::descriptor_by_type_name(type_name).map(|d| d.status_resource_name)
 }
 
-pub fn empty_discovered_resource_paths() -> DiscoveredResourcePaths {
-    crate::resources::empty_discovered_resource_paths()
-}
-
-pub fn type_name_to_resource_prefix(type_name: &str) -> Option<&'static str> {
-    crate::resources::type_name_to_resource_prefix(type_name)
-}
-
-/// Builds local lifecycle rows for typed resource files.
-///
-/// Existing resources keep the server ids recorded in the status snapshot. Newly
-/// discovered resources get deterministic ids hashed from their resource type and
-/// logical path so status, diff, and push can reason about them before creation.
-///
-/// The implementation lives with resource-domain behavior; this wrapper keeps
-/// the existing discovery facade stable for callers.
-pub fn build_typed_resource_lifecycle(
-    discovered: &DiscoveredResourcePaths,
-    existing_resource_ids: &indexmap::IndexMap<String, String>,
-) -> Vec<TypedResourceLifecycle> {
-    crate::resources::build_typed_resource_lifecycle(discovered, existing_resource_ids)
-}
-
 /// Same iteration order as `RESOURCE_NAME_TO_CLASS` in `poly/project.py`.
 pub fn discover_local_resources(root: &Path) -> DiscoveredResourcePaths {
     let root = StdFileSystem
@@ -133,13 +107,4 @@ pub fn discover_local_resources(root: &Path) -> DiscoveredResourcePaths {
         map.insert(type_name.to_string(), discover_fn(&root));
     }
     map
-}
-
-/// Mirrors Python `AgentStudioProject.find_new_kept_deleted` at a typed path level.
-/// Compares logical path lists per resource type and returns new/kept/deleted paths.
-pub fn find_new_kept_deleted(
-    discovered_resources: &DiscoveredResourcePaths,
-    existing_resources: &DiscoveredResourcePaths,
-) -> DiscoveredResourceChanges {
-    crate::resources::find_new_kept_deleted(discovered_resources, existing_resources)
 }
