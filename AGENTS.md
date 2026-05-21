@@ -34,6 +34,9 @@
 - Add Rust doc comments for public or crate-public functions when they are long, multi-parameter,
   or orchestrate non-obvious behavior. Prefer information-dense docs that explain modes, side
   effects, ordering constraints, and Python parity assumptions rather than restating the signature.
+- We are not publishing a public Rust API yet, so breaking compatibility of pub functions
+  is not a problem. Our only compatibility obligations are to the on-disk file structure that
+  ADK materializes, and the remote server's HTTP API.
 
 ## Release notes
 
@@ -63,6 +66,9 @@
 
 ## PR babysitting
 
-- When asked to babysit a PR through review and merge, wait for Codex review explicitly. Passing CI
-  and an absence of early comments is not enough; keep checking review submissions and review
-  threads until Codex review has completed, or the user explicitly says to merge without it.
+- When asked to babysit a PR through review and merge, mark it ready and wait for Codex review.
+  Passing CI and an absence of early comments is not enough; keep checking review submissions and
+  threads until Codex has approved, or the user explicitly says to merge without it.
+- You'll know Codex has begun a review when it adds an eyes emoji to the summary. You'll know
+  Codex approves the PR when it adds a thumbs-up emoji on the summary. If it takes more than
+  5 minutes with no comments or approval, ask the user for human review.

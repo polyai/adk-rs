@@ -3,6 +3,7 @@ use adk_types::{DiffMap, DomainError, ProjectConfig, ResourceMap};
 pub mod discover;
 mod python_functions;
 mod python_syntax;
+mod resources;
 mod service;
 mod status_snapshot;
 mod validation;
