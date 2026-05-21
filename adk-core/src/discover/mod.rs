@@ -1,12 +1,11 @@
 //! Typed local resource discovery aligned with `poly/project.py` `discover_local_resources`
 //! and each resource class `discover_resources(base_path)`.
 
-mod resource_utils;
-mod resources_impl;
+pub(crate) mod resource_utils;
 
 pub use resource_utils::{clean_name, extract_variable_names_from_code};
 
-use crate::discover::resources_impl::{
+use crate::resources::{
     ApiIntegration, AsrSettings, ChatGreeting, ChatSafetyFilters, ChatStylePrompt, Entity,
     ExperimentalConfig, FlowConfig, FlowStep, Function, FunctionStep, GeneralSafetyFilters,
     Handoff, KeyphraseBoosting, PhraseFilter, Pronunciation, SMSTemplate, SettingsPersonality,
