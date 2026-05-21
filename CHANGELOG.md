@@ -4,6 +4,12 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+## 0.0.5 - 2026-05-21
+
+- Removed hidden in-memory fallback behavior from remote-backed CLI commands so missing remote configuration now fails clearly.
+- Kept explicit projection workflows local, including dry-run push command previews from supplied projections.
+- Improved replay and human-output test coverage for remote command behavior without test-only runtime overrides.
+
 ## 0.0.4 - 2026-05-19
 
 - Added `poly self-update` for shell-installed ADK releases.

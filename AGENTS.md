@@ -41,6 +41,12 @@
 - Cover only the 3-5 highest-signal user-visible behavior changes and parity fixes.
 - Move relevant `Unreleased` bullets into `## <version> - <YYYY-MM-DD>`, then reset `Unreleased`.
 
+## Codex Cloud limitations
+
+- In Codex Cloud mode, Codex cannot push commits or tags to this repository. If asked to perform a
+  task that requires those permissions, such as cutting a release, respond that Cloud-mode Codex is
+  unable to do it.
+
 ## Review guidelines
 
 - Focus first on behavior regressions against the Python ADK, especially CLI contracts, JSON output
@@ -53,3 +59,9 @@
   changes, and broad refactors for unintended blast radius.
 - Prefer concise, actionable findings. Do not block on style-only issues unless they obscure behavior
   or violate established project conventions.
+
+## PR babysitting
+
+- When asked to babysit a PR through review and merge, wait for Codex review explicitly. Passing CI
+  and an absence of early comments is not enough; keep checking review submissions and review
+  threads until Codex review has completed, or the user explicitly says to merge without it.
