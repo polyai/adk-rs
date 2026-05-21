@@ -275,6 +275,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ordered_type_names_match_registry_order() {
+        let expected_type_names = RESOURCE_TYPE_REGISTRY
+            .iter()
+            .map(|descriptor| descriptor.type_name)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ORDERED_TYPE_NAMES.as_slice(),
+            expected_type_names.as_slice()
+        );
+    }
+
+    #[test]
+    fn descriptor_lookups_cover_the_registry() {
+        for descriptor in RESOURCE_TYPE_REGISTRY {
+            assert_eq!(
+                descriptor_by_type_name(descriptor.type_name),
+                Some(descriptor)
+            );
+            assert_eq!(
+                descriptor_by_status_name(descriptor.status_resource_name),
+                Some(descriptor)
+            );
+        }
+        assert_eq!(descriptor_by_type_name("DoesNotExist"), None);
+        assert_eq!(descriptor_by_status_name("does_not_exist"), None);
+    }
+
+    #[test]
+    fn resource_type_registry_names_are_unique() {
+        let mut type_names = std::collections::BTreeSet::new();
+        let mut status_names = std::collections::BTreeSet::new();
+        for descriptor in RESOURCE_TYPE_REGISTRY {
+            assert!(
+                type_names.insert(descriptor.type_name),
+                "duplicate resource type name: {}",
+                descriptor.type_name
+            );
+            assert!(
+                status_names.insert(descriptor.status_resource_name),
+                "duplicate resource status name: {}",
+                descriptor.status_resource_name
+            );
+        }
+    }
+
+    #[test]
     fn project_config_branch_defaults_to_main_on_deserialize() {
         let raw = serde_json::json!({
             "region": "eu-west-1",
