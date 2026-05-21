@@ -98,7 +98,7 @@ pub const DISCOVER_DISPATCH: &[(&str, DiscoverFn)] = &[
 ];
 
 pub fn resource_type_metadata() -> &'static [ResourceTypeDescriptor] {
-    &RESOURCE_TYPE_REGISTRY
+    RESOURCE_TYPE_REGISTRY
 }
 
 /// Ordered Python class names in `RESOURCE_NAME_TO_CLASS` order.

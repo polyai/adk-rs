@@ -91,9 +91,7 @@ pub struct ResourceTypeDescriptor {
     pub id_prefix: Option<&'static str>,
 }
 
-pub const RESOURCE_TYPE_COUNT: usize = 29;
-
-pub const RESOURCE_TYPE_REGISTRY: [ResourceTypeDescriptor; RESOURCE_TYPE_COUNT] = [
+pub const RESOURCE_TYPE_REGISTRY: &[ResourceTypeDescriptor] = &[
     ResourceTypeDescriptor {
         type_name: "ApiIntegration",
         status_resource_name: "api_integration",
@@ -241,17 +239,18 @@ pub const RESOURCE_TYPE_REGISTRY: [ResourceTypeDescriptor; RESOURCE_TYPE_COUNT] 
     },
 ];
 
-const fn ordered_type_names_from_registry() -> [&'static str; RESOURCE_TYPE_COUNT] {
-    let mut out = [""; RESOURCE_TYPE_COUNT];
+const fn ordered_type_names_from_registry() -> [&'static str; RESOURCE_TYPE_REGISTRY.len()] {
+    let mut out = [""; RESOURCE_TYPE_REGISTRY.len()];
     let mut index = 0;
-    while index < RESOURCE_TYPE_COUNT {
+    while index < RESOURCE_TYPE_REGISTRY.len() {
         out[index] = RESOURCE_TYPE_REGISTRY[index].type_name;
         index += 1;
     }
     out
 }
 
-pub const ORDERED_TYPE_NAMES: [&str; RESOURCE_TYPE_COUNT] = ordered_type_names_from_registry();
+pub const ORDERED_TYPE_NAMES: [&str; RESOURCE_TYPE_REGISTRY.len()] =
+    ordered_type_names_from_registry();
 
 pub fn descriptor_by_type_name(name: &str) -> Option<&'static ResourceTypeDescriptor> {
     RESOURCE_TYPE_REGISTRY.iter().find(|d| d.type_name == name)
