@@ -568,7 +568,7 @@ fn flatten_discovered_paths(paths: &DiscoveredResourcePaths) -> Vec<String> {
 fn flatten_discovered_paths_by_type_order(paths: &DiscoveredResourcePaths) -> Vec<String> {
     let mut out = Vec::new();
     for type_name in discover::ordered_type_names() {
-        if let Some(type_paths) = paths.get(*type_name) {
+        if let Some(type_paths) = paths.get(type_name) {
             out.extend(type_paths.iter().cloned());
         }
     }
