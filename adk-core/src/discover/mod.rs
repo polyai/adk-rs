@@ -14,6 +14,7 @@ use crate::discover::resources_impl::{
     VoiceDisclaimerMessage, VoiceGreeting, VoiceSafetyFilters, VoiceStylePrompt,
 };
 use adk_io::{FileSystem, StdFileSystem};
+use adk_types::{ORDERED_TYPE_NAMES, RESOURCE_TYPE_REGISTRY, ResourceTypeDescriptor};
 use indexmap::{IndexMap, IndexSet};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -44,209 +45,86 @@ pub struct TypedResourceLifecycle {
     pub is_existing: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ResourceTypeMetadata {
-    pub type_name: &'static str,
-    pub status_resource_name: &'static str,
-}
+pub use adk_types::ResourceTypeDescriptor as ResourceTypeMetadata;
 
-const RESOURCE_TYPE_METADATA: &[ResourceTypeMetadata] = &[
-    ResourceTypeMetadata {
-        type_name: "ApiIntegration",
-        status_resource_name: "api_integration",
-    },
-    ResourceTypeMetadata {
-        type_name: "Function",
-        status_resource_name: "functions",
-    },
-    ResourceTypeMetadata {
-        type_name: "Topic",
-        status_resource_name: "topics",
-    },
-    ResourceTypeMetadata {
-        type_name: "SettingsPersonality",
-        status_resource_name: "personality",
-    },
-    ResourceTypeMetadata {
-        type_name: "SettingsRole",
-        status_resource_name: "role",
-    },
-    ResourceTypeMetadata {
-        type_name: "SettingsRules",
-        status_resource_name: "rules",
-    },
-    ResourceTypeMetadata {
-        type_name: "FlowStep",
-        status_resource_name: "flow_steps",
-    },
-    ResourceTypeMetadata {
-        type_name: "FunctionStep",
-        status_resource_name: "function_steps",
-    },
-    ResourceTypeMetadata {
-        type_name: "FlowConfig",
-        status_resource_name: "flow_config",
-    },
-    ResourceTypeMetadata {
-        type_name: "Entity",
-        status_resource_name: "entities",
-    },
-    ResourceTypeMetadata {
-        type_name: "ExperimentalConfig",
-        status_resource_name: "experimental_config",
-    },
-    ResourceTypeMetadata {
-        type_name: "GeneralSafetyFilters",
-        status_resource_name: "safety_filters",
-    },
-    ResourceTypeMetadata {
-        type_name: "SMSTemplate",
-        status_resource_name: "sms_templates",
-    },
-    ResourceTypeMetadata {
-        type_name: "Handoff",
-        status_resource_name: "handoffs",
-    },
-    ResourceTypeMetadata {
-        type_name: "Variant",
-        status_resource_name: "variants",
-    },
-    ResourceTypeMetadata {
-        type_name: "VariantAttribute",
-        status_resource_name: "variant_attributes",
-    },
-    ResourceTypeMetadata {
-        type_name: "Variable",
-        status_resource_name: "variables",
-    },
-    ResourceTypeMetadata {
-        type_name: "VoiceGreeting",
-        status_resource_name: "voice_greeting",
-    },
-    ResourceTypeMetadata {
-        type_name: "VoiceSafetyFilters",
-        status_resource_name: "voice_safety_filters",
-    },
-    ResourceTypeMetadata {
-        type_name: "VoiceStylePrompt",
-        status_resource_name: "voice_style_prompt",
-    },
-    ResourceTypeMetadata {
-        type_name: "VoiceDisclaimerMessage",
-        status_resource_name: "voice_disclaimer",
-    },
-    ResourceTypeMetadata {
-        type_name: "ChatGreeting",
-        status_resource_name: "chat_greeting",
-    },
-    ResourceTypeMetadata {
-        type_name: "ChatSafetyFilters",
-        status_resource_name: "chat_safety_filters",
-    },
-    ResourceTypeMetadata {
-        type_name: "ChatStylePrompt",
-        status_resource_name: "chat_style_prompt",
-    },
-    ResourceTypeMetadata {
-        type_name: "KeyphraseBoosting",
-        status_resource_name: "keyphrase_boosting",
-    },
-    ResourceTypeMetadata {
-        type_name: "TranscriptCorrection",
-        status_resource_name: "transcript_corrections",
-    },
-    ResourceTypeMetadata {
-        type_name: "AsrSettings",
-        status_resource_name: "asr_settings",
-    },
-    ResourceTypeMetadata {
-        type_name: "PhraseFilter",
-        status_resource_name: "phrase_filtering",
-    },
-    ResourceTypeMetadata {
-        type_name: "Pronunciation",
-        status_resource_name: "pronunciations",
-    },
+pub type DiscoverFn = fn(&Path) -> Vec<String>;
+
+/// Maps each resource type to its discovery function.
+pub const DISCOVER_DISPATCH: &[(&str, DiscoverFn)] = &[
+    (
+        "ApiIntegration",
+        ApiIntegration::discover_resources as DiscoverFn,
+    ),
+    ("Function", Function::discover_resources),
+    ("Topic", Topic::discover_resources),
+    (
+        "SettingsPersonality",
+        SettingsPersonality::discover_resources,
+    ),
+    ("SettingsRole", SettingsRole::discover_resources),
+    ("SettingsRules", SettingsRules::discover_resources),
+    ("FlowStep", FlowStep::discover_resources),
+    ("FunctionStep", FunctionStep::discover_resources),
+    ("FlowConfig", FlowConfig::discover_resources),
+    ("Entity", Entity::discover_resources),
+    ("ExperimentalConfig", ExperimentalConfig::discover_resources),
+    (
+        "GeneralSafetyFilters",
+        GeneralSafetyFilters::discover_resources,
+    ),
+    ("SMSTemplate", SMSTemplate::discover_resources),
+    ("Handoff", Handoff::discover_resources),
+    ("Variant", Variant::discover_resources),
+    ("VariantAttribute", VariantAttribute::discover_resources),
+    ("Variable", Variable::discover_resources),
+    ("VoiceGreeting", VoiceGreeting::discover_resources),
+    ("VoiceSafetyFilters", VoiceSafetyFilters::discover_resources),
+    ("VoiceStylePrompt", VoiceStylePrompt::discover_resources),
+    (
+        "VoiceDisclaimerMessage",
+        VoiceDisclaimerMessage::discover_resources,
+    ),
+    ("ChatGreeting", ChatGreeting::discover_resources),
+    ("ChatSafetyFilters", ChatSafetyFilters::discover_resources),
+    ("ChatStylePrompt", ChatStylePrompt::discover_resources),
+    ("KeyphraseBoosting", KeyphraseBoosting::discover_resources),
+    (
+        "TranscriptCorrection",
+        TranscriptCorrection::discover_resources,
+    ),
+    ("AsrSettings", AsrSettings::discover_resources),
+    ("PhraseFilter", PhraseFilter::discover_resources),
+    ("Pronunciation", Pronunciation::discover_resources),
 ];
 
-pub fn resource_type_metadata() -> &'static [ResourceTypeMetadata] {
-    RESOURCE_TYPE_METADATA
+pub fn resource_type_metadata() -> &'static [ResourceTypeDescriptor] {
+    RESOURCE_TYPE_REGISTRY
 }
 
 /// Ordered Python class names in `RESOURCE_NAME_TO_CLASS` order.
 pub fn ordered_type_names() -> &'static [&'static str] {
-    const ORDERED: &[&str] = &[
-        "ApiIntegration",
-        "Function",
-        "Topic",
-        "SettingsPersonality",
-        "SettingsRole",
-        "SettingsRules",
-        "FlowStep",
-        "FunctionStep",
-        "FlowConfig",
-        "Entity",
-        "ExperimentalConfig",
-        "GeneralSafetyFilters",
-        "SMSTemplate",
-        "Handoff",
-        "Variant",
-        "VariantAttribute",
-        "Variable",
-        "VoiceGreeting",
-        "VoiceSafetyFilters",
-        "VoiceStylePrompt",
-        "VoiceDisclaimerMessage",
-        "ChatGreeting",
-        "ChatSafetyFilters",
-        "ChatStylePrompt",
-        "KeyphraseBoosting",
-        "TranscriptCorrection",
-        "AsrSettings",
-        "PhraseFilter",
-        "Pronunciation",
-    ];
-    ORDERED
+    &ORDERED_TYPE_NAMES
 }
 
 /// Python status JSON key (RESOURCE_NAME_TO_CLASS key) -> class name.
 pub fn resource_name_to_type_name(resource_name: &str) -> Option<&'static str> {
-    resource_type_metadata()
-        .iter()
-        .find(|m| m.status_resource_name == resource_name)
-        .map(|m| m.type_name)
+    adk_types::descriptor_by_status_name(resource_name).map(|d| d.type_name)
 }
 
 pub fn type_name_to_resource_name(type_name: &str) -> Option<&'static str> {
-    resource_type_metadata()
-        .iter()
-        .find(|m| m.type_name == type_name)
-        .map(|m| m.status_resource_name)
+    adk_types::descriptor_by_type_name(type_name).map(|d| d.status_resource_name)
 }
 
 pub fn empty_discovered_resource_paths() -> DiscoveredResourcePaths {
     let mut out = DiscoveredResourcePaths::new();
-    for t in ordered_type_names() {
-        out.insert((*t).to_string(), Vec::new());
+    for d in RESOURCE_TYPE_REGISTRY {
+        out.insert(d.type_name.to_string(), Vec::new());
     }
     out
 }
 
 pub fn type_name_to_resource_prefix(type_name: &str) -> Option<&'static str> {
-    match type_name {
-        "Function" => Some("fn"),
-        "Topic" => Some("topic"),
-        "Entity" => Some("entity"),
-        "FlowConfig" => Some("flow"),
-        "FlowStep" => Some("step"),
-        "FunctionStep" => Some("step"),
-        "Variable" => Some("var"),
-        "SMSTemplate" => Some("sms"),
-        "Handoff" => Some("ho"),
-        "KeyphraseBoosting" => Some("kp"),
-        "PhraseFilter" => Some("sk"),
-        _ => None,
-    }
+    adk_types::descriptor_by_type_name(type_name).and_then(|d| d.id_prefix)
 }
 
 pub fn build_typed_resource_lifecycle(
@@ -293,46 +171,9 @@ pub fn discover_local_resources(root: &Path) -> DiscoveredResourcePaths {
         .unwrap_or_else(|_| root.to_path_buf());
 
     let mut map = IndexMap::new();
-
-    macro_rules! insert {
-        ($t:ty) => {
-            map.insert(
-                <$t as DiscoverResources>::TYPE_NAME.to_string(),
-                <$t as DiscoverResources>::discover_resources(&root),
-            );
-        };
+    for &(type_name, discover_fn) in DISCOVER_DISPATCH {
+        map.insert(type_name.to_string(), discover_fn(&root));
     }
-
-    insert!(ApiIntegration);
-    insert!(Function);
-    insert!(Topic);
-    insert!(SettingsPersonality);
-    insert!(SettingsRole);
-    insert!(SettingsRules);
-    insert!(FlowStep);
-    insert!(FunctionStep);
-    insert!(FlowConfig);
-    insert!(Entity);
-    insert!(ExperimentalConfig);
-    insert!(GeneralSafetyFilters);
-    insert!(SMSTemplate);
-    insert!(Handoff);
-    insert!(Variant);
-    insert!(VariantAttribute);
-    insert!(Variable);
-    insert!(VoiceGreeting);
-    insert!(VoiceSafetyFilters);
-    insert!(VoiceStylePrompt);
-    insert!(VoiceDisclaimerMessage);
-    insert!(ChatGreeting);
-    insert!(ChatSafetyFilters);
-    insert!(ChatStylePrompt);
-    insert!(KeyphraseBoosting);
-    insert!(TranscriptCorrection);
-    insert!(AsrSettings);
-    insert!(PhraseFilter);
-    insert!(Pronunciation);
-
     map
 }
 
