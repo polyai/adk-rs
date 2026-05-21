@@ -1,6 +1,6 @@
 use crate::discover::DiscoverResources;
 use crate::discover::resource_utils::{clean_name, rel_under_root};
-use crate::resources::common::{is_file, read_yaml_mapping};
+use crate::resources::common::{is_file, read_yaml_mapping, validate_named_sequence};
 use serde_yaml::Value;
 use std::path::Path;
 
@@ -36,5 +36,43 @@ impl DiscoverResources for Entity {
             ));
         }
         out
+    }
+}
+
+pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    validate_named_sequence("config/entities.yaml", yaml, "entities", "entity", errors);
+    let Some(items) = yaml
+        .get("entities")
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return;
+    };
+    let allowed = [
+        "numeric",
+        "alphanumeric",
+        "enum",
+        "date",
+        "phone_number",
+        "time",
+        "address",
+        "free_text",
+        "name_config",
+    ];
+    for item in items {
+        let name = item
+            .get("name")
+            .and_then(serde_yaml::Value::as_str)
+            .unwrap_or("<missing>");
+        let Some(entity_type) = item.get("entity_type").and_then(serde_yaml::Value::as_str) else {
+            errors.push(format!(
+                "Validation error in config/entities.yaml/entities/{name}: entity_type is required."
+            ));
+            continue;
+        };
+        if !allowed.contains(&entity_type) {
+            errors.push(format!(
+                "Validation error in config/entities.yaml/entities/{name}: unsupported entity_type '{entity_type}'."
+            ));
+        }
     }
 }

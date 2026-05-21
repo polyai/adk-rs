@@ -38,3 +38,28 @@ impl DiscoverResources for TranscriptCorrection {
         out
     }
 }
+
+pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    let Some(corrections) = yaml
+        .get("corrections")
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return;
+    };
+    for correction in corrections {
+        let Some(raw_name) = correction.get("name").and_then(serde_yaml::Value::as_str) else {
+            continue;
+        };
+        let regular_expression_count = correction
+            .get("regular_expressions")
+            .and_then(serde_yaml::Value::as_sequence)
+            .map(Vec::len)
+            .unwrap_or(0);
+        if regular_expression_count == 0 {
+            let name = clean_name(raw_name, false);
+            errors.push(format!(
+                "Validation error in voice/speech_recognition/transcript_corrections.yaml/corrections/{name}: At least one regular expression rule is required"
+            ));
+        }
+    }
+}

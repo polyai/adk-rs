@@ -1,6 +1,6 @@
 use crate::discover::DiscoverResources;
 use crate::discover::resource_utils::{clean_name, rel_under_root};
-use crate::resources::common::{is_file, read_yaml_mapping};
+use crate::resources::common::{is_file, read_yaml_mapping, validate_named_sequence};
 use serde_yaml::Value;
 use std::path::Path;
 
@@ -37,4 +37,40 @@ impl DiscoverResources for ApiIntegration {
         }
         out
     }
+}
+
+pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    validate_named_sequence(
+        "config/api_integrations.yaml",
+        yaml,
+        "api_integrations",
+        "API integration",
+        errors,
+    );
+    let Some(items) = yaml
+        .get("api_integrations")
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return;
+    };
+    for item in items {
+        let Some(raw_name) = item.get("name").and_then(serde_yaml::Value::as_str) else {
+            continue;
+        };
+        let name = clean_name(raw_name, false);
+        if !is_python_function_name(&name) {
+            errors.push(format!(
+                "Validation error in config/api_integrations.yaml/api_integrations/{name}: API integration name '{name}' must follow Python function naming convention (lowercase letters, numbers, and underscores only, starting with letter or underscore)."
+            ));
+        }
+    }
+}
+
+fn is_python_function_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_lowercase())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_lowercase() || ch.is_ascii_digit())
 }
