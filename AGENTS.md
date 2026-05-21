@@ -9,6 +9,8 @@
 - Avoid dummy/no-op implementations in CLI/core/platform paths.
 - When a behavior is not truly implemented, track it explicitly as a TODO.
 - Keep the PR-ready summary as the final step, after implementation/test work.
+- Never amend or force-push branches unless the user explicitly requests a
+  history rewrite.
 
 ## Implementation priorities
 
@@ -19,8 +21,7 @@
 - Filesystem access in library crates should go through `adk-io`. Do not add new direct
   `std::fs` usage in `adk-core` or other reusable library logic; migrate existing call sites to
   `FileSystem`/`StdFileSystem`/`MemoryFileSystem`. Direct `std::fs` usage is acceptable in
-  `adk-cli` and test harnesses. Once remaining library call sites are gone, enforce this
-  mechanically with Clippy `disallowed-methods`.
+  `adk-cli` and test harnesses.
 - Preserve clean Git diffs for ADK-maintained project files. Users check these files into Git and
   rely on `pull`/`push` to inspect meaningful backend sync changes, so semantically irrelevant YAML
   rewrites, key reordering, scalar restyling, and formatting churn should be minimized.
