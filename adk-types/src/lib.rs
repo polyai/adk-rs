@@ -92,35 +92,151 @@ pub struct ResourceTypeDescriptor {
 }
 
 pub const RESOURCE_TYPE_REGISTRY: &[ResourceTypeDescriptor] = &[
-    ResourceTypeDescriptor { type_name: "ApiIntegration", status_resource_name: "api_integration", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "Function", status_resource_name: "functions", id_prefix: Some("fn") },
-    ResourceTypeDescriptor { type_name: "Topic", status_resource_name: "topics", id_prefix: Some("topic") },
-    ResourceTypeDescriptor { type_name: "SettingsPersonality", status_resource_name: "personality", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "SettingsRole", status_resource_name: "role", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "SettingsRules", status_resource_name: "rules", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "FlowStep", status_resource_name: "flow_steps", id_prefix: Some("step") },
-    ResourceTypeDescriptor { type_name: "FunctionStep", status_resource_name: "function_steps", id_prefix: Some("step") },
-    ResourceTypeDescriptor { type_name: "FlowConfig", status_resource_name: "flow_config", id_prefix: Some("flow") },
-    ResourceTypeDescriptor { type_name: "Entity", status_resource_name: "entities", id_prefix: Some("entity") },
-    ResourceTypeDescriptor { type_name: "ExperimentalConfig", status_resource_name: "experimental_config", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "GeneralSafetyFilters", status_resource_name: "safety_filters", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "SMSTemplate", status_resource_name: "sms_templates", id_prefix: Some("sms") },
-    ResourceTypeDescriptor { type_name: "Handoff", status_resource_name: "handoffs", id_prefix: Some("ho") },
-    ResourceTypeDescriptor { type_name: "Variant", status_resource_name: "variants", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "VariantAttribute", status_resource_name: "variant_attributes", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "Variable", status_resource_name: "variables", id_prefix: Some("var") },
-    ResourceTypeDescriptor { type_name: "VoiceGreeting", status_resource_name: "voice_greeting", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "VoiceSafetyFilters", status_resource_name: "voice_safety_filters", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "VoiceStylePrompt", status_resource_name: "voice_style_prompt", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "VoiceDisclaimerMessage", status_resource_name: "voice_disclaimer", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "ChatGreeting", status_resource_name: "chat_greeting", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "ChatSafetyFilters", status_resource_name: "chat_safety_filters", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "ChatStylePrompt", status_resource_name: "chat_style_prompt", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "KeyphraseBoosting", status_resource_name: "keyphrase_boosting", id_prefix: Some("kp") },
-    ResourceTypeDescriptor { type_name: "TranscriptCorrection", status_resource_name: "transcript_corrections", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "AsrSettings", status_resource_name: "asr_settings", id_prefix: None },
-    ResourceTypeDescriptor { type_name: "PhraseFilter", status_resource_name: "phrase_filtering", id_prefix: Some("sk") },
-    ResourceTypeDescriptor { type_name: "Pronunciation", status_resource_name: "pronunciations", id_prefix: None },
+    ResourceTypeDescriptor {
+        type_name: "ApiIntegration",
+        status_resource_name: "api_integration",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "Function",
+        status_resource_name: "functions",
+        id_prefix: Some("fn"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "Topic",
+        status_resource_name: "topics",
+        id_prefix: Some("topic"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "SettingsPersonality",
+        status_resource_name: "personality",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "SettingsRole",
+        status_resource_name: "role",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "SettingsRules",
+        status_resource_name: "rules",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "FlowStep",
+        status_resource_name: "flow_steps",
+        id_prefix: Some("step"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "FunctionStep",
+        status_resource_name: "function_steps",
+        id_prefix: Some("step"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "FlowConfig",
+        status_resource_name: "flow_config",
+        id_prefix: Some("flow"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "Entity",
+        status_resource_name: "entities",
+        id_prefix: Some("entity"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "ExperimentalConfig",
+        status_resource_name: "experimental_config",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "GeneralSafetyFilters",
+        status_resource_name: "safety_filters",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "SMSTemplate",
+        status_resource_name: "sms_templates",
+        id_prefix: Some("sms"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "Handoff",
+        status_resource_name: "handoffs",
+        id_prefix: Some("ho"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "Variant",
+        status_resource_name: "variants",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "VariantAttribute",
+        status_resource_name: "variant_attributes",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "Variable",
+        status_resource_name: "variables",
+        id_prefix: Some("var"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "VoiceGreeting",
+        status_resource_name: "voice_greeting",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "VoiceSafetyFilters",
+        status_resource_name: "voice_safety_filters",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "VoiceStylePrompt",
+        status_resource_name: "voice_style_prompt",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "VoiceDisclaimerMessage",
+        status_resource_name: "voice_disclaimer",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "ChatGreeting",
+        status_resource_name: "chat_greeting",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "ChatSafetyFilters",
+        status_resource_name: "chat_safety_filters",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "ChatStylePrompt",
+        status_resource_name: "chat_style_prompt",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "KeyphraseBoosting",
+        status_resource_name: "keyphrase_boosting",
+        id_prefix: Some("kp"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "TranscriptCorrection",
+        status_resource_name: "transcript_corrections",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "AsrSettings",
+        status_resource_name: "asr_settings",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "PhraseFilter",
+        status_resource_name: "phrase_filtering",
+        id_prefix: Some("sk"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "Pronunciation",
+        status_resource_name: "pronunciations",
+        id_prefix: None,
+    },
 ];
 
 pub fn descriptor_by_type_name(name: &str) -> Option<&'static ResourceTypeDescriptor> {
@@ -128,7 +244,9 @@ pub fn descriptor_by_type_name(name: &str) -> Option<&'static ResourceTypeDescri
 }
 
 pub fn descriptor_by_status_name(name: &str) -> Option<&'static ResourceTypeDescriptor> {
-    RESOURCE_TYPE_REGISTRY.iter().find(|d| d.status_resource_name == name)
+    RESOURCE_TYPE_REGISTRY
+        .iter()
+        .find(|d| d.status_resource_name == name)
 }
 
 #[derive(Debug, Error)]

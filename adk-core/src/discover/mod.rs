@@ -14,7 +14,7 @@ use crate::discover::resources_impl::{
     VoiceDisclaimerMessage, VoiceGreeting, VoiceSafetyFilters, VoiceStylePrompt,
 };
 use adk_io::{FileSystem, StdFileSystem};
-use adk_types::{ResourceTypeDescriptor, RESOURCE_TYPE_REGISTRY};
+use adk_types::{RESOURCE_TYPE_REGISTRY, ResourceTypeDescriptor};
 use indexmap::{IndexMap, IndexSet};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -51,10 +51,16 @@ pub type DiscoverFn = fn(&Path) -> Vec<String>;
 
 /// Maps each resource type to its discovery function.
 pub const DISCOVER_DISPATCH: &[(&str, DiscoverFn)] = &[
-    ("ApiIntegration", ApiIntegration::discover_resources as DiscoverFn),
+    (
+        "ApiIntegration",
+        ApiIntegration::discover_resources as DiscoverFn,
+    ),
     ("Function", Function::discover_resources),
     ("Topic", Topic::discover_resources),
-    ("SettingsPersonality", SettingsPersonality::discover_resources),
+    (
+        "SettingsPersonality",
+        SettingsPersonality::discover_resources,
+    ),
     ("SettingsRole", SettingsRole::discover_resources),
     ("SettingsRules", SettingsRules::discover_resources),
     ("FlowStep", FlowStep::discover_resources),
@@ -62,7 +68,10 @@ pub const DISCOVER_DISPATCH: &[(&str, DiscoverFn)] = &[
     ("FlowConfig", FlowConfig::discover_resources),
     ("Entity", Entity::discover_resources),
     ("ExperimentalConfig", ExperimentalConfig::discover_resources),
-    ("GeneralSafetyFilters", GeneralSafetyFilters::discover_resources),
+    (
+        "GeneralSafetyFilters",
+        GeneralSafetyFilters::discover_resources,
+    ),
     ("SMSTemplate", SMSTemplate::discover_resources),
     ("Handoff", Handoff::discover_resources),
     ("Variant", Variant::discover_resources),
@@ -71,12 +80,18 @@ pub const DISCOVER_DISPATCH: &[(&str, DiscoverFn)] = &[
     ("VoiceGreeting", VoiceGreeting::discover_resources),
     ("VoiceSafetyFilters", VoiceSafetyFilters::discover_resources),
     ("VoiceStylePrompt", VoiceStylePrompt::discover_resources),
-    ("VoiceDisclaimerMessage", VoiceDisclaimerMessage::discover_resources),
+    (
+        "VoiceDisclaimerMessage",
+        VoiceDisclaimerMessage::discover_resources,
+    ),
     ("ChatGreeting", ChatGreeting::discover_resources),
     ("ChatSafetyFilters", ChatSafetyFilters::discover_resources),
     ("ChatStylePrompt", ChatStylePrompt::discover_resources),
     ("KeyphraseBoosting", KeyphraseBoosting::discover_resources),
-    ("TranscriptCorrection", TranscriptCorrection::discover_resources),
+    (
+        "TranscriptCorrection",
+        TranscriptCorrection::discover_resources,
+    ),
     ("AsrSettings", AsrSettings::discover_resources),
     ("PhraseFilter", PhraseFilter::discover_resources),
     ("Pronunciation", Pronunciation::discover_resources),
