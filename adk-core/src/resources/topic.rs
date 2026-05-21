@@ -26,3 +26,15 @@ impl DiscoverResources for Topic {
         out
     }
 }
+
+pub(crate) fn validate_local_yaml(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    if yaml
+        .get("name")
+        .and_then(serde_yaml::Value::as_str)
+        .is_none_or(str::is_empty)
+    {
+        errors.push(format!(
+            "Validation error in {path}: topic name is required."
+        ));
+    }
+}

@@ -1,6 +1,6 @@
 use crate::discover::DiscoverResources;
 use crate::discover::resource_utils::{clean_name, rel_under_root};
-use crate::resources::common::{is_file, read_yaml_mapping};
+use crate::resources::common::{is_file, read_yaml_mapping, validate_duplicate_names};
 use serde_yaml::Value;
 use std::path::Path;
 
@@ -36,6 +36,42 @@ impl DiscoverResources for Variant {
             ));
         }
         out
+    }
+}
+
+pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    let Some(variants) = yaml
+        .get("variants")
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return;
+    };
+    validate_duplicate_names(
+        "config/variant_attributes.yaml",
+        "variants",
+        "variant",
+        variants,
+        errors,
+    );
+    let default_names = variants
+        .iter()
+        .filter(|variant| {
+            variant
+                .get("is_default")
+                .and_then(serde_yaml::Value::as_bool)
+                .unwrap_or(false)
+        })
+        .filter_map(|variant| variant.get("name").and_then(serde_yaml::Value::as_str))
+        .collect::<Vec<_>>();
+    if default_names.len() != 1 {
+        let names = default_names
+            .iter()
+            .map(|name| format!("'{name}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        errors.push(format!(
+            "Validation error: Multiple or zero default variants detected: [{names}]. One variant must be set as default."
+        ));
     }
 }
 

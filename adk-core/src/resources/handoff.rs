@@ -1,6 +1,6 @@
 use crate::discover::DiscoverResources;
 use crate::discover::resource_utils::{clean_name, rel_under_root};
-use crate::resources::common::{is_file, read_yaml_mapping};
+use crate::resources::common::{is_file, read_yaml_mapping, validate_named_sequence};
 use serde_yaml::Value;
 use std::path::Path;
 
@@ -37,4 +37,8 @@ impl DiscoverResources for Handoff {
         }
         out
     }
+}
+
+pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    validate_named_sequence("config/handoffs.yaml", yaml, "handoffs", "handoff", errors);
 }

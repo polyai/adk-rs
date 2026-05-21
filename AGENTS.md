@@ -64,11 +64,10 @@
 - Prefer concise, actionable findings. Do not block on style-only issues unless they obscure behavior
   or violate established project conventions.
 
-## PR babysitting
+## Pull Requests
 
-- When asked to babysit a PR through review and merge, mark it ready and wait for Codex review.
-  Passing CI and an absence of early comments is not enough; keep checking review submissions and
-  threads until Codex has approved, or the user explicitly says to merge without it.
+- Pull request titles and commit messages should follow the Conventional Commits spec.
+- When asked to babysit a PR through review and merge, immediately mark it ready and wait for Codex review.
 - You'll know Codex has begun a review when it adds an eyes emoji to the summary. You'll know
   Codex approves the PR when it adds a thumbs-up emoji on the summary. If it takes more than
   5 minutes with no comments or approval, ask the user for human review.

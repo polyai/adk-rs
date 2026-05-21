@@ -16,6 +16,25 @@ Notes for contributors working on the Rust ADK rewrite.
 
 Each crate also has a short local README.
 
+## Adding Or Updating Resource Types
+
+Resource type metadata and behavior are intentionally split by responsibility:
+
+- `adk-types/src/lib.rs` owns the central `RESOURCE_TYPE_REGISTRY`: Python class name, status resource key, ID prefix, and registry order.
+- `adk-core/src/resources/` owns resource/domain behavior used by core workflows: local discovery and resource-local validation.
+- `adk-core/src/validation.rs` owns validation orchestration plus cross-resource checks, such as flow step references, entity references, and flow-scoped function call-site rules.
+- `adk-push-pull` owns projection materialization and push command generation.
+
+When adding a Python ADK resource type to Rust:
+
+1. Add one descriptor to `RESOURCE_TYPE_REGISTRY` in the same order as Python `RESOURCE_NAME_TO_CLASS`.
+2. Add or update the matching `adk-core/src/resources/{domain}.rs` module with discovery logic.
+3. Register the type in `adk-core/src/resources/mod.rs` and keep discovery dispatch order aligned with the registry.
+4. Add resource-local validation in the resource/domain module when a single resource file or resource-owned collection can be checked in isolation.
+5. Keep relationship checks in `validation.rs` when they need multiple resources.
+6. Add or update `adk-push-pull` materialization and command generation only when the resource participates in pull/push behavior.
+7. Extend parity coverage before or alongside behavior changes, especially for discovery order, validation output, file layout, and command generation.
+
 ## Common Commands
 
 ```bash

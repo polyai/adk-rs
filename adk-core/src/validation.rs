@@ -1,9 +1,9 @@
-use crate::discover;
 use crate::python_functions::{
     function_parameter_decorator_names, function_signature_parameter_list,
     function_signature_parameters, is_python_function_resource,
 };
 use crate::python_syntax::validate_python_module;
+use crate::resources;
 use crate::{CoreError, reference_name_from_logical_path};
 use adk_types::{DomainError, ResourceMap};
 use std::collections::{BTreeSet, HashMap};
@@ -13,6 +13,9 @@ pub(crate) fn validate_local_resources(
     root: &Path,
     resources: &ResourceMap,
 ) -> Result<Vec<String>, CoreError> {
+    // Keep validation phases in Python-compatible order: parse and resource-local
+    // YAML/JSON checks first, Python function checks next, cross-resource flow
+    // reference checks last.
     let mut errors = Vec::new();
     for (path, resource) in resources {
         let content = resource
@@ -28,7 +31,7 @@ pub(crate) fn validate_local_resources(
                     return Err(DomainError::InvalidData(resource_read_error(root, path)).into());
                 }
             };
-            validate_semantic_resource(path, &yaml, &mut errors);
+            resources::validate_semantic_resource(path, &yaml, &mut errors);
         } else if path.ends_with(".json")
             && let Err(e) = serde_json::from_str::<serde_json::Value>(content)
         {
@@ -550,220 +553,6 @@ fn python_string_set(values: &[String]) -> String {
     let mut values = values.to_vec();
     values.sort();
     python_string_list(&values)
-}
-
-fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
-    match path {
-        "config/api_integrations.yaml" => validate_api_integrations(yaml, errors),
-        "config/entities.yaml" => validate_entities(yaml, errors),
-        "config/handoffs.yaml" => {
-            validate_named_sequence(path, yaml, "handoffs", "handoff", errors)
-        }
-        "config/sms_templates.yaml" => {
-            validate_named_sequence(path, yaml, "sms_templates", "SMS template", errors)
-        }
-        "config/variant_attributes.yaml" => validate_variant_defaults(yaml, errors),
-        "voice/speech_recognition/transcript_corrections.yaml" => {
-            validate_transcript_corrections(yaml, errors)
-        }
-        _ if path.starts_with("topics/") => validate_topic(path, yaml, errors),
-        _ => {}
-    }
-}
-
-fn validate_api_integrations(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
-    validate_named_sequence(
-        "config/api_integrations.yaml",
-        yaml,
-        "api_integrations",
-        "API integration",
-        errors,
-    );
-    let Some(items) = yaml
-        .get("api_integrations")
-        .and_then(serde_yaml::Value::as_sequence)
-    else {
-        return;
-    };
-    for item in items {
-        let Some(raw_name) = item.get("name").and_then(serde_yaml::Value::as_str) else {
-            continue;
-        };
-        let name = discover::clean_name(raw_name, false);
-        if !is_python_function_name(&name) {
-            errors.push(format!(
-                "Validation error in config/api_integrations.yaml/api_integrations/{name}: API integration name '{name}' must follow Python function naming convention (lowercase letters, numbers, and underscores only, starting with letter or underscore)."
-            ));
-        }
-    }
-}
-
-fn validate_entities(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
-    validate_named_sequence("config/entities.yaml", yaml, "entities", "entity", errors);
-    let Some(items) = yaml
-        .get("entities")
-        .and_then(serde_yaml::Value::as_sequence)
-    else {
-        return;
-    };
-    let allowed = [
-        "numeric",
-        "alphanumeric",
-        "enum",
-        "date",
-        "phone_number",
-        "time",
-        "address",
-        "free_text",
-        "name_config",
-    ];
-    for item in items {
-        let name = item
-            .get("name")
-            .and_then(serde_yaml::Value::as_str)
-            .unwrap_or("<missing>");
-        let Some(entity_type) = item.get("entity_type").and_then(serde_yaml::Value::as_str) else {
-            errors.push(format!(
-                "Validation error in config/entities.yaml/entities/{name}: entity_type is required."
-            ));
-            continue;
-        };
-        if !allowed.contains(&entity_type) {
-            errors.push(format!(
-                "Validation error in config/entities.yaml/entities/{name}: unsupported entity_type '{entity_type}'."
-            ));
-        }
-    }
-}
-
-fn validate_variant_defaults(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
-    let Some(variants) = yaml
-        .get("variants")
-        .and_then(serde_yaml::Value::as_sequence)
-    else {
-        return;
-    };
-    validate_duplicate_names(
-        "config/variant_attributes.yaml",
-        "variants",
-        "variant",
-        variants,
-        errors,
-    );
-    let default_names = variants
-        .iter()
-        .filter(|variant| {
-            variant
-                .get("is_default")
-                .and_then(serde_yaml::Value::as_bool)
-                .unwrap_or(false)
-        })
-        .filter_map(|variant| variant.get("name").and_then(serde_yaml::Value::as_str))
-        .collect::<Vec<_>>();
-    if default_names.len() != 1 {
-        let names = default_names
-            .iter()
-            .map(|name| format!("'{name}'"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        errors.push(format!(
-            "Validation error: Multiple or zero default variants detected: [{names}]. One variant must be set as default."
-        ));
-    }
-}
-
-fn validate_topic(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
-    if yaml
-        .get("name")
-        .and_then(serde_yaml::Value::as_str)
-        .is_none_or(str::is_empty)
-    {
-        errors.push(format!(
-            "Validation error in {path}: topic name is required."
-        ));
-    }
-}
-
-fn validate_named_sequence(
-    path: &str,
-    yaml: &serde_yaml::Value,
-    key: &str,
-    label: &str,
-    errors: &mut Vec<String>,
-) {
-    let Some(items) = yaml.get(key).and_then(serde_yaml::Value::as_sequence) else {
-        return;
-    };
-    for (idx, item) in items.iter().enumerate() {
-        if item
-            .get("name")
-            .and_then(serde_yaml::Value::as_str)
-            .is_none_or(str::is_empty)
-        {
-            errors.push(format!(
-                "Validation error in {path}/{key}/{idx}: {label} name is required."
-            ));
-        }
-    }
-    validate_duplicate_names(path, key, label, items, errors);
-}
-
-fn validate_duplicate_names(
-    path: &str,
-    key: &str,
-    label: &str,
-    items: &[serde_yaml::Value],
-    errors: &mut Vec<String>,
-) {
-    let mut seen = BTreeSet::new();
-    let mut duplicates = BTreeSet::new();
-    for item in items {
-        let Some(name) = item.get("name").and_then(serde_yaml::Value::as_str) else {
-            continue;
-        };
-        if !seen.insert(name.to_string()) {
-            duplicates.insert(name.to_string());
-        }
-    }
-    for name in duplicates {
-        errors.push(format!(
-            "Validation error in {path}/{key}/{name}: duplicate {label} name '{name}'."
-        ));
-    }
-}
-
-fn validate_transcript_corrections(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
-    let Some(corrections) = yaml
-        .get("corrections")
-        .and_then(serde_yaml::Value::as_sequence)
-    else {
-        return;
-    };
-    for correction in corrections {
-        let Some(raw_name) = correction.get("name").and_then(serde_yaml::Value::as_str) else {
-            continue;
-        };
-        let regular_expression_count = correction
-            .get("regular_expressions")
-            .and_then(serde_yaml::Value::as_sequence)
-            .map(Vec::len)
-            .unwrap_or(0);
-        if regular_expression_count == 0 {
-            let name = discover::clean_name(raw_name, false);
-            errors.push(format!(
-                "Validation error in voice/speech_recognition/transcript_corrections.yaml/corrections/{name}: At least one regular expression rule is required"
-            ));
-        }
-    }
-}
-
-fn is_python_function_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    (first == '_' || first.is_ascii_lowercase())
-        && chars.all(|ch| ch == '_' || ch.is_ascii_lowercase() || ch.is_ascii_digit())
 }
 
 fn resource_read_error(root: &Path, path: &str) -> String {

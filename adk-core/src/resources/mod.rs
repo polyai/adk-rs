@@ -1,8 +1,15 @@
-//! Resource-specific local discovery implementations.
+//! Resource-specific local discovery and validation implementations.
 //!
-//! The central resource metadata registry lives in `adk-types`. This module owns
-//! per-resource filesystem discovery so the details for a resource can live near
-//! its resource-domain code.
+//! Resource type metadata, including Python class names, status resource keys,
+//! ID prefixes, and registry order, lives in `adk-types`. This module owns
+//! resource/domain behavior that belongs in `adk-core`: local filesystem
+//! discovery and validation that can be decided from one resource file or one
+//! resource-owned collection file.
+//!
+//! Cross-resource validation, such as flow step references, entity references,
+//! and function call-site checks, remains in `crate::validation`. Projection
+//! materialization and push command generation remain in `adk-push-pull` so
+//! protobuf-heavy push/pull behavior stays out of `adk-core`.
 
 mod agent_settings;
 mod api_integration;
@@ -45,3 +52,22 @@ pub(crate) use topic::Topic;
 pub(crate) use transcript_correction::TranscriptCorrection;
 pub(crate) use variable::Variable;
 pub(crate) use variant::{Variant, VariantAttribute};
+
+pub(crate) fn validate_semantic_resource(
+    path: &str,
+    yaml: &serde_yaml::Value,
+    errors: &mut Vec<String>,
+) {
+    match path {
+        "config/api_integrations.yaml" => api_integration::validate_local_yaml(yaml, errors),
+        "config/entities.yaml" => entity::validate_local_yaml(yaml, errors),
+        "config/handoffs.yaml" => handoff::validate_local_yaml(yaml, errors),
+        "config/sms_templates.yaml" => sms_template::validate_local_yaml(yaml, errors),
+        "config/variant_attributes.yaml" => variant::validate_local_yaml(yaml, errors),
+        "voice/speech_recognition/transcript_corrections.yaml" => {
+            transcript_correction::validate_local_yaml(yaml, errors);
+        }
+        _ if path.starts_with("topics/") => topic::validate_local_yaml(path, yaml, errors),
+        _ => {}
+    }
+}
