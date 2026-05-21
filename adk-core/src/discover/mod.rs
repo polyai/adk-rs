@@ -14,7 +14,7 @@ use crate::discover::resources_impl::{
     VoiceDisclaimerMessage, VoiceGreeting, VoiceSafetyFilters, VoiceStylePrompt,
 };
 use adk_io::{FileSystem, StdFileSystem};
-use adk_types::{RESOURCE_TYPE_REGISTRY, ResourceTypeDescriptor};
+use adk_types::{ORDERED_TYPE_NAMES, RESOURCE_TYPE_REGISTRY, ResourceTypeDescriptor};
 use indexmap::{IndexMap, IndexSet};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -98,12 +98,12 @@ pub const DISCOVER_DISPATCH: &[(&str, DiscoverFn)] = &[
 ];
 
 pub fn resource_type_metadata() -> &'static [ResourceTypeDescriptor] {
-    RESOURCE_TYPE_REGISTRY
+    &RESOURCE_TYPE_REGISTRY
 }
 
 /// Ordered Python class names in `RESOURCE_NAME_TO_CLASS` order.
-pub fn ordered_type_names() -> Vec<&'static str> {
-    RESOURCE_TYPE_REGISTRY.iter().map(|d| d.type_name).collect()
+pub fn ordered_type_names() -> &'static [&'static str] {
+    &ORDERED_TYPE_NAMES
 }
 
 /// Python status JSON key (RESOURCE_NAME_TO_CLASS key) -> class name.

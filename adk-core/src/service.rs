@@ -1241,7 +1241,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
 
         for paths_by_type in [&typed_changes.new_resources, &typed_changes.kept_resources] {
             for type_name in discover::ordered_type_names() {
-                let Some(paths) = paths_by_type.get(type_name) else {
+                let Some(paths) = paths_by_type.get(*type_name) else {
                     continue;
                 };
                 for logical_path in paths {
