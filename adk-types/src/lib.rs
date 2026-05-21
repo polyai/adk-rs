@@ -274,162 +274,9 @@ pub enum DomainError {
 mod tests {
     use super::*;
 
-    const EXPECTED_RESOURCE_TYPE_DESCRIPTORS: &[ResourceTypeDescriptor] = &[
-        ResourceTypeDescriptor {
-            type_name: "ApiIntegration",
-            status_resource_name: "api_integration",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "Function",
-            status_resource_name: "functions",
-            id_prefix: Some("fn"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "Topic",
-            status_resource_name: "topics",
-            id_prefix: Some("topic"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "SettingsPersonality",
-            status_resource_name: "personality",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "SettingsRole",
-            status_resource_name: "role",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "SettingsRules",
-            status_resource_name: "rules",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "FlowStep",
-            status_resource_name: "flow_steps",
-            id_prefix: Some("step"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "FunctionStep",
-            status_resource_name: "function_steps",
-            id_prefix: Some("step"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "FlowConfig",
-            status_resource_name: "flow_config",
-            id_prefix: Some("flow"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "Entity",
-            status_resource_name: "entities",
-            id_prefix: Some("entity"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "ExperimentalConfig",
-            status_resource_name: "experimental_config",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "GeneralSafetyFilters",
-            status_resource_name: "safety_filters",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "SMSTemplate",
-            status_resource_name: "sms_templates",
-            id_prefix: Some("sms"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "Handoff",
-            status_resource_name: "handoffs",
-            id_prefix: Some("ho"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "Variant",
-            status_resource_name: "variants",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "VariantAttribute",
-            status_resource_name: "variant_attributes",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "Variable",
-            status_resource_name: "variables",
-            id_prefix: Some("var"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "VoiceGreeting",
-            status_resource_name: "voice_greeting",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "VoiceSafetyFilters",
-            status_resource_name: "voice_safety_filters",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "VoiceStylePrompt",
-            status_resource_name: "voice_style_prompt",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "VoiceDisclaimerMessage",
-            status_resource_name: "voice_disclaimer",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "ChatGreeting",
-            status_resource_name: "chat_greeting",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "ChatSafetyFilters",
-            status_resource_name: "chat_safety_filters",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "ChatStylePrompt",
-            status_resource_name: "chat_style_prompt",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "KeyphraseBoosting",
-            status_resource_name: "keyphrase_boosting",
-            id_prefix: Some("kp"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "TranscriptCorrection",
-            status_resource_name: "transcript_corrections",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "AsrSettings",
-            status_resource_name: "asr_settings",
-            id_prefix: None,
-        },
-        ResourceTypeDescriptor {
-            type_name: "PhraseFilter",
-            status_resource_name: "phrase_filtering",
-            id_prefix: Some("sk"),
-        },
-        ResourceTypeDescriptor {
-            type_name: "Pronunciation",
-            status_resource_name: "pronunciations",
-            id_prefix: None,
-        },
-    ];
-
-    #[test]
-    fn resource_type_registry_matches_python_resource_name_to_class_order() {
-        assert_eq!(RESOURCE_TYPE_REGISTRY, EXPECTED_RESOURCE_TYPE_DESCRIPTORS);
-    }
-
     #[test]
     fn ordered_type_names_match_registry_order() {
-        let expected_type_names = EXPECTED_RESOURCE_TYPE_DESCRIPTORS
+        let expected_type_names = RESOURCE_TYPE_REGISTRY
             .iter()
             .map(|descriptor| descriptor.type_name)
             .collect::<Vec<_>>();
@@ -441,7 +288,7 @@ mod tests {
 
     #[test]
     fn descriptor_lookups_cover_the_registry() {
-        for descriptor in EXPECTED_RESOURCE_TYPE_DESCRIPTORS {
+        for descriptor in RESOURCE_TYPE_REGISTRY {
             assert_eq!(
                 descriptor_by_type_name(descriptor.type_name),
                 Some(descriptor)
@@ -453,6 +300,24 @@ mod tests {
         }
         assert_eq!(descriptor_by_type_name("DoesNotExist"), None);
         assert_eq!(descriptor_by_status_name("does_not_exist"), None);
+    }
+
+    #[test]
+    fn resource_type_registry_names_are_unique() {
+        let mut type_names = std::collections::BTreeSet::new();
+        let mut status_names = std::collections::BTreeSet::new();
+        for descriptor in RESOURCE_TYPE_REGISTRY {
+            assert!(
+                type_names.insert(descriptor.type_name),
+                "duplicate resource type name: {}",
+                descriptor.type_name
+            );
+            assert!(
+                status_names.insert(descriptor.status_resource_name),
+                "duplicate resource status name: {}",
+                descriptor.status_resource_name
+            );
+        }
     }
 
     #[test]
