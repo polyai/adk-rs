@@ -19,52 +19,129 @@ pub(crate) trait DiscoverResources {
     fn discover_resources(base_path: &Path) -> Vec<String>;
 }
 
+pub struct DiscoverDispatchEntry {
+    pub type_name: &'static str,
+    pub discover: fn(&Path) -> Vec<String>,
+}
+
 /// Maps each resource type to its discovery function.
-pub const DISCOVER_DISPATCH: &[(&str, fn(&Path) -> Vec<String>)] = &[
-    (
-        "ApiIntegration",
-        ApiIntegration::discover_resources as fn(&Path) -> Vec<String>,
-    ),
-    ("Function", Function::discover_resources),
-    ("Topic", Topic::discover_resources),
-    (
-        "SettingsPersonality",
-        SettingsPersonality::discover_resources,
-    ),
-    ("SettingsRole", SettingsRole::discover_resources),
-    ("SettingsRules", SettingsRules::discover_resources),
-    ("FlowStep", FlowStep::discover_resources),
-    ("FunctionStep", FunctionStep::discover_resources),
-    ("FlowConfig", FlowConfig::discover_resources),
-    ("Entity", Entity::discover_resources),
-    ("ExperimentalConfig", ExperimentalConfig::discover_resources),
-    (
-        "GeneralSafetyFilters",
-        GeneralSafetyFilters::discover_resources,
-    ),
-    ("SMSTemplate", SMSTemplate::discover_resources),
-    ("Handoff", Handoff::discover_resources),
-    ("Variant", Variant::discover_resources),
-    ("VariantAttribute", VariantAttribute::discover_resources),
-    ("Variable", Variable::discover_resources),
-    ("VoiceGreeting", VoiceGreeting::discover_resources),
-    ("VoiceSafetyFilters", VoiceSafetyFilters::discover_resources),
-    ("VoiceStylePrompt", VoiceStylePrompt::discover_resources),
-    (
-        "VoiceDisclaimerMessage",
-        VoiceDisclaimerMessage::discover_resources,
-    ),
-    ("ChatGreeting", ChatGreeting::discover_resources),
-    ("ChatSafetyFilters", ChatSafetyFilters::discover_resources),
-    ("ChatStylePrompt", ChatStylePrompt::discover_resources),
-    ("KeyphraseBoosting", KeyphraseBoosting::discover_resources),
-    (
-        "TranscriptCorrection",
-        TranscriptCorrection::discover_resources,
-    ),
-    ("AsrSettings", AsrSettings::discover_resources),
-    ("PhraseFilter", PhraseFilter::discover_resources),
-    ("Pronunciation", Pronunciation::discover_resources),
+pub const DISCOVER_DISPATCH: &[DiscoverDispatchEntry] = &[
+    DiscoverDispatchEntry {
+        type_name: "ApiIntegration",
+        discover: ApiIntegration::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "Function",
+        discover: Function::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "Topic",
+        discover: Topic::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "SettingsPersonality",
+        discover: SettingsPersonality::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "SettingsRole",
+        discover: SettingsRole::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "SettingsRules",
+        discover: SettingsRules::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "FlowStep",
+        discover: FlowStep::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "FunctionStep",
+        discover: FunctionStep::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "FlowConfig",
+        discover: FlowConfig::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "Entity",
+        discover: Entity::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "ExperimentalConfig",
+        discover: ExperimentalConfig::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "GeneralSafetyFilters",
+        discover: GeneralSafetyFilters::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "SMSTemplate",
+        discover: SMSTemplate::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "Handoff",
+        discover: Handoff::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "Variant",
+        discover: Variant::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "VariantAttribute",
+        discover: VariantAttribute::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "Variable",
+        discover: Variable::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "VoiceGreeting",
+        discover: VoiceGreeting::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "VoiceSafetyFilters",
+        discover: VoiceSafetyFilters::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "VoiceStylePrompt",
+        discover: VoiceStylePrompt::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "VoiceDisclaimerMessage",
+        discover: VoiceDisclaimerMessage::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "ChatGreeting",
+        discover: ChatGreeting::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "ChatSafetyFilters",
+        discover: ChatSafetyFilters::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "ChatStylePrompt",
+        discover: ChatStylePrompt::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "KeyphraseBoosting",
+        discover: KeyphraseBoosting::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "TranscriptCorrection",
+        discover: TranscriptCorrection::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "AsrSettings",
+        discover: AsrSettings::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "PhraseFilter",
+        discover: PhraseFilter::discover_resources,
+    },
+    DiscoverDispatchEntry {
+        type_name: "Pronunciation",
+        discover: Pronunciation::discover_resources,
+    },
 ];
 
 /// Same iteration order as `RESOURCE_NAME_TO_CLASS` in `poly/project.py`.
@@ -74,8 +151,8 @@ pub fn discover_local_resources(root: &Path) -> DiscoveredResourcePaths {
         .unwrap_or_else(|_| root.to_path_buf());
 
     let mut map = IndexMap::new();
-    for &(type_name, discover_fn) in DISCOVER_DISPATCH {
-        map.insert(type_name.to_string(), discover_fn(&root));
+    for entry in DISCOVER_DISPATCH {
+        map.insert(entry.type_name.to_string(), (entry.discover)(&root));
     }
     map
 }

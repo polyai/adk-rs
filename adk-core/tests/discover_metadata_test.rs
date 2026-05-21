@@ -27,7 +27,10 @@ fn ordered_type_names_matches_metadata_order() {
 #[test]
 fn discover_dispatch_matches_registry_order() {
     let registry_names: Vec<&str> = RESOURCE_TYPE_REGISTRY.iter().map(|d| d.type_name).collect();
-    let dispatch_names: Vec<&str> = DISCOVER_DISPATCH.iter().map(|(name, _)| *name).collect();
+    let dispatch_names: Vec<&str> = DISCOVER_DISPATCH
+        .iter()
+        .map(|entry| entry.type_name)
+        .collect();
     assert_eq!(
         dispatch_names, registry_names,
         "DISCOVER_DISPATCH must cover every entry in RESOURCE_TYPE_REGISTRY in registry order"
