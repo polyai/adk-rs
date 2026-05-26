@@ -16,6 +16,9 @@ name = "adk-push-pull"
 version = "0.0.5"
 dependencies = [
  "indexmap",
+ "littrs-ruff-python-ast",
+ "littrs-ruff-python-parser",
+ "littrs-ruff-text-size",
  "poly-adk-protobuf",
  "poly-adk-types",
  "prost-types",

@@ -3,46 +3,48 @@ use adk_protobuf::functions::{
     DelayResponseUpdate, DelayResponsesUpdate, FunctionCreateLatencyControl, FunctionDelayResponse,
     FunctionParameterUpdate, FunctionUpdateLatencyControl,
 };
+use ruff_python_ast::{
+    Arguments, Decorator, Expr, ModModule, Number, Stmt, StmtFunctionDef, UnaryOp,
+};
+use ruff_text_size::{Ranged, TextRange};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 pub(crate) fn annotated_function_parameter_names(
     code: &str,
     function_name: &str,
 ) -> HashSet<String> {
-    let signature = python_signature_for_function(code, function_name);
-    let Some(signature) = signature else {
+    let Some(module) = parse_python_module(code) else {
         return HashSet::new();
     };
-    let Some(open) = signature.find('(') else {
+    let Some(function) = find_function(&module, function_name) else {
         return HashSet::new();
     };
-    let Some(close) = signature[open + 1..].find(')') else {
-        return HashSet::new();
-    };
-    signature[open + 1..open + 1 + close]
-        .split(',')
-        .map(str::trim)
-        .filter_map(|param| {
-            let before_default = param.split('=').next().unwrap_or_default().trim();
-            let (name, _) = before_default.split_once(':')?;
-            let name = name.trim();
-            (!name.is_empty() && !matches!(name, "self" | "conv" | "flow"))
+
+    function
+        .parameters
+        .iter_non_variadic_params()
+        .filter_map(|parameter| {
+            let name = parameter.name().as_str();
+            (parameter.annotation().is_some() && should_materialize_parameter(name))
                 .then(|| name.to_string())
         })
         .collect()
 }
 
 pub(crate) fn python_signature_for_function(code: &str, function_name: &str) -> Option<String> {
-    code.lines().find_map(|line| {
-        let trimmed = line.trim();
-        let signature = trimmed
-            .strip_prefix("def ")
-            .or_else(|| trimmed.strip_prefix("async def "))?;
-        let open = signature.find('(')?;
-        let name = signature[..open].trim();
-        (name == function_name).then(|| signature.to_string())
-    })
+    let module = parse_python_module(code)?;
+    let function = find_function(&module, function_name)?;
+    let name_start = function.name.range.start().to_usize();
+    let header_end = function
+        .body
+        .first()
+        .map(|stmt| stmt.start().to_usize())
+        .unwrap_or_else(|| function.range.end().to_usize());
+    let header = code.get(name_start..header_end)?.trim();
+    let header = header.strip_suffix(':').unwrap_or(header).trim_end();
+    Some(header.to_string())
 }
 
 pub(crate) fn insert_python_function_decorators(
@@ -122,111 +124,22 @@ pub(crate) fn python_string_literal(value: &str) -> String {
 }
 
 pub(crate) fn function_code_from_local_content(content: &str) -> String {
-    let mut out = String::new();
-    let mut skipping_decorator: Option<DecoratorCallScan> = None;
-    for line in content.lines() {
-        let trimmed = line.trim_start();
-        if let Some(mut state) = skipping_decorator.take() {
-            if !state.scan(line.trim()) {
-                skipping_decorator = Some(state);
-            }
-            continue;
-        }
-        if line == "from _gen import *  # <AUTO GENERATED>"
-            || line == "from imports import *  # <AUTO GENERATED>"
-        {
-            continue;
-        }
-        if let Some(rest) = adk_decorator_call_rest(trimmed) {
-            let mut state = DecoratorCallScan::default();
-            if !state.scan(rest) {
-                skipping_decorator = Some(state);
-            }
-            continue;
-        }
-        out.push_str(line);
-        out.push('\n');
+    let mut ranges = generated_import_line_ranges(content);
+    if let Some(module) = parse_python_module(content) {
+        collect_adk_decorator_line_ranges(&module.body, content, &mut ranges);
     }
-    if !content.ends_with('\n') && out.ends_with('\n') {
-        out.pop();
-    }
-    out.trim_start_matches('\n').to_string()
+    remove_source_ranges(content, ranges)
+        .trim_start_matches('\n')
+        .to_string()
 }
 
 pub(crate) fn infer_function_description(code: &str) -> String {
     if let Some(description) = function_description_decorator(code) {
         return description;
     }
-    let mut in_docstring = false;
-    let mut delimiter = "";
-    for raw in code.lines() {
-        let line = raw.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if !in_docstring && (line.starts_with("\"\"\"") || line.starts_with("'''")) {
-            delimiter = if line.starts_with("\"\"\"") {
-                "\"\"\""
-            } else {
-                "'''"
-            };
-            let stripped = line.trim_start_matches(delimiter).trim();
-            if let Some((first, _)) = stripped.split_once(delimiter) {
-                return first.trim().to_string();
-            }
-            if !stripped.is_empty() {
-                return stripped.to_string();
-            }
-            in_docstring = true;
-            continue;
-        }
-        if in_docstring {
-            if line.contains(delimiter) {
-                return line
-                    .split(delimiter)
-                    .next()
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string();
-            }
-            return line.to_string();
-        }
-    }
-    String::new()
-}
-
-fn function_description_decorator(code: &str) -> Option<String> {
-    adk_decorator_args(code, "func_description")
-        .into_iter()
-        .filter_map(|args| parse_python_string_args(&args).into_iter().next())
-        .next()
-}
-
-fn parse_python_string_literal(value: &str) -> String {
-    let mut chars = value.chars();
-    let Some(quote @ ('\'' | '"')) = chars.next() else {
-        return value.to_string();
-    };
-    let mut out = String::new();
-    let mut escaped = false;
-    for ch in chars {
-        if escaped {
-            match ch {
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                other => out.push(other),
-            }
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == quote {
-            break;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
+    parse_python_module(code)
+        .and_then(|module| first_function(&module).and_then(function_docstring))
+        .unwrap_or_default()
 }
 
 pub(crate) fn infer_function_parameters(
@@ -234,31 +147,19 @@ pub(crate) fn infer_function_parameters(
     function_name: &str,
 ) -> Vec<FunctionParameterUpdate> {
     let decorator_descriptions = function_parameter_decorators(code);
-    let signature = python_signature_for_function(code, function_name);
-    let Some(signature) = signature else {
+    let Some(module) = parse_python_module(code) else {
         return vec![];
     };
-    let Some(open) = signature.find('(') else {
+    let Some(function) = find_function(&module, function_name) else {
         return vec![];
     };
-    let Some(close) = signature[open + 1..].find(')') else {
-        return vec![];
-    };
-    let params = &signature[open + 1..open + 1 + close];
-    params
-        .split(',')
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-        .map(|p| p.split('=').next().unwrap_or_default().trim())
-        .filter_map(|p| {
-            let (name, annotation) = p
-                .split_once(':')
-                .map(|(name, annotation)| (name.trim(), Some(annotation.trim())))
-                .unwrap_or((p.trim(), None));
-            (!name.is_empty() && !matches!(name, "self" | "conv" | "flow"))
-                .then_some((name, annotation))
-        })
-        .map(|(name, annotation)| {
+
+    function
+        .parameters
+        .iter_non_variadic_params()
+        .filter(|parameter| should_materialize_parameter(parameter.name().as_str()))
+        .map(|parameter| {
+            let name = parameter.name().as_str();
             let parameter_path = format!("{function_name}.{name}");
             FunctionParameterUpdate {
                 id: stable_resource_id("PARAMETER", name, &parameter_path),
@@ -267,8 +168,11 @@ pub(crate) fn infer_function_parameters(
                     .get(name)
                     .cloned()
                     .unwrap_or_default(),
-                r#type: annotation
-                    .and_then(schema_type_from_python_annotation)
+                r#type: parameter
+                    .annotation()
+                    .and_then(|annotation| {
+                        schema_type_from_python_annotation(expr_source(code, annotation))
+                    })
                     .unwrap_or("string")
                     .to_string(),
             }
@@ -277,136 +181,20 @@ pub(crate) fn infer_function_parameters(
 }
 
 fn function_parameter_decorators(code: &str) -> HashMap<String, String> {
-    adk_decorator_args(code, "func_parameter")
+    let Some(module) = parse_python_module(code) else {
+        return HashMap::new();
+    };
+    let mut calls = Vec::new();
+    collect_decorator_calls(&module.body, "func_parameter", &mut calls);
+    calls
         .into_iter()
         .filter_map(|args| {
-            let args = parse_python_string_args(&args);
-            (args.len() == 2).then(|| (args[0].clone(), args[1].clone()))
+            Some((
+                string_argument(args, "name", 0)?,
+                string_argument(args, "description", 1)?,
+            ))
         })
         .collect()
-}
-
-fn adk_decorator_args(code: &str, decorator_name: &str) -> Vec<String> {
-    let prefix = format!("@{decorator_name}(");
-    let mut calls = Vec::new();
-    let mut active: Option<DecoratorCallScan> = None;
-    for raw in code.lines() {
-        if let Some(mut state) = active.take() {
-            state.args.push('\n');
-            if state.scan(raw.trim()) {
-                calls.push(state.args.trim().trim_end_matches(',').to_string());
-            } else {
-                active = Some(state);
-            }
-            continue;
-        }
-
-        let Some(rest) = raw.trim().strip_prefix(&prefix) else {
-            continue;
-        };
-        let mut state = DecoratorCallScan::default();
-        if state.scan(rest) {
-            calls.push(state.args.trim().trim_end_matches(',').to_string());
-        } else {
-            active = Some(state);
-        }
-    }
-    calls
-}
-
-fn adk_decorator_call_rest(line: &str) -> Option<&str> {
-    [
-        "@func_description(",
-        "@func_parameter(",
-        "@func_latency_control(",
-    ]
-    .iter()
-    .find_map(|prefix| line.strip_prefix(prefix))
-}
-
-#[derive(Default)]
-struct DecoratorCallScan {
-    args: String,
-    quote: Option<char>,
-    escaped: bool,
-    depth: i32,
-}
-
-impl DecoratorCallScan {
-    fn scan(&mut self, fragment: &str) -> bool {
-        for ch in fragment.chars() {
-            if let Some(quote) = self.quote {
-                self.args.push(ch);
-                if self.escaped {
-                    self.escaped = false;
-                } else if ch == '\\' {
-                    self.escaped = true;
-                } else if ch == quote {
-                    self.quote = None;
-                }
-                continue;
-            }
-
-            match ch {
-                '\'' | '"' => {
-                    self.quote = Some(ch);
-                    self.args.push(ch);
-                }
-                '(' | '[' | '{' => {
-                    self.depth += 1;
-                    self.args.push(ch);
-                }
-                ')' => {
-                    if self.depth == 0 {
-                        return true;
-                    }
-                    self.depth -= 1;
-                    self.args.push(ch);
-                }
-                ']' | '}' => {
-                    self.depth -= 1;
-                    self.args.push(ch);
-                }
-                _ => self.args.push(ch),
-            }
-        }
-        false
-    }
-}
-
-fn parse_python_string_args(value: &str) -> Vec<String> {
-    let mut args = Vec::new();
-    let mut current = String::new();
-    let mut quote = None;
-    let mut escaped = false;
-    for ch in value.chars() {
-        if let Some(active_quote) = quote {
-            current.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == active_quote {
-                quote = None;
-            }
-            continue;
-        }
-        match ch {
-            '\'' | '"' => {
-                quote = Some(ch);
-                current.push(ch);
-            }
-            ',' => {
-                args.push(parse_python_string_literal(current.trim()));
-                current.clear();
-            }
-            other => current.push(other),
-        }
-    }
-    if !current.trim().is_empty() {
-        args.push(parse_python_string_literal(current.trim()));
-    }
-    args
 }
 
 fn schema_type_from_python_annotation(annotation: &str) -> Option<&'static str> {
@@ -424,6 +212,234 @@ fn schema_type_from_python_annotation(annotation: &str) -> Option<&'static str> 
     }
 }
 
+fn function_description_decorator(code: &str) -> Option<String> {
+    let module = parse_python_module(code)?;
+    let mut calls = Vec::new();
+    collect_decorator_calls(&module.body, "func_description", &mut calls);
+    calls
+        .into_iter()
+        .find_map(|args| string_argument(args, "description", 0))
+}
+
+fn parse_python_module(code: &str) -> Option<ModModule> {
+    ruff_python_parser::parse_module(code)
+        .ok()
+        .map(|parsed| parsed.into_syntax())
+}
+
+fn first_function(module: &ModModule) -> Option<&StmtFunctionDef> {
+    first_function_in_statements(&module.body)
+}
+
+fn first_function_in_statements(statements: &[Stmt]) -> Option<&StmtFunctionDef> {
+    for statement in statements {
+        match statement {
+            Stmt::FunctionDef(function) => return Some(function),
+            Stmt::ClassDef(class_def) => {
+                if let Some(function) = first_function_in_statements(&class_def.body) {
+                    return Some(function);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn find_function<'a>(module: &'a ModModule, function_name: &str) -> Option<&'a StmtFunctionDef> {
+    find_function_in_statements(&module.body, function_name)
+}
+
+fn find_function_in_statements<'a>(
+    statements: &'a [Stmt],
+    function_name: &str,
+) -> Option<&'a StmtFunctionDef> {
+    for statement in statements {
+        match statement {
+            Stmt::FunctionDef(function) => {
+                if function.name.as_str() == function_name {
+                    return Some(function);
+                }
+                if let Some(function) = find_function_in_statements(&function.body, function_name) {
+                    return Some(function);
+                }
+            }
+            Stmt::ClassDef(class_def) => {
+                if let Some(function) = find_function_in_statements(&class_def.body, function_name)
+                {
+                    return Some(function);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn function_docstring(function: &StmtFunctionDef) -> Option<String> {
+    let Stmt::Expr(statement) = function.body.first()? else {
+        return None;
+    };
+    let Expr::StringLiteral(docstring) = statement.value.as_ref() else {
+        return None;
+    };
+    docstring
+        .value
+        .to_str()
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(ToString::to_string)
+}
+
+fn should_materialize_parameter(name: &str) -> bool {
+    !name.is_empty() && !matches!(name, "self" | "conv" | "flow")
+}
+
+fn collect_decorator_calls<'a>(
+    statements: &'a [Stmt],
+    decorator_name: &str,
+    calls: &mut Vec<&'a Arguments>,
+) {
+    for statement in statements {
+        match statement {
+            Stmt::FunctionDef(function) => {
+                calls.extend(
+                    function.decorator_list.iter().filter_map(|decorator| {
+                        decorator_call_arguments(decorator, decorator_name)
+                    }),
+                );
+                collect_decorator_calls(&function.body, decorator_name, calls);
+            }
+            Stmt::ClassDef(class_def) => {
+                collect_decorator_calls(&class_def.body, decorator_name, calls);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn decorator_call_arguments<'a>(
+    decorator: &'a Decorator,
+    decorator_name: &str,
+) -> Option<&'a Arguments> {
+    let Expr::Call(call) = &decorator.expression else {
+        return None;
+    };
+    expr_name_matches(&call.func, decorator_name).then_some(&call.arguments)
+}
+
+fn expr_name_matches(expr: &Expr, name: &str) -> bool {
+    match expr {
+        Expr::Name(expr) => expr.id.as_str() == name,
+        Expr::Attribute(expr) => expr.attr.as_str() == name,
+        _ => false,
+    }
+}
+
+fn string_argument(args: &Arguments, name: &str, position: usize) -> Option<String> {
+    args.find_argument_value(name, position)
+        .and_then(string_expr_value)
+}
+
+fn string_expr_value(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::StringLiteral(value) => Some(value.value.to_str().to_string()),
+        _ => None,
+    }
+}
+
+fn expr_source<'a>(code: &'a str, expr: &Expr) -> &'a str {
+    source_for_range(code, expr.range()).unwrap_or_default()
+}
+
+fn source_for_range(code: &str, range: TextRange) -> Option<&str> {
+    code.get(range.start().to_usize()..range.end().to_usize())
+}
+
+fn generated_import_line_ranges(content: &str) -> Vec<Range<usize>> {
+    let mut offset = 0;
+    let mut ranges = Vec::new();
+    for line in content.split_inclusive('\n') {
+        let line_text = line.trim_end_matches('\n').trim_end_matches('\r');
+        if line_text == "from _gen import *  # <AUTO GENERATED>"
+            || line_text == "from imports import *  # <AUTO GENERATED>"
+        {
+            ranges.push(offset..offset + line.len());
+        }
+        offset += line.len();
+    }
+    ranges
+}
+
+fn collect_adk_decorator_line_ranges(
+    statements: &[Stmt],
+    content: &str,
+    ranges: &mut Vec<Range<usize>>,
+) {
+    for statement in statements {
+        match statement {
+            Stmt::FunctionDef(function) => {
+                ranges.extend(
+                    function
+                        .decorator_list
+                        .iter()
+                        .filter(|decorator| is_adk_decorator(decorator))
+                        .map(|decorator| line_range_for_text_range(content, decorator.range())),
+                );
+                collect_adk_decorator_line_ranges(&function.body, content, ranges);
+            }
+            Stmt::ClassDef(class_def) => {
+                collect_adk_decorator_line_ranges(&class_def.body, content, ranges);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn is_adk_decorator(decorator: &Decorator) -> bool {
+    ["func_description", "func_parameter", "func_latency_control"]
+        .iter()
+        .any(|name| decorator_call_arguments(decorator, name).is_some())
+}
+
+fn line_range_for_text_range(content: &str, range: TextRange) -> Range<usize> {
+    let start = range.start().to_usize();
+    let end = range.end().to_usize();
+    let line_start = content[..start].rfind('\n').map_or(0, |index| index + 1);
+    let line_end = content[end..]
+        .find('\n')
+        .map_or(content.len(), |index| end + index + 1);
+    line_start..line_end
+}
+
+fn remove_source_ranges(content: &str, mut ranges: Vec<Range<usize>>) -> String {
+    ranges.sort_by_key(|range| range.start);
+    let mut merged: Vec<Range<usize>> = Vec::new();
+    for range in ranges {
+        if let Some(last) = merged.last_mut()
+            && range.start <= last.end
+        {
+            last.end = last.end.max(range.end);
+            continue;
+        }
+        merged.push(range);
+    }
+
+    let mut out = String::new();
+    let mut cursor = 0;
+    for range in merged {
+        if range.start > cursor {
+            out.push_str(&content[cursor..range.start]);
+        }
+        cursor = cursor.max(range.end);
+    }
+    if cursor < content.len() {
+        out.push_str(&content[cursor..]);
+    }
+    out
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ParsedLatencyControl {
     pub(crate) enabled: bool,
@@ -439,18 +455,26 @@ pub(crate) struct ParsedDelayResponse {
     pub(crate) duration: i32,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct ParsedLatencyDecorator {
+    initial_delay: Option<i32>,
+    interval: Option<i32>,
+    delay_responses: Vec<(String, i32)>,
+}
+
 pub(crate) fn local_latency_control_from_code(
     code: &str,
     known_function: Option<&Value>,
 ) -> ParsedLatencyControl {
-    let Some(args) = latency_control_decorator_args(code) else {
+    let Some(args) = latency_control_decorator_from_code(code) else {
         return ParsedLatencyControl::default();
     };
     let known = known_function
         .map(latency_control_from_projection)
         .unwrap_or_default();
     let mut used_ids = HashSet::new();
-    let delay_responses = latency_delay_response_args(&args)
+    let delay_responses = args
+        .delay_responses
         .into_iter()
         .map(|(message, duration)| {
             let id = known
@@ -480,8 +504,8 @@ pub(crate) fn local_latency_control_from_code(
         .collect();
     ParsedLatencyControl {
         enabled: true,
-        initial_delay: latency_i32_arg(&args, "delay_before_responses_start").unwrap_or(0),
-        interval: latency_i32_arg(&args, "silence_after_each_response").unwrap_or(0),
+        initial_delay: args.initial_delay.unwrap_or(0),
+        interval: args.interval.unwrap_or(0),
         delay_responses,
     }
 }
@@ -578,74 +602,68 @@ fn function_delay_response(response: &ParsedDelayResponse) -> FunctionDelayRespo
     }
 }
 
-fn latency_control_decorator_args(code: &str) -> Option<String> {
-    adk_decorator_args(code, "func_latency_control")
-        .into_iter()
-        .next()
+fn latency_control_decorator_from_code(code: &str) -> Option<ParsedLatencyDecorator> {
+    let module = parse_python_module(code)?;
+    let mut calls = Vec::new();
+    collect_decorator_calls(&module.body, "func_latency_control", &mut calls);
+    calls.into_iter().next().map(latency_decorator_from_args)
 }
 
-fn latency_i32_arg(args: &str, name: &str) -> Option<i32> {
-    let start = args.find(&format!("{name}="))? + name.len() + 1;
-    let rest = &args[start..];
-    let digits = rest
-        .chars()
-        .skip_while(|ch| ch.is_whitespace())
-        .take_while(|ch| ch.is_ascii_digit() || *ch == '-')
-        .collect::<String>();
-    digits.parse().ok()
-}
-
-fn latency_delay_response_args(args: &str) -> Vec<(String, i32)> {
-    let Some(start) = args.find("delay_responses=") else {
-        return vec![];
-    };
-    let mut out = Vec::new();
-    let mut chars = args[start..].chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '(' {
-            continue;
-        }
-        while matches!(chars.peek(), Some(ch) if ch.is_whitespace()) {
-            chars.next();
-        }
-        let Some(quote @ ('\'' | '"')) = chars.next() else {
-            continue;
-        };
-        let mut message = String::new();
-        let mut escaped = false;
-        for ch in chars.by_ref() {
-            if escaped {
-                message.push(ch);
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == quote {
-                break;
-            } else {
-                message.push(ch);
-            }
-        }
-        for ch in chars.by_ref() {
-            if ch == ',' {
-                break;
-            }
-        }
-        let mut duration = String::new();
-        while let Some(ch) = chars.peek() {
-            if ch.is_ascii_digit() || *ch == '-' {
-                duration.push(*ch);
-                chars.next();
-            } else if ch.is_whitespace() {
-                chars.next();
-            } else {
-                break;
-            }
-        }
-        if let Ok(duration) = duration.parse() {
-            out.push((message, duration));
-        }
+fn latency_decorator_from_args(args: &Arguments) -> ParsedLatencyDecorator {
+    ParsedLatencyDecorator {
+        initial_delay: args
+            .find_argument_value("delay_before_responses_start", 0)
+            .and_then(int_expr_value),
+        interval: args
+            .find_argument_value("silence_after_each_response", 1)
+            .and_then(int_expr_value),
+        delay_responses: args
+            .find_argument_value("delay_responses", 2)
+            .map(delay_response_args_from_expr)
+            .unwrap_or_default(),
     }
-    out
+}
+
+fn int_expr_value(expr: &Expr) -> Option<i32> {
+    match expr {
+        Expr::NumberLiteral(number) => match &number.value {
+            Number::Int(value) => value.as_i32(),
+            _ => None,
+        },
+        Expr::UnaryOp(unary) => match unary.op {
+            UnaryOp::UAdd => int_expr_value(&unary.operand),
+            UnaryOp::USub => int_expr_value(&unary.operand).and_then(i32::checked_neg),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn delay_response_args_from_expr(expr: &Expr) -> Vec<(String, i32)> {
+    expr_sequence_items(expr)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(delay_response_arg_from_expr)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn delay_response_arg_from_expr(expr: &Expr) -> Option<(String, i32)> {
+    let items = expr_sequence_items(expr)?;
+    let [message, duration] = items else {
+        return None;
+    };
+    Some((string_expr_value(message)?, int_expr_value(duration)?))
+}
+
+fn expr_sequence_items(expr: &Expr) -> Option<&[Expr]> {
+    match expr {
+        Expr::List(list) => Some(&list.elts),
+        Expr::Tuple(tuple) => Some(&tuple.elts),
+        _ => None,
+    }
 }
 
 fn delay_responses_from_projection(value: &Value) -> Vec<ParsedDelayResponse> {
