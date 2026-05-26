@@ -1,15 +1,13 @@
-use crate::status_snapshot::{
-    FileStructureEntry, StatusResourcePayload, StatusSnapshot, flow_folder_name,
-    python_json_dumps_pretty_sorted, python_json_dumps_sorted, snake_case_json_keys,
-    status_flow_config_payload, status_flow_step_payload, status_function_payload,
-    status_function_step_payload, status_pronunciation_hash_payload, status_pronunciation_payload,
-    status_safety_filters_payload, status_variant_attribute_hash_payload,
-    status_variant_attribute_payload, status_yaml_payload,
-};
 use crate::*;
 use adk_api_client::PlatformClient;
-use adk_io::{FileSystem, StdFileSystem, compute_hash, diff_resources, parse_multi_resource_path};
-use adk_resources::{clean_name, extract_variable_names_from_code};
+use adk_io::{FileSystem, StdFileSystem, diff_resources, parse_multi_resource_path};
+use adk_resources::{
+    FileStructureEntry, ResourceStatusPayloadInput, StatusResourcePayload, StatusSnapshot,
+    clean_name, current_status_hash_for_expected, extract_variable_names_from_code,
+    flow_folder_name, legacy_python_snapshot_hashes, local_resource_content,
+    normalize_legacy_python_status_function_resources, resource_file_content,
+    resource_status_file_hash, resource_status_payload,
+};
 use adk_types::{
     BranchDescriptor, BranchMergeResult, DeploymentList, DiffMap, DomainError, ProjectConfig,
     PushResult, Resource, ResourceMap, StatusSummary,
@@ -28,20 +26,6 @@ pub struct PullOutcome {
     pub files_with_conflicts: Vec<String>,
     pub new_branch_name: Option<String>,
     pub new_branch_id: Option<String>,
-}
-
-struct StatusSnapshotPayloadContext<'a> {
-    root: &'a Path,
-    variant_name_to_id: &'a BTreeMap<String, String>,
-    flow_step_name_to_id: &'a BTreeMap<(String, String), String>,
-}
-
-struct StatusSnapshotResource<'a> {
-    type_name: &'a str,
-    logical_path: &'a str,
-    file_path: &'a str,
-    resource_id: &'a str,
-    fallback_name: &'a str,
 }
 
 impl<C: PlatformClient> AdkService<C, StdFileSystem> {
@@ -1380,11 +1364,6 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             self.status_variant_name_to_id(&project_root, &existing_resource_ids)?;
         let flow_step_name_to_id =
             self.status_flow_step_name_to_id(&project_root, &existing_resource_ids)?;
-        let payload_context = StatusSnapshotPayloadContext {
-            root: &project_root,
-            variant_name_to_id: &variant_name_to_id,
-            flow_step_name_to_id: &flow_step_name_to_id,
-        };
         let discovered = self.discover_local_resources(&project_root);
         let mut resources = indexmap::IndexMap::new();
         let mut file_structure_metadata = BTreeMap::new();
@@ -1423,29 +1402,35 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                             .map(|resource| resource.resource_id.clone())
                     })
                     .unwrap_or_else(|| logical_path.clone());
-                let payload = self.status_snapshot_resource_payload(
-                    &payload_context,
-                    StatusSnapshotResource {
-                        type_name: &type_name,
-                        logical_path: &logical_path,
-                        file_path: &file_path,
-                        resource_id: &resource_id,
-                        fallback_name: &fallback_resource_name,
-                    },
-                )?;
+                let content = if type_name == "Variable" {
+                    String::new()
+                } else {
+                    self.workspace
+                        .fs
+                        .read_to_string(&project_root.join(&file_path))
+                        .unwrap_or_default()
+                };
+                let payload = resource_status_payload(ResourceStatusPayloadInput {
+                    type_name: &type_name,
+                    logical_path: &logical_path,
+                    content: &content,
+                    resource_id: &resource_id,
+                    fallback_name: &fallback_resource_name,
+                    variant_name_to_id: &variant_name_to_id,
+                    flow_step_name_to_id: &flow_step_name_to_id,
+                });
                 let status_resource_name = payload
                     .get("name")
                     .and_then(Value::as_str)
                     .unwrap_or(&fallback_resource_name)
                     .to_string();
-                let status_hash = self.status_snapshot_file_hash(
-                    &project_root,
+                let status_hash = resource_status_file_hash(
                     &type_name,
                     &logical_path,
-                    &file_path,
+                    &content,
                     &payload,
                     &variant_name_to_id,
-                )?;
+                );
                 let file_structure_path = if type_name == "Variable" || resource_suffix.is_some() {
                     logical_path.clone()
                 } else {
@@ -1517,159 +1502,6 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         self.workspace
             .write_status_snapshot(&project_root, &status)?;
         Ok(())
-    }
-
-    fn status_snapshot_resource_payload(
-        &self,
-        context: &StatusSnapshotPayloadContext<'_>,
-        resource: StatusSnapshotResource<'_>,
-    ) -> Result<Value, CoreError> {
-        let content = if resource.type_name == "Variable" {
-            String::new()
-        } else {
-            self.workspace
-                .fs
-                .read_to_string(&context.root.join(resource.file_path))
-                .unwrap_or_default()
-        };
-        let mut payload = match resource.type_name {
-            "Function" => {
-                status_function_payload(resource.logical_path, &content, resource.fallback_name)
-            }
-            "FunctionStep" => status_function_step_payload(
-                resource.logical_path,
-                &content,
-                resource.fallback_name,
-            ),
-            "FlowConfig" => status_flow_config_payload(
-                resource.logical_path,
-                &content,
-                context.flow_step_name_to_id,
-            ),
-            "FlowStep" => {
-                status_flow_step_payload(resource.logical_path, &content, resource.fallback_name)
-            }
-            "SettingsRules" => serde_json::json!({
-                "name": "rules",
-                "behaviour": content,
-            }),
-            "ExperimentalConfig" => serde_json::json!({
-                "name": "experimental_config",
-                "config": serde_json::from_str::<Value>(&content).unwrap_or_else(|_| serde_json::json!({})),
-            }),
-            "GeneralSafetyFilters" => {
-                status_safety_filters_payload(resource.logical_path, &content, false)
-            }
-            "VoiceSafetyFilters" | "ChatSafetyFilters" => {
-                status_safety_filters_payload(resource.logical_path, &content, true)
-            }
-            "Pronunciation" => status_pronunciation_payload(
-                resource.logical_path,
-                &content,
-                resource.fallback_name,
-            ),
-            "VariantAttribute" => status_variant_attribute_payload(
-                resource.logical_path,
-                &content,
-                resource.fallback_name,
-                context.variant_name_to_id,
-            ),
-            "Variable" => serde_json::json!({
-                "name": resource
-                    .logical_path
-                    .strip_prefix("variables/")
-                    .unwrap_or(resource.fallback_name),
-                "references": {},
-            }),
-            _ => status_yaml_payload(resource.logical_path, &content)
-                .unwrap_or_else(|| serde_json::json!({ "name": resource.fallback_name })),
-        };
-        snake_case_json_keys(&mut payload);
-        let Some(object) = payload.as_object_mut() else {
-            payload = serde_json::json!({ "name": resource.fallback_name });
-            let object = payload.as_object_mut().expect("payload object");
-            object.insert(
-                "resource_id".to_string(),
-                Value::String(resource.resource_id.to_string()),
-            );
-            object.insert(
-                "file_path".to_string(),
-                Value::String(resource.logical_path.to_string()),
-            );
-            return Ok(payload);
-        };
-        object
-            .entry("name".to_string())
-            .or_insert_with(|| Value::String(resource.fallback_name.to_string()));
-        object.insert(
-            "resource_id".to_string(),
-            Value::String(resource.resource_id.to_string()),
-        );
-        object.insert(
-            "file_path".to_string(),
-            Value::String(resource.logical_path.to_string()),
-        );
-        Ok(payload)
-    }
-
-    fn status_snapshot_file_hash(
-        &self,
-        root: &Path,
-        type_name: &str,
-        logical_path: &str,
-        file_path: &str,
-        payload: &Value,
-        variant_name_to_id: &BTreeMap<String, String>,
-    ) -> Result<String, CoreError> {
-        if let Some(name) = logical_path.strip_prefix("variables/") {
-            return Ok(compute_hash(&format!("vrbl:{name}")));
-        }
-        match type_name {
-            "Function" => {
-                let raw = legacy_python_function_raw(payload, true).unwrap_or_default();
-                Ok(compute_hash(&raw))
-            }
-            "FunctionStep" => {
-                let raw = legacy_python_function_raw(payload, false).unwrap_or_default();
-                Ok(compute_hash(&raw))
-            }
-            "SettingsRules" => Ok(compute_hash(
-                payload
-                    .get("behaviour")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default(),
-            )),
-            "ExperimentalConfig" => {
-                let config = payload.get("config").unwrap_or(&Value::Null);
-                Ok(compute_hash(&python_json_dumps_pretty_sorted(config)))
-            }
-            "Pronunciation" => Ok(compute_hash(&python_json_dumps_sorted(
-                &status_pronunciation_hash_payload(payload),
-            ))),
-            "VariantAttribute" => {
-                let content = self
-                    .workspace
-                    .fs
-                    .read_to_string(&root.join(file_path))
-                    .unwrap_or_default();
-                let value = status_yaml_payload(logical_path, &content).unwrap_or(Value::Null);
-                Ok(compute_hash(&python_json_dumps_sorted(
-                    &status_variant_attribute_hash_payload(&value, variant_name_to_id),
-                )))
-            }
-            _ => {
-                let content = self
-                    .workspace
-                    .fs
-                    .read_to_string(&root.join(file_path))
-                    .unwrap_or_default();
-                if let Some(value) = status_yaml_payload(logical_path, &content) {
-                    Ok(compute_hash(&python_json_dumps_sorted(&value)))
-                } else {
-                    Ok(compute_hash(&content))
-                }
-            }
-        }
     }
 
     fn status_variant_name_to_id(

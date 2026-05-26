@@ -1,19 +1,19 @@
-use crate::python_functions::local_resource_content;
-use crate::status_snapshot::StatusSnapshot;
 use crate::{
     CoreError, DiscoveredResourceChanges, DiscoveredResourcePaths, MIGRATED_LEGACY_TOPIC_FILES,
-    PROJECT_CONFIG_FILE, PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX, PYTHON_VARIANT_STATUS_KEY_PREFIX,
-    ReferenceNameReplacement, STATUS_FILE, TypedResourceLifecycle,
+    PROJECT_CONFIG_FILE, ReferenceNameReplacement, STATUS_FILE, TypedResourceLifecycle,
     apply_reference_name_replacements, compute_modified_files_against_snapshot,
     compute_modified_files_against_snapshot_with_replacements, find_project_root_with_fs,
     flatten_deleted_discovered_paths, flatten_discovered_paths_by_type_order,
-    legacy_python_rules_reference_names, legacy_python_status_resource_content,
-    legacy_python_status_resource_file_hash, legacy_python_status_resource_path,
     migrate_legacy_topic_files, migration_flags_from_status, project_config_contains_branch_id,
     project_config_yaml, recursive_file_paths, reference_name_from_logical_path, stable_dedup,
 };
 use adk_io::{FileSystem, StdFileSystem, parse_multi_resource_path};
-use adk_resources::clean_name;
+use adk_resources::{
+    PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX, PYTHON_VARIANT_STATUS_KEY_PREFIX, StatusSnapshot,
+    clean_name, legacy_python_rules_reference_names, legacy_python_status_resource_content,
+    legacy_python_status_resource_file_hash, legacy_python_status_resource_path,
+    local_resource_content,
+};
 use adk_types::{DomainError, ProjectConfig, Resource, ResourceMap, StatusSummary};
 use base64::Engine;
 use std::collections::BTreeSet;

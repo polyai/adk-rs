@@ -23,8 +23,10 @@ pub mod ids;
 mod local_resources;
 mod materialization;
 pub mod projection;
+pub mod python_functions;
 pub mod resource_utils;
 pub mod specs;
+pub mod status_snapshot;
 mod yaml_resources;
 
 pub use command_gen::{
@@ -36,6 +38,24 @@ pub use local_resources::{
     DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
     build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
     type_name_to_resource_prefix, validate_semantic_resource,
+};
+pub use python_functions::{
+    PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX, PYTHON_FUNCTION_STATUS_HASH_PREFIX,
+    function_parameter_decorator_names, function_signature_parameter_list,
+    function_signature_parameters, is_python_function_resource, legacy_python_function_raw,
+    legacy_python_snapshot_hashes, local_resource_content,
+    normalize_legacy_python_status_function_resources, normalize_python_function_metadata_spacing,
+    resource_file_content,
+};
+pub use status_snapshot::{
+    FileStructureEntry, ResourceStatusPayloadInput, StatusResourcePayload, StatusSnapshot,
+    current_status_hash_for_expected, flow_folder_name, legacy_python_rules_reference_names,
+    legacy_python_status_resource_content, legacy_python_status_resource_file_hash,
+    legacy_python_status_resource_path, python_json_dumps_pretty_sorted, python_json_dumps_sorted,
+    resource_status_file_hash, resource_status_payload, status_flow_config_payload,
+    status_flow_step_payload, status_function_payload, status_function_step_payload,
+    status_pronunciation_hash_payload, status_pronunciation_payload, status_safety_filters_payload,
+    status_variant_attribute_hash_payload, status_variant_attribute_payload, status_yaml_payload,
 };
 
 pub(crate) use command_gen::{default_metadata_created_by, push_command};
@@ -51,6 +71,8 @@ pub(crate) use materialization::{
     prompt_reference_maps_from_projection, replace_flow_import_names_with_ids,
     replace_resource_names_with_ids,
 };
+
+pub const PYTHON_VARIANT_STATUS_KEY_PREFIX: &str = "__python_variant__/";
 
 pub(crate) fn entity_entries(projection: &Value) -> HashMap<String, Value> {
     extract_entities_map(projection, &["entities", "entities", "entities"])
