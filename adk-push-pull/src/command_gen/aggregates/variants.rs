@@ -1,4 +1,4 @@
-use super::common::{
+use super::super::local_file_helpers::{
     json_bool, json_str, resource_yaml, yaml_bool, yaml_sequence, yaml_string_map,
 };
 use crate::resource_specs::{VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS};

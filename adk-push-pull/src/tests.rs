@@ -1,5 +1,5 @@
 use super::*;
-use crate::command_gen::functions;
+use crate::command_gen::per_resource_files::functions;
 use adk_protobuf::channels::ChannelType;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::{Resource, ResourceMap};
@@ -1782,7 +1782,7 @@ fn queue_prioritizes_variable_commands_across_all_phases() {
 }
 
 #[test]
-fn projection_to_resource_map_includes_single_file_resource_files() {
+fn projection_to_resource_map_includes_singleton_and_aggregate_files() {
     let projection = serde_json::json!({
         "variables": {"variables": {"entities": {"vrbl-1": {"name": "MyVar"}}}},
         "entities": {"entities": {"entities": {"ent-1": {"name": "Age", "description": "age", "type": "numeric", "numberConfig": {"min": 1, "max": 120}}}}},
@@ -2187,7 +2187,7 @@ fn projection_to_resource_map_includes_flow_transition_function_decorators() {
 }
 
 #[test]
-fn single_file_resource_files_emit_real_create_commands() {
+fn aggregate_files_emit_real_create_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "config/variant_attributes.yaml".to_string(),
@@ -2287,7 +2287,7 @@ pronunciations:
     ] {
         assert!(
             types.contains(&expected),
-            "missing single-file create command: {expected}"
+            "missing aggregate-file create command: {expected}"
         );
     }
 
@@ -2345,7 +2345,7 @@ pronunciations:
 }
 
 #[test]
-fn single_file_settings_files_emit_real_update_commands() {
+fn singleton_files_emit_real_update_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "agent_settings/personality.yaml".to_string(),
@@ -2445,7 +2445,7 @@ style_prompt:
     ] {
         assert!(
             types.contains(&expected),
-            "missing single-file update command: {expected}"
+            "missing singleton update command: {expected}"
         );
     }
 

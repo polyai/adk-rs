@@ -1,4 +1,6 @@
-use super::common::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
+use super::super::local_file_helpers::{
+    SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence,
+};
 use crate::resource_specs::TRANSCRIPT_CORRECTIONS;
 use crate::{push_command, stable_resource_id, yaml_str};
 use adk_protobuf::Metadata;

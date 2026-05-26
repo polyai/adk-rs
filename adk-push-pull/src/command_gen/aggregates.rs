@@ -1,73 +1,86 @@
-//! Push commands for resources whose local source of truth is one fixed file.
+//! Push commands for aggregate files.
 //!
-//! This module owns both literal single-resource files (for example
-//! `agent_settings/role.yaml`) and multi-entry files (for example
-//! `config/api_integrations.yaml`). Directory and derived resources live in
-//! `topics`, `functions`, `flows`, and `variables`.
-//!
-//! The private submodules below are just readability chunks within this resource
-//! family; the top-level push ownership remains the five resource-family files.
+//! Aggregate files contain a list or map of peer backend resources in one local
+//! file. Examples include entities, variants, API integrations, handoffs, SMS
+//! templates, stop-keyword phrase filters, pronunciations, keyphrase boosting,
+//! and transcript corrections.
 
-#[path = "single_file_resources/interaction_files.rs"]
-mod interaction_files;
-#[path = "single_file_resources/structured.rs"]
-mod structured;
+mod api_integrations;
+mod interactions;
+mod keyphrases;
+mod pronunciations;
+mod summaries;
+mod transcript_corrections;
+mod variants;
 
-use adk_protobuf::agent::RulesUpdateRules;
+use super::CommandGroups;
+use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityUpdate};
-use adk_protobuf::{Command, Metadata};
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
     build_entity_create_config, build_entity_update_config, entity_entries,
-    is_synthetic_local_resource_id, prompt_reference_maps_from_projection, push_command,
-    replace_resource_names_with_ids,
-    resource_specs::{AGENT_RULES_FILE, ENTITIES_FILE, ENTITY_ID_PREFIX},
-    rules_references_from_behaviour, rules_references_from_projection, stable_resource_id,
-    to_camel_case,
+    is_synthetic_local_resource_id, push_command,
+    resource_specs::{ENTITIES_FILE, ENTITY_ID_PREFIX},
+    stable_resource_id, to_camel_case,
 };
 
-#[derive(Debug, Default)]
-pub(crate) struct CommandGroups {
-    pub deletes: Vec<Command>,
-    pub creates: Vec<Command>,
-    pub updates: Vec<Command>,
-    pub post_updates: Vec<Command>,
-}
-
-impl CommandGroups {
-    pub(crate) fn append(&mut self, other: CommandGroups) {
-        self.deletes.extend(other.deletes);
-        self.creates.extend(other.creates);
-        self.updates.extend(other.updates);
-        self.post_updates.extend(other.post_updates);
-    }
-}
-
-pub(crate) fn single_file_resource_command_groups(
+pub(crate) fn aggregate_command_groups(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> CommandGroups {
-    let mut groups = fixed_single_file_resource_command_groups(resources, projection, metadata);
-    groups.append(interaction_files::interaction_file_resource_command_groups(
+    let mut groups = entity_aggregate_command_groups(resources, projection, metadata);
+    groups.append(interactions::interaction_aggregate_command_groups(
         resources, projection, metadata,
     ));
-    groups.append(structured::structured_file_resource_command_groups(
-        resources, projection, metadata,
-    ));
+
+    let variant_lifecycle = variants::variant_lifecycle_commands(resources, projection, metadata);
+    let api_lifecycle =
+        api_integrations::api_integration_lifecycle_commands(resources, projection, metadata);
+    let keyphrase_lifecycle =
+        keyphrases::keyphrase_lifecycle_commands(resources, projection, metadata);
+    let transcript_lifecycle =
+        transcript_corrections::transcript_lifecycle_commands(resources, projection, metadata);
+    let pronunciation_lifecycle =
+        pronunciations::pronunciation_lifecycle_commands(resources, projection, metadata);
+
+    groups.deletes.extend(variant_lifecycle.variant_deletes);
+    groups.deletes.extend(api_lifecycle.integration_deletes);
+    groups.deletes.extend(keyphrase_lifecycle.deletes);
+    groups.deletes.extend(variant_lifecycle.attribute_deletes);
+    groups.deletes.extend(transcript_lifecycle.deletes);
+    groups.deletes.extend(pronunciation_lifecycle.deletes);
+    groups.deletes.extend(api_lifecycle.operation_deletes);
+
+    groups.creates.extend(variant_lifecycle.variant_creates);
+    groups.creates.extend(variant_lifecycle.attribute_creates);
+    groups.creates.extend(api_lifecycle.integration_creates);
+    groups.creates.extend(keyphrase_lifecycle.creates);
+    groups.creates.extend(transcript_lifecycle.creates);
+    groups.creates.extend(pronunciation_lifecycle.creates);
+    groups.creates.extend(api_lifecycle.operation_creates);
+
+    groups.updates.extend(api_lifecycle.integration_updates);
+    groups.updates.extend(variant_lifecycle.variant_updates);
+    groups.updates.extend(variant_lifecycle.attribute_updates);
+    groups.updates.extend(keyphrase_lifecycle.updates);
+    groups.updates.extend(transcript_lifecycle.updates);
+    groups.updates.extend(pronunciation_lifecycle.updates);
+    groups.updates.extend(api_lifecycle.operation_updates);
+    groups.updates.extend(api_lifecycle.config_updates);
+
     groups
 }
 
-fn fixed_single_file_resource_command_groups(
+fn entity_aggregate_command_groups(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> CommandGroups {
-    let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
     let remote_entities = entity_entries(projection)
         .into_iter()
         .map(|(id, entity)| {
@@ -89,26 +102,7 @@ fn fixed_single_file_resource_command_groups(
             .and_then(Value::as_str)
             .unwrap_or_default();
 
-        if path == AGENT_RULES_FILE.file_path {
-            let normalized_content =
-                replace_resource_names_with_ids(content, &prompt_reference_maps, None);
-            let remote_behaviour = projection
-                .pointer("/agentSettings/rules/behaviour")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            if normalized_content != remote_behaviour {
-                push_command(
-                    &mut groups.updates,
-                    metadata,
-                    "update_rules",
-                    CommandPayload::UpdateRules(RulesUpdateRules {
-                        behaviour: Some(normalized_content.clone()),
-                        references: rules_references_from_behaviour(&normalized_content)
-                            .or_else(|| rules_references_from_projection(projection)),
-                    }),
-                );
-            }
-        } else if path == ENTITIES_FILE.file_path
+        if path == ENTITIES_FILE.file_path
             && let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
             && let Some(items) = yaml
                 .get("entities")
@@ -264,12 +258,12 @@ fn normalize_entity_type(value: &str) -> String {
 }
 
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
-    fixed_payload_json_summary(payload)
-        .or_else(|| interaction_files::payload_json_summary(payload))
-        .or_else(|| structured::payload_json_summary(payload))
+    entity_payload_json_summary(payload)
+        .or_else(|| interactions::payload_json_summary(payload))
+        .or_else(|| summaries::payload_json_summary(payload))
 }
 
-fn fixed_payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
+fn entity_payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
     match payload {
         CommandPayload::EntityDelete(delete) => Some((
             "entity_delete",

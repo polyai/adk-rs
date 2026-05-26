@@ -1,6 +1,6 @@
 //! Push commands for global functions and special start/end functions.
 
-use super::single_file_resources::CommandGroups;
+use super::super::CommandGroups;
 pub(crate) use crate::function_parsing::{
     annotated_function_parameter_names, function_code_from_local_content,
     function_create_latency_control, function_update_latency_control, infer_function_description,

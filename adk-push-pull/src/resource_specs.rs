@@ -97,6 +97,12 @@ pub(crate) const AGENT_RULES_FILE: FileResourceSpec = FileResourceSpec {
     name: "rules",
 };
 
+pub(crate) const EXPERIMENTAL_CONFIG_FILE: FileResourceSpec = FileResourceSpec {
+    file_path: "agent_settings/experimental_config.json",
+    resource_id: "experimental_config",
+    name: "experimental_config",
+};
+
 pub(crate) const VOICE_SAFETY_FILTERS_FILE: FileResourceSpec = FileResourceSpec {
     file_path: "voice/safety_filters.yaml",
     resource_id: "voice_safety_filters",

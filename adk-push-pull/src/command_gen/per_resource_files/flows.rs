@@ -14,12 +14,12 @@ use self::parsing::{
     default_dtmf_config, default_step_position, function_step_latency_control, local_flows,
     ordered_flow_steps, ordered_function_steps, ordered_transition_functions, remote_flows_by_name,
 };
+use super::super::CommandGroups;
 use super::functions::{
     function_errors_update_from_projection, function_parameters_update_from_projection,
     function_update_latency_control, infer_function_parameters, latency_control_from_projection,
     local_latency_control_from_code, python_function_symbol, variable_reference_ids_from_code,
 };
-use super::single_file_resources::CommandGroups;
 use crate::{
     flow_import_path_maps_from_projection, prompt_reference_maps_from_projection, push_command,
     stable_resource_id,

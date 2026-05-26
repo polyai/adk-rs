@@ -1,9 +1,10 @@
 use super::insert_content_resource;
+use crate::command_gen::per_resource_files::functions;
 use crate::yaml_resources::{
     EnvPhoneNumbersYaml, HandoffYaml, HandoffsYaml, PhraseFilterYaml, PhraseFilteringYaml,
     SmsTemplateYaml, SmsTemplatesYaml, to_yaml_string,
 };
-use crate::{CommandGenError, command_gen, extract_entities_vec};
+use crate::{CommandGenError, extract_entities_vec};
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -125,7 +126,7 @@ fn insert_phrase_filtering_resource(
     map: &mut ResourceMap,
     projection: &Value,
 ) -> Result<(), CommandGenError> {
-    let global_function_names = command_gen::functions::function_entries(projection)
+    let global_function_names = functions::function_entries(projection)
         .into_iter()
         .filter_map(|(id, function)| {
             Some((

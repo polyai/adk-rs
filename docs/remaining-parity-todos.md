@@ -108,9 +108,10 @@ and where future agents should be careful.
 - `adk-push-pull` materialization keeps `projection_to_resource_map` as the
   facade, with broad resources, channels, synthetic resources, agent settings,
   flows, functions, topics, entities, and references in focused modules.
-- Structured single-file command generation keeps a small aggregation entrypoint
-  and splits variants, API integrations, keyphrases, transcript corrections,
-  pronunciations, settings, summaries, and common helpers.
+- Command generation now follows the local resource file taxonomy from
+  `docs/development.md`: `singletons`, `aggregates`, and `per_resource_files`
+  own their respective resource families, with shared file helpers kept outside
+  those buckets.
 
 ## Current Watchpoints
 

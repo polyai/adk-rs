@@ -1,6 +1,6 @@
 //! Push commands for knowledge-base topic resources.
 
-use super::single_file_resources::CommandGroups;
+use super::super::CommandGroups;
 use crate::{
     extract_entities_map, is_synthetic_local_resource_id, prompt_reference_maps_from_projection,
     push_command, replace_resource_names_with_ids, stable_resource_id,

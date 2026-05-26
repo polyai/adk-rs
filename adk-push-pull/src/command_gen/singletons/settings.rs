@@ -1,4 +1,4 @@
-use super::common::{first_yaml_mapping, resource_changed, resource_yaml};
+use super::super::local_file_helpers::{first_yaml_mapping, resource_changed, resource_yaml};
 use crate::resource_specs::{
     AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_SAFETY_FILTERS_FILE, ASR_SETTINGS_FILE,
     CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,

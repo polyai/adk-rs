@@ -1,4 +1,4 @@
-use super::common::{
+use super::super::local_file_helpers::{
     SimpleLifecycleCommands, json_bool, json_i32, json_str, resource_yaml, yaml_bool, yaml_sequence,
 };
 use crate::resource_specs::PRONUNCIATIONS;

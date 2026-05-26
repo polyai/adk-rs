@@ -59,7 +59,7 @@ env_phone_numbers:
         ),
     ]);
     let projection = serde_json::json!({});
-    let commands = flatten(interaction_file_resource_command_groups(
+    let commands = flatten(interaction_aggregate_command_groups(
         &resources,
         &projection,
         &None,
@@ -96,7 +96,7 @@ fn remote_handoff_without_active_field_is_treated_as_active() {
             }
         }
     });
-    let commands = flatten(interaction_file_resource_command_groups(
+    let commands = flatten(interaction_aggregate_command_groups(
         &resources,
         &projection,
         &None,
@@ -136,7 +136,7 @@ references:
         },
     )]);
     let projection = serde_json::json!({});
-    let commands = flatten(interaction_file_resource_command_groups(
+    let commands = flatten(interaction_aggregate_command_groups(
         &resources,
         &projection,
         &None,
@@ -182,7 +182,7 @@ references:
         },
     )]);
     let projection = serde_json::json!({});
-    let commands = flatten(interaction_file_resource_command_groups(
+    let commands = flatten(interaction_aggregate_command_groups(
         &resources,
         &projection,
         &None,
@@ -202,7 +202,7 @@ references:
 }
 
 #[test]
-fn stop_keywords_create_and_experimental_update() {
+fn stop_keywords_create() {
     let pf_yaml = r#"
 name: HangUp
 description: end
@@ -211,46 +211,22 @@ regular_expressions:
 say_phrase: false
 language_code: en-US
 "#;
-    let resources = map_with(vec![
-        (
-            "voice/response_control/phrase_filtering.yaml/phrase_filtering/HangUp".into(),
-            Resource {
-                resource_id: "local".into(),
-                name: "HangUp".into(),
-                file_path: "voice/response_control/phrase_filtering.yaml/phrase_filtering/HangUp"
-                    .into(),
-                payload: serde_json::json!({ "content": pf_yaml }),
-            },
-        ),
-        (
-            "agent_settings/experimental_config.json".into(),
-            Resource {
-                resource_id: "default".into(),
-                name: "experimental_config".into(),
-                file_path: "agent_settings/experimental_config.json".into(),
-                payload: serde_json::json!({
-                    "content": r#"{ "flag_test": true }"#
-                }),
-            },
-        ),
-    ]);
+    let resources = map_with(vec![(
+        "voice/response_control/phrase_filtering.yaml/phrase_filtering/HangUp".into(),
+        Resource {
+            resource_id: "local".into(),
+            name: "HangUp".into(),
+            file_path: "voice/response_control/phrase_filtering.yaml/phrase_filtering/HangUp"
+                .into(),
+            payload: serde_json::json!({ "content": pf_yaml }),
+        },
+    )]);
     let projection = serde_json::json!({});
-    let commands = flatten(interaction_file_resource_command_groups(
+    let commands = flatten(interaction_aggregate_command_groups(
         &resources,
         &projection,
         &None,
     ));
     let types: Vec<&str> = commands.iter().map(|c| c.r#type.as_str()).collect();
     assert!(types.contains(&"stop_keywords_create"));
-    assert!(types.contains(&"experimental_config_update_config"));
-    let exp_cmd = commands
-        .iter()
-        .find(|c| c.r#type == "experimental_config_update_config")
-        .expect("experimental config update command");
-    match &exp_cmd.payload {
-        Some(CommandPayload::ExperimentalConfigUpdateConfig(msg)) => {
-            assert_eq!(msg.id, "default")
-        }
-        _ => panic!("unexpected payload variant for experimental config update command"),
-    }
 }

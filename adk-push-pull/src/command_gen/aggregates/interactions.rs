@@ -1,5 +1,7 @@
-//! Push commands for handoffs, SMS templates, phrase filters (stop keywords), and experimental
-//! config. Mirrors Python `poly.resources.*` command type strings.
+//! Push commands for interaction aggregate files.
+//!
+//! This covers handoffs, SMS templates, and phrase filters (stop keywords), and
+//! mirrors Python `poly.resources.*` command type strings.
 //!
 //! **Execution ordering:** Python `SyncClientHandler.queue_resources` walks deletes (respecting
 //! `PRIORITY_DELETE_TYPES`), then creates (`PRIORITY_CREATE_TYPES`), then updates
@@ -8,11 +10,9 @@
 //! delete/create/update ordering across all resource-family modules.
 
 use crate::{
-    default_metadata_created_by, extract_entities_map, is_synthetic_local_resource_id,
-    push_command, stable_resource_id,
+    extract_entities_map, is_synthetic_local_resource_id, push_command, stable_resource_id,
 };
 use adk_protobuf::command::Payload as CommandPayload;
-use adk_protobuf::experimental_config::ExperimentalConfigUpdateConfig;
 use adk_protobuf::handoff::{
     HandoffCreate, HandoffDelete, HandoffSetDefault, HandoffUpdate, SipByeHandoffConfig, SipConfig,
     SipHeader, SipHeaders, SipInviteHandoffConfig, SipReferHandoffConfig, sip_config,
@@ -26,62 +26,10 @@ use adk_protobuf::stop_keywords::{
 };
 use adk_protobuf::{Command, Metadata};
 use adk_types::ResourceMap;
-use prost_types::value::Kind;
-use prost_types::{ListValue, Struct, Value as ProstValue};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
-use super::CommandGroups;
-
-/// JSON object ? `google.protobuf.Struct` (for experimental config `features`).
-fn json_to_prost_struct(v: &Value) -> Option<Struct> {
-    let obj = v.as_object()?;
-    let mut fields = BTreeMap::new();
-    for (k, val) in obj {
-        fields.insert(k.clone(), json_to_prost_value(val));
-    }
-    Some(Struct { fields })
-}
-
-fn json_to_prost_value(v: &Value) -> ProstValue {
-    match v {
-        Value::Null => ProstValue {
-            kind: Some(Kind::NullValue(0)),
-        },
-        Value::Bool(b) => ProstValue {
-            kind: Some(Kind::BoolValue(*b)),
-        },
-        Value::Number(n) => ProstValue {
-            kind: Some(Kind::NumberValue(n.as_f64().unwrap_or(0.0))),
-        },
-        Value::String(s) => ProstValue {
-            kind: Some(Kind::StringValue(s.clone())),
-        },
-        Value::Array(arr) => ProstValue {
-            kind: Some(Kind::ListValue(ListValue {
-                values: arr.iter().map(json_to_prost_value).collect(),
-            })),
-        },
-        Value::Object(obj) => {
-            let mut fields = BTreeMap::new();
-            for (k, v) in obj {
-                fields.insert(k.clone(), json_to_prost_value(v));
-            }
-            ProstValue {
-                kind: Some(Kind::StructValue(Struct { fields })),
-            }
-        }
-    }
-}
-
-fn sdk_user(metadata: &Option<Metadata>) -> String {
-    metadata
-        .as_ref()
-        .map(|m| m.created_by.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
-        .unwrap_or_else(default_metadata_created_by)
-}
+use super::super::CommandGroups;
 
 fn remote_handoffs(projection: &Value) -> HashMap<String, String> {
     let entities = extract_entities_map(projection, &["handoff", "handoffs", "entities"]);
@@ -129,28 +77,6 @@ fn remote_phrase_filters(projection: &Value) -> HashMap<String, String> {
         m.insert(title, id);
     }
     m
-}
-
-fn remote_experimental_features(projection: &Value) -> Option<Value> {
-    Some(
-        projection
-            .get("experimentalConfig")?
-            .get("experimentalConfigs")?
-            .get("entities")?
-            .get("default")?
-            .get("features")?
-            .clone(),
-    )
-}
-
-fn remote_experimental_config_id(projection: &Value) -> Option<String> {
-    extract_entities_map(
-        projection,
-        &["experimentalConfig", "experimentalConfigs", "entities"],
-    )
-    .keys()
-    .next()
-    .cloned()
 }
 
 fn yaml_str(y: &serde_yaml::Value, key: &str) -> String {
@@ -880,18 +806,17 @@ fn yaml_string_list(value: Option<&serde_yaml::Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Builds push commands for interaction resources stored in shared config files.
+/// Builds push commands for interaction resources stored in aggregate files.
 ///
-/// This covers handoffs, SMS templates, stop-keyword phrase filters, and the
-/// experimental config JSON. Each resource type can be represented either as a
-/// whole local YAML file or as per-item logical resources from the status
-/// snapshot, so this function accepts both forms, normalizes them into local
-/// item sets, and compares those sets with the Agent Studio projection.
+/// Each resource type can be represented either as a whole local YAML file or as
+/// per-item logical resources from the status snapshot, so this function accepts
+/// both forms, normalizes them into local item sets, and compares those sets
+/// with the Agent Studio projection.
 ///
 /// Handoff default changes intentionally go into `post_updates`, matching the
 /// Python ADK ordering where default selection is applied after handoff
 /// create/update commands have established the target IDs.
-pub(crate) fn interaction_file_resource_command_groups(
+pub(crate) fn interaction_aggregate_command_groups(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,
@@ -905,8 +830,6 @@ pub(crate) fn interaction_file_resource_command_groups(
     let mut sk_del = Vec::new();
     let mut sk_create = Vec::new();
     let mut sk_update = Vec::new();
-    let mut exp_update = Vec::new();
-
     let remote_ho = remote_handoffs(projection);
     let rsms = remote_sms(projection);
     let rpf = remote_phrase_filters(projection);
@@ -1014,43 +937,6 @@ pub(crate) fn interaction_file_resource_command_groups(
                 }
                 continue;
             }
-
-            if path == "agent_settings/experimental_config.json" {
-                let trimmed = content.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                let Ok(local_json) = serde_json::from_str::<Value>(trimmed) else {
-                    continue;
-                };
-                let remote_f = remote_experimental_features(projection);
-                let needs = match &remote_f {
-                    None => true,
-                    Some(r) => r != &local_json,
-                };
-                if needs {
-                    let id = if !is_synthetic_local_resource_id(&resource.resource_id) {
-                        resource.resource_id.clone()
-                    } else {
-                        remote_experimental_config_id(projection)
-                            .unwrap_or_else(|| "default".to_string())
-                    };
-                    let features = json_to_prost_struct(&local_json);
-                    push_command(
-                        &mut exp_update,
-                        metadata,
-                        "experimental_config_update_config",
-                        CommandPayload::ExperimentalConfigUpdateConfig(
-                            ExperimentalConfigUpdateConfig {
-                                id,
-                                features,
-                                updated_at: None,
-                                updated_by: sdk_user(metadata),
-                            },
-                        ),
-                    );
-                }
-            }
         }
     }
 
@@ -1141,7 +1027,6 @@ pub(crate) fn interaction_file_resource_command_groups(
     groups.updates.extend(ho_update);
     groups.updates.extend(sms_update);
     groups.updates.extend(sk_update);
-    groups.updates.extend(exp_update);
     groups.post_updates = defaults;
     groups
 }
@@ -1285,13 +1170,6 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
             );
             Some(("stop_keywords_update", Value::Object(value)))
         }
-        CommandPayload::ExperimentalConfigUpdateConfig(update) => Some((
-            "experimental_config_update_config",
-            serde_json::json!({
-                "id": update.id,
-                "features": update.features.as_ref().map(prost_struct_json).unwrap_or_else(|| serde_json::json!({})),
-            }),
-        )),
         _ => None,
     }
 }
@@ -1415,29 +1293,6 @@ fn stop_keyword_references_json(references: Option<&StopKeywordReferences>) -> V
     }
 }
 
-fn prost_struct_json(value: &Struct) -> Value {
-    Value::Object(
-        value
-            .fields
-            .iter()
-            .map(|(key, value)| (key.clone(), prost_value_json(value)))
-            .collect(),
-    )
-}
-
-fn prost_value_json(value: &ProstValue) -> Value {
-    match value.kind.as_ref() {
-        Some(Kind::NullValue(_)) | None => Value::Null,
-        Some(Kind::NumberValue(value)) => serde_json::json!(value),
-        Some(Kind::StringValue(value)) => Value::String(value.clone()),
-        Some(Kind::BoolValue(value)) => Value::Bool(*value),
-        Some(Kind::StructValue(value)) => prost_struct_json(value),
-        Some(Kind::ListValue(value)) => {
-            Value::Array(value.values.iter().map(prost_value_json).collect())
-        }
-    }
-}
-
 #[cfg(test)]
-#[path = "interaction_files_tests.rs"]
+#[path = "interactions_tests.rs"]
 mod tests;

@@ -1,7 +1,7 @@
 //! Push commands for virtual variable resources derived from `conv.state.*` usage.
 
+use super::super::CommandGroups;
 use super::functions;
-use super::single_file_resources::CommandGroups;
 use crate::{
     extract_entities_map, extract_variable_names_from_code, push_command, stable_resource_id,
 };

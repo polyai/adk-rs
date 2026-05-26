@@ -2,9 +2,10 @@ use super::{
     FlowImportPathMaps, insert_content_resource, insert_yaml_resource,
     replace_flow_import_ids_with_names,
 };
+use crate::command_gen::per_resource_files::functions;
 use crate::projection::projection_entity_values;
 use crate::yaml_resources::{AsrBiasingYaml, DtmfConfigYaml, FlowConfigYaml, FlowStepYaml};
-use crate::{CommandGenError, clean_name, command_gen};
+use crate::{CommandGenError, clean_name};
 use adk_types::ResourceMap;
 use serde_json::Value;
 
@@ -72,7 +73,7 @@ fn insert_flow_resource(
             "function_step" => {
                 let function = step.get("function").unwrap_or(&Value::Null);
                 let code = replace_flow_import_ids_with_names(
-                    &command_gen::functions::function_raw_content(function),
+                    &functions::function_raw_content(function),
                     flow_import_path_maps,
                 );
                 let file_path = format!(
@@ -106,7 +107,7 @@ fn insert_flow_resource(
         let file_name = clean_name(&function_name).to_lowercase();
         let file_path = format!("flows/{folder}/functions/{file_name}.py");
         let content = replace_flow_import_ids_with_names(
-            &command_gen::functions::function_raw_content(&function),
+            &functions::function_raw_content(&function),
             flow_import_path_maps,
         );
         insert_content_resource(map, &file_path, &id, &function_name, content)?;

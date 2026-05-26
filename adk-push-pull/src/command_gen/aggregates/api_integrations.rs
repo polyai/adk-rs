@@ -1,4 +1,4 @@
-use super::common::{json_str, resource_yaml, yaml_sequence};
+use super::super::local_file_helpers::{json_str, resource_yaml, yaml_sequence};
 use crate::resource_specs::API_INTEGRATIONS;
 use crate::{push_command, stable_resource_id, stable_resource_uuid, yaml_str};
 use adk_protobuf::Metadata;

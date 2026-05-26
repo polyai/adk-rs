@@ -1,11 +1,10 @@
 //! Local resource to platform command generation.
 
-pub(crate) mod flows;
-pub(crate) mod functions;
+pub(crate) mod aggregates;
 mod json_summary;
-pub(crate) mod single_file_resources;
-pub(crate) mod topics;
-pub(crate) mod variables;
+mod local_file_helpers;
+pub(crate) mod per_resource_files;
+pub(crate) mod singletons;
 
 pub use json_summary::command_to_json_summary;
 
@@ -14,6 +13,23 @@ use adk_protobuf::{Command, Metadata};
 use adk_types::ResourceMap;
 use serde_json::Value;
 use uuid::Uuid;
+
+#[derive(Debug, Default)]
+pub(crate) struct CommandGroups {
+    pub deletes: Vec<Command>,
+    pub creates: Vec<Command>,
+    pub updates: Vec<Command>,
+    pub post_updates: Vec<Command>,
+}
+
+impl CommandGroups {
+    pub(crate) fn append(&mut self, other: CommandGroups) {
+        self.deletes.extend(other.deletes);
+        self.creates.extend(other.creates);
+        self.updates.extend(other.updates);
+        self.post_updates.extend(other.post_updates);
+    }
+}
 
 pub fn build_phase1_commands(resources: &ResourceMap, projection: &Value) -> Vec<Command> {
     build_phase1_commands_with_actor(resources, projection, None)
@@ -43,29 +59,17 @@ fn build_phase1_commands_inner(
 ) -> Vec<Command> {
     let metadata = command_metadata_with_actor(actor);
 
-    let flow_groups = flows::flow_resource_command_groups(resources, projection, &metadata);
-    let function_groups =
-        functions::function_resource_command_groups(resources, projection, &metadata);
-    let topic_groups = topics::topic_resource_command_groups(resources, projection, &metadata);
-    let variable_groups =
-        variables::variable_resource_command_groups(resources, projection, &metadata);
-    let single_file_groups = single_file_resources::single_file_resource_command_groups(
-        resources, projection, &metadata,
-    );
-    let single_file_resources::CommandGroups {
-        deletes: variable_deletes,
-        creates: variable_creates,
-        updates: variable_updates,
-        post_updates: variable_post_updates,
-    } = variable_groups;
+    let per_resource_file_groups =
+        per_resource_files::per_resource_file_command_groups(resources, projection, &metadata);
+    let singleton_groups = singletons::singleton_command_groups(resources, projection, &metadata);
+    let aggregate_groups = aggregates::aggregate_command_groups(resources, projection, &metadata);
 
     let mut deletes: Vec<Command> = if include_deletes {
-        variable_deletes
+        per_resource_file_groups
+            .deletes
             .into_iter()
-            .chain(function_groups.deletes)
-            .chain(topic_groups.deletes)
-            .chain(flow_groups.deletes)
-            .chain(single_file_groups.deletes)
+            .chain(aggregate_groups.deletes)
+            .chain(singleton_groups.deletes)
             .collect()
     } else {
         Vec::new()
@@ -74,21 +78,19 @@ fn build_phase1_commands_inner(
         order_commands_with_priority(&mut deletes, DELETE_COMMAND_PRIORITY);
     }
 
-    let mut creates: Vec<Command> = variable_creates
+    let mut creates: Vec<Command> = per_resource_file_groups
+        .creates
         .into_iter()
-        .chain(function_groups.creates)
-        .chain(topic_groups.creates)
-        .chain(flow_groups.creates)
-        .chain(single_file_groups.creates)
+        .chain(aggregate_groups.creates)
+        .chain(singleton_groups.creates)
         .collect();
     order_commands_with_priority(&mut creates, CREATE_COMMAND_PRIORITY);
 
-    let mut updates: Vec<Command> = variable_updates
+    let mut updates: Vec<Command> = per_resource_file_groups
+        .updates
         .into_iter()
-        .chain(function_groups.updates)
-        .chain(topic_groups.updates)
-        .chain(flow_groups.updates)
-        .chain(single_file_groups.updates)
+        .chain(aggregate_groups.updates)
+        .chain(singleton_groups.updates)
         .collect();
     order_commands_with_priority(&mut updates, UPDATE_COMMAND_PRIORITY);
 
@@ -96,11 +98,9 @@ fn build_phase1_commands_inner(
     out.extend(deletes);
     out.extend(creates);
     out.extend(updates);
-    out.extend(variable_post_updates);
-    out.extend(function_groups.post_updates);
-    out.extend(topic_groups.post_updates);
-    out.extend(flow_groups.post_updates);
-    out.extend(single_file_groups.post_updates);
+    out.extend(per_resource_file_groups.post_updates);
+    out.extend(aggregate_groups.post_updates);
+    out.extend(singleton_groups.post_updates);
     out
 }
 

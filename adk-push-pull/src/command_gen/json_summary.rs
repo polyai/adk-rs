@@ -1,4 +1,4 @@
-use super::{flows, single_file_resources};
+use super::{aggregates, per_resource_files, singletons};
 use adk_protobuf::agent::{RulesReferences, RulesUpdateRules};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::functions::{FunctionParameter, FunctionUpdateLatencyControl};
@@ -87,10 +87,12 @@ pub fn command_to_json_summary(command: &Command) -> Value {
             }
             _ => {}
         }
-        if let Some((key, payload_value)) = single_file_resources::payload_json_summary(payload) {
+        if let Some((key, payload_value)) = singletons::payload_json_summary(payload)
+            .or_else(|| aggregates::payload_json_summary(payload))
+        {
             value[key] = payload_value;
         }
-        if let Some((key, payload_value)) = flows::payload_json_summary(payload) {
+        if let Some((key, payload_value)) = per_resource_files::payload_json_summary(payload) {
             value[key] = payload_value;
         }
     }
