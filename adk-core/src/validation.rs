@@ -3,7 +3,6 @@ use crate::python_functions::{
     function_signature_parameters, is_python_function_resource,
 };
 use crate::python_syntax::validate_python_module;
-use crate::resources;
 use crate::{CoreError, reference_name_from_logical_path};
 use adk_types::{DomainError, ResourceMap};
 use std::collections::{BTreeSet, HashMap};
@@ -31,7 +30,7 @@ pub(crate) fn validate_local_resources(
                     return Err(DomainError::InvalidData(resource_read_error(root, path)).into());
                 }
             };
-            resources::validate_semantic_resource(path, &yaml, &mut errors);
+            adk_resources::validate_semantic_resource(path, &yaml, &mut errors);
         } else if path.ends_with(".json")
             && let Err(e) = serde_json::from_str::<serde_json::Value>(content)
         {

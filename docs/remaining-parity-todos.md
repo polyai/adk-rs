@@ -105,10 +105,10 @@ and where future agents should be careful.
   parser dispatch and shared service/prompt helpers. CLI args and `revert` are
   split out as well. `review` remains visible but is explicitly marked
   incomplete; the old token-error recording was not a real parity contract.
-- `adk-resources` is the intended home for resource-family-specific semantics.
-  Move local file layout, projection paths, materialization facts, validation
-  helpers, stable IDs, and command generation helpers there as touched.
-- `adk-push-pull` should continue shrinking toward push/pull orchestration.
+- `adk-resources` is the home for resource-family-specific semantics:
+  discovery, local file layout, projection paths, materialization facts,
+  validation helpers, typed lifecycle helpers, stable IDs, and command
+  generation helpers.
   The local file taxonomy from `docs/development.md` (`singletons`,
   `aggregates`, and `per_resource_files`) is useful vocabulary, but resource
   family names should be the durable module boundaries.

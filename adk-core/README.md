@@ -5,7 +5,7 @@ Core orchestration layer for ADK workflows.
 ## Responsibilities
 
 - Project initialization and config/status loading.
-- Local resource discovery and status/diff computation.
+- Status/diff computation over resources discovered by `adk-resources`.
 - Pull/push/deployments workflow entrypoints.
 - Coordination between domain models, IO helpers, and platform client traits.
 
@@ -13,3 +13,4 @@ Core orchestration layer for ADK workflows.
 
 - Keep business logic here, not in `adk-cli`.
 - Depend on abstractions from `adk-api-client`, not concrete network code.
+- Keep resource-family-specific semantics in `adk-resources`.

@@ -1,4 +1,3 @@
-use crate::resource_utils::{clean_name, extract_variable_names_from_code};
 use crate::status_snapshot::{
     FileStructureEntry, StatusResourcePayload, StatusSnapshot, flow_folder_name,
     python_json_dumps_pretty_sorted, python_json_dumps_sorted, snake_case_json_keys,
@@ -10,6 +9,7 @@ use crate::status_snapshot::{
 use crate::*;
 use adk_api_client::PlatformClient;
 use adk_io::{FileSystem, StdFileSystem, compute_hash, diff_resources, parse_multi_resource_path};
+use adk_resources::{clean_name, extract_variable_names_from_code};
 use adk_types::{
     BranchDescriptor, BranchMergeResult, DeploymentList, DiffMap, DomainError, ProjectConfig,
     PushResult, Resource, ResourceMap, StatusSummary,

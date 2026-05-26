@@ -6,8 +6,7 @@ Notes for contributors working on the Rust ADK rewrite.
 
 - `adk-cli`: `poly` binary, CLI parsing, output, and integration tests.
 - `adk-core`: project workflows such as init, pull, push, status, diff, validate, chat, and deployments.
-- `adk-resources`: resource-family semantics such as local file layout, projection paths, materialization facts, validation helpers, stable IDs, and command generation helpers.
-- `adk-push-pull`: push/pull orchestration while resource-family logic migrates into `adk-resources`.
+- `adk-resources`: resource-family semantics such as discovery, local file layout, projection paths, materialization facts, validation helpers, stable IDs, and command generation helpers.
 - `adk-api-client`: HTTP communication with PolyAI backend, plus in-memory implementation for testing.
 - `adk-types`: shared data models and errors.
 - `adk-io`: filesystem, hashing, diff, path, and serialization helpers.
@@ -19,23 +18,21 @@ Each crate also has a short local README.
 
 ## Adding Or Updating Resource Types
 
-Resource type metadata and behavior are intentionally split by responsibility,
-with new resource-family behavior moving toward `adk-resources`:
+Resource type metadata and behavior are intentionally split by responsibility:
 
 - `adk-types/src/lib.rs` owns the central `RESOURCE_TYPE_REGISTRY`: Python class name, status resource key, ID prefix, and registry order.
-- `adk-resources/src/{resource_family}.rs` is the intended home for resource-specific semantics: local file paths, projection extraction, materialization, validation helpers, stable ID facts, and command generation helpers.
-- `adk-core/src/resources/` currently owns some discovery and lifecycle behavior; move resource-specific pieces into `adk-resources` when touching them, leaving `adk-core` to orchestrate workflows and typed lifecycle bookkeeping.
+- `adk-resources` is the home for resource-specific semantics: discovery, local file paths, projection extraction, materialization, validation helpers, typed lifecycle helpers, stable ID facts, and command generation helpers.
 - `adk-core/src/validation.rs` owns validation orchestration plus cross-resource checks, such as flow step references, entity references, and flow-scoped function call-site rules. Resource-local validation helpers should live with the resource family.
-- `adk-push-pull` owns push/pull orchestration and should delegate resource-family details to `adk-resources` as the migration proceeds.
+- Push/pull orchestration should call `adk-resources` directly rather than adding a resource-specific intermediary crate.
 
 When adding a Python ADK resource type to Rust:
 
 1. Add one descriptor to `RESOURCE_TYPE_REGISTRY` in the same order as Python `RESOURCE_NAME_TO_CLASS`.
-2. Add or update the matching `adk-resources/src/{resource_family}.rs` module with local file layout, projection mapping, materialization, validation helpers, and push command facts for that family.
-3. Register the type in `adk-core/src/resources/mod.rs` and keep discovery dispatch order aligned with the registry.
+2. Add or update the matching resource-family module in `adk-resources` with discovery, local file layout, projection mapping, materialization, validation helpers, and push command facts for that family.
+3. Register the type in the `adk-resources` discovery dispatch and keep discovery order aligned with the registry.
 4. Add resource-local validation in the resource-family module when a single resource file or resource-owned collection can be checked in isolation.
 5. Keep relationship checks in `validation.rs` when they need multiple resources.
-6. Add or update `adk-push-pull` orchestration only when the resource participates in pull/push behavior; keep reusable resource-specific logic in `adk-resources`.
+6. Add or update push/pull command generation in `adk-resources` when the resource participates in pull/push behavior.
 7. Extend parity coverage before or alongside behavior changes, especially for discovery order, validation output, file layout, and command generation.
 
 ### Local Resource File Taxonomy

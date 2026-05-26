@@ -5,8 +5,8 @@ use crate::python_functions::{
     legacy_python_local_function_raw, normalize_python_function_metadata_spacing,
     parse_python_string_args, raw_function_content,
 };
-use crate::resource_utils::clean_name;
 use adk_io::{compute_hash, parse_multi_resource_path};
+use adk_resources::clean_name;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

@@ -1,4 +1,4 @@
-use adk_core::discover::DISCOVER_DISPATCH;
+use adk_resources::DISCOVER_DISPATCH;
 use adk_types::{ORDERED_TYPE_NAMES, RESOURCE_TYPE_REGISTRY};
 
 #[test]

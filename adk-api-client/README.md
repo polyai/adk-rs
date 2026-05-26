@@ -12,6 +12,5 @@ API boundary crate between core workflows and remote platform operations.
 ## Push Support
 
 The HTTP client implements real calls for projection, deployments, chat, branch,
-and protobuf command-batch push endpoints. Push command generation is
-orchestrated by `adk-push-pull` with resource-family facts moving into
+and protobuf command-batch push endpoints. Resource command generation lives in
 `adk-resources`; this crate is responsible for transport and response handling.
