@@ -337,7 +337,6 @@ fn decorator_call_arguments<'a>(
 fn expr_name_matches(expr: &Expr, name: &str) -> bool {
     match expr {
         Expr::Name(expr) => expr.id.as_str() == name,
-        Expr::Attribute(expr) => expr.attr.as_str() == name,
         _ => false,
     }
 }

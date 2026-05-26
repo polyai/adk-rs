@@ -651,6 +651,34 @@ def handoff(conv: Conversation, handoff_reason: str):
 }
 
 #[test]
+fn ast_decorator_parsing_ignores_attribute_decorators_with_adk_names() {
+    let content = r#"@custom.func_description("Not ADK metadata")
+@custom.func_parameter("customer_id", "Not ADK metadata")
+@custom.func_latency_control(
+    delay_before_responses_start=7,
+    silence_after_each_response=11,
+    delay_responses=[("Not ADK metadata", 13)],
+)
+def lookup_customer(conv: Conversation, customer_id: str):
+    return customer_id
+"#;
+
+    assert_eq!(functions::infer_function_description(content), "");
+    let parameters = functions::infer_function_parameters(content, "lookup_customer");
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(parameters[0].name, "customer_id");
+    assert_eq!(parameters[0].description, "");
+    assert_eq!(parameters[0].r#type, "string");
+
+    let latency = functions::local_latency_control_from_code(content, None);
+    assert!(!latency.enabled);
+    assert_eq!(
+        functions::function_code_from_local_content(content),
+        content
+    );
+}
+
+#[test]
 fn ast_function_parsing_handles_async_functions() {
     let content = r#"from imports import *  # <AUTO GENERATED>
 
