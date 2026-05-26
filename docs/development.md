@@ -35,6 +35,27 @@ When adding a Python ADK resource type to Rust:
 6. Add or update `adk-push-pull` materialization and command generation only when the resource participates in pull/push behavior.
 7. Extend parity coverage before or alongside behavior changes, especially for discovery order, validation output, file layout, and command generation.
 
+### Local Resource File Taxonomy
+
+Use these names consistently when organizing resource materialization and push
+command generation:
+
+- `singletons`: one local file represents one backend/config resource with its
+  own command semantics, such as role, personality, ASR settings, channel
+  configuration, safety filters, and rules.
+- `aggregates`: one local file contains a list or map of peer backend resources,
+  such as entities, variants, API integrations, SMS templates, handoffs,
+  pronunciations, keyphrase boosting, and transcript corrections.
+- `per_resource_files`: resource identity is represented by paths/files rather
+  than entries inside an aggregate file. Topics, functions, variables, and flows
+  belong in this family even when a resource family has child files or
+  relationships spread across a directory tree.
+
+Prefer these terms over older buckets such as "single-file" or "structured" when
+renaming modules or adding new resource families. The taxonomy describes the
+local file layout, not whether a resource is typed or whether the underlying
+payload is YAML, JSON, text, or Python.
+
 ## Common Commands
 
 ```bash
