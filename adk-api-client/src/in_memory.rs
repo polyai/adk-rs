@@ -1,5 +1,5 @@
 use crate::{ApiError, PlatformClient};
-use adk_push_pull::{
+use adk_resources::{
     build_phase1_commands_for_changed_resources, build_phase1_commands_with_actor,
     command_to_json_summary,
 };

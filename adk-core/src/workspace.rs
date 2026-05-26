@@ -1,20 +1,19 @@
 use crate::python_functions::local_resource_content;
-use crate::resource_utils::clean_name;
 use crate::status_snapshot::StatusSnapshot;
 use crate::{
     CoreError, DiscoveredResourceChanges, DiscoveredResourcePaths, MIGRATED_LEGACY_TOPIC_FILES,
     PROJECT_CONFIG_FILE, PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX, PYTHON_VARIANT_STATUS_KEY_PREFIX,
     ReferenceNameReplacement, STATUS_FILE, TypedResourceLifecycle,
     apply_reference_name_replacements, compute_modified_files_against_snapshot,
-    compute_modified_files_against_snapshot_with_replacements, discover, find_project_root_with_fs,
+    compute_modified_files_against_snapshot_with_replacements, find_project_root_with_fs,
     flatten_deleted_discovered_paths, flatten_discovered_paths_by_type_order,
     legacy_python_rules_reference_names, legacy_python_status_resource_content,
     legacy_python_status_resource_file_hash, legacy_python_status_resource_path,
     migrate_legacy_topic_files, migration_flags_from_status, project_config_contains_branch_id,
-    project_config_yaml, recursive_file_paths, reference_name_from_logical_path, resources,
-    stable_dedup,
+    project_config_yaml, recursive_file_paths, reference_name_from_logical_path, stable_dedup,
 };
 use adk_io::{FileSystem, StdFileSystem, parse_multi_resource_path};
+use adk_resources::clean_name;
 use adk_types::{DomainError, ProjectConfig, Resource, ResourceMap, StatusSummary};
 use base64::Engine;
 use std::collections::BTreeSet;
@@ -319,7 +318,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
 
     /// Typed discovery matching Python `AgentStudioProject.discover_local_resources()`.
     pub fn discover_local_resources(&self, root: &Path) -> indexmap::IndexMap<String, Vec<String>> {
-        discover::discover_local_resources(root)
+        adk_resources::discover_local_resources(root)
     }
 
     /// Typed parity helper matching Python `find_new_kept_deleted` semantics at path level.
@@ -328,7 +327,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         discovered_resources: &DiscoveredResourcePaths,
         existing_resources: &DiscoveredResourcePaths,
     ) -> DiscoveredResourceChanges {
-        resources::find_new_kept_deleted(discovered_resources, existing_resources)
+        adk_resources::find_new_kept_deleted(discovered_resources, existing_resources)
     }
 
     pub fn typed_resource_lifecycle(
@@ -337,7 +336,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
     ) -> Result<Vec<TypedResourceLifecycle>, CoreError> {
         let discovered = self.discover_local_resources(root);
         let existing_resource_ids = self.load_status_snapshot_resource_ids(root)?;
-        Ok(resources::build_typed_resource_lifecycle(
+        Ok(adk_resources::build_typed_resource_lifecycle(
             &discovered,
             &existing_resource_ids,
         ))
@@ -354,7 +353,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
 
         let existing_typed = self
             .load_status_snapshot_discovered_resources(root)?
-            .unwrap_or_else(resources::empty_discovered_resource_paths);
+            .unwrap_or_else(adk_resources::empty_discovered_resource_paths);
         let discovered_typed = self.discover_local_resources(root);
         let typed_changes = self.find_new_kept_deleted(&discovered_typed, &existing_typed);
         summary.new_files = flatten_discovered_paths_by_type_order(&typed_changes.new_resources);
@@ -396,7 +395,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
             return Ok(None);
         };
 
-        let mut discovered = resources::empty_discovered_resource_paths();
+        let mut discovered = adk_resources::empty_discovered_resource_paths();
         for (resource_name, resource_entries) in &snapshot.resources {
             let Some(type_name) =
                 adk_types::descriptor_by_status_name(resource_name).map(|d| d.type_name)
@@ -431,7 +430,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         let existing_resource_ids = self.load_status_snapshot_resource_ids(root)?;
         let mut replacements = Vec::new();
         for (type_name, paths) in deleted_resources {
-            let Some(prefix) = resources::type_name_to_resource_prefix(type_name) else {
+            let Some(prefix) = adk_resources::type_name_to_resource_prefix(type_name) else {
                 continue;
             };
             for logical_path in paths {

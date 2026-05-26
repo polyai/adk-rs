@@ -24,7 +24,7 @@ tracing-subscriber.workspace = true
 rich_rust.workspace = true
 adk-core.workspace = true
 adk-api-client.workspace = true
-adk-push-pull.workspace = true
+adk-resources.workspace = true
 dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }
 ctrlc = "3.5.2"
 

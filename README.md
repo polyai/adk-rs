@@ -40,7 +40,7 @@ Some commands shell out to Python tooling:
 
 - `adk-cli`: `poly` binary and CLI integration tests.
 - `adk-core`: project workflows such as init, pull, push, status, diff, validate, chat, and deployments.
-- `adk-push-pull`: projection materialization and push command generation.
+- `adk-resources`: resource-family semantics shared by core and push/pull workflows.
 - `adk-api-client`: HTTP communication with the PolyAI backend.
 - `adk-types`, `adk-io`, `adk-protobuf`, `adk-ffi`: shared support crates.
 
