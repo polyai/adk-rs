@@ -1,9 +1,4 @@
 use super::super::local_file_helpers::{first_yaml_mapping, resource_changed, resource_yaml};
-use crate::resource_specs::{
-    AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_SAFETY_FILTERS_FILE, ASR_SETTINGS_FILE,
-    CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
-    VOICE_SAFETY_FILTERS_FILE,
-};
 use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::agent::{
@@ -19,6 +14,11 @@ use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::content_filter_settings::{
     AzureContentFilter, AzureContentFilterCategory,
     ContentFilterSettingsUpdateContentFilterSettings,
+};
+use adk_resources::specs::{
+    AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_SAFETY_FILTERS_FILE, ASR_SETTINGS_FILE,
+    CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
+    VOICE_SAFETY_FILTERS_FILE,
 };
 use adk_types::ResourceMap;
 use std::collections::HashMap;

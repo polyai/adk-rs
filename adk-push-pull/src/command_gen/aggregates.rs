@@ -23,10 +23,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     build_entity_create_config, build_entity_update_config, entity_entries,
-    is_synthetic_local_resource_id, push_command,
-    resource_specs::{ENTITIES_FILE, ENTITY_ID_PREFIX},
-    stable_resource_id, to_camel_case,
+    is_synthetic_local_resource_id, push_command, to_camel_case,
 };
+use adk_resources::ids::stable_resource_id;
+use adk_resources::specs::{ENTITIES_FILE, ENTITY_ID_PREFIX};
 
 pub(crate) fn aggregate_command_groups(
     resources: &ResourceMap,

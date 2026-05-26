@@ -1,8 +1,8 @@
 use super::insert_yaml_resource;
 use crate::CommandGenError;
-use crate::projection::projection_entity_values_at;
-use crate::resource_specs::FileResourceSpec;
-use crate::resource_specs::{
+use adk_resources::projection::projection_entity_values_at;
+use adk_resources::specs::FileResourceSpec;
+use adk_resources::specs::{
     API_INTEGRATIONS, KEYPHRASE_BOOSTING, PRONUNCIATIONS, TRANSCRIPT_CORRECTIONS,
     VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS,
 };

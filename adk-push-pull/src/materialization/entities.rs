@@ -1,7 +1,7 @@
 use super::insert_content_resource;
-use crate::resource_specs::ENTITIES_FILE;
 use crate::yaml_resources::{EntitiesYaml, EntityYaml, to_yaml_string};
 use crate::{CommandGenError, extract_entities_vec, snake_case_json_keys, to_snake_case};
+use adk_resources::specs::ENTITIES_FILE;
 use adk_types::ResourceMap;
 use serde_json::Value;
 

@@ -8,42 +8,42 @@ use std::collections::HashSet;
 /// listed. Keeping that traversal here prevents file materialization and push
 /// command generation from drifting apart.
 #[derive(Clone, Copy)]
-pub(crate) struct ProjectionCollection {
+pub struct ProjectionCollection {
     path: &'static [&'static str],
 }
 
 impl ProjectionCollection {
-    pub(crate) const fn new(path: &'static [&'static str]) -> Self {
+    pub const fn new(path: &'static [&'static str]) -> Self {
         Self { path }
     }
 
-    pub(crate) fn entries<'a>(&self, root: &'a Value) -> Vec<(String, &'a Value)> {
+    pub fn entries<'a>(&self, root: &'a Value) -> Vec<(String, &'a Value)> {
         projection_entity_refs(root, self.path)
     }
 
-    pub(crate) fn owned_entries(&self, root: &Value) -> Vec<(String, Value)> {
+    pub fn owned_entries(&self, root: &Value) -> Vec<(String, Value)> {
         projection_entity_values(root, self.path)
     }
 }
 
-pub(crate) fn projection_entity_refs<'a>(
-    root: &'a Value,
-    path: &[&str],
-) -> Vec<(String, &'a Value)> {
+/// Returns ordered `(id, entity)` references from a projection collection path.
+pub fn projection_entity_refs<'a>(root: &'a Value, path: &[&str]) -> Vec<(String, &'a Value)> {
     let Some(value) = value_at_path(root, path) else {
         return Vec::new();
     };
     projection_entity_refs_at(value)
 }
 
-pub(crate) fn projection_entity_values(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
+/// Returns cloned `(id, entity)` values from a projection collection path.
+pub fn projection_entity_values(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
     projection_entity_refs(root, path)
         .into_iter()
         .map(|(id, value)| (id, value.clone()))
         .collect()
 }
 
-pub(crate) fn projection_entity_refs_at(value: &Value) -> Vec<(String, &Value)> {
+/// Returns ordered `(id, entity)` references from a projection collection object.
+pub fn projection_entity_refs_at(value: &Value) -> Vec<(String, &Value)> {
     let Some(entities) = value.get("entities").and_then(Value::as_object) else {
         return Vec::new();
     };
@@ -72,7 +72,8 @@ pub(crate) fn projection_entity_refs_at(value: &Value) -> Vec<(String, &Value)> 
     ordered
 }
 
-pub(crate) fn projection_entity_values_at(value: &Value) -> Vec<(String, Value)> {
+/// Returns cloned `(id, entity)` values from a projection collection object.
+pub fn projection_entity_values_at(value: &Value) -> Vec<(String, Value)> {
     projection_entity_refs_at(value)
         .into_iter()
         .map(|(id, value)| (id, value.clone()))

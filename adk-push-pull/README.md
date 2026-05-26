@@ -1,11 +1,12 @@
 # adk-push-pull
 
-Projection materialization and push/pull command generation.
+Push/pull orchestration while resource-family logic migrates into
+`adk-resources`.
 
 ## Responsibilities
 
-- Convert Agent Studio projections into local ADK resource maps.
-- Generate Python-compatible protobuf command batches from local resources plus a remote projection.
+- Convert Agent Studio projections into local ADK resource maps, delegating resource-family facts to `adk-resources`.
+- Generate Python-compatible protobuf command batches from local resources plus a remote projection, delegating reusable resource-family helpers to `adk-resources`.
 - Provide JSON summaries used by dry-run/replay tests.
 
 This crate does not perform filesystem IO or HTTP requests.

@@ -9,9 +9,7 @@
 //! This module emits per-family command groups; `build_phase1_commands` applies the global
 //! delete/create/update ordering across all resource-family modules.
 
-use crate::{
-    extract_entities_map, is_synthetic_local_resource_id, push_command, stable_resource_id,
-};
+use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::handoff::{
     HandoffCreate, HandoffDelete, HandoffSetDefault, HandoffUpdate, SipByeHandoffConfig, SipConfig,
@@ -25,6 +23,7 @@ use adk_protobuf::stop_keywords::{
     StopKeywordCreate, StopKeywordDelete, StopKeywordReferences, StopKeywordUpdate,
 };
 use adk_protobuf::{Command, Metadata};
+use adk_resources::ids::stable_resource_id;
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};

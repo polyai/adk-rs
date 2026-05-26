@@ -11,14 +11,14 @@ use super::CommandGroups;
 use crate::{
     default_metadata_created_by, extract_entities_map, is_synthetic_local_resource_id,
     projection_to_resource_map, prompt_reference_maps_from_projection, push_command,
-    replace_resource_names_with_ids,
-    resource_specs::{AGENT_RULES_FILE, EXPERIMENTAL_CONFIG_FILE},
-    rules_references_from_behaviour, rules_references_from_projection,
+    replace_resource_names_with_ids, rules_references_from_behaviour,
+    rules_references_from_projection,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::agent::RulesUpdateRules;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::experimental_config::ExperimentalConfigUpdateConfig;
+use adk_resources::specs::{AGENT_RULES_FILE, EXPERIMENTAL_CONFIG_FILE};
 use adk_types::ResourceMap;
 use prost_types::value::Kind;
 use prost_types::{ListValue, Struct, Value as ProstValue};

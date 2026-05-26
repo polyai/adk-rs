@@ -1,14 +1,15 @@
 use super::super::local_file_helpers::{
     SimpleLifecycleCommands, json_bool, json_i32, json_str, resource_yaml, yaml_bool, yaml_sequence,
 };
-use crate::resource_specs::PRONUNCIATIONS;
-use crate::{push_command, stable_resource_id, yaml_str};
+use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::pronunciations::{
     PronunciationsCreatePronunciation, PronunciationsDeletePronunciation,
     PronunciationsUpdatePronunciation,
 };
+use adk_resources::ids::stable_resource_id;
+use adk_resources::specs::PRONUNCIATIONS;
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};

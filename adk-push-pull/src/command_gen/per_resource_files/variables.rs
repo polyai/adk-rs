@@ -2,12 +2,11 @@
 
 use super::super::CommandGroups;
 use super::functions;
-use crate::{
-    extract_entities_map, extract_variable_names_from_code, push_command, stable_resource_id,
-};
+use crate::{extract_entities_map, extract_variable_names_from_code, push_command};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::variables::{VariableCreate, VariableDelete, VariableReferences, VariableUpdate};
+use adk_resources::ids::stable_resource_id;
 use adk_types::{Resource, ResourceMap};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};

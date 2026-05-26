@@ -22,7 +22,6 @@ use super::functions::{
 };
 use crate::{
     flow_import_path_maps_from_projection, prompt_reference_maps_from_projection, push_command,
-    stable_resource_id,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
@@ -38,6 +37,7 @@ use adk_protobuf::flows::{
     create_no_code_condition, create_step, update_no_code_condition, update_step,
 };
 use adk_protobuf::{Command, Metadata};
+use adk_resources::ids::stable_resource_id;
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};

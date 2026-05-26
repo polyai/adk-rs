@@ -3,9 +3,9 @@ use super::{
     replace_flow_import_ids_with_names,
 };
 use crate::command_gen::per_resource_files::functions;
-use crate::projection::projection_entity_values;
 use crate::yaml_resources::{AsrBiasingYaml, DtmfConfigYaml, FlowConfigYaml, FlowStepYaml};
 use crate::{CommandGenError, clean_name};
+use adk_resources::projection::projection_entity_values;
 use adk_types::ResourceMap;
 use serde_json::Value;
 

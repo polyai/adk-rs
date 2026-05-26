@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "adk-cli",
+  "adk-resources",
   "adk-push-pull",
   "adk-core",
   "adk-io",
@@ -21,6 +22,7 @@ rust-version = "1.95.0"
 [workspace.dependencies]
 # ADK crates
 adk-cli = { package = "poly-adk", version = "0.0.5", path = "adk-cli" }
+adk-resources = { package = "poly-adk-resources", version = "0.0.5", path = "adk-resources" }
 adk-push-pull = { package = "adk-push-pull", version = "0.0.5", path = "adk-push-pull" }
 adk-core = { package = "poly-adk-core", version = "0.0.5", path = "adk-core" }
 adk-ffi = { package = "poly-adk-ffi", version = "0.0.5", path = "adk-ffi" }

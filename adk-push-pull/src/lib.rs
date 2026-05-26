@@ -1,11 +1,8 @@
 use adk_protobuf::agent::RulesReferences;
 use adk_protobuf::entities;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use thiserror::Error;
-use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum CommandGenError {
@@ -16,8 +13,6 @@ pub enum CommandGenError {
 mod command_gen;
 mod function_parsing;
 mod materialization;
-mod projection;
-mod resource_specs;
 mod yaml_resources;
 
 pub use command_gen::{
@@ -278,36 +273,6 @@ pub(crate) fn is_synthetic_local_resource_id(resource_id: &str) -> bool {
         || trimmed.ends_with(".yaml")
         || trimmed.ends_with(".yml")
         || trimmed.ends_with(".py")
-}
-
-pub(crate) fn stable_resource_id(prefix: &str, name: &str, path: &str) -> String {
-    let mut digest = Sha256::new();
-    digest.update(name.as_bytes());
-    digest.update(b"\0");
-    digest.update(path.as_bytes());
-    let hash = digest.finalize();
-
-    let mut id = String::with_capacity(prefix.len() + 17);
-    id.push_str(prefix);
-    id.push('-');
-    for byte in &hash[..8] {
-        write!(&mut id, "{byte:02x}").expect("writing to a string cannot fail");
-    }
-    id
-}
-
-pub(crate) fn stable_resource_uuid(name: &str, path: &str) -> String {
-    let mut digest = Sha256::new();
-    digest.update(name.as_bytes());
-    digest.update(b"\0");
-    digest.update(path.as_bytes());
-    let hash = digest.finalize();
-
-    let mut bytes = [0_u8; 16];
-    bytes.copy_from_slice(&hash[..16]);
-    bytes[6] = (bytes[6] & 0x0f) | 0x80;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    Uuid::from_bytes(bytes).to_string()
 }
 
 pub(crate) fn build_entity_create_config(

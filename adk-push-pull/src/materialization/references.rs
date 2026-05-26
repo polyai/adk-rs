@@ -1,7 +1,7 @@
 use super::flows::flow_entries;
 use crate::clean_name;
-use crate::projection::projection_entity_values;
-use crate::resource_specs::{AGENT_RULES_FILE, VARIANT_ATTRIBUTES};
+use adk_resources::projection::projection_entity_values;
+use adk_resources::specs::{AGENT_RULES_FILE, VARIANT_ATTRIBUTES};
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;

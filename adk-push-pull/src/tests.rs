@@ -5,22 +5,6 @@ use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::{Resource, ResourceMap};
 
 #[test]
-fn stable_resource_ids_use_sha256_digest_prefix() {
-    assert_eq!(
-        stable_resource_id("PREFIX", "Name", "path/file.py"),
-        "PREFIX-a563c77770234e1b"
-    );
-}
-
-#[test]
-fn stable_resource_uuids_use_sha256_digest_prefix() {
-    assert_eq!(
-        stable_resource_uuid("Name", "path/file.py"),
-        "a563c777-7023-8e1b-b6fc-16aa0a938305"
-    );
-}
-
-#[test]
 fn builds_create_topic_command_when_remote_missing() {
     let mut resources = ResourceMap::new();
     resources.insert(

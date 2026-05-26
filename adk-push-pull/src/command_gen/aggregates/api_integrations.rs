@@ -1,6 +1,5 @@
 use super::super::local_file_helpers::{json_str, resource_yaml, yaml_sequence};
-use crate::resource_specs::API_INTEGRATIONS;
-use crate::{push_command, stable_resource_id, stable_resource_uuid, yaml_str};
+use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::api_integrations::{
     ApiIntegrationConfig, ApiIntegrationConfigUpdate, ApiIntegrationCreate, ApiIntegrationDelete,
@@ -8,6 +7,8 @@ use adk_protobuf::api_integrations::{
     ApiIntegrationUpdate, Environments,
 };
 use adk_protobuf::command::Payload as CommandPayload;
+use adk_resources::ids::{stable_resource_id, stable_resource_uuid};
+use adk_resources::specs::API_INTEGRATIONS;
 use adk_types::ResourceMap;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};

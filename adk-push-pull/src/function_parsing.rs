@@ -1,8 +1,8 @@
-use crate::stable_resource_id;
 use adk_protobuf::functions::{
     DelayResponseUpdate, DelayResponsesUpdate, FunctionCreateLatencyControl, FunctionDelayResponse,
     FunctionParameterUpdate, FunctionUpdateLatencyControl,
 };
+use adk_resources::ids::stable_resource_id;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 

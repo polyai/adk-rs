@@ -1,8 +1,7 @@
 use super::super::local_file_helpers::{
     json_bool, json_str, resource_yaml, yaml_bool, yaml_sequence, yaml_string_map,
 };
-use crate::resource_specs::{VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS};
-use crate::{push_command, stable_resource_id, yaml_str};
+use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::variant::{
@@ -10,6 +9,8 @@ use adk_protobuf::variant::{
     VariantDeleteAttribute, VariantDeleteVariant, VariantSetDefaultVariant, VariantUpdateAttribute,
     VariantValues,
 };
+use adk_resources::ids::stable_resource_id;
+use adk_resources::specs::{VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS};
 use adk_types::ResourceMap;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};

@@ -1,6 +1,6 @@
 use super::{channels::safety_filters_yaml, insert_content_resource, insert_yaml_resource};
 use crate::CommandGenError;
-use crate::resource_specs::{
+use adk_resources::specs::{
     AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_RULES_FILE, AGENT_SAFETY_FILTERS_FILE,
 };
 use adk_types::ResourceMap;

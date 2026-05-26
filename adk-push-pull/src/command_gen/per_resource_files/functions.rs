@@ -10,7 +10,7 @@ pub(crate) use crate::function_parsing::{
 use crate::{
     clean_name, extract_entities_map, extract_variable_names_from_code,
     flow_import_path_maps_from_projection, is_synthetic_local_resource_id, push_command,
-    replace_flow_import_names_with_ids, stable_resource_id,
+    replace_flow_import_names_with_ids,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -24,6 +24,7 @@ use adk_protobuf::functions::{
 use adk_protobuf::start_function::{
     StartFunctionCreate, StartFunctionDelete, StartFunctionReferences, StartFunctionUpdate,
 };
+use adk_resources::ids::stable_resource_id;
 use adk_types::{Resource, ResourceMap};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};

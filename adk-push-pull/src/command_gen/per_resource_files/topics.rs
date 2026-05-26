@@ -3,13 +3,14 @@
 use super::super::CommandGroups;
 use crate::{
     extract_entities_map, is_synthetic_local_resource_id, prompt_reference_maps_from_projection,
-    push_command, replace_resource_names_with_ids, stable_resource_id,
+    push_command, replace_resource_names_with_ids,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::knowledge_base::{
     ExampleQueries, KnowledgeBaseCreateTopic, KnowledgeBaseDeleteTopic, KnowledgeBaseUpdateTopic,
 };
+use adk_resources::ids::stable_resource_id;
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};

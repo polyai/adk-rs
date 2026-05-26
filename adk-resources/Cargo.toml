@@ -1,0 +1,17 @@
+[package]
+name = "poly-adk-resources"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Resource-family semantics for the PolyAI ADK."
+readme = "README.md"
+
+[lib]
+name = "adk_resources"
+
+[dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+uuid.workspace = true

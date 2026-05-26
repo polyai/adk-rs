@@ -17,12 +17,12 @@ version = "0.0.5"
 dependencies = [
  "indexmap",
  "poly-adk-protobuf",
+ "poly-adk-resources",
  "poly-adk-types",
  "prost-types",
  "serde",
  "serde_json",
  "serde_yaml",
- "sha2",
  "thiserror 1.0.69",
  "uuid",
 ]
@@ -2098,6 +2098,15 @@ version = "0.0.5"
 dependencies = [
  "prost",
  "prost-types",
+]
+
+[[package]]
+name = "poly-adk-resources"
+version = "0.0.5"
+dependencies = [
+ "serde_json",
+ "sha2",
+ "uuid",
 ]
 
 [[package]]

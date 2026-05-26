@@ -1,6 +1,6 @@
 use super::insert_yaml_resource;
 use crate::CommandGenError;
-use crate::resource_specs::{
+use adk_resources::specs::{
     ASR_SETTINGS_FILE, CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
     VOICE_SAFETY_FILTERS_FILE,
 };
