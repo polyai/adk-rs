@@ -651,6 +651,70 @@ def handoff(conv: Conversation, handoff_reason: str):
 }
 
 #[test]
+fn ast_function_parsing_handles_async_functions() {
+    let content = r#"from imports import *  # <AUTO GENERATED>
+
+@func_description("Streams a customer lookup.")
+@func_parameter("customer_id", "Customer id")
+@func_latency_control(
+    delay_before_responses_start=2,
+    silence_after_each_response=5,
+    delay_responses=[("Still streaming", 3)],
+)
+async def stream_customer(conv: Conversation, customer_id: str, priority: int = 0):
+    """Fallback async docstring."""
+    return customer_id
+"#;
+
+    assert_eq!(
+        functions::infer_function_description(content),
+        "Streams a customer lookup."
+    );
+    let signature = functions::python_signature_for_function(content, "stream_customer")
+        .expect("async function signature");
+    assert!(signature.starts_with("stream_customer("));
+    assert!(signature.contains("priority: int = 0"));
+
+    let parameters = functions::infer_function_parameters(content, "stream_customer");
+    let names_types_and_descriptions: Vec<_> = parameters
+        .iter()
+        .map(|parameter| {
+            (
+                parameter.name.as_str(),
+                parameter.r#type.as_str(),
+                parameter.description.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        names_types_and_descriptions,
+        vec![
+            ("customer_id", "string", "Customer id"),
+            ("priority", "integer", ""),
+        ]
+    );
+
+    let mut annotated: Vec<_> =
+        functions::annotated_function_parameter_names(content, "stream_customer")
+            .into_iter()
+            .collect();
+    annotated.sort();
+    assert_eq!(annotated, vec!["customer_id", "priority"]);
+
+    let latency = functions::local_latency_control_from_code(content, None);
+    assert!(latency.enabled);
+    assert_eq!(latency.initial_delay, 2);
+    assert_eq!(latency.interval, 5);
+    assert_eq!(latency.delay_responses.len(), 1);
+    assert_eq!(latency.delay_responses[0].message, "Still streaming");
+    assert_eq!(latency.delay_responses[0].duration, 3);
+    assert_eq!(
+        functions::function_code_from_local_content(content),
+        "async def stream_customer(conv: Conversation, customer_id: str, priority: int = 0):\n    \"\"\"Fallback async docstring.\"\"\"\n    return customer_id\n"
+    );
+}
+
+#[test]
 fn ast_latency_control_decorator_handles_multiline_arguments() {
     let content = r#"@func_latency_control(
     delay_responses=[

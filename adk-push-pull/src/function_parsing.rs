@@ -233,14 +233,13 @@ fn first_function(module: &ModModule) -> Option<&StmtFunctionDef> {
 
 fn first_function_in_statements(statements: &[Stmt]) -> Option<&StmtFunctionDef> {
     for statement in statements {
-        match statement {
-            Stmt::FunctionDef(function) => return Some(function),
-            Stmt::ClassDef(class_def) => {
-                if let Some(function) = first_function_in_statements(&class_def.body) {
-                    return Some(function);
-                }
-            }
-            _ => {}
+        if let Some(function) = sync_or_async_function(statement) {
+            return Some(function);
+        }
+        if let Stmt::ClassDef(class_def) = statement
+            && let Some(function) = first_function_in_statements(&class_def.body)
+        {
+            return Some(function);
         }
     }
     None
@@ -255,25 +254,34 @@ fn find_function_in_statements<'a>(
     function_name: &str,
 ) -> Option<&'a StmtFunctionDef> {
     for statement in statements {
-        match statement {
-            Stmt::FunctionDef(function) => {
-                if function.name.as_str() == function_name {
-                    return Some(function);
-                }
-                if let Some(function) = find_function_in_statements(&function.body, function_name) {
-                    return Some(function);
-                }
+        if let Some(function) = sync_or_async_function(statement) {
+            if function.name.as_str() == function_name {
+                return Some(function);
             }
-            Stmt::ClassDef(class_def) => {
-                if let Some(function) = find_function_in_statements(&class_def.body, function_name)
-                {
-                    return Some(function);
-                }
+            if let Some(function) = find_function_in_statements(&function.body, function_name) {
+                return Some(function);
             }
-            _ => {}
+            continue;
+        }
+        if let Stmt::ClassDef(class_def) = statement
+            && let Some(function) = find_function_in_statements(&class_def.body, function_name)
+        {
+            return Some(function);
         }
     }
     None
+}
+
+/// Return a Ruff function node for both Python `def` and `async def`.
+///
+/// The Ruff AST version used here collapses Python's separate `FunctionDef` and
+/// `AsyncFunctionDef` nodes into `Stmt::FunctionDef`; asyncness is tracked on
+/// `StmtFunctionDef::is_async`.
+fn sync_or_async_function(statement: &Stmt) -> Option<&StmtFunctionDef> {
+    match statement {
+        Stmt::FunctionDef(function) => Some(function),
+        _ => None,
+    }
 }
 
 fn function_docstring(function: &StmtFunctionDef) -> Option<String> {
@@ -302,19 +310,16 @@ fn collect_decorator_calls<'a>(
     calls: &mut Vec<&'a Arguments>,
 ) {
     for statement in statements {
-        match statement {
-            Stmt::FunctionDef(function) => {
-                calls.extend(
-                    function.decorator_list.iter().filter_map(|decorator| {
-                        decorator_call_arguments(decorator, decorator_name)
-                    }),
-                );
-                collect_decorator_calls(&function.body, decorator_name, calls);
-            }
-            Stmt::ClassDef(class_def) => {
-                collect_decorator_calls(&class_def.body, decorator_name, calls);
-            }
-            _ => {}
+        if let Some(function) = sync_or_async_function(statement) {
+            calls.extend(
+                function
+                    .decorator_list
+                    .iter()
+                    .filter_map(|decorator| decorator_call_arguments(decorator, decorator_name)),
+            );
+            collect_decorator_calls(&function.body, decorator_name, calls);
+        } else if let Stmt::ClassDef(class_def) = statement {
+            collect_decorator_calls(&class_def.body, decorator_name, calls);
         }
     }
 }
@@ -378,21 +383,17 @@ fn collect_adk_decorator_line_ranges(
     ranges: &mut Vec<Range<usize>>,
 ) {
     for statement in statements {
-        match statement {
-            Stmt::FunctionDef(function) => {
-                ranges.extend(
-                    function
-                        .decorator_list
-                        .iter()
-                        .filter(|decorator| is_adk_decorator(decorator))
-                        .map(|decorator| line_range_for_text_range(content, decorator.range())),
-                );
-                collect_adk_decorator_line_ranges(&function.body, content, ranges);
-            }
-            Stmt::ClassDef(class_def) => {
-                collect_adk_decorator_line_ranges(&class_def.body, content, ranges);
-            }
-            _ => {}
+        if let Some(function) = sync_or_async_function(statement) {
+            ranges.extend(
+                function
+                    .decorator_list
+                    .iter()
+                    .filter(|decorator| is_adk_decorator(decorator))
+                    .map(|decorator| line_range_for_text_range(content, decorator.range())),
+            );
+            collect_adk_decorator_line_ranges(&function.body, content, ranges);
+        } else if let Stmt::ClassDef(class_def) = statement {
+            collect_adk_decorator_line_ranges(&class_def.body, content, ranges);
         }
     }
 }
