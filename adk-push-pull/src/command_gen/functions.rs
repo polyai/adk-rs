@@ -9,8 +9,8 @@ pub(crate) use crate::function_parsing::{
 };
 use crate::{
     clean_name, extract_entities_map, extract_variable_names_from_code,
-    flow_import_path_maps_from_projection, generated_or_stable_resource_id,
-    is_synthetic_local_resource_id, push_command, replace_flow_import_names_with_ids,
+    flow_import_path_maps_from_projection, is_synthetic_local_resource_id, push_command,
+    replace_flow_import_names_with_ids, stable_resource_id,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -94,9 +94,7 @@ pub(crate) fn function_resource_command_groups(
                     (!is_synthetic_local_resource_id(&resource.resource_id))
                         .then_some(resource.resource_id.clone())
                 })
-                .unwrap_or_else(|| {
-                    generated_or_stable_resource_id("function", "FUNCTIONS", &name, path)
-                });
+                .unwrap_or_else(|| stable_resource_id("FUNCTIONS", &name, path));
             let function_code = replace_flow_import_names_with_ids(
                 &function_code_from_local_content(content),
                 &flow_import_path_maps,
@@ -205,9 +203,7 @@ pub(crate) fn function_resource_command_groups(
                 (!is_synthetic_local_resource_id(&resource.resource_id))
                     .then_some(resource.resource_id.clone())
             })
-            .unwrap_or_else(|| {
-                generated_or_stable_resource_id("function", "FUNCTIONS", &name, path)
-            });
+            .unwrap_or_else(|| stable_resource_id("FUNCTIONS", &name, path));
         let function_code = replace_flow_import_names_with_ids(
             &function_code_from_local_content(content),
             &flow_import_path_maps,
@@ -522,12 +518,7 @@ pub(crate) fn variable_reference_ids_from_code(
                         .then_some(id)
                 })
                 .unwrap_or_else(|| {
-                    generated_or_stable_resource_id(
-                        "variable",
-                        "VARIABLES",
-                        &name,
-                        &format!("variables/{name}"),
-                    )
+                    stable_resource_id("VARIABLES", &name, &format!("variables/{name}"))
                 });
             (id, true)
         })

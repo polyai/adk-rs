@@ -23,11 +23,11 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     build_entity_create_config, build_entity_update_config, entity_entries,
-    generated_replay_resource_id, is_synthetic_local_resource_id,
-    prompt_reference_maps_from_projection, push_command, random_resource_id,
+    is_synthetic_local_resource_id, prompt_reference_maps_from_projection, push_command,
     replace_resource_names_with_ids,
-    resource_specs::{AGENT_RULES_FILE, ENTITIES_FILE, ENTITY_ID_PREFIX, ENTITY_REPLAY_KIND},
-    rules_references_from_behaviour, rules_references_from_projection, to_camel_case,
+    resource_specs::{AGENT_RULES_FILE, ENTITIES_FILE, ENTITY_ID_PREFIX},
+    rules_references_from_behaviour, rules_references_from_projection, stable_resource_id,
+    to_camel_case,
 };
 
 #[derive(Debug, Default)]
@@ -132,12 +132,7 @@ fn fixed_single_file_resource_command_groups(
                             .then_some(resource.resource_id.clone())
                     })
                     .unwrap_or_else(|| {
-                        generated_replay_resource_id(
-                            ENTITY_REPLAY_KIND,
-                            &name,
-                            ENTITIES_FILE.file_path,
-                        )
-                        .unwrap_or_else(|| random_resource_id(ENTITY_ID_PREFIX))
+                        stable_resource_id(ENTITY_ID_PREFIX, &name, ENTITIES_FILE.file_path)
                     });
                 let entity_type = item
                     .get("entity_type")

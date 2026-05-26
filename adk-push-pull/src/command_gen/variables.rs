@@ -3,8 +3,7 @@
 use super::functions;
 use super::single_file_resources::CommandGroups;
 use crate::{
-    extract_entities_map, extract_variable_names_from_code, generated_or_stable_resource_id,
-    push_command,
+    extract_entities_map, extract_variable_names_from_code, push_command, stable_resource_id,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -77,9 +76,7 @@ pub(crate) fn variable_resource_command_groups(
             .get(&name)
             .cloned()
             .or_else(|| local_resource_id(resource))
-            .unwrap_or_else(|| {
-                generated_or_stable_resource_id("variable", "VARIABLES", &name, path)
-            });
+            .unwrap_or_else(|| stable_resource_id("VARIABLES", &name, path));
         let references = variable_references
             .get(&name)
             .and_then(VariableReferenceTargets::to_proto);
@@ -201,9 +198,7 @@ fn function_reference_target(
                 .and_then(Value::as_str)
                 .map(ToString::to_string)
                 .or_else(|| local_resource_id(resource))
-                .unwrap_or_else(|| {
-                    generated_or_stable_resource_id("function", "FUNCTIONS", "start_function", path)
-                }),
+                .unwrap_or_else(|| stable_resource_id("FUNCTIONS", "start_function", path)),
         ));
     }
     if path == "functions/end_function.py" {
@@ -214,9 +209,7 @@ fn function_reference_target(
                 .and_then(Value::as_str)
                 .map(ToString::to_string)
                 .or_else(|| local_resource_id(resource))
-                .unwrap_or_else(|| {
-                    generated_or_stable_resource_id("function", "FUNCTIONS", "end_function", path)
-                }),
+                .unwrap_or_else(|| stable_resource_id("FUNCTIONS", "end_function", path)),
         ));
     }
     if path.starts_with("functions/") && path.ends_with(".py") {
@@ -235,9 +228,7 @@ fn function_reference_target(
             FunctionReferenceKind::Global,
             remote_id
                 .or_else(|| local_resource_id(resource))
-                .unwrap_or_else(|| {
-                    generated_or_stable_resource_id("function", "FUNCTIONS", &name, path)
-                }),
+                .unwrap_or_else(|| stable_resource_id("FUNCTIONS", &name, path)),
         ));
     }
     None

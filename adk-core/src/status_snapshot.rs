@@ -222,12 +222,8 @@ fn status_function_parameters(code: &str, function_name: &str) -> Vec<Value> {
                 .as_deref()
                 .and_then(status_schema_type_from_python_annotation)
                 .unwrap_or("string");
-            let id = generated_or_stable_status_resource_id(
-                "function_parameter",
-                "PARAMETER",
-                &name,
-                &name,
-            );
+            let parameter_path = format!("{function_name}.{name}");
+            let id = stable_status_resource_id("PARAMETER", &name, &parameter_path);
             let description = decorator_descriptions
                 .get(&name)
                 .cloned()
@@ -285,30 +281,9 @@ fn status_schema_type_from_python_annotation(annotation: &str) -> Option<&'stati
     }
 }
 
-fn generated_or_stable_status_resource_id(
-    kind: &str,
-    prefix: &str,
-    name: &str,
-    path: &str,
-) -> String {
-    let env_name = format!("POLY_ADK_GENERATED_{}_IDS", kind.to_ascii_uppercase());
-    if let Ok(mappings) = std::env::var(env_name) {
-        for raw in mappings.lines() {
-            let Some((key, id)) = raw.split_once('=') else {
-                continue;
-            };
-            if key == name || key == path {
-                return id.to_string();
-            }
-        }
-    }
-
-    let mut hash = 0x811c9dc5_u32;
-    for byte in format!("{name}\0{path}").bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    format!("{prefix}-{hash:08x}")
+fn stable_status_resource_id(prefix: &str, name: &str, path: &str) -> String {
+    let digest = compute_hash(&format!("{name}\0{path}"));
+    format!("{prefix}-{}", &digest[..16])
 }
 
 pub(crate) fn status_function_step_payload(
@@ -827,6 +802,14 @@ fn variant_name_to_id_from_snapshot_hashes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn status_resource_ids_use_sha256_digest_prefix() {
+        assert_eq!(
+            stable_status_resource_id("PREFIX", "Name", "path/file.py"),
+            "PREFIX-a563c77770234e1b"
+        );
+    }
 
     #[test]
     fn status_snapshot_preserves_unknown_top_level_and_payload_fields() {

@@ -8,8 +8,8 @@
 //! delete/create/update ordering across all resource-family modules.
 
 use crate::{
-    default_metadata_created_by, extract_entities_map, generated_replay_resource_id,
-    is_synthetic_local_resource_id, push_command, random_resource_id,
+    default_metadata_created_by, extract_entities_map, is_synthetic_local_resource_id,
+    push_command, stable_resource_id,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::experimental_config::ExperimentalConfigUpdateConfig;
@@ -459,10 +459,7 @@ impl HandoffItemQueue<'_> {
             .or_else(|| {
                 (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
             })
-            .unwrap_or_else(|| {
-                generated_replay_resource_id("handoff", &name, "config/handoffs.yaml")
-                    .unwrap_or_else(|| random_resource_id("HANDOFFS"))
-            });
+            .unwrap_or_else(|| stable_resource_id("HANDOFFS", &name, "config/handoffs.yaml"));
         let description = yaml_str(yaml, "description");
         let sip_config = handoff_sip_config(yaml);
         let sip_headers = sip_headers_from_yaml(yaml);
@@ -534,8 +531,7 @@ impl SmsItemQueue<'_> {
                 (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
             })
             .unwrap_or_else(|| {
-                generated_replay_resource_id("sms_template", &name, "config/sms_templates.yaml")
-                    .unwrap_or_else(|| random_resource_id("SMS_TEMPLATES"))
+                stable_resource_id("SMS_TEMPLATES", &name, "config/sms_templates.yaml")
             });
         let text = yaml_str(yaml, "text");
         let env_create = sms_env_phone_numbers(yaml);
@@ -626,10 +622,7 @@ fn queue_handoff_default_item(
         .or_else(|| {
             (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
         })
-        .unwrap_or_else(|| {
-            generated_replay_resource_id("handoff", &name, "config/handoffs.yaml")
-                .unwrap_or_else(|| random_resource_id("HANDOFFS"))
-        });
+        .unwrap_or_else(|| stable_resource_id("HANDOFFS", &name, "config/handoffs.yaml"));
     push_command(
         defaults,
         metadata,
@@ -749,12 +742,11 @@ impl PhraseFilterItemQueue<'_> {
                 (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
             })
             .unwrap_or_else(|| {
-                generated_replay_resource_id(
-                    "phrase_filtering",
+                stable_resource_id(
+                    "PHRASE_FILTERING",
                     &title,
                     "voice/response_control/phrase_filtering.yaml",
                 )
-                .unwrap_or_else(|| random_resource_id("PHRASE_FILTERING"))
             });
         let description = yaml_str(yaml, "description");
         let say_phrase = yaml

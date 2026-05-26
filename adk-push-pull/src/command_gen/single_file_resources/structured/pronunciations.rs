@@ -2,7 +2,7 @@ use super::common::{
     SimpleLifecycleCommands, json_bool, json_i32, json_str, resource_yaml, yaml_bool, yaml_sequence,
 };
 use crate::resource_specs::PRONUNCIATIONS;
-use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
+use crate::{push_command, stable_resource_id, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::pronunciations::{
@@ -80,12 +80,11 @@ pub(super) fn pronunciation_lifecycle_commands(
             ),
             Some(_) => {}
             None => {
-                let id = generated_replay_resource_id(
-                    PRONUNCIATIONS.replay_kind,
+                let id = stable_resource_id(
+                    PRONUNCIATIONS.id_prefix,
                     &local.regex,
                     PRONUNCIATIONS.file.file_path,
-                )
-                .unwrap_or_else(|| random_resource_id(PRONUNCIATIONS.id_prefix));
+                );
                 push_command(
                     &mut commands.creates,
                     metadata,

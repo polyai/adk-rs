@@ -3,7 +3,6 @@ use adk_protobuf::entities;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::env;
 use std::fmt::Write as _;
 use thiserror::Error;
 use uuid::Uuid;
@@ -281,37 +280,7 @@ pub(crate) fn is_synthetic_local_resource_id(resource_id: &str) -> bool {
         || trimmed.ends_with(".py")
 }
 
-pub(crate) fn random_resource_id(prefix: &str) -> String {
-    let hex = Uuid::new_v4().simple().to_string();
-    format!("{prefix}-{}", &hex[..8])
-}
-
-pub(crate) fn generated_replay_resource_id(kind: &str, name: &str, path: &str) -> Option<String> {
-    // Replay tests map Python-recorded random IDs onto Rust-generated command payloads.
-    let env_name = format!("POLY_ADK_GENERATED_{}_IDS", kind.to_ascii_uppercase());
-    let mappings = env::var(env_name).ok()?;
-    for raw in mappings.lines() {
-        let Some((key, id)) = raw.split_once('=') else {
-            continue;
-        };
-        if key == name || key == path {
-            return Some(id.to_string());
-        }
-    }
-    None
-}
-
-pub(crate) fn generated_or_stable_resource_id(
-    kind: &str,
-    prefix: &str,
-    name: &str,
-    path: &str,
-) -> String {
-    generated_replay_resource_id(kind, name, path)
-        .unwrap_or_else(|| stable_resource_id(prefix, name, path))
-}
-
-fn stable_resource_id(prefix: &str, name: &str, path: &str) -> String {
+pub(crate) fn stable_resource_id(prefix: &str, name: &str, path: &str) -> String {
     let mut digest = Sha256::new();
     digest.update(name.as_bytes());
     digest.update(b"\0");
@@ -325,6 +294,20 @@ fn stable_resource_id(prefix: &str, name: &str, path: &str) -> String {
         write!(&mut id, "{byte:02x}").expect("writing to a string cannot fail");
     }
     id
+}
+
+pub(crate) fn stable_resource_uuid(name: &str, path: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(name.as_bytes());
+    digest.update(b"\0");
+    digest.update(path.as_bytes());
+    let hash = digest.finalize();
+
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&hash[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes).to_string()
 }
 
 pub(crate) fn build_entity_create_config(

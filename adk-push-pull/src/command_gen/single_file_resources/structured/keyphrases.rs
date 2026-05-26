@@ -1,6 +1,6 @@
 use super::common::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
 use crate::resource_specs::{KEYPHRASE_BOOSTING, LEGACY_KEYPHRASE_BOOSTING_FILE_PATH};
-use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
+use crate::{push_command, stable_resource_id, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::keyphrase_boosting::{
@@ -66,12 +66,11 @@ pub(super) fn keyphrase_lifecycle_commands(
             ),
             Some(_) => {}
             None => {
-                let id = generated_replay_resource_id(
-                    KEYPHRASE_BOOSTING.replay_kind,
+                let id = stable_resource_id(
+                    KEYPHRASE_BOOSTING.id_prefix,
                     &local.keyphrase,
                     KEYPHRASE_BOOSTING.file.file_path,
-                )
-                .unwrap_or_else(|| random_resource_id(KEYPHRASE_BOOSTING.id_prefix));
+                );
                 push_command(
                     &mut commands.creates,
                     metadata,

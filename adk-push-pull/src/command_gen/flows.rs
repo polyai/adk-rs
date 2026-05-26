@@ -21,8 +21,8 @@ use super::functions::{
 };
 use super::single_file_resources::CommandGroups;
 use crate::{
-    flow_import_path_maps_from_projection, generated_replay_resource_id,
-    prompt_reference_maps_from_projection, push_command, random_resource_id,
+    flow_import_path_maps_from_projection, prompt_reference_maps_from_projection, push_command,
+    stable_resource_id,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
@@ -80,8 +80,7 @@ pub(crate) fn flow_resource_command_groups(
 }
 
 fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Option<Metadata>) {
-    let flow_id = generated_replay_resource_id("flow", &flow.name, &flow.config_path)
-        .unwrap_or_else(|| random_resource_id("FLOW_CONFIG"));
+    let flow_id = stable_resource_id("FLOW_CONFIG", &flow.name, &flow.config_path);
     let mut step_ids = HashMap::new();
     let mut advanced_steps = Vec::new();
     let mut no_code_steps = Vec::new();
@@ -91,8 +90,7 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
     let transition_functions = ordered_transition_functions(flow);
 
     for (index, step) in ordered_steps.iter().enumerate() {
-        let step_id = generated_replay_resource_id("flow_step", &step.name, &step.path)
-            .unwrap_or_else(|| random_resource_id("FLOW_STEPS"));
+        let step_id = stable_resource_id("FLOW_STEPS", &step.name, &step.path);
         step_ids.insert(step.name.clone(), step_id.clone());
         let position = Some(
             step.position
@@ -146,10 +144,8 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
 
     let next_index = ordered_steps.len();
     for (offset, step) in function_steps.iter().enumerate() {
-        let step_id = generated_replay_resource_id("function_step", &step.name, &step.path)
-            .unwrap_or_else(|| random_resource_id("FUNCTION_STEPS"));
-        let function_id = generated_replay_resource_id("function", &step.name, &step.path)
-            .unwrap_or_else(|| random_resource_id("FUNCTION"));
+        let step_id = stable_resource_id("FUNCTION_STEPS", &step.name, &step.path);
+        let function_id = stable_resource_id("FUNCTION", &step.name, &step.path);
         push_command(
             out,
             metadata,
@@ -196,9 +192,7 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
             if condition.condition_type != "exit_flow_condition" {
                 continue;
             }
-            let condition_id =
-                generated_replay_resource_id("condition", &condition.name, &step.path)
-                    .unwrap_or_else(|| random_resource_id("CONDITION"));
+            let condition_id = stable_resource_id("CONDITION", &condition.name, &step.path);
             push_command(
                 out,
                 metadata,
@@ -242,8 +236,7 @@ fn transition_function_create_payload(
     let parameters = infer_function_parameters(&function.code, &function_symbol);
     TransitionFunctionCreateTransitionFunction {
         id: id_override.unwrap_or_else(|| {
-            generated_replay_resource_id("flow_transition_function", &function.name, &function.path)
-                .unwrap_or_else(|| random_resource_id("FLOW_TRANSITION_FUNCTIONS"))
+            stable_resource_id("FLOW_TRANSITION_FUNCTIONS", &function.name, &function.path)
         }),
         name: function.name.clone(),
         description: function.description.clone(),
@@ -516,10 +509,8 @@ fn update_flow_commands(
             continue;
         }
 
-        let step_id = generated_replay_resource_id("function_step", &step.name, &step.path)
-            .unwrap_or_else(|| random_resource_id("FUNCTION_STEPS"));
-        let function_id = generated_replay_resource_id("function", &step.name, &step.path)
-            .unwrap_or_else(|| random_resource_id("FUNCTION"));
+        let step_id = stable_resource_id("FUNCTION_STEPS", &step.name, &step.path);
+        let function_id = stable_resource_id("FUNCTION", &step.name, &step.path);
         push_command(
             &mut groups.creates,
             metadata,
@@ -614,12 +605,8 @@ fn update_flow_commands(
             continue;
         }
 
-        let function_id = generated_replay_resource_id(
-            "flow_transition_function",
-            &function.name,
-            &function.path,
-        )
-        .unwrap_or_else(|| random_resource_id("FLOW_TRANSITION_FUNCTIONS"));
+        let function_id =
+            stable_resource_id("FLOW_TRANSITION_FUNCTIONS", &function.name, &function.path);
         push_command(
             &mut groups.creates,
             metadata,

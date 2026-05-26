@@ -1,4 +1,4 @@
-use crate::generated_or_stable_resource_id;
+use crate::stable_resource_id;
 use adk_protobuf::functions::{
     DelayResponseUpdate, DelayResponsesUpdate, FunctionCreateLatencyControl, FunctionDelayResponse,
     FunctionParameterUpdate, FunctionUpdateLatencyControl,
@@ -258,17 +258,20 @@ pub(crate) fn infer_function_parameters(
             (!name.is_empty() && !matches!(name, "self" | "conv" | "flow"))
                 .then_some((name, annotation))
         })
-        .map(|(name, annotation)| FunctionParameterUpdate {
-            id: generated_or_stable_resource_id("function_parameter", "PARAMETER", name, name),
-            name: name.to_string(),
-            description: decorator_descriptions
-                .get(name)
-                .cloned()
-                .unwrap_or_default(),
-            r#type: annotation
-                .and_then(schema_type_from_python_annotation)
-                .unwrap_or("string")
-                .to_string(),
+        .map(|(name, annotation)| {
+            let parameter_path = format!("{function_name}.{name}");
+            FunctionParameterUpdate {
+                id: stable_resource_id("PARAMETER", name, &parameter_path),
+                name: name.to_string(),
+                description: decorator_descriptions
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_default(),
+                r#type: annotation
+                    .and_then(schema_type_from_python_annotation)
+                    .unwrap_or("string")
+                    .to_string(),
+            }
         })
         .collect()
 }
@@ -462,14 +465,8 @@ pub(crate) fn local_latency_control_from_code(
                 })
                 .and_then(|response| response.id.clone())
                 .or_else(|| {
-                    (!message.trim().is_empty()).then(|| {
-                        generated_or_stable_resource_id(
-                            "delay_response",
-                            "DELAY",
-                            &message,
-                            &message,
-                        )
-                    })
+                    (!message.trim().is_empty())
+                        .then(|| stable_resource_id("DELAY", &message, &message))
                 });
             if let Some(id) = &id {
                 used_ids.insert(id.clone());
@@ -517,12 +514,7 @@ pub(crate) fn function_update_latency_control(
                 .iter()
                 .map(|response| DelayResponseUpdate {
                     id: response.id.clone().unwrap_or_else(|| {
-                        generated_or_stable_resource_id(
-                            "delay_response",
-                            "DELAY",
-                            &response.message,
-                            &response.message,
-                        )
+                        stable_resource_id("DELAY", &response.message, &response.message)
                     }),
                     message: response.message.clone(),
                     duration: response.duration,
@@ -572,14 +564,10 @@ pub(crate) fn latency_control_from_projection(function: &Value) -> ParsedLatency
 
 fn function_delay_response(response: &ParsedDelayResponse) -> FunctionDelayResponse {
     FunctionDelayResponse {
-        id: response.id.clone().unwrap_or_else(|| {
-            generated_or_stable_resource_id(
-                "delay_response",
-                "DELAY",
-                &response.message,
-                &response.message,
-            )
-        }),
+        id: response
+            .id
+            .clone()
+            .unwrap_or_else(|| stable_resource_id("DELAY", &response.message, &response.message)),
         message: response.message.clone(),
         duration: response.duration,
         created_at: None,

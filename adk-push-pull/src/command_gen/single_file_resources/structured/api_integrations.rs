@@ -1,6 +1,6 @@
 use super::common::{json_str, resource_yaml, yaml_sequence};
-use crate::resource_specs::{API_INTEGRATION_OPERATION_REPLAY_KIND, API_INTEGRATIONS};
-use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
+use crate::resource_specs::API_INTEGRATIONS;
+use crate::{push_command, stable_resource_id, stable_resource_uuid, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::api_integrations::{
     ApiIntegrationConfig, ApiIntegrationConfigUpdate, ApiIntegrationCreate, ApiIntegrationDelete,
@@ -11,7 +11,6 @@ use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::ResourceMap;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
-use uuid::Uuid;
 
 #[derive(Default)]
 pub(super) struct ApiIntegrationLifecycleCommands {
@@ -89,12 +88,11 @@ pub(super) fn api_integration_lifecycle_commands(
         if remote_by_name.contains_key(&local.name) {
             continue;
         }
-        let id = generated_replay_resource_id(
-            API_INTEGRATIONS.replay_kind,
+        let id = stable_resource_id(
+            API_INTEGRATIONS.id_prefix,
             &local.name,
             API_INTEGRATIONS.file.file_path,
-        )
-        .unwrap_or_else(|| random_resource_id(API_INTEGRATIONS.id_prefix));
+        );
         integration_ids_by_name.insert(local.name.clone(), id.clone());
         push_command(
             &mut commands.integration_creates,
@@ -174,6 +172,7 @@ pub(super) fn api_integration_lifecycle_commands(
                 None => push_create_api_operation(
                     &mut commands.operation_creates,
                     metadata,
+                    &local.name,
                     &remote.id,
                     local_operation,
                 ),
@@ -213,6 +212,7 @@ pub(super) fn api_integration_lifecycle_commands(
             push_create_api_operation(
                 &mut commands.operation_creates,
                 metadata,
+                &local.name,
                 &integration_id,
                 local_operation,
             );
@@ -406,15 +406,12 @@ fn api_config_from_item(item: &ApiEnvironmentItem) -> ApiIntegrationConfig {
 fn push_create_api_operation(
     commands: &mut Vec<adk_protobuf::Command>,
     metadata: &Option<Metadata>,
+    integration_name: &str,
     integration_id: &str,
     operation: &ApiOperationItem,
 ) {
-    let id = generated_replay_resource_id(
-        API_INTEGRATION_OPERATION_REPLAY_KIND,
-        &operation.name,
-        API_INTEGRATIONS.file.file_path,
-    )
-    .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let operation_path = format!("{}:{integration_name}", API_INTEGRATIONS.file.file_path);
+    let id = stable_resource_uuid(&operation.name, &operation_path);
     push_command(
         commands,
         metadata,

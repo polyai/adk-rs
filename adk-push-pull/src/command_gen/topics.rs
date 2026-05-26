@@ -2,9 +2,8 @@
 
 use super::single_file_resources::CommandGroups;
 use crate::{
-    extract_entities_map, generated_replay_resource_id, is_synthetic_local_resource_id,
-    prompt_reference_maps_from_projection, push_command, random_resource_id,
-    replace_resource_names_with_ids,
+    extract_entities_map, is_synthetic_local_resource_id, prompt_reference_maps_from_projection,
+    push_command, replace_resource_names_with_ids, stable_resource_id,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -73,8 +72,7 @@ pub(crate) fn topic_resource_command_groups(
                 (!is_synthetic_local_resource_id(&resource.resource_id))
                     .then_some(resource.resource_id.clone())
             })
-            .or_else(|| generated_replay_resource_id("topic", &name, path))
-            .unwrap_or_else(|| random_resource_id("TOPICS"));
+            .unwrap_or_else(|| stable_resource_id("TOPICS", &name, path));
         let actions = yaml
             .get("actions")
             .and_then(serde_yaml::Value::as_str)

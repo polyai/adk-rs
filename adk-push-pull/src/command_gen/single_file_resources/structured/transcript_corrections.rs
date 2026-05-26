@@ -1,6 +1,6 @@
 use super::common::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
 use crate::resource_specs::TRANSCRIPT_CORRECTIONS;
-use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
+use crate::{push_command, stable_resource_id, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::transcript_corrections::{
@@ -64,12 +64,11 @@ pub(super) fn transcript_lifecycle_commands(
                 }
             }
             None => {
-                let id = generated_replay_resource_id(
-                    TRANSCRIPT_CORRECTIONS.replay_kind,
+                let id = stable_resource_id(
+                    TRANSCRIPT_CORRECTIONS.id_prefix,
                     &local.name,
                     TRANSCRIPT_CORRECTIONS.file.file_path,
-                )
-                .unwrap_or_else(|| random_resource_id(TRANSCRIPT_CORRECTIONS.id_prefix));
+                );
                 push_command(
                     &mut commands.creates,
                     metadata,

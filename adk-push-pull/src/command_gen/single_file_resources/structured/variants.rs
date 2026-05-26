@@ -2,7 +2,7 @@ use super::common::{
     json_bool, json_str, resource_yaml, yaml_bool, yaml_sequence, yaml_string_map,
 };
 use crate::resource_specs::{VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS};
-use crate::{generated_replay_resource_id, push_command, random_resource_id, yaml_str};
+use crate::{push_command, stable_resource_id, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::variant::{
@@ -108,12 +108,7 @@ pub(super) fn variant_lifecycle_commands(
         if remote_variants_by_name.contains_key(&local.name) {
             continue;
         }
-        let id = generated_replay_resource_id(
-            VARIANTS.replay_kind,
-            &local.name,
-            VARIANTS.file.file_path,
-        )
-        .unwrap_or_else(|| random_resource_id(VARIANTS.id_prefix));
+        let id = stable_resource_id(VARIANTS.id_prefix, &local.name, VARIANTS.file.file_path);
         local.id = id.clone();
         variant_ids_by_name.insert(local.name.clone(), id.clone());
         push_command(
@@ -148,12 +143,11 @@ pub(super) fn variant_lifecycle_commands(
         if remote_attributes_by_name.contains_key(&local.name) {
             continue;
         }
-        let id = generated_replay_resource_id(
-            VARIANT_ATTRIBUTES.replay_kind,
+        let id = stable_resource_id(
+            VARIANT_ATTRIBUTES.id_prefix,
             &local.name,
             VARIANT_ATTRIBUTES.file.file_path,
-        )
-        .unwrap_or_else(|| random_resource_id(VARIANT_ATTRIBUTES.id_prefix));
+        );
         local.id = id.clone();
         push_command(
             &mut commands.attribute_creates,

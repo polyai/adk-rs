@@ -13,6 +13,14 @@ fn stable_resource_ids_use_sha256_digest_prefix() {
 }
 
 #[test]
+fn stable_resource_uuids_use_sha256_digest_prefix() {
+    assert_eq!(
+        stable_resource_uuid("Name", "path/file.py"),
+        "a563c777-7023-8e1b-b6fc-16aa0a938305"
+    );
+}
+
+#[test]
 fn builds_create_topic_command_when_remote_missing() {
     let mut resources = ResourceMap::new();
     resources.insert(
@@ -574,6 +582,22 @@ def handoff(conv: Conversation, handoff_reason: str):
         functions::function_code_from_local_content(content),
         "def handoff(conv: Conversation, handoff_reason: str):\n    return {\"reason\": handoff_reason}\n"
     );
+}
+
+#[test]
+fn inferred_function_parameter_ids_include_function_name() {
+    let first = functions::infer_function_parameters(
+        "def lookup(conv: Conversation, value: str):\n    return value\n",
+        "lookup",
+    );
+    let second = functions::infer_function_parameters(
+        "def update(conv: Conversation, value: str):\n    return value\n",
+        "update",
+    );
+
+    assert_eq!(first[0].name, "value");
+    assert_eq!(second[0].name, "value");
+    assert_ne!(first[0].id, second[0].id);
 }
 
 #[test]
@@ -2199,6 +2223,12 @@ api_integrations:
       - name: get_recording_status
         method: GET
         resource: /status
+  - name: adk_recording_api_backup
+    description: Recording-only backup API integration.
+    operations:
+      - name: get_recording_status
+        method: GET
+        resource: /backup/status
 "#,
         ),
     );
@@ -2299,6 +2329,19 @@ pronunciations:
         }
         _ => panic!("unexpected payload variant for create_api_integration command"),
     }
+
+    let operation_ids = commands
+        .iter()
+        .filter(|command| command.r#type == "create_api_integration_operation")
+        .filter_map(|command| match &command.payload {
+            Some(CommandPayload::CreateApiIntegrationOperation(payload)) => {
+                Some(payload.id.as_str())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(operation_ids.len(), 2);
+    assert_ne!(operation_ids[0], operation_ids[1]);
 }
 
 #[test]

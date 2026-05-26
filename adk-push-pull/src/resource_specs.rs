@@ -2,7 +2,7 @@
 //!
 //! These are adk-push-pull details rather than global resource type metadata:
 //! they describe how backend projection fragments map to local ADK files and
-//! replay IDs for the resources this crate can materialize or push.
+//! generated IDs for the resources this crate can materialize or push.
 
 use crate::projection::ProjectionCollection;
 use serde_json::Value;
@@ -19,7 +19,6 @@ pub(crate) struct CollectionResourceSpec {
     pub(crate) file: FileResourceSpec,
     pub(crate) yaml_key: &'static str,
     projection: ProjectionCollection,
-    pub(crate) replay_kind: &'static str,
     pub(crate) id_prefix: &'static str,
 }
 
@@ -51,7 +50,6 @@ pub(crate) const ENTITIES_FILE: FileResourceSpec = FileResourceSpec {
     name: "entities",
 };
 
-pub(crate) const ENTITY_REPLAY_KIND: &str = "entity";
 pub(crate) const ENTITY_ID_PREFIX: &str = "ENTITIES";
 
 pub(crate) const KEYPHRASE_BOOSTING_FILE: FileResourceSpec = FileResourceSpec {
@@ -133,7 +131,6 @@ pub(crate) const VARIANTS: CollectionResourceSpec = CollectionResourceSpec {
     file: VARIANT_ATTRIBUTES_FILE,
     yaml_key: "variants",
     projection: ProjectionCollection::new(&["variantManagement", "variants"]),
-    replay_kind: "variant",
     id_prefix: "VARIANTS",
 };
 
@@ -141,7 +138,6 @@ pub(crate) const VARIANT_ATTRIBUTES: CollectionResourceSpec = CollectionResource
     file: VARIANT_ATTRIBUTES_FILE,
     yaml_key: "attributes",
     projection: ProjectionCollection::new(&["variantManagement", "attributes"]),
-    replay_kind: "variant_attribute",
     id_prefix: "VARIANT_ATTRIBUTES",
 };
 
@@ -152,17 +148,13 @@ pub(crate) const API_INTEGRATIONS: CollectionResourceSpec = CollectionResourceSp
     file: API_INTEGRATIONS_FILE,
     yaml_key: "api_integrations",
     projection: ProjectionCollection::new(&["apiIntegrations", "apiIntegrations"]),
-    replay_kind: "api_integration",
     id_prefix: "API-INTEGRATION",
 };
-
-pub(crate) const API_INTEGRATION_OPERATION_REPLAY_KIND: &str = "api_integration_operation";
 
 pub(crate) const KEYPHRASE_BOOSTING: CollectionResourceSpec = CollectionResourceSpec {
     file: KEYPHRASE_BOOSTING_FILE,
     yaml_key: "keyphrases",
     projection: ProjectionCollection::new(&["keyphraseBoosting", "keyphraseBoosting"]),
-    replay_kind: "keyphrase_boosting",
     id_prefix: "KEYPHRASE_BOOSTING",
 };
 
@@ -170,7 +162,6 @@ pub(crate) const TRANSCRIPT_CORRECTIONS: CollectionResourceSpec = CollectionReso
     file: TRANSCRIPT_CORRECTIONS_FILE,
     yaml_key: "corrections",
     projection: ProjectionCollection::new(&["transcriptCorrections", "transcriptCorrections"]),
-    replay_kind: "transcript_corrections",
     id_prefix: "TRANSCRIPT_CORRECTIONS",
 };
 
@@ -178,6 +169,5 @@ pub(crate) const PRONUNCIATIONS: CollectionResourceSpec = CollectionResourceSpec
     file: PRONUNCIATIONS_FILE,
     yaml_key: "pronunciations",
     projection: ProjectionCollection::new(&["pronunciations", "pronunciations"]),
-    replay_kind: "pronunciations",
     id_prefix: "PRONUNCIATIONS",
 };

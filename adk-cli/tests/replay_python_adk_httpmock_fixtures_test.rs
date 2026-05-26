@@ -348,9 +348,220 @@ fn cassette_interaction_matches(
         serde_json::from_str::<Value>(expected_body),
         serde_json::from_str::<Value>(&actual_body),
     ) {
-        (Ok(expected), Ok(actual)) => expected == actual,
+        (Ok(expected), Ok(actual)) => normalize_generated_resource_ids(expected, &actual) == actual,
         _ => expected_body.trim() == actual_body.trim(),
     }
+}
+
+fn normalize_generated_resource_ids(expected: Value, actual: &Value) -> Value {
+    let mut replacements = HashMap::new();
+    collect_generated_resource_id_replacements(&expected, actual, None, &mut replacements);
+    let mut normalized = expected;
+    apply_generated_resource_id_replacements(&mut normalized, &replacements);
+    normalized
+}
+
+fn collect_generated_resource_id_replacements(
+    expected: &Value,
+    actual: &Value,
+    field_name: Option<&str>,
+    replacements: &mut HashMap<String, String>,
+) {
+    match (expected, actual) {
+        (Value::String(expected), Value::String(actual))
+            if expected != actual
+                && field_name.is_some_and(is_generated_resource_id_field)
+                && is_generated_resource_id(expected)
+                && is_generated_resource_id(actual) =>
+        {
+            match replacements.get(expected) {
+                Some(existing) if existing != actual => {}
+                _ => {
+                    replacements.insert(expected.clone(), actual.clone());
+                }
+            }
+        }
+        (Value::Array(expected), Value::Array(actual)) => {
+            for (expected, actual) in expected.iter().zip(actual.iter()) {
+                collect_generated_resource_id_replacements(
+                    expected,
+                    actual,
+                    field_name,
+                    replacements,
+                );
+            }
+        }
+        (Value::Object(expected), Value::Object(actual)) => {
+            for (key, expected_value) in expected {
+                if let Some(actual_value) = actual.get(key) {
+                    collect_generated_resource_id_replacements(
+                        expected_value,
+                        actual_value,
+                        Some(key),
+                        replacements,
+                    );
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn apply_generated_resource_id_replacements(
+    value: &mut Value,
+    replacements: &HashMap<String, String>,
+) {
+    match value {
+        Value::String(text) => {
+            *text = replace_generated_resource_ids(text, replacements);
+        }
+        Value::Array(items) => {
+            for item in items {
+                apply_generated_resource_id_replacements(item, replacements);
+            }
+        }
+        Value::Object(object) => {
+            let original = std::mem::take(object);
+            *object = original
+                .into_iter()
+                .map(|(key, mut value)| {
+                    apply_generated_resource_id_replacements(&mut value, replacements);
+                    (replace_generated_resource_ids(&key, replacements), value)
+                })
+                .collect();
+        }
+        _ => {}
+    }
+}
+
+fn replace_generated_resource_ids(text: &str, replacements: &HashMap<String, String>) -> String {
+    replacements
+        .iter()
+        .fold(text.to_string(), |text, (from, to)| text.replace(from, to))
+}
+
+fn is_generated_resource_id_field(field_name: &str) -> bool {
+    matches!(
+        field_name,
+        "id" | "ids"
+            | "resource_id"
+            | "resourceId"
+            | "step_id"
+            | "stepId"
+            | "condition_id"
+            | "conditionId"
+            | "operation_id"
+            | "operationId"
+    )
+}
+
+fn is_generated_resource_id(value: &str) -> bool {
+    is_uuid_like(value)
+        || GENERATED_RESOURCE_ID_PREFIXES.iter().any(|prefix| {
+            value
+                .strip_prefix(prefix)
+                .and_then(|rest| rest.strip_prefix('-'))
+                .is_some_and(|suffix| {
+                    suffix.len() >= 8 && suffix.chars().all(|ch| ch.is_ascii_hexdigit())
+                })
+        })
+}
+
+const GENERATED_RESOURCE_ID_PREFIXES: &[&str] = &[
+    "API-INTEGRATION",
+    "API_INTEGRATION",
+    "API_INTEGRATIONS",
+    "CONDITION",
+    "DELAY",
+    "ENTITIES",
+    "ENTITY",
+    "FLOW",
+    "FLOW_CONFIG",
+    "FLOW_STEPS",
+    "FLOW_TRANSITION_FUNCTIONS",
+    "FUNCTION",
+    "FUNCTIONS",
+    "FUNCTION_STEPS",
+    "HANDOFF",
+    "HANDOFFS",
+    "KEYPHRASE_BOOSTING",
+    "PARAMETER",
+    "PHRASE_FILTERING",
+    "PRONUNCIATIONS",
+    "SMS_TEMPLATE",
+    "SMS_TEMPLATES",
+    "STOP_KEYWORDS",
+    "TOPIC",
+    "TOPICS",
+    "TRANSCRIPT_CORRECTIONS",
+    "TRANSITION",
+    "VARIABLE",
+    "VARIABLES",
+    "VARIANT",
+    "VARIANTS",
+    "VARIANT_ATTRIBUTE",
+    "VARIANT_ATTRIBUTES",
+];
+
+fn is_uuid_like(value: &str) -> bool {
+    if value.len() != 36 {
+        return false;
+    }
+    value.chars().enumerate().all(|(index, ch)| {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            ch == '-'
+        } else {
+            ch.is_ascii_hexdigit()
+        }
+    })
+}
+
+#[test]
+fn normalizes_generated_resource_ids_across_references() {
+    let expected = serde_json::json!({
+        "commands": [{
+            "type": "create_function",
+            "create_function": {
+                "id": "FUNCTIONS-aaaaaaaa",
+                "name": "lookup",
+                "actions": "Call {{fn:FUNCTIONS-aaaaaaaa}}"
+            }
+        }, {
+            "type": "variable_update",
+            "variable_update": {
+                "id": "VARIABLES-bbbbbbbb",
+                "name": "lookup_count",
+                "references": {
+                    "functions": {
+                        "FUNCTIONS-aaaaaaaa": true
+                    }
+                }
+            }
+        }]
+    });
+    let actual = serde_json::json!({
+        "commands": [{
+            "type": "create_function",
+            "create_function": {
+                "id": "FUNCTIONS-11111111",
+                "name": "lookup",
+                "actions": "Call {{fn:FUNCTIONS-11111111}}"
+            }
+        }, {
+            "type": "variable_update",
+            "variable_update": {
+                "id": "VARIABLES-22222222",
+                "name": "lookup_count",
+                "references": {
+                    "functions": {
+                        "FUNCTIONS-11111111": true
+                    }
+                }
+            }
+        }]
+    });
+
+    assert_eq!(normalize_generated_resource_ids(expected, &actual), actual);
 }
 
 fn request_path_matches(recorded_path: &str, actual_path: &str) -> bool {
@@ -484,79 +695,6 @@ fn run_rust_poly(
         .env_remove("GITHUB_ACCESS_TOKEN");
     if let Some(name) = maybe_lookup_substitution("${GENERATED_ADK_BRANCH_NAME}", substitutions) {
         command.env("POLY_ADK_GENERATED_BRANCH_NAME", name);
-    }
-    if let Some(topic_ids) = maybe_lookup_substitution("${GENERATED_TOPIC_IDS}", substitutions) {
-        command.env("POLY_ADK_GENERATED_TOPIC_IDS", topic_ids);
-    }
-    for (placeholder, env_name) in [
-        ("${GENERATED_VARIANT_IDS}", "POLY_ADK_GENERATED_VARIANT_IDS"),
-        (
-            "${GENERATED_VARIANT_ATTRIBUTE_IDS}",
-            "POLY_ADK_GENERATED_VARIANT_ATTRIBUTE_IDS",
-        ),
-        (
-            "${GENERATED_API_INTEGRATION_IDS}",
-            "POLY_ADK_GENERATED_API_INTEGRATION_IDS",
-        ),
-        (
-            "${GENERATED_API_INTEGRATION_OPERATION_IDS}",
-            "POLY_ADK_GENERATED_API_INTEGRATION_OPERATION_IDS",
-        ),
-        (
-            "${GENERATED_KEYPHRASE_BOOSTING_IDS}",
-            "POLY_ADK_GENERATED_KEYPHRASE_BOOSTING_IDS",
-        ),
-        (
-            "${GENERATED_TRANSCRIPT_CORRECTIONS_IDS}",
-            "POLY_ADK_GENERATED_TRANSCRIPT_CORRECTIONS_IDS",
-        ),
-        (
-            "${GENERATED_PRONUNCIATIONS_IDS}",
-            "POLY_ADK_GENERATED_PRONUNCIATIONS_IDS",
-        ),
-        (
-            "${GENERATED_FUNCTION_IDS}",
-            "POLY_ADK_GENERATED_FUNCTION_IDS",
-        ),
-        (
-            "${GENERATED_FUNCTION_PARAMETER_IDS}",
-            "POLY_ADK_GENERATED_FUNCTION_PARAMETER_IDS",
-        ),
-        (
-            "${GENERATED_DELAY_RESPONSE_IDS}",
-            "POLY_ADK_GENERATED_DELAY_RESPONSE_IDS",
-        ),
-        ("${GENERATED_FLOW_IDS}", "POLY_ADK_GENERATED_FLOW_IDS"),
-        (
-            "${GENERATED_FLOW_STEP_IDS}",
-            "POLY_ADK_GENERATED_FLOW_STEP_IDS",
-        ),
-        (
-            "${GENERATED_FUNCTION_STEP_IDS}",
-            "POLY_ADK_GENERATED_FUNCTION_STEP_IDS",
-        ),
-        (
-            "${GENERATED_CONDITION_IDS}",
-            "POLY_ADK_GENERATED_CONDITION_IDS",
-        ),
-        (
-            "${GENERATED_VARIABLE_IDS}",
-            "POLY_ADK_GENERATED_VARIABLE_IDS",
-        ),
-        ("${GENERATED_ENTITY_IDS}", "POLY_ADK_GENERATED_ENTITY_IDS"),
-        (
-            "${GENERATED_SMS_TEMPLATE_IDS}",
-            "POLY_ADK_GENERATED_SMS_TEMPLATE_IDS",
-        ),
-        ("${GENERATED_HANDOFF_IDS}", "POLY_ADK_GENERATED_HANDOFF_IDS"),
-        (
-            "${GENERATED_PHRASE_FILTERING_IDS}",
-            "POLY_ADK_GENERATED_PHRASE_FILTERING_IDS",
-        ),
-    ] {
-        if let Some(value) = maybe_lookup_substitution(placeholder, substitutions) {
-            command.env(env_name, value);
-        }
     }
     if let Some(state_dir) = maybe_lookup_substitution("${REPLAY_STATE_DIR}", substitutions) {
         command.env("POLY_ADK_REPLAY_STATE_DIR", state_dir);
@@ -743,10 +881,11 @@ fn assert_json_contract(assertion: JsonContractAssertion<'_>) {
         fixture_paths,
     } = assertion;
     let mut expected = substitute_json(expected, substitutions, Some(actual));
-    if matches!(subject, ReplaySubject::Rust)
-        && let Some(object) = expected.as_object_mut()
-    {
-        object.remove("traceback");
+    if matches!(subject, ReplaySubject::Rust) {
+        expected = normalize_generated_resource_ids(expected, actual);
+        if let Some(object) = expected.as_object_mut() {
+            object.remove("traceback");
+        }
     }
     let actual = actual.clone();
     assert_eq!(
@@ -1058,15 +1197,6 @@ fn substitutions_for(
     if let Some(resolutions) = merge_resolutions_for_conflicts(manifest) {
         substitutions.push(("${MERGE_RESOLUTIONS}".to_string(), resolutions));
     }
-    let topic_ids = generated_topic_id_mappings(manifest, cassette_text);
-    if !topic_ids.is_empty() {
-        substitutions.push(("${GENERATED_TOPIC_IDS}".to_string(), topic_ids));
-    }
-    for (placeholder, mappings) in generated_resource_id_mappings(manifest) {
-        if !mappings.is_empty() {
-            substitutions.push((placeholder.to_string(), mappings.join("\n")));
-        }
-    }
     substitutions
 }
 
@@ -1148,349 +1278,6 @@ fn find_command<'a>(manifest: &'a Manifest, name: &str) -> Option<&'a CommandRec
             _ => None,
         })
     })
-}
-
-fn generated_resource_id_mappings(manifest: &Manifest) -> Vec<(&'static str, Vec<String>)> {
-    let mut variant_ids = Vec::new();
-    let mut variant_attribute_ids = Vec::new();
-    let mut api_integration_ids = Vec::new();
-    let mut api_integration_operation_ids = Vec::new();
-    let mut keyphrase_boosting_ids = Vec::new();
-    let mut transcript_corrections_ids = Vec::new();
-    let mut pronunciations_ids = Vec::new();
-    let mut function_ids = Vec::new();
-    let mut function_parameter_ids = Vec::new();
-    let mut delay_response_ids = Vec::new();
-    let mut flow_ids = Vec::new();
-    let mut flow_step_ids = Vec::new();
-    let mut function_step_ids = Vec::new();
-    let mut condition_ids = Vec::new();
-    let mut variable_ids = Vec::new();
-    let mut entity_ids = Vec::new();
-    let mut sms_template_ids = Vec::new();
-    let mut handoff_ids = Vec::new();
-    let mut phrase_filtering_ids = Vec::new();
-
-    for workflow in &manifest.workflows {
-        for step in &workflow.steps {
-            let (WorkflowStep::Tagged(TaggedWorkflowStep::Command(record))
-            | WorkflowStep::LegacyCommand(record)) = step
-            else {
-                continue;
-            };
-            let Some(commands) = record
-                .stdout_json
-                .as_ref()
-                .and_then(|json| json.get("commands"))
-                .and_then(Value::as_array)
-            else {
-                continue;
-            };
-            for command in commands {
-                push_mapping(
-                    command.get("variant_create_variant"),
-                    "name",
-                    "id",
-                    &mut variant_ids,
-                );
-                push_mapping(
-                    command.get("variant_create_attribute"),
-                    "name",
-                    "id",
-                    &mut variant_attribute_ids,
-                );
-                push_mapping(
-                    command.get("create_api_integration"),
-                    "name",
-                    "id",
-                    &mut api_integration_ids,
-                );
-                push_mapping(
-                    command.get("create_api_integration_operation"),
-                    "name",
-                    "id",
-                    &mut api_integration_operation_ids,
-                );
-                push_mapping(
-                    command.get("create_keyphrase_boosting"),
-                    "keyphrase",
-                    "id",
-                    &mut keyphrase_boosting_ids,
-                );
-                push_mapping(
-                    command.get("create_transcript_corrections"),
-                    "name",
-                    "id",
-                    &mut transcript_corrections_ids,
-                );
-                push_mapping(
-                    command.get("pronunciations_create_pronunciation"),
-                    "regex",
-                    "id",
-                    &mut pronunciations_ids,
-                );
-                push_mapping(
-                    command.get("create_start_function"),
-                    "name",
-                    "id",
-                    &mut function_ids,
-                );
-                push_mapping(
-                    command.get("create_end_function"),
-                    "name",
-                    "id",
-                    &mut function_ids,
-                );
-                push_mapping(
-                    command.get("create_function"),
-                    "name",
-                    "id",
-                    &mut function_ids,
-                );
-                collect_function_generated_ids(
-                    command,
-                    &mut function_parameter_ids,
-                    &mut delay_response_ids,
-                );
-                if let Some(flow) = command.get("create_flow") {
-                    push_mapping(Some(flow), "name", "id", &mut flow_ids);
-                    if let Some(steps) = flow.get("steps").and_then(Value::as_array) {
-                        for step in steps {
-                            push_mapping(Some(step), "name", "id", &mut flow_step_ids);
-                        }
-                    }
-                    if let Some(steps) = flow.get("no_code_steps").and_then(Value::as_array) {
-                        for step in steps {
-                            push_mapping(Some(step), "name", "step_id", &mut flow_step_ids);
-                        }
-                    }
-                }
-                if let Some(step) = command
-                    .get("create_step")
-                    .and_then(|payload| payload.get("function_step"))
-                {
-                    push_mapping(Some(step), "name", "id", &mut function_step_ids);
-                    if let Some(function) = step.get("function") {
-                        push_mapping(Some(function), "name", "id", &mut function_ids);
-                    }
-                }
-                if let Some(condition) = command.get("create_no_code_condition")
-                    && let (Some(label), Some(id)) = (
-                        condition
-                            .get("exit_flow_condition")
-                            .and_then(|exit| exit.get("details"))
-                            .and_then(|details| details.get("label"))
-                            .and_then(Value::as_str),
-                        condition.get("condition_id").and_then(Value::as_str),
-                    )
-                {
-                    condition_ids.push(format!("{label}={id}"));
-                }
-                push_mapping(
-                    command.get("variable_create"),
-                    "name",
-                    "id",
-                    &mut variable_ids,
-                );
-                push_mapping(command.get("entity_create"), "name", "id", &mut entity_ids);
-                push_mapping(
-                    command.get("sms_create_template"),
-                    "name",
-                    "id",
-                    &mut sms_template_ids,
-                );
-                push_mapping(
-                    command.get("handoff_create"),
-                    "name",
-                    "id",
-                    &mut handoff_ids,
-                );
-                push_mapping(
-                    command.get("stop_keywords_create"),
-                    "title",
-                    "id",
-                    &mut phrase_filtering_ids,
-                );
-            }
-        }
-    }
-
-    for mappings in [
-        &mut variant_ids,
-        &mut variant_attribute_ids,
-        &mut api_integration_ids,
-        &mut api_integration_operation_ids,
-        &mut keyphrase_boosting_ids,
-        &mut transcript_corrections_ids,
-        &mut pronunciations_ids,
-        &mut function_ids,
-        &mut function_parameter_ids,
-        &mut delay_response_ids,
-        &mut flow_ids,
-        &mut flow_step_ids,
-        &mut function_step_ids,
-        &mut condition_ids,
-        &mut variable_ids,
-        &mut entity_ids,
-        &mut sms_template_ids,
-        &mut handoff_ids,
-        &mut phrase_filtering_ids,
-    ] {
-        mappings.sort();
-        mappings.dedup();
-    }
-
-    vec![
-        ("${GENERATED_VARIANT_IDS}", variant_ids),
-        ("${GENERATED_VARIANT_ATTRIBUTE_IDS}", variant_attribute_ids),
-        ("${GENERATED_API_INTEGRATION_IDS}", api_integration_ids),
-        (
-            "${GENERATED_API_INTEGRATION_OPERATION_IDS}",
-            api_integration_operation_ids,
-        ),
-        (
-            "${GENERATED_KEYPHRASE_BOOSTING_IDS}",
-            keyphrase_boosting_ids,
-        ),
-        (
-            "${GENERATED_TRANSCRIPT_CORRECTIONS_IDS}",
-            transcript_corrections_ids,
-        ),
-        ("${GENERATED_PRONUNCIATIONS_IDS}", pronunciations_ids),
-        ("${GENERATED_FUNCTION_IDS}", function_ids),
-        (
-            "${GENERATED_FUNCTION_PARAMETER_IDS}",
-            function_parameter_ids,
-        ),
-        ("${GENERATED_DELAY_RESPONSE_IDS}", delay_response_ids),
-        ("${GENERATED_FLOW_IDS}", flow_ids),
-        ("${GENERATED_FLOW_STEP_IDS}", flow_step_ids),
-        ("${GENERATED_FUNCTION_STEP_IDS}", function_step_ids),
-        ("${GENERATED_CONDITION_IDS}", condition_ids),
-        ("${GENERATED_VARIABLE_IDS}", variable_ids),
-        ("${GENERATED_ENTITY_IDS}", entity_ids),
-        ("${GENERATED_SMS_TEMPLATE_IDS}", sms_template_ids),
-        ("${GENERATED_HANDOFF_IDS}", handoff_ids),
-        ("${GENERATED_PHRASE_FILTERING_IDS}", phrase_filtering_ids),
-    ]
-}
-
-fn collect_function_generated_ids(
-    value: &Value,
-    parameter_ids: &mut Vec<String>,
-    delay_response_ids: &mut Vec<String>,
-) {
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                collect_function_generated_ids(item, parameter_ids, delay_response_ids);
-            }
-        }
-        Value::Object(object) => {
-            if let Some(parameters) = object.get("parameters").and_then(Value::as_array) {
-                for parameter in parameters {
-                    push_mapping(Some(parameter), "name", "id", parameter_ids);
-                }
-            }
-            if let Some(delay_responses) = object
-                .get("latency_control")
-                .or_else(|| object.get("latencyControl"))
-                .and_then(|latency| {
-                    latency
-                        .get("delay_responses")
-                        .or_else(|| latency.get("delayResponses"))
-                })
-                .and_then(Value::as_array)
-                .or_else(|| object.get("delay_responses").and_then(Value::as_array))
-            {
-                for delay_response in delay_responses {
-                    push_mapping(Some(delay_response), "message", "id", delay_response_ids);
-                }
-            }
-            for child in object.values() {
-                collect_function_generated_ids(child, parameter_ids, delay_response_ids);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn push_mapping(payload: Option<&Value>, name_key: &str, id_key: &str, mappings: &mut Vec<String>) {
-    let Some(payload) = payload else {
-        return;
-    };
-    let (Some(name), Some(id)) = (
-        payload.get(name_key).and_then(Value::as_str),
-        payload.get(id_key).and_then(Value::as_str),
-    ) else {
-        return;
-    };
-    mappings.push(format!("{name}={id}"));
-}
-
-fn generated_topic_id_mappings(manifest: &Manifest, cassette_text: &str) -> String {
-    let mut mappings = Vec::new();
-    for workflow in &manifest.workflows {
-        for step in &workflow.steps {
-            let (WorkflowStep::Tagged(TaggedWorkflowStep::Command(record))
-            | WorkflowStep::LegacyCommand(record)) = step
-            else {
-                continue;
-            };
-            let Some(commands) = record
-                .stdout_json
-                .as_ref()
-                .and_then(|json| json.get("commands"))
-                .and_then(Value::as_array)
-            else {
-                continue;
-            };
-            for command in commands {
-                let Some(topic) = command.get("create_topic") else {
-                    continue;
-                };
-                if let (Some(name), Some(id)) = (
-                    topic.get("name").and_then(Value::as_str),
-                    topic.get("id").and_then(Value::as_str),
-                ) {
-                    mappings.push(format!("{name}={id}"));
-                }
-            }
-        }
-    }
-    mappings.extend(
-        extract_json_topic_id_name_pairs(cassette_text)
-            .into_iter()
-            .map(|(name, id)| format!("{name}={id}")),
-    );
-    mappings.sort();
-    mappings.dedup();
-    mappings.join("\n")
-}
-
-fn extract_json_topic_id_name_pairs(text: &str) -> Vec<(String, String)> {
-    let mut pairs = Vec::new();
-    let mut start = 0;
-    while let Some(offset) = text[start..].find("\"id\":\"TOPICS-") {
-        let id_start = start + offset + "\"id\":\"".len();
-        let Some(id_end_rel) = text[id_start..].find('"') else {
-            break;
-        };
-        let id_end = id_start + id_end_rel;
-        let id = &text[id_start..id_end];
-        let Some(name_key_rel) = text[id_end..].find("\"name\":\"") else {
-            start = id_end;
-            continue;
-        };
-        let name_start = id_end + name_key_rel + "\"name\":\"".len();
-        let Some(name_end_rel) = text[name_start..].find('"') else {
-            break;
-        };
-        let name_end = name_start + name_end_rel;
-        pairs.push((text[name_start..name_end].to_string(), id.to_string()));
-        start = name_end;
-    }
-    pairs
 }
 
 fn extract_recording_branch_name(text: &str) -> Option<String> {
