@@ -1,0 +1,194 @@
+//! Local resource to platform command generation.
+
+pub(crate) mod aggregates;
+mod json_summary;
+mod local_file_helpers;
+pub(crate) mod per_resource_files;
+pub(crate) mod singletons;
+
+pub use json_summary::command_to_json_summary;
+
+use adk_protobuf::command::Payload as CommandPayload;
+use adk_protobuf::{Command, Metadata};
+use adk_types::ResourceMap;
+use serde_json::Value;
+use uuid::Uuid;
+
+#[derive(Debug, Default)]
+pub(crate) struct CommandGroups {
+    pub deletes: Vec<Command>,
+    pub creates: Vec<Command>,
+    pub updates: Vec<Command>,
+    pub post_updates: Vec<Command>,
+}
+
+impl CommandGroups {
+    pub(crate) fn append(&mut self, other: CommandGroups) {
+        self.deletes.extend(other.deletes);
+        self.creates.extend(other.creates);
+        self.updates.extend(other.updates);
+        self.post_updates.extend(other.post_updates);
+    }
+}
+
+pub fn build_phase1_commands(resources: &ResourceMap, projection: &Value) -> Vec<Command> {
+    build_phase1_commands_with_actor(resources, projection, None)
+}
+
+pub fn build_phase1_commands_with_actor(
+    resources: &ResourceMap,
+    projection: &Value,
+    actor: Option<&str>,
+) -> Vec<Command> {
+    build_phase1_commands_inner(resources, projection, actor, true)
+}
+
+pub fn build_phase1_commands_for_changed_resources(
+    resources: &ResourceMap,
+    projection: &Value,
+    actor: Option<&str>,
+) -> Vec<Command> {
+    build_phase1_commands_inner(resources, projection, actor, false)
+}
+
+fn build_phase1_commands_inner(
+    resources: &ResourceMap,
+    projection: &Value,
+    actor: Option<&str>,
+    include_deletes: bool,
+) -> Vec<Command> {
+    let metadata = command_metadata_with_actor(actor);
+
+    let per_resource_file_groups =
+        per_resource_files::per_resource_file_command_groups(resources, projection, &metadata);
+    let singleton_groups = singletons::singleton_command_groups(resources, projection, &metadata);
+    let aggregate_groups = aggregates::aggregate_command_groups(resources, projection, &metadata);
+
+    let mut deletes: Vec<Command> = if include_deletes {
+        per_resource_file_groups
+            .deletes
+            .into_iter()
+            .chain(aggregate_groups.deletes)
+            .chain(singleton_groups.deletes)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if include_deletes {
+        order_commands_with_priority(&mut deletes, DELETE_COMMAND_PRIORITY);
+    }
+
+    let mut creates: Vec<Command> = per_resource_file_groups
+        .creates
+        .into_iter()
+        .chain(aggregate_groups.creates)
+        .chain(singleton_groups.creates)
+        .collect();
+    order_commands_with_priority(&mut creates, CREATE_COMMAND_PRIORITY);
+
+    let mut updates: Vec<Command> = per_resource_file_groups
+        .updates
+        .into_iter()
+        .chain(aggregate_groups.updates)
+        .chain(singleton_groups.updates)
+        .collect();
+    order_commands_with_priority(&mut updates, UPDATE_COMMAND_PRIORITY);
+
+    let mut out: Vec<Command> = Vec::new();
+    out.extend(deletes);
+    out.extend(creates);
+    out.extend(updates);
+    out.extend(per_resource_file_groups.post_updates);
+    out.extend(aggregate_groups.post_updates);
+    out.extend(singleton_groups.post_updates);
+    out
+}
+
+const DELETE_COMMAND_PRIORITY: &[&str] = &[
+    "variable_delete",
+    "delete_start_function",
+    "delete_end_function",
+    "delete_function",
+    "delete_flow_transition_function",
+    "delete_topic",
+    "handoff_delete",
+    "sms_delete_template",
+    "stop_keywords_delete",
+    "entity_delete",
+];
+
+const CREATE_COMMAND_PRIORITY: &[&str] = &[
+    "variable_create",
+    "entity_create",
+    "sms_create_template",
+    "handoff_create",
+    "create_start_function",
+    "create_end_function",
+    "create_function",
+    "create_topic",
+    "create_flow",
+    "create_flow_transition_function",
+    "create_step",
+    "create_no_code_condition",
+    "stop_keywords_create",
+];
+
+const UPDATE_COMMAND_PRIORITY: &[&str] = &[
+    "variable_update",
+    "entity_update",
+    "update_rules",
+    "update_start_function",
+    "update_end_function",
+    "update_function",
+    "update_flow_transition_function",
+    "update_topic",
+    "sms_update_template",
+    "handoff_update",
+    "stop_keywords_update",
+    "experimental_config_update_config",
+];
+
+fn order_commands_with_priority(commands: &mut [Command], priority: &[&str]) {
+    commands.sort_by_key(|command| {
+        priority
+            .iter()
+            .position(|value| *value == command.r#type.as_str())
+            .unwrap_or(priority.len())
+    });
+}
+
+fn command_metadata_with_actor(actor: Option<&str>) -> Option<Metadata> {
+    let dur = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let created_by = actor
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(default_metadata_created_by);
+    Some(Metadata {
+        created_at: Some(prost_types::Timestamp {
+            seconds: dur.as_secs() as i64,
+            nanos: dur.subsec_nanos() as i32,
+        }),
+        created_by,
+    })
+}
+
+pub(crate) fn default_metadata_created_by() -> String {
+    "sdk-user".to_string()
+}
+
+pub(crate) fn push_command(
+    out: &mut Vec<Command>,
+    metadata: &Option<Metadata>,
+    type_str: &str,
+    payload: CommandPayload,
+) {
+    out.push(Command {
+        r#type: type_str.to_string(),
+        metadata: metadata.clone(),
+        command_id: Uuid::new_v4().to_string(),
+        payload: Some(payload),
+    });
+}

@@ -12,25 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adk-push-pull"
-version = "0.0.5"
-dependencies = [
- "indexmap",
- "littrs-ruff-python-ast",
- "littrs-ruff-python-parser",
- "littrs-ruff-text-size",
- "poly-adk-protobuf",
- "poly-adk-types",
- "prost-types",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "thiserror 1.0.69",
- "uuid",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2014,7 +1995,6 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 name = "poly-adk"
 version = "0.0.5"
 dependencies = [
- "adk-push-pull",
  "anyhow",
  "axoupdater",
  "clap",
@@ -2025,6 +2005,7 @@ dependencies = [
  "indexmap",
  "poly-adk-api-client",
  "poly-adk-core",
+ "poly-adk-resources",
  "reqwest 0.12.28",
  "rich_rust",
  "serde",
@@ -2038,9 +2019,9 @@ dependencies = [
 name = "poly-adk-api-client"
 version = "0.0.5"
 dependencies = [
- "adk-push-pull",
  "indexmap",
  "poly-adk-protobuf",
+ "poly-adk-resources",
  "poly-adk-types",
  "prost",
  "reqwest 0.12.28",
@@ -2057,14 +2038,13 @@ dependencies = [
  "anyhow",
  "base64",
  "chrono",
- "fancy-regex 0.14.0",
  "globset",
  "indexmap",
  "littrs-ruff-python-parser",
  "poly-adk-api-client",
  "poly-adk-io",
+ "poly-adk-resources",
  "poly-adk-types",
- "regex",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -2101,6 +2081,28 @@ version = "0.0.5"
 dependencies = [
  "prost",
  "prost-types",
+]
+
+[[package]]
+name = "poly-adk-resources"
+version = "0.0.5"
+dependencies = [
+ "fancy-regex 0.14.0",
+ "indexmap",
+ "littrs-ruff-python-ast",
+ "littrs-ruff-python-parser",
+ "littrs-ruff-text-size",
+ "poly-adk-io",
+ "poly-adk-protobuf",
+ "poly-adk-types",
+ "prost-types",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "thiserror 1.0.69",
+ "uuid",
 ]
 
 [[package]]

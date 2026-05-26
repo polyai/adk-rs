@@ -18,6 +18,12 @@
 - Prefer trait-based and metadata-driven mappings that mirror Python naming/structure.
 - For branch/status/diff/push/pull flows, verify whether behavior is local-only vs server-backed.
 - Do not silently substitute in-memory behavior for real remote semantics in user-facing flows.
+- Put resource-family-specific semantics in `adk-resources`: discovery facts, local file layout,
+  projection materialization, validation helpers, typed lifecycle helpers, stable IDs, and command
+  generation helpers should stay near modules named for the resource family.
+- Use the local file layout taxonomy from `docs/development.md` (`singletons`, `aggregates`, and
+  `per_resource_files`) as a resource property or migration aid, not as the long-term module boundary.
+  Avoid older vague buckets such as `single-file` or `structured` for new or refactored modules.
 - Filesystem access in library crates should go through `adk-io`. Do not add new direct
   `std::fs` usage in `adk-core` or other reusable library logic; migrate existing call sites to
   `FileSystem`/`StdFileSystem`/`MemoryFileSystem`. Direct `std::fs` usage is acceptable in

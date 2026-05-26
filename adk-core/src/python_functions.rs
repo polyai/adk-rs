@@ -1,4 +1,4 @@
-use crate::resource_utils::clean_name;
+use adk_resources::clean_name;
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;

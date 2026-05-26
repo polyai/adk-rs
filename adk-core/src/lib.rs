@@ -1,10 +1,7 @@
 use adk_types::{DiffMap, DomainError, ProjectConfig, ResourceMap};
 
-pub mod discover;
 mod python_functions;
 mod python_syntax;
-mod resource_utils;
-mod resources;
 mod service;
 mod status_snapshot;
 mod validation;
@@ -12,6 +9,10 @@ mod workspace;
 
 use adk_api_client::ApiError;
 use adk_io::{FileSystem, StdFileSystem, compute_hash, parse_multi_resource_path};
+use adk_resources as resource_semantics;
+pub use adk_resources::{
+    DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
+};
 use anyhow::Result;
 use globset::{Glob, GlobSetBuilder};
 use python_functions::{
@@ -20,7 +21,6 @@ use python_functions::{
     normalize_legacy_python_status_function_resources, normalize_python_function_metadata_spacing,
     resource_file_content,
 };
-pub use resources::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 use serde_json::Value;
 pub use service::{AdkService, PullOutcome};
 use status_snapshot::{StatusResourcePayload, current_status_hash_for_expected};
@@ -99,12 +99,12 @@ fn legacy_python_status_resource_path(
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let clean_name = |lowercase| resource_utils::clean_name(name, lowercase);
+    let clean_name = |lowercase| resource_semantics::clean_name(name, lowercase);
     let flow_folder = || {
         payload
             .get("flow_name")
             .and_then(Value::as_str)
-            .map(|flow_name| resource_utils::clean_name(flow_name, true))
+            .map(|flow_name| resource_semantics::clean_name(flow_name, true))
     };
     match resource_name {
         "api_integration" => Some(format!(
@@ -165,7 +165,7 @@ fn legacy_python_status_resource_path(
                 .unwrap_or(name);
             Some(format!(
                 "voice/speech_recognition/keyphrase_boosting.yaml/keyphrases/{}",
-                resource_utils::clean_name(keyphrase, false)
+                resource_semantics::clean_name(keyphrase, false)
             ))
         }
         "transcript_corrections" => Some(format!(
@@ -185,7 +185,7 @@ fn legacy_python_status_resource_path(
                 .unwrap_or_else(|| ordinal.to_string());
             Some(format!(
                 "voice/response_control/pronunciations.yaml/pronunciations/{}",
-                resource_utils::clean_name(&position, false)
+                resource_semantics::clean_name(&position, false)
             ))
         }
         _ => None,
@@ -360,7 +360,7 @@ fn migrate_legacy_topic_files<Fs: FileSystem>(
             .with_extension("")
             .to_string_lossy()
             .replace('\\', "/");
-        let clean_file_name = resource_utils::clean_name(&topic_name, true);
+        let clean_file_name = resource_semantics::clean_name(&topic_name, true);
         let clean_file_path = topics_dir.join(format!("{clean_file_name}.yaml"));
         if migrated_topics.contains_key(&clean_file_path) {
             return Err(DomainError::InvalidData(format!(
