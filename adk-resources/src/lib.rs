@@ -27,6 +27,8 @@ pub mod python_functions;
 pub mod resource_utils;
 pub mod specs;
 pub mod status_snapshot;
+#[cfg(test)]
+mod test_support;
 mod yaml_resources;
 
 pub use command_gen::{

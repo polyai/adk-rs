@@ -29,6 +29,10 @@ use adk_types::{Resource, ResourceMap};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(test)]
+#[path = "functions_tests.rs"]
+mod functions_tests;
+
 /// Builds phase-ordered push commands for top-level Python functions.
 ///
 /// This compares the local `functions/*.py` resources with the function state in
