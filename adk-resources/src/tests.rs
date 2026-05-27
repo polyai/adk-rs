@@ -612,6 +612,35 @@ fn ast_function_parsing_handles_multiline_signatures_and_keyword_only_parameters
 }
 
 #[test]
+fn ast_function_parsing_recurses_into_conditional_blocks() {
+    let content = r#"from imports import *  # <AUTO GENERATED>
+
+if FEATURE_ENABLED:
+    @func_description("Conditional lookup.")
+    @func_parameter("customer_id", "Customer id")
+    def lookup_customer(conv: Conversation, customer_id: str):
+        return customer_id
+"#;
+
+    assert_eq!(
+        functions::infer_function_description(content),
+        "Conditional lookup."
+    );
+    let signature = functions::python_signature_for_function(content, "lookup_customer")
+        .expect("conditional function signature");
+    assert!(signature.starts_with("lookup_customer("));
+
+    let parameters = functions::infer_function_parameters(content, "lookup_customer");
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(parameters[0].name, "customer_id");
+    assert_eq!(parameters[0].description, "Customer id");
+    assert_eq!(
+        functions::function_code_from_local_content(content),
+        "if FEATURE_ENABLED:\n    def lookup_customer(conv: Conversation, customer_id: str):\n        return customer_id\n"
+    );
+}
+
+#[test]
 fn ast_decorator_parsing_decodes_python_string_literals() {
     let content = r#"from imports import *  # <AUTO GENERATED>
 

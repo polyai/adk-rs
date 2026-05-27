@@ -5,7 +5,7 @@ use adk_protobuf::functions::{
     FunctionParameterUpdate, FunctionUpdateLatencyControl,
 };
 use ruff_python_ast::{
-    Arguments, Decorator, Expr, ModModule, Number, Stmt, StmtFunctionDef, UnaryOp,
+    Arguments, Decorator, ExceptHandler, Expr, ModModule, Number, Stmt, StmtFunctionDef, UnaryOp,
 };
 use ruff_text_size::{Ranged, TextRange};
 use serde_json::Value;
@@ -254,10 +254,10 @@ fn first_function_in_statements(statements: &[Stmt]) -> Option<&StmtFunctionDef>
         if let Some(function) = sync_or_async_function(statement) {
             return Some(function);
         }
-        if let Stmt::ClassDef(class_def) = statement
-            && let Some(function) = first_function_in_statements(&class_def.body)
-        {
-            return Some(function);
+        for body in child_statement_bodies(statement) {
+            if let Some(function) = first_function_in_statements(body) {
+                return Some(function);
+            }
         }
     }
     None
@@ -272,19 +272,15 @@ fn find_function_in_statements<'a>(
     function_name: &str,
 ) -> Option<&'a StmtFunctionDef> {
     for statement in statements {
-        if let Some(function) = sync_or_async_function(statement) {
-            if function.name.as_str() == function_name {
-                return Some(function);
-            }
-            if let Some(function) = find_function_in_statements(&function.body, function_name) {
-                return Some(function);
-            }
-            continue;
-        }
-        if let Stmt::ClassDef(class_def) = statement
-            && let Some(function) = find_function_in_statements(&class_def.body, function_name)
+        if let Some(function) = sync_or_async_function(statement)
+            && function.name.as_str() == function_name
         {
             return Some(function);
+        }
+        for body in child_statement_bodies(statement) {
+            if let Some(function) = find_function_in_statements(body, function_name) {
+                return Some(function);
+            }
         }
     }
     None
@@ -335,9 +331,9 @@ fn collect_decorator_calls<'a>(
                     .iter()
                     .filter_map(|decorator| decorator_call_arguments(decorator, decorator_name)),
             );
-            collect_decorator_calls(&function.body, decorator_name, calls);
-        } else if let Stmt::ClassDef(class_def) = statement {
-            collect_decorator_calls(&class_def.body, decorator_name, calls);
+        }
+        for body in child_statement_bodies(statement) {
+            collect_decorator_calls(body, decorator_name, calls);
         }
     }
 }
@@ -408,10 +404,49 @@ fn collect_adk_decorator_line_ranges(
                     .filter(|decorator| is_adk_decorator(decorator))
                     .map(|decorator| line_range_for_text_range(content, decorator.range())),
             );
-            collect_adk_decorator_line_ranges(&function.body, content, ranges);
-        } else if let Stmt::ClassDef(class_def) = statement {
-            collect_adk_decorator_line_ranges(&class_def.body, content, ranges);
         }
+        for body in child_statement_bodies(statement) {
+            collect_adk_decorator_line_ranges(body, content, ranges);
+        }
+    }
+}
+
+fn child_statement_bodies(statement: &Stmt) -> Vec<&[Stmt]> {
+    match statement {
+        Stmt::FunctionDef(function) => vec![function.body.as_slice()],
+        Stmt::ClassDef(class_def) => vec![class_def.body.as_slice()],
+        Stmt::For(for_loop) => vec![for_loop.body.as_slice(), for_loop.orelse.as_slice()],
+        Stmt::While(while_loop) => vec![while_loop.body.as_slice(), while_loop.orelse.as_slice()],
+        Stmt::If(if_statement) => {
+            let mut bodies = vec![if_statement.body.as_slice()];
+            bodies.extend(
+                if_statement
+                    .elif_else_clauses
+                    .iter()
+                    .map(|clause| clause.body.as_slice()),
+            );
+            bodies
+        }
+        Stmt::With(with_statement) => vec![with_statement.body.as_slice()],
+        Stmt::Match(match_statement) => match_statement
+            .cases
+            .iter()
+            .map(|case| case.body.as_slice())
+            .collect(),
+        Stmt::Try(try_statement) => {
+            let mut bodies = vec![try_statement.body.as_slice()];
+            bodies.extend(try_statement.handlers.iter().map(except_handler_body));
+            bodies.push(try_statement.orelse.as_slice());
+            bodies.push(try_statement.finalbody.as_slice());
+            bodies
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn except_handler_body(handler: &ExceptHandler) -> &[Stmt] {
+    match handler {
+        ExceptHandler::ExceptHandler(handler) => handler.body.as_slice(),
     }
 }
 
