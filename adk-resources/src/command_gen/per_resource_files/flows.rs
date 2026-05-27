@@ -22,7 +22,8 @@ use super::functions::{
 };
 use crate::ids::stable_resource_id;
 use crate::{
-    flow_import_path_maps_from_projection, prompt_reference_maps_from_projection, push_command,
+    CommandGenError, flow_import_path_maps_from_projection, prompt_reference_maps_from_projection,
+    push_command,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
@@ -46,12 +47,12 @@ pub(crate) fn flow_resource_command_groups(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,
-) -> CommandGroups {
+) -> Result<CommandGroups, CommandGenError> {
     let mut groups = CommandGroups::default();
     let remote_flows = remote_flows_by_name(projection);
     let flow_import_path_maps = flow_import_path_maps_from_projection(projection);
     let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
-    let local_flows = local_flows(resources, &prompt_reference_maps, &flow_import_path_maps);
+    let local_flows = local_flows(resources, &prompt_reference_maps, &flow_import_path_maps)?;
     let local_flow_names = local_flows
         .iter()
         .map(|flow| flow.name.clone())
@@ -76,7 +77,7 @@ pub(crate) fn flow_resource_command_groups(
         }
     }
 
-    groups
+    Ok(groups)
 }
 
 fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Option<Metadata>) {

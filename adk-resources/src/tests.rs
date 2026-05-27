@@ -569,6 +569,269 @@ def handoff(conv: Conversation, handoff_reason: str):
 }
 
 #[test]
+fn ast_function_parsing_handles_multiline_signatures_and_keyword_only_parameters() {
+    let content = r#"def lookup_customer(
+    conv: Conversation,
+    customer_id: str = normalize("a,b"),
+    *,
+    attempts: int = 0,
+    exact_match: bool = True,
+    ratio: float = 0.5,
+):
+    return customer_id
+"#;
+
+    let signature = functions::python_signature_for_function(content, "lookup_customer")
+        .expect("function signature");
+    assert!(signature.starts_with("lookup_customer("));
+
+    let parameters = functions::infer_function_parameters(content, "lookup_customer");
+    let names_and_types: Vec<_> = parameters
+        .iter()
+        .map(|parameter| (parameter.name.as_str(), parameter.r#type.as_str()))
+        .collect();
+    assert_eq!(
+        names_and_types,
+        vec![
+            ("customer_id", "string"),
+            ("attempts", "integer"),
+            ("exact_match", "boolean"),
+            ("ratio", "number"),
+        ]
+    );
+
+    let mut annotated: Vec<_> =
+        functions::annotated_function_parameter_names(content, "lookup_customer")
+            .into_iter()
+            .collect();
+    annotated.sort();
+    assert_eq!(
+        annotated,
+        vec!["attempts", "customer_id", "exact_match", "ratio"]
+    );
+}
+
+#[test]
+fn ast_function_parsing_recurses_into_conditional_blocks() {
+    let content = r#"from imports import *  # <AUTO GENERATED>
+
+if FEATURE_ENABLED:
+    @func_description("Conditional lookup.")
+    @func_parameter("customer_id", "Customer id")
+    def lookup_customer(conv: Conversation, customer_id: str):
+        return customer_id
+"#;
+
+    assert_eq!(
+        functions::infer_function_description(content),
+        "Conditional lookup."
+    );
+    let signature = functions::python_signature_for_function(content, "lookup_customer")
+        .expect("conditional function signature");
+    assert!(signature.starts_with("lookup_customer("));
+
+    let parameters = functions::infer_function_parameters(content, "lookup_customer");
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(parameters[0].name, "customer_id");
+    assert_eq!(parameters[0].description, "Customer id");
+    assert_eq!(
+        functions::function_code_from_local_content(content),
+        "if FEATURE_ENABLED:\n    def lookup_customer(conv: Conversation, customer_id: str):\n        return customer_id\n"
+    );
+}
+
+#[test]
+fn ast_decorator_parsing_decodes_python_string_literals() {
+    let content = r#"from imports import *  # <AUTO GENERATED>
+
+@func_description("Transfer " "caller")
+@func_parameter("handoff_reason", "Reason, copied from \"notes\"")
+def handoff(conv: Conversation, handoff_reason: str):
+    return {"reason": handoff_reason}
+"#;
+
+    assert_eq!(
+        functions::infer_function_description(content),
+        "Transfer caller"
+    );
+    let parameters = functions::infer_function_parameters(content, "handoff");
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(parameters[0].description, "Reason, copied from \"notes\"");
+    assert_eq!(
+        functions::function_code_from_local_content(content),
+        "def handoff(conv: Conversation, handoff_reason: str):\n    return {\"reason\": handoff_reason}\n"
+    );
+}
+
+#[test]
+fn ast_decorator_parsing_ignores_attribute_decorators_with_adk_names() {
+    let content = r#"@custom.func_description("Not ADK metadata")
+@custom.func_parameter("customer_id", "Not ADK metadata")
+@custom.func_latency_control(
+    delay_before_responses_start=7,
+    silence_after_each_response=11,
+    delay_responses=[("Not ADK metadata", 13)],
+)
+def lookup_customer(conv: Conversation, customer_id: str):
+    return customer_id
+"#;
+
+    assert_eq!(functions::infer_function_description(content), "");
+    let parameters = functions::infer_function_parameters(content, "lookup_customer");
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(parameters[0].name, "customer_id");
+    assert_eq!(parameters[0].description, "");
+    assert_eq!(parameters[0].r#type, "string");
+
+    let latency = functions::local_latency_control_from_code(content, None);
+    assert!(!latency.enabled);
+    assert_eq!(
+        functions::function_code_from_local_content(content),
+        content
+    );
+}
+
+#[test]
+fn function_code_fails_when_ast_parse_fails() {
+    let content = r#"from imports import *  # <AUTO GENERATED>
+
+@custom.func_parameter("customer_id", "Runtime decorator")
+@func_description("Look up a customer")
+@func_parameter(
+    "customer_id",
+    "Customer id",
+)
+def lookup_customer(conv: Conversation, customer_id: str):
+    if True
+        return customer_id
+"#;
+
+    let error =
+        functions::try_function_code_from_local_content("functions/lookup_customer.py", content)
+            .expect_err("invalid function code should fail during decorator extraction");
+
+    let message = error.to_string();
+    assert!(message.contains("functions/lookup_customer.py"));
+    assert!(message.contains("Python syntax error"));
+}
+
+#[test]
+fn command_generation_fails_on_unparseable_function_content() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "functions/lookup_customer.py".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "lookup_customer".to_string(),
+            file_path: "functions/lookup_customer.py".to_string(),
+            payload: serde_json::json!({
+                "content": "@func_description('Look up a customer')\ndef lookup_customer(conv):\n    if True\n        return None\n"
+            }),
+        },
+    );
+
+    let error = try_build_phase1_commands(&resources, &serde_json::json!({}))
+        .expect_err("invalid function code should prevent command generation");
+
+    let message = error.to_string();
+    assert!(message.contains("functions/lookup_customer.py"));
+    assert!(message.contains("Python syntax error"));
+}
+
+#[test]
+fn ast_function_parsing_handles_async_functions() {
+    let content = r#"from imports import *  # <AUTO GENERATED>
+
+@func_description("Streams a customer lookup.")
+@func_parameter("customer_id", "Customer id")
+@func_latency_control(
+    delay_before_responses_start=2,
+    silence_after_each_response=5,
+    delay_responses=[("Still streaming", 3)],
+)
+async def stream_customer(conv: Conversation, customer_id: str, priority: int = 0):
+    """Fallback async docstring."""
+    return customer_id
+"#;
+
+    assert_eq!(
+        functions::infer_function_description(content),
+        "Streams a customer lookup."
+    );
+    let signature = functions::python_signature_for_function(content, "stream_customer")
+        .expect("async function signature");
+    assert!(signature.starts_with("stream_customer("));
+    assert!(signature.contains("priority: int = 0"));
+
+    let parameters = functions::infer_function_parameters(content, "stream_customer");
+    let names_types_and_descriptions: Vec<_> = parameters
+        .iter()
+        .map(|parameter| {
+            (
+                parameter.name.as_str(),
+                parameter.r#type.as_str(),
+                parameter.description.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        names_types_and_descriptions,
+        vec![
+            ("customer_id", "string", "Customer id"),
+            ("priority", "integer", ""),
+        ]
+    );
+
+    let mut annotated: Vec<_> =
+        functions::annotated_function_parameter_names(content, "stream_customer")
+            .into_iter()
+            .collect();
+    annotated.sort();
+    assert_eq!(annotated, vec!["customer_id", "priority"]);
+
+    let latency = functions::local_latency_control_from_code(content, None);
+    assert!(latency.enabled);
+    assert_eq!(latency.initial_delay, 2);
+    assert_eq!(latency.interval, 5);
+    assert_eq!(latency.delay_responses.len(), 1);
+    assert_eq!(latency.delay_responses[0].message, "Still streaming");
+    assert_eq!(latency.delay_responses[0].duration, 3);
+    assert_eq!(
+        functions::function_code_from_local_content(content),
+        "async def stream_customer(conv: Conversation, customer_id: str, priority: int = 0):\n    \"\"\"Fallback async docstring.\"\"\"\n    return customer_id\n"
+    );
+}
+
+#[test]
+fn ast_latency_control_decorator_handles_multiline_arguments() {
+    let content = r#"@func_latency_control(
+    delay_responses=[
+        ("Still checking, thanks", 2),
+        ("Almost there", -1),
+    ],
+    silence_after_each_response=4,
+    delay_before_responses_start=1,
+)
+def slow_lookup(conv: Conversation):
+    return None
+"#;
+
+    let latency = functions::local_latency_control_from_code(content, None);
+    assert!(latency.enabled);
+    assert_eq!(latency.initial_delay, 1);
+    assert_eq!(latency.interval, 4);
+    assert_eq!(latency.delay_responses.len(), 2);
+    assert_eq!(latency.delay_responses[0].message, "Still checking, thanks");
+    assert_eq!(latency.delay_responses[0].duration, 2);
+    assert_eq!(latency.delay_responses[1].message, "Almost there");
+    assert_eq!(latency.delay_responses[1].duration, -1);
+    assert_eq!(
+        functions::function_code_from_local_content(content),
+        "def slow_lookup(conv: Conversation):\n    return None\n"
+    );
+}
+
+#[test]
 fn inferred_function_parameter_ids_include_function_name() {
     let first = functions::infer_function_parameters(
         "def lookup(conv: Conversation, value: str):\n    return value\n",
