@@ -663,6 +663,27 @@ def lookup_customer(conv: Conversation, customer_id: str):
 }
 
 #[test]
+fn function_code_strips_adk_decorators_when_ast_parse_fails() {
+    let content = r#"from imports import *  # <AUTO GENERATED>
+
+@custom.func_parameter("customer_id", "Runtime decorator")
+@func_description("Look up a customer")
+@func_parameter(
+    "customer_id",
+    "Customer id",
+)
+def lookup_customer(conv: Conversation, customer_id: str):
+    if True
+        return customer_id
+"#;
+
+    assert_eq!(
+        functions::function_code_from_local_content(content),
+        "@custom.func_parameter(\"customer_id\", \"Runtime decorator\")\ndef lookup_customer(conv: Conversation, customer_id: str):\n    if True\n        return customer_id\n"
+    );
+}
+
+#[test]
 fn ast_function_parsing_handles_async_functions() {
     let content = r#"from imports import *  # <AUTO GENERATED>
 
