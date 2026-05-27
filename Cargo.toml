@@ -55,7 +55,9 @@ axoupdater = { version = "0.10.0", features = ["blocking"] }
 url = "2"
 rich_rust = { version = "0.2.1", features = ["backtrace"] }
 httpmock = { version = "0.8.3", features = ["record"] }
+ruff_python_ast = { package = "littrs-ruff-python-ast", version = "0.6.2" }
 ruff_python_parser = { package = "littrs-ruff-python-parser", version = "0.6.2" }
+ruff_text_size = { package = "littrs-ruff-text-size", version = "0.6.2" }
 
 # The profile that 'dist' will build with
 [profile.dist]

@@ -1,6 +1,6 @@
 use super::super::functions::{
-    function_code_from_local_content, function_create_latency_control, infer_function_description,
-    local_latency_control_from_code,
+    function_create_latency_control, infer_function_description, local_latency_control_from_code,
+    try_function_code_from_local_content,
 };
 use super::models::{
     FlowStepType, LocalCondition, LocalFlow, LocalFlowStep, LocalFunctionStep,
@@ -8,7 +8,7 @@ use super::models::{
     RemoteTransitionFunction,
 };
 use crate::{
-    FlowImportPathMaps, PromptReferenceMaps, replace_flow_import_names_with_ids,
+    CommandGenError, FlowImportPathMaps, PromptReferenceMaps, replace_flow_import_names_with_ids,
     replace_resource_names_with_ids, yaml_str,
 };
 use adk_protobuf::flows::{StepAsrConfig, StepDtmfConfig, StepPosition};
@@ -21,7 +21,7 @@ pub(super) fn local_flows(
     resources: &ResourceMap,
     prompt_reference_maps: &PromptReferenceMaps,
     flow_import_path_maps: &FlowImportPathMaps,
-) -> Vec<LocalFlow> {
+) -> Result<Vec<LocalFlow>, CommandGenError> {
     let mut flows: HashMap<String, LocalFlow> = HashMap::new();
 
     for resource in resources.values() {
@@ -86,7 +86,7 @@ pub(super) fn local_flows(
                 name: function_name_from_path(path),
                 content: content.to_string(),
                 code: replace_flow_import_names_with_ids(
-                    &function_code_from_local_content(content),
+                    &try_function_code_from_local_content(path, content)?,
                     flow_import_path_maps,
                 ),
                 position: None,
@@ -100,7 +100,7 @@ pub(super) fn local_flows(
             };
             let content = resource_content(resource);
             let code = replace_flow_import_names_with_ids(
-                &function_code_from_local_content(content),
+                &try_function_code_from_local_content(path, content)?,
                 flow_import_path_maps,
             );
             let entry = flows.entry(folder.clone()).or_insert_with(|| LocalFlow {
@@ -122,7 +122,7 @@ pub(super) fn local_flows(
         .filter(|flow| !flow.name.is_empty())
         .collect::<Vec<_>>();
     flows.sort_by(|left, right| left.config_path.cmp(&right.config_path));
-    flows
+    Ok(flows)
 }
 
 pub(super) fn ordered_flow_steps(flow: &LocalFlow) -> Vec<&LocalFlowStep> {

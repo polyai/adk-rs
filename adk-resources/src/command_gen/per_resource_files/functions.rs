@@ -1,15 +1,18 @@
 //! Push commands for global functions and special start/end functions.
 
 use super::super::CommandGroups;
+#[cfg(test)]
+pub(crate) use crate::function_parsing::function_code_from_local_content;
 pub(crate) use crate::function_parsing::{
-    annotated_function_parameter_names, function_code_from_local_content,
-    function_create_latency_control, function_update_latency_control, infer_function_description,
-    infer_function_parameters, insert_python_function_decorators, latency_control_from_projection,
+    annotated_function_parameter_names, function_create_latency_control,
+    function_update_latency_control, infer_function_description, infer_function_parameters,
+    insert_python_function_decorators, latency_control_from_projection,
     local_latency_control_from_code, python_signature_for_function, python_string_literal,
+    try_function_code_from_local_content,
 };
 use crate::ids::stable_resource_id;
 use crate::{
-    clean_name, extract_entities_map, extract_variable_names_from_code,
+    CommandGenError, clean_name, extract_entities_map, extract_variable_names_from_code,
     flow_import_path_maps_from_projection, is_synthetic_local_resource_id, push_command,
     replace_flow_import_names_with_ids,
 };
@@ -50,7 +53,7 @@ pub(crate) fn function_resource_command_groups(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,
-) -> CommandGroups {
+) -> Result<CommandGroups, CommandGenError> {
     let flow_import_path_maps = flow_import_path_maps_from_projection(projection);
     let remote_functions = function_entries(projection)
         .into_iter()
@@ -101,7 +104,7 @@ pub(crate) fn function_resource_command_groups(
                 })
                 .unwrap_or_else(|| stable_resource_id("FUNCTIONS", &name, path));
             let function_code = replace_flow_import_names_with_ids(
-                &function_code_from_local_content(content),
+                &try_function_code_from_local_content(path, content)?,
                 &flow_import_path_maps,
             );
             let inferred_description = infer_function_description(content);
@@ -210,7 +213,7 @@ pub(crate) fn function_resource_command_groups(
             })
             .unwrap_or_else(|| stable_resource_id("FUNCTIONS", &name, path));
         let function_code = replace_flow_import_names_with_ids(
-            &function_code_from_local_content(content),
+            &try_function_code_from_local_content(path, content)?,
             &flow_import_path_maps,
         );
         let inferred_description = infer_function_description(content);
@@ -335,7 +338,7 @@ pub(crate) fn function_resource_command_groups(
         );
     }
 
-    groups
+    Ok(groups)
 }
 
 fn function_references(variables: HashMap<String, bool>) -> FunctionReferences {

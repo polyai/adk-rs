@@ -2089,6 +2089,9 @@ version = "0.0.5"
 dependencies = [
  "fancy-regex 0.14.0",
  "indexmap",
+ "littrs-ruff-python-ast",
+ "littrs-ruff-python-parser",
+ "littrs-ruff-text-size",
  "poly-adk-io",
  "poly-adk-protobuf",
  "poly-adk-types",
