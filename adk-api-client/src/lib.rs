@@ -1,7 +1,7 @@
 use adk_protobuf::{Command, CommandBatch};
 use adk_resources::{
-    CommandGenError, build_phase1_commands_for_changed_resources, build_phase1_commands_with_actor,
-    command_to_json_summary, projection_to_resource_map,
+    CommandGenError, command_to_json_summary, projection_to_resource_map,
+    try_build_phase1_commands_for_changed_resources, try_build_phase1_commands_with_actor,
 };
 use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
 use prost::Message;
@@ -674,7 +674,7 @@ impl PlatformClient for HttpPlatformClient {
             .get("projection")
             .cloned()
             .unwrap_or_else(|| main_projection_response.clone());
-        let commands = build_phase1_commands_with_actor(resources, &projection, actor);
+        let commands = try_build_phase1_commands_with_actor(resources, &projection, actor)?;
         let push = if commands.is_empty() {
             PushResult {
                 success: false,
@@ -1146,7 +1146,7 @@ impl HttpPlatformClient {
                 .unwrap_or(0);
             (projection, last_known_sequence)
         };
-        let commands = build_phase1_commands_with_actor(resources, &projection, actor);
+        let commands = try_build_phase1_commands_with_actor(resources, &projection, actor)?;
         Ok((commands, last_known_sequence, projection))
     }
 
@@ -1174,7 +1174,8 @@ impl HttpPlatformClient {
                 .unwrap_or(0);
             (projection, last_known_sequence)
         };
-        let commands = build_phase1_commands_for_changed_resources(resources, &projection, actor);
+        let commands =
+            try_build_phase1_commands_for_changed_resources(resources, &projection, actor)?;
         Ok((commands, last_known_sequence, projection))
     }
 }

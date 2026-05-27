@@ -1,3 +1,4 @@
+use crate::CommandGenError;
 use crate::ids::stable_resource_id;
 use adk_protobuf::functions::{
     DelayResponseUpdate, DelayResponsesUpdate, FunctionCreateLatencyControl, FunctionDelayResponse,
@@ -123,16 +124,22 @@ pub(crate) fn python_string_literal(value: &str) -> String {
     out
 }
 
+#[cfg(test)]
 pub(crate) fn function_code_from_local_content(content: &str) -> String {
+    try_function_code_from_local_content("<local function>", content)
+        .expect("valid Python function content")
+}
+
+pub(crate) fn try_function_code_from_local_content(
+    path: &str,
+    content: &str,
+) -> Result<String, CommandGenError> {
     let mut ranges = generated_import_line_ranges(content);
-    if let Some(module) = parse_python_module(content) {
-        collect_adk_decorator_line_ranges(&module.body, content, &mut ranges);
-    } else {
-        collect_adk_decorator_line_ranges_without_parse(content, &mut ranges);
-    }
-    remove_source_ranges(content, ranges)
+    let module = parse_python_module_for_resource(path, content)?;
+    collect_adk_decorator_line_ranges(&module.body, content, &mut ranges);
+    Ok(remove_source_ranges(content, ranges)
         .trim_start_matches('\n')
-        .to_string()
+        .to_string())
 }
 
 pub(crate) fn infer_function_description(code: &str) -> String {
@@ -227,6 +234,15 @@ fn parse_python_module(code: &str) -> Option<ModModule> {
     ruff_python_parser::parse_module(code)
         .ok()
         .map(|parsed| parsed.into_syntax())
+}
+
+fn parse_python_module_for_resource(path: &str, code: &str) -> Result<ModModule, CommandGenError> {
+    ruff_python_parser::parse_module(code)
+        .map(|parsed| parsed.into_syntax())
+        .map_err(|error| CommandGenError::PythonSyntax {
+            path: path.to_string(),
+            message: error.to_string(),
+        })
 }
 
 fn first_function(module: &ModModule) -> Option<&StmtFunctionDef> {
@@ -396,94 +412,6 @@ fn collect_adk_decorator_line_ranges(
         } else if let Stmt::ClassDef(class_def) = statement {
             collect_adk_decorator_line_ranges(&class_def.body, content, ranges);
         }
-    }
-}
-
-fn collect_adk_decorator_line_ranges_without_parse(content: &str, ranges: &mut Vec<Range<usize>>) {
-    let mut offset = 0;
-    let mut active: Option<ActiveDecoratorRangeScan> = None;
-    for line in content.split_inclusive('\n') {
-        let line_start = offset;
-        offset += line.len();
-
-        if let Some(mut state) = active.take() {
-            if state.scanner.scan(line.trim()) {
-                ranges.push(state.start..offset);
-            } else {
-                active = Some(state);
-            }
-            continue;
-        }
-
-        let Some(rest) = adk_decorator_call_rest(line.trim_start()) else {
-            continue;
-        };
-        let mut scanner = DecoratorCallScan::default();
-        if scanner.scan(rest) {
-            ranges.push(line_start..offset);
-        } else {
-            active = Some(ActiveDecoratorRangeScan {
-                start: line_start,
-                scanner,
-            });
-        }
-    }
-
-    if let Some(state) = active {
-        ranges.push(state.start..content.len());
-    }
-}
-
-fn adk_decorator_call_rest(line: &str) -> Option<&str> {
-    [
-        "@func_description(",
-        "@func_parameter(",
-        "@func_latency_control(",
-    ]
-    .iter()
-    .find_map(|prefix| line.strip_prefix(prefix))
-}
-
-struct ActiveDecoratorRangeScan {
-    start: usize,
-    scanner: DecoratorCallScan,
-}
-
-#[derive(Default)]
-struct DecoratorCallScan {
-    quote: Option<char>,
-    escaped: bool,
-    depth: i32,
-}
-
-impl DecoratorCallScan {
-    fn scan(&mut self, fragment: &str) -> bool {
-        for ch in fragment.chars() {
-            if let Some(quote) = self.quote {
-                if self.escaped {
-                    self.escaped = false;
-                } else if ch == '\\' {
-                    self.escaped = true;
-                } else if ch == quote {
-                    self.quote = None;
-                }
-                continue;
-            }
-
-            match ch {
-                '\'' | '"' => self.quote = Some(ch),
-                '(' | '[' | '{' => self.depth += 1,
-                ')' => {
-                    if self.depth == 0 {
-                        return true;
-                    }
-                    self.depth -= 1;
-                }
-                ']' | '}' => self.depth -= 1,
-                _ => {}
-            }
-        }
-        false
     }
 }
 

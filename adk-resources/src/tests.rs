@@ -663,7 +663,7 @@ def lookup_customer(conv: Conversation, customer_id: str):
 }
 
 #[test]
-fn function_code_strips_adk_decorators_when_ast_parse_fails() {
+fn function_code_fails_when_ast_parse_fails() {
     let content = r#"from imports import *  # <AUTO GENERATED>
 
 @custom.func_parameter("customer_id", "Runtime decorator")
@@ -677,10 +677,36 @@ def lookup_customer(conv: Conversation, customer_id: str):
         return customer_id
 "#;
 
-    assert_eq!(
-        functions::function_code_from_local_content(content),
-        "@custom.func_parameter(\"customer_id\", \"Runtime decorator\")\ndef lookup_customer(conv: Conversation, customer_id: str):\n    if True\n        return customer_id\n"
+    let error =
+        functions::try_function_code_from_local_content("functions/lookup_customer.py", content)
+            .expect_err("invalid function code should fail during decorator extraction");
+
+    let message = error.to_string();
+    assert!(message.contains("functions/lookup_customer.py"));
+    assert!(message.contains("Python syntax error"));
+}
+
+#[test]
+fn command_generation_fails_on_unparseable_function_content() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "functions/lookup_customer.py".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "lookup_customer".to_string(),
+            file_path: "functions/lookup_customer.py".to_string(),
+            payload: serde_json::json!({
+                "content": "@func_description('Look up a customer')\ndef lookup_customer(conv):\n    if True\n        return None\n"
+            }),
+        },
     );
+
+    let error = try_build_phase1_commands(&resources, &serde_json::json!({}))
+        .expect_err("invalid function code should prevent command generation");
+
+    let message = error.to_string();
+    assert!(message.contains("functions/lookup_customer.py"));
+    assert!(message.contains("Python syntax error"));
 }
 
 #[test]

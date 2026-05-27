@@ -1,7 +1,7 @@
 use crate::{ApiError, PlatformClient};
 use adk_resources::{
-    build_phase1_commands_for_changed_resources, build_phase1_commands_with_actor,
-    command_to_json_summary,
+    command_to_json_summary, try_build_phase1_commands_for_changed_resources,
+    try_build_phase1_commands_with_actor,
 };
 use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
 use serde_json::Value;
@@ -90,7 +90,7 @@ impl PlatformClient for InMemoryPlatformClient {
         actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
         let projection = self.preview_projection(projection)?;
-        let commands = build_phase1_commands_with_actor(resources, &projection, actor);
+        let commands = try_build_phase1_commands_with_actor(resources, &projection, actor)?;
         let summaries = commands.iter().map(command_to_json_summary).collect();
         Ok(PushResult {
             success: true,
@@ -106,7 +106,8 @@ impl PlatformClient for InMemoryPlatformClient {
         actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
         let projection = self.preview_projection(projection)?;
-        let commands = build_phase1_commands_for_changed_resources(resources, &projection, actor);
+        let commands =
+            try_build_phase1_commands_for_changed_resources(resources, &projection, actor)?;
         let summaries = commands.iter().map(command_to_json_summary).collect();
         Ok(PushResult {
             success: true,

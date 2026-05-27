@@ -8,6 +8,7 @@ pub(crate) mod singletons;
 
 pub use json_summary::command_to_json_summary;
 
+use crate::CommandGenError;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::{Command, Metadata};
 use adk_types::ResourceMap;
@@ -35,11 +36,27 @@ pub fn build_phase1_commands(resources: &ResourceMap, projection: &Value) -> Vec
     build_phase1_commands_with_actor(resources, projection, None)
 }
 
+pub fn try_build_phase1_commands(
+    resources: &ResourceMap,
+    projection: &Value,
+) -> Result<Vec<Command>, CommandGenError> {
+    try_build_phase1_commands_with_actor(resources, projection, None)
+}
+
 pub fn build_phase1_commands_with_actor(
     resources: &ResourceMap,
     projection: &Value,
     actor: Option<&str>,
 ) -> Vec<Command> {
+    try_build_phase1_commands_with_actor(resources, projection, actor)
+        .expect("valid local resources for command generation")
+}
+
+pub fn try_build_phase1_commands_with_actor(
+    resources: &ResourceMap,
+    projection: &Value,
+    actor: Option<&str>,
+) -> Result<Vec<Command>, CommandGenError> {
     build_phase1_commands_inner(resources, projection, actor, true)
 }
 
@@ -48,6 +65,15 @@ pub fn build_phase1_commands_for_changed_resources(
     projection: &Value,
     actor: Option<&str>,
 ) -> Vec<Command> {
+    try_build_phase1_commands_for_changed_resources(resources, projection, actor)
+        .expect("valid local resources for command generation")
+}
+
+pub fn try_build_phase1_commands_for_changed_resources(
+    resources: &ResourceMap,
+    projection: &Value,
+    actor: Option<&str>,
+) -> Result<Vec<Command>, CommandGenError> {
     build_phase1_commands_inner(resources, projection, actor, false)
 }
 
@@ -56,11 +82,11 @@ fn build_phase1_commands_inner(
     projection: &Value,
     actor: Option<&str>,
     include_deletes: bool,
-) -> Vec<Command> {
+) -> Result<Vec<Command>, CommandGenError> {
     let metadata = command_metadata_with_actor(actor);
 
     let per_resource_file_groups =
-        per_resource_files::per_resource_file_command_groups(resources, projection, &metadata);
+        per_resource_files::per_resource_file_command_groups(resources, projection, &metadata)?;
     let singleton_groups = singletons::singleton_command_groups(resources, projection, &metadata);
     let aggregate_groups = aggregates::aggregate_command_groups(resources, projection, &metadata);
 
@@ -101,7 +127,7 @@ fn build_phase1_commands_inner(
     out.extend(per_resource_file_groups.post_updates);
     out.extend(aggregate_groups.post_updates);
     out.extend(singleton_groups.post_updates);
-    out
+    Ok(out)
 }
 
 const DELETE_COMMAND_PRIORITY: &[&str] = &[

@@ -14,6 +14,8 @@ use thiserror::Error;
 pub enum CommandGenError {
     #[error("{0}")]
     InvalidData(String),
+    #[error("{path}: Python syntax error while extracting ADK decorators: {message}")]
+    PythonSyntax { path: String, message: String },
 }
 
 mod command_gen;
@@ -29,7 +31,8 @@ mod yaml_resources;
 
 pub use command_gen::{
     build_phase1_commands, build_phase1_commands_for_changed_resources,
-    build_phase1_commands_with_actor, command_to_json_summary,
+    build_phase1_commands_with_actor, command_to_json_summary, try_build_phase1_commands,
+    try_build_phase1_commands_for_changed_resources, try_build_phase1_commands_with_actor,
 };
 pub use discover::{DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources};
 pub use local_resources::{
