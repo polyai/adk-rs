@@ -5,7 +5,6 @@
 //! templates, stop-keyword phrase filters, pronunciations, keyphrase boosting,
 //! and transcript corrections.
 
-mod interactions;
 mod summaries;
 
 use super::CommandGroups;
@@ -29,7 +28,13 @@ pub(crate) fn aggregate_command_groups(
     metadata: &Option<Metadata>,
 ) -> CommandGroups {
     let mut groups = entity_aggregate_command_groups(resources, projection, metadata);
-    groups.append(interactions::interaction_aggregate_command_groups(
+    groups.append(crate::handoffs::handoff_command_groups(
+        resources, projection, metadata,
+    ));
+    groups.append(crate::sms_templates::sms_template_command_groups(
+        resources, projection, metadata,
+    ));
+    groups.append(crate::phrase_filters::phrase_filter_command_groups(
         resources, projection, metadata,
     ));
 
@@ -258,7 +263,9 @@ fn normalize_entity_type(value: &str) -> String {
 
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
     entity_payload_json_summary(payload)
-        .or_else(|| interactions::payload_json_summary(payload))
+        .or_else(|| crate::handoffs::payload_json_summary(payload))
+        .or_else(|| crate::sms_templates::payload_json_summary(payload))
+        .or_else(|| crate::phrase_filters::payload_json_summary(payload))
         .or_else(|| summaries::payload_json_summary(payload))
 }
 

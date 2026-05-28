@@ -45,6 +45,13 @@ Current state:
   own their aggregate-file discovery, projection materialization, and push
   command generation. Transcript corrections also owns its local YAML
   validation and command JSON summaries.
+- The handoff-family module at `adk-resources/src/handoffs` owns aggregate-file
+  discovery and validation, projection materialization, push command
+  generation, default-selection post-update ordering, and command JSON
+  summaries.
+- The SMS template and phrase filter modules own their aggregate-file
+  discovery, projection materialization, push command generation, and command
+  JSON summaries. SMS templates also owns local YAML validation.
 
 Remaining:
 
@@ -55,9 +62,10 @@ Remaining:
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
    - `functions`, `flows`, `topics`, `variables`, `api_integrations`,
-     `variants`, `keyphrase_boosting`, `transcript_corrections`, and
-     `pronunciations` now follow this shape. Repeat the pattern for agent
-     settings and other resource families.
+     `variants`, `keyphrase_boosting`, `transcript_corrections`,
+     `pronunciations`, `handoffs`, `sms_templates`, and `phrase_filters` now
+     follow this shape. Repeat the pattern for agent settings and other
+     resource families.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.

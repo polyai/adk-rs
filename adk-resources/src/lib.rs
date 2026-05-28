@@ -23,13 +23,16 @@ mod command_gen;
 pub mod discover;
 pub mod flows;
 pub mod functions;
+mod handoffs;
 pub mod ids;
 mod keyphrase_boosting;
 mod local_resources;
 mod materialization;
+mod phrase_filters;
 pub mod projection;
 mod pronunciations;
 pub mod resource_utils;
+mod sms_templates;
 pub mod specs;
 pub mod status_snapshot;
 #[cfg(test)]

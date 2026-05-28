@@ -17,17 +17,17 @@ mod channels;
 pub(crate) mod common;
 mod entity;
 mod experimental_config;
-mod handoff;
 mod lifecycle;
-mod phrase_filter;
 mod safety_filters;
-mod sms_template;
 
 pub(crate) use crate::api_integrations::ApiIntegration;
 pub(crate) use crate::flows::{FlowConfig, FlowStep, FunctionStep};
 pub(crate) use crate::functions::Function;
+pub(crate) use crate::handoffs::Handoff;
 pub(crate) use crate::keyphrase_boosting::KeyphraseBoosting;
+pub(crate) use crate::phrase_filters::PhraseFilter;
 pub(crate) use crate::pronunciations::Pronunciation;
+pub(crate) use crate::sms_templates::SMSTemplate;
 pub(crate) use crate::topics::Topic;
 pub(crate) use crate::transcript_corrections::TranscriptCorrection;
 pub(crate) use crate::variables::Variable;
@@ -40,15 +40,12 @@ pub(crate) use channels::{
 };
 pub(crate) use entity::Entity;
 pub(crate) use experimental_config::ExperimentalConfig;
-pub(crate) use handoff::Handoff;
 pub use lifecycle::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 pub use lifecycle::{
     build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
     type_name_to_resource_prefix,
 };
-pub(crate) use phrase_filter::PhraseFilter;
 pub(crate) use safety_filters::GeneralSafetyFilters;
-pub(crate) use sms_template::SMSTemplate;
 
 pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
     match path {
@@ -56,8 +53,8 @@ pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: 
             crate::api_integrations::validate_local_yaml(yaml, errors)
         }
         "config/entities.yaml" => entity::validate_local_yaml(yaml, errors),
-        "config/handoffs.yaml" => handoff::validate_local_yaml(yaml, errors),
-        "config/sms_templates.yaml" => sms_template::validate_local_yaml(yaml, errors),
+        "config/handoffs.yaml" => crate::handoffs::validate_local_yaml(yaml, errors),
+        "config/sms_templates.yaml" => crate::sms_templates::validate_local_yaml(yaml, errors),
         "config/variant_attributes.yaml" => crate::variants::validate_local_yaml(yaml, errors),
         "voice/speech_recognition/transcript_corrections.yaml" => {
             crate::transcript_corrections::validate_local_yaml(yaml, errors);
