@@ -11,7 +11,7 @@
 //! materialization and push command generation live alongside these definitions
 //! in this crate.
 
-use adk_io::{FileSystem, StdFileSystem};
+use adk_io::FileSystem;
 use serde_yaml::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -44,8 +44,11 @@ pub(crate) use crate::transcript_corrections::TranscriptCorrection;
 pub(crate) use crate::variables::Variable;
 pub(crate) use crate::variants::{Variant, VariantAttribute};
 
-pub(crate) fn read_yaml_mapping(path: &Path) -> Option<serde_yaml::Mapping> {
-    let raw = StdFileSystem.read_to_string(path).ok()?;
+pub(crate) fn read_yaml_mapping<Fs: FileSystem>(
+    fs: &Fs,
+    path: &Path,
+) -> Option<serde_yaml::Mapping> {
+    let raw = fs.read_to_string(path).ok()?;
     let v: Value = serde_yaml::from_str(&raw).ok()?;
     match v {
         Value::Mapping(m) => Some(m),
@@ -53,16 +56,16 @@ pub(crate) fn read_yaml_mapping(path: &Path) -> Option<serde_yaml::Mapping> {
     }
 }
 
-pub(crate) fn sorted_read_dir(dir: &Path) -> Option<Vec<PathBuf>> {
-    StdFileSystem.read_dir(dir).ok()
+pub(crate) fn sorted_read_dir<Fs: FileSystem>(fs: &Fs, dir: &Path) -> Option<Vec<PathBuf>> {
+    fs.read_dir(dir).ok()
 }
 
-pub(crate) fn is_file(path: impl AsRef<Path>) -> bool {
-    StdFileSystem.is_file(path.as_ref())
+pub(crate) fn is_file<Fs: FileSystem>(fs: &Fs, path: impl AsRef<Path>) -> bool {
+    fs.is_file(path.as_ref())
 }
 
-pub(crate) fn is_dir(path: impl AsRef<Path>) -> bool {
-    StdFileSystem.is_dir(path.as_ref())
+pub(crate) fn is_dir<Fs: FileSystem>(fs: &Fs, path: impl AsRef<Path>) -> bool {
+    fs.is_dir(path.as_ref())
 }
 
 pub(crate) fn validate_named_sequence(

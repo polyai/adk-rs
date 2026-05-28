@@ -7,12 +7,12 @@ use std::path::Path;
 // poly/resources/transcript_correction.py
 pub(crate) struct TranscriptCorrection;
 impl DiscoverResources for TranscriptCorrection {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let yaml_path = base_path.join("voice/speech_recognition/transcript_corrections.yaml");
-        if !is_file(&yaml_path) {
+        if !is_file(fs, &yaml_path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&yaml_path) else {
+        let Some(m) = read_yaml_mapping(fs, &yaml_path) else {
             return vec![];
         };
         let Some(Value::Sequence(list)) = m.get("corrections") else {

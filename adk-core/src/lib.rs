@@ -997,6 +997,34 @@ mod tests {
     }
 
     #[test]
+    fn typed_discovery_uses_configured_filesystem() {
+        let fs = adk_io::MemoryFileSystem::new();
+        fs.write_string(
+            Path::new("workspace/topics/support.yaml"),
+            "name: Support\nenabled: true\nactions: Help.\ncontent: Hi.\nexample_queries: []\n",
+        )
+        .expect("write topic");
+        fs.write_string(
+            Path::new("workspace/functions/greet.py"),
+            "def greet(conv):\n    conv.state.customer_name = 'Ada'\n",
+        )
+        .expect("write function");
+
+        let service =
+            AdkService::with_file_system(adk_api_client::InMemoryPlatformClient::default(), fs);
+        let discovered = service.discover_local_resources(Path::new("workspace"));
+
+        assert_eq!(
+            discovered.get("Topic").cloned().unwrap_or_default(),
+            vec!["topics/support.yaml".to_string()]
+        );
+        assert_eq!(
+            discovered.get("Variable").cloned().unwrap_or_default(),
+            vec!["variables/customer_name".to_string()]
+        );
+    }
+
+    #[test]
     fn project_migrations_use_memory_filesystem() {
         let fs = adk_io::MemoryFileSystem::new();
         fs.write_string(

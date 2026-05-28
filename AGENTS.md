@@ -31,6 +31,10 @@
   `std::fs` usage in `adk-core` or other reusable library logic; migrate existing call sites to
   `FileSystem`/`StdFileSystem`/`MemoryFileSystem`. Direct `std::fs` usage is acceptable in
   `adk-cli` and test harnesses.
+- Prefer static dispatch for filesystem-polymorphic library code: generic APIs over
+  `Fs: FileSystem` should let each binary/test/FFI target choose `StdFileSystem` or
+  `MemoryFileSystem` at compile time. Avoid `dyn FileSystem` unless there is a concrete need for
+  runtime filesystem selection.
 - Preserve clean Git diffs for ADK-maintained project files. Users check these files into Git and
   rely on `pull`/`push` to inspect meaningful backend sync changes, so semantically irrelevant YAML
   rewrites, key reordering, scalar restyling, and formatting churn should be minimized.

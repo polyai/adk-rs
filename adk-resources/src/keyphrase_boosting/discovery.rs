@@ -7,16 +7,16 @@ use std::path::Path;
 // poly/resources/keyphrase_boosting.py
 pub(crate) struct KeyphraseBoosting;
 impl DiscoverResources for KeyphraseBoosting {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let candidates = [
             base_path.join("voice/speech_recognition/keyphrase_boosting.yaml"),
             base_path.join("speech_recognition/keyphrase_boosting.yaml"),
         ];
-        let yaml_path = candidates.into_iter().find(|p| is_file(p));
+        let yaml_path = candidates.into_iter().find(|p| is_file(fs, p));
         let Some(yaml_path) = yaml_path else {
             return vec![];
         };
-        let Some(m) = read_yaml_mapping(&yaml_path) else {
+        let Some(m) = read_yaml_mapping(fs, &yaml_path) else {
             return vec![];
         };
         let Some(Value::Sequence(list)) = m.get("keyphrases") else {

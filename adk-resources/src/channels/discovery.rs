@@ -7,12 +7,12 @@ use std::path::Path;
 // poly/resources/channel_settings.py
 pub(crate) struct VoiceGreeting;
 impl DiscoverResources for VoiceGreeting {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("voice/configuration.yaml");
-        if !is_file(&file_path) {
+        if !is_file(fs, &file_path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&file_path) else {
+        let Some(m) = read_yaml_mapping(fs, &file_path) else {
             return vec![];
         };
         let greeting = m.get("greeting");
@@ -28,9 +28,9 @@ impl DiscoverResources for VoiceGreeting {
 
 pub(crate) struct VoiceSafetyFilters;
 impl DiscoverResources for VoiceSafetyFilters {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let p = base_path.join("voice/safety_filters.yaml");
-        if is_file(&p) {
+        if is_file(fs, &p) {
             vec![rel_under_root(base_path, &p)]
         } else {
             vec![]
@@ -40,12 +40,12 @@ impl DiscoverResources for VoiceSafetyFilters {
 
 pub(crate) struct VoiceStylePrompt;
 impl DiscoverResources for VoiceStylePrompt {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("voice/configuration.yaml");
-        if !is_file(&file_path) {
+        if !is_file(fs, &file_path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&file_path) else {
+        let Some(m) = read_yaml_mapping(fs, &file_path) else {
             return vec![];
         };
         let style = m.get("style_prompt");
@@ -61,12 +61,12 @@ impl DiscoverResources for VoiceStylePrompt {
 
 pub(crate) struct VoiceDisclaimerMessage;
 impl DiscoverResources for VoiceDisclaimerMessage {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("voice/configuration.yaml");
-        if !is_file(&file_path) {
+        if !is_file(fs, &file_path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&file_path) else {
+        let Some(m) = read_yaml_mapping(fs, &file_path) else {
             return vec![];
         };
         let disclaimers = m.get("disclaimer_messages");
@@ -88,12 +88,12 @@ impl DiscoverResources for VoiceDisclaimerMessage {
 
 pub(crate) struct ChatGreeting;
 impl DiscoverResources for ChatGreeting {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("chat/configuration.yaml");
-        if !is_file(&file_path) {
+        if !is_file(fs, &file_path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&file_path) else {
+        let Some(m) = read_yaml_mapping(fs, &file_path) else {
             return vec![];
         };
         let greeting = m.get("greeting");
@@ -109,9 +109,9 @@ impl DiscoverResources for ChatGreeting {
 
 pub(crate) struct ChatSafetyFilters;
 impl DiscoverResources for ChatSafetyFilters {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let p = base_path.join("chat/safety_filters.yaml");
-        if is_file(&p) {
+        if is_file(fs, &p) {
             vec![rel_under_root(base_path, &p)]
         } else {
             vec![]
@@ -121,12 +121,12 @@ impl DiscoverResources for ChatSafetyFilters {
 
 pub(crate) struct ChatStylePrompt;
 impl DiscoverResources for ChatStylePrompt {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let file_path = base_path.join("chat/configuration.yaml");
-        if !is_file(&file_path) {
+        if !is_file(fs, &file_path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&file_path) else {
+        let Some(m) = read_yaml_mapping(fs, &file_path) else {
             return vec![];
         };
         let style = m.get("style_prompt");

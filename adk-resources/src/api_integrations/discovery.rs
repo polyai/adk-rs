@@ -7,12 +7,12 @@ use std::path::Path;
 // poly/resources/api_integration.py
 pub(crate) struct ApiIntegration;
 impl DiscoverResources for ApiIntegration {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/api_integrations.yaml");
-        if !is_file(&path) {
+        if !is_file(fs, &path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&path) else {
+        let Some(m) = read_yaml_mapping(fs, &path) else {
             return vec![];
         };
         let Some(Value::Sequence(list)) = m.get("api_integrations") else {

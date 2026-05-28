@@ -7,12 +7,12 @@ use std::path::Path;
 // poly/resources/handoff.py
 pub(crate) struct Handoff;
 impl DiscoverResources for Handoff {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/handoffs.yaml");
-        if !is_file(&path) {
+        if !is_file(fs, &path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&path) else {
+        let Some(m) = read_yaml_mapping(fs, &path) else {
             return vec![];
         };
         let Some(Value::Sequence(list)) = m.get("handoffs") else {

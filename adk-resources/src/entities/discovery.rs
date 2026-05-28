@@ -7,12 +7,12 @@ use std::path::Path;
 // poly/resources/entities.py
 pub(crate) struct Entity;
 impl DiscoverResources for Entity {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let entities_path = base_path.join("config/entities.yaml");
-        if !is_file(&entities_path) {
+        if !is_file(fs, &entities_path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&entities_path) else {
+        let Some(m) = read_yaml_mapping(fs, &entities_path) else {
             return vec![];
         };
         let Some(Value::Sequence(list)) = m.get("entities") else {

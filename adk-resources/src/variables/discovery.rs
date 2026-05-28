@@ -1,17 +1,16 @@
 use crate::discover::DiscoverResources;
 use crate::local_resources::{is_dir, sorted_read_dir};
 use crate::resource_utils::{extract_variable_names_from_code, join_under_root, rel_under_root};
-use adk_io::{FileSystem, StdFileSystem};
 use std::path::{Path, PathBuf};
 
 // poly/resources/variable.py
 pub(crate) struct Variable;
 impl DiscoverResources for Variable {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let mut function_files: Vec<PathBuf> = Vec::new();
         let global_functions = base_path.join("functions");
-        if is_dir(&global_functions)
-            && let Some(files) = sorted_read_dir(&global_functions)
+        if is_dir(fs, &global_functions)
+            && let Some(files) = sorted_read_dir(fs, &global_functions)
         {
             for f in files {
                 if f.extension().and_then(|e| e.to_str()) == Some("py") {
@@ -20,16 +19,16 @@ impl DiscoverResources for Variable {
             }
         }
         let flows_path = base_path.join("flows");
-        if is_dir(&flows_path)
-            && let Some(flow_dirs) = sorted_read_dir(&flows_path)
+        if is_dir(fs, &flows_path)
+            && let Some(flow_dirs) = sorted_read_dir(fs, &flows_path)
         {
             for flow_dir in flow_dirs {
-                if !is_dir(&flow_dir) {
+                if !is_dir(fs, &flow_dir) {
                     continue;
                 }
                 for sub in ["functions", "function_steps"] {
                     let d = flow_dir.join(sub);
-                    if let Some(files) = sorted_read_dir(&d) {
+                    if let Some(files) = sorted_read_dir(fs, &d) {
                         for f in files {
                             if f.extension().and_then(|e| e.to_str()) == Some("py") {
                                 function_files.push(f);
@@ -44,7 +43,7 @@ impl DiscoverResources for Variable {
         }
         let mut names = std::collections::HashSet::new();
         for function_file in function_files {
-            let Ok(code) = StdFileSystem.read_to_string(&function_file) else {
+            let Ok(code) = fs.read_to_string(&function_file) else {
                 continue;
             };
             for v in extract_variable_names_from_code(&code) {

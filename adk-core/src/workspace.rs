@@ -318,7 +318,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
 
     /// Typed discovery matching Python `AgentStudioProject.discover_local_resources()`.
     pub fn discover_local_resources(&self, root: &Path) -> indexmap::IndexMap<String, Vec<String>> {
-        adk_resources::discover_local_resources(root)
+        adk_resources::discover_local_resources(&self.fs, root)
     }
 
     /// Typed parity helper matching Python `find_new_kept_deleted` semantics at path level.

@@ -7,12 +7,12 @@ use std::path::Path;
 // poly/resources/variant_attributes.py
 pub(crate) struct Variant;
 impl DiscoverResources for Variant {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/variant_attributes.yaml");
-        if !is_file(&path) {
+        if !is_file(fs, &path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&path) else {
+        let Some(m) = read_yaml_mapping(fs, &path) else {
             return vec![];
         };
         let Some(Value::Sequence(list)) = m.get("variants") else {
@@ -75,12 +75,12 @@ pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<Str
 
 pub(crate) struct VariantAttribute;
 impl DiscoverResources for VariantAttribute {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let path = base_path.join("config/variant_attributes.yaml");
-        if !is_file(&path) {
+        if !is_file(fs, &path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&path) else {
+        let Some(m) = read_yaml_mapping(fs, &path) else {
             return vec![];
         };
         let Some(Value::Sequence(list)) = m.get("attributes") else {

@@ -6,13 +6,13 @@ use std::path::Path;
 // poly/resources/topic.py
 pub(crate) struct Topic;
 impl DiscoverResources for Topic {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let topics = base_path.join("topics");
-        if !is_dir(&topics) {
+        if !is_dir(fs, &topics) {
             return vec![];
         }
         let mut out = Vec::new();
-        if let Some(files) = sorted_read_dir(&topics) {
+        if let Some(files) = sorted_read_dir(fs, &topics) {
             for f in files {
                 if let Some(ext) = f.extension().and_then(|e| e.to_str())
                     && (ext == "yaml" || ext == "yml")

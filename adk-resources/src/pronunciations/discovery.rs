@@ -7,12 +7,12 @@ use std::path::Path;
 // poly/resources/pronunciation.py
 pub(crate) struct Pronunciation;
 impl DiscoverResources for Pronunciation {
-    fn discover_resources(base_path: &Path) -> Vec<String> {
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let yaml_path = base_path.join("voice/response_control/pronunciations.yaml");
-        if !is_file(&yaml_path) {
+        if !is_file(fs, &yaml_path) {
             return vec![];
         }
-        let Some(m) = read_yaml_mapping(&yaml_path) else {
+        let Some(m) = read_yaml_mapping(fs, &yaml_path) else {
             return vec![];
         };
         let Some(Value::Sequence(items)) = m.get("pronunciations") else {
