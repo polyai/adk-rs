@@ -1,9 +1,27 @@
-use crate::yaml_resources::{
-    EnvPhoneNumbersYaml, SmsTemplateYaml, SmsTemplatesYaml, to_yaml_string,
-};
+use crate::materialization::to_yaml_string;
 use crate::{CommandGenError, extract_entities_vec};
 use adk_types::ResourceMap;
+use serde::Serialize;
 use serde_json::Value;
+
+#[derive(Serialize)]
+struct SmsTemplatesYaml {
+    sms_templates: Vec<SmsTemplateYaml>,
+}
+
+#[derive(Serialize)]
+struct SmsTemplateYaml {
+    name: String,
+    text: String,
+    env_phone_numbers: EnvPhoneNumbersYaml,
+}
+
+#[derive(Serialize)]
+struct EnvPhoneNumbersYaml {
+    sandbox: String,
+    pre_release: String,
+    live: String,
+}
 
 pub(crate) fn insert_sms_template_resources(
     map: &mut ResourceMap,

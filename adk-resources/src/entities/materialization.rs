@@ -1,9 +1,22 @@
-use crate::materialization::insert_content_resource;
+use crate::materialization::{insert_content_resource, to_yaml_string};
 use crate::specs::ENTITIES_FILE;
-use crate::yaml_resources::{EntitiesYaml, EntityYaml, to_yaml_string};
 use crate::{CommandGenError, extract_entities_vec, snake_case_json_keys, to_snake_case};
 use adk_types::ResourceMap;
+use serde::Serialize;
 use serde_json::Value;
+
+#[derive(Serialize)]
+struct EntitiesYaml {
+    entities: Vec<EntityYaml>,
+}
+
+#[derive(Serialize)]
+struct EntityYaml {
+    name: String,
+    description: String,
+    entity_type: String,
+    config: Value,
+}
 
 pub(crate) fn insert_entity_resources(
     map: &mut ResourceMap,

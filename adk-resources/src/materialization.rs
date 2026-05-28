@@ -8,7 +8,6 @@ pub(crate) use crate::materialization_reference_handling::{
 };
 
 use crate::CommandGenError;
-use crate::yaml_resources::to_yaml_string;
 use adk_types::{Resource, ResourceMap};
 use serde::Serialize;
 use serde_json::Value;
@@ -51,6 +50,10 @@ pub(crate) fn insert_yaml_resource(
     let content =
         to_yaml_string(&value).map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
     insert_content_resource(map, file_path, resource_id, name, content)
+}
+
+pub(crate) fn to_yaml_string<T: Serialize>(value: &T) -> Result<String, serde_yaml::Error> {
+    serde_yaml::to_string(value)
 }
 
 pub(crate) fn insert_content_resource(

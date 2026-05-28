@@ -50,7 +50,6 @@ mod topics;
 mod transcript_corrections;
 mod variables;
 mod variants;
-mod yaml_resources;
 
 pub use discover::{DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources};
 pub use flows::validate_flow_resources;

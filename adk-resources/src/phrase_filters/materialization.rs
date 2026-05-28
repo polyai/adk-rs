@@ -1,9 +1,36 @@
 use crate::functions;
-use crate::yaml_resources::{PhraseFilterYaml, PhraseFilteringYaml, to_yaml_string};
+use crate::materialization::to_yaml_string;
 use crate::{CommandGenError, extract_entities_vec};
 use adk_types::ResourceMap;
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
+
+fn is_empty(value: &str) -> bool {
+    value.is_empty()
+}
+
+fn is_none_or_empty(value: &Option<String>) -> bool {
+    value.as_deref().is_none_or(str::is_empty)
+}
+
+#[derive(Serialize)]
+struct PhraseFilteringYaml {
+    phrase_filtering: Vec<PhraseFilterYaml>,
+}
+
+#[derive(Serialize)]
+struct PhraseFilterYaml {
+    name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    description: String,
+    regular_expressions: Vec<Value>,
+    say_phrase: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    language_code: String,
+    #[serde(skip_serializing_if = "is_none_or_empty")]
+    function: Option<String>,
+}
 
 pub(crate) fn insert_phrase_filter_resources(
     map: &mut ResourceMap,

@@ -1,9 +1,18 @@
 use super::topic_entries;
-use crate::materialization::insert_content_resource;
-use crate::yaml_resources::{TopicYaml, to_yaml_string};
+use crate::materialization::{insert_content_resource, to_yaml_string};
 use crate::{CommandGenError, clean_name};
 use adk_types::ResourceMap;
+use serde::Serialize;
 use serde_json::Value;
+
+#[derive(Serialize)]
+struct TopicYaml {
+    name: String,
+    enabled: bool,
+    actions: String,
+    content: String,
+    example_queries: Vec<String>,
+}
 
 pub(crate) fn insert_topic_resources(
     map: &mut ResourceMap,

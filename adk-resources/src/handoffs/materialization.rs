@@ -1,7 +1,22 @@
-use crate::yaml_resources::{HandoffYaml, HandoffsYaml, to_yaml_string};
+use crate::materialization::to_yaml_string;
 use crate::{CommandGenError, extract_entities_vec};
 use adk_types::ResourceMap;
+use serde::Serialize;
 use serde_json::Value;
+
+#[derive(Serialize)]
+struct HandoffsYaml {
+    handoffs: Vec<HandoffYaml>,
+}
+
+#[derive(Serialize)]
+struct HandoffYaml {
+    name: String,
+    description: String,
+    is_default: bool,
+    sip_config: Value,
+    sip_headers: Value,
+}
 
 pub(crate) fn insert_handoff_resources(
     map: &mut ResourceMap,

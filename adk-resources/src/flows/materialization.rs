@@ -4,10 +4,58 @@ use crate::materialization::{
     replace_flow_import_ids_with_names,
 };
 use crate::projection::projection_entity_values;
-use crate::yaml_resources::{AsrBiasingYaml, DtmfConfigYaml, FlowConfigYaml, FlowStepYaml};
 use crate::{CommandGenError, clean_name};
 use adk_types::ResourceMap;
+use serde::Serialize;
 use serde_json::Value;
+
+#[derive(Serialize)]
+struct FlowConfigYaml {
+    name: String,
+    description: String,
+    start_step: String,
+}
+
+#[derive(Serialize)]
+struct FlowStepYaml {
+    step_type: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    asr_biasing: Option<AsrBiasingYaml>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dtmf_config: Option<DtmfConfigYaml>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conditions: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extracted_entities: Option<Value>,
+    prompt: String,
+}
+
+#[derive(Serialize)]
+struct AsrBiasingYaml {
+    is_enabled: bool,
+    alphanumeric: bool,
+    name_spelling: bool,
+    numeric: bool,
+    party_size: bool,
+    precise_date: bool,
+    relative_date: bool,
+    single_number: bool,
+    time: bool,
+    yes_no: bool,
+    address: bool,
+    custom_keywords: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct DtmfConfigYaml {
+    is_enabled: bool,
+    inter_digit_timeout: i32,
+    max_digits: i32,
+    end_key: String,
+    collect_while_agent_speaking: bool,
+    is_pii: bool,
+}
 
 pub(crate) fn insert_flow_resources(
     map: &mut ResourceMap,
