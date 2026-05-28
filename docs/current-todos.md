@@ -29,6 +29,9 @@ Current state:
 - The flow-family module at `adk-resources/src/flows` owns flow discovery,
   projection materialization, cross-resource validation, and push command
   generation for flow config, steps, function steps, and transition functions.
+- The topic-family module at `adk-resources/src/topics` owns topic discovery,
+  local YAML validation, projection materialization, and push command
+  generation.
 
 Remaining:
 
@@ -38,9 +41,9 @@ Remaining:
    - The longer-term shape should use durable resource-family modules such as
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
-   - `functions` and `flows` are now the pilot modules for this shape. Repeat
-     the pattern for topics, agent settings, API integrations, variants, and
-     other resource families.
+   - `functions`, `flows`, and `topics` now follow this shape. Repeat the
+     pattern for agent settings, API integrations, variants, and other resource
+     families.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.

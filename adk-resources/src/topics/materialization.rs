@@ -1,15 +1,15 @@
-use super::insert_content_resource;
-use crate::command_gen::per_resource_files::topics;
+use super::topic_entries;
+use crate::materialization::insert_content_resource;
 use crate::yaml_resources::{TopicYaml, to_yaml_string};
 use crate::{CommandGenError, clean_name};
 use adk_types::ResourceMap;
 use serde_json::Value;
 
-pub(super) fn insert_topic_resources(
+pub(crate) fn insert_topic_resources(
     map: &mut ResourceMap,
     projection: &Value,
 ) -> Result<(), CommandGenError> {
-    for (id, topic) in topics::topic_entries(projection) {
+    for (id, topic) in topic_entries(projection) {
         let name = topic
             .get("name")
             .and_then(Value::as_str)

@@ -6,7 +6,6 @@ mod channels;
 mod entities;
 mod references;
 mod synthetic;
-mod topics;
 
 pub(crate) use references::{
     FlowImportPathMaps, PromptReferenceMaps, flow_import_path_maps_from_projection,
@@ -27,7 +26,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
     let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
     let flow_import_path_maps = flow_import_path_maps_from_projection(projection);
 
-    topics::insert_topic_resources(&mut map, projection)?;
+    crate::topics::insert_topic_resources(&mut map, projection)?;
     crate::functions::insert_function_resources(&mut map, projection, &flow_import_path_maps)?;
     crate::flows::insert_flow_resources(&mut map, projection, &flow_import_path_maps)?;
     entities::insert_entity_resources(&mut map, projection)?;

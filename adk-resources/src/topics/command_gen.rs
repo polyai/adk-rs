@@ -1,6 +1,6 @@
 //! Push commands for knowledge-base topic resources.
 
-use super::super::CommandGroups;
+use crate::command_gen::CommandGroups;
 use crate::ids::stable_resource_id;
 use crate::{
     extract_entities_map, is_synthetic_local_resource_id, prompt_reference_maps_from_projection,
@@ -14,6 +14,10 @@ use adk_protobuf::knowledge_base::{
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+
+#[cfg(test)]
+#[path = "command_gen_tests.rs"]
+mod command_gen_tests;
 
 /// Builds create/update/delete commands for knowledge-base topics.
 ///

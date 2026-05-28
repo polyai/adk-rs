@@ -31,6 +31,7 @@ pub mod specs;
 pub mod status_snapshot;
 #[cfg(test)]
 mod test_support;
+mod topics;
 mod yaml_resources;
 
 pub use command_gen::{

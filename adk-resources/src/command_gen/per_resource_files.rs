@@ -5,7 +5,6 @@
 //! resources, but they are still organized around one resource path at a time
 //! rather than a shared aggregate YAML file.
 
-pub(crate) mod topics;
 pub(crate) mod variables;
 
 use super::CommandGroups;
@@ -24,7 +23,7 @@ pub(crate) fn per_resource_file_command_groups(
     groups.append(crate::functions::function_resource_command_groups(
         resources, projection, metadata,
     )?);
-    groups.append(topics::topic_resource_command_groups(
+    groups.append(crate::topics::topic_resource_command_groups(
         resources, projection, metadata,
     ));
     groups.append(crate::flows::flow_resource_command_groups(
