@@ -1,7 +1,7 @@
 //! Push commands for virtual variable resources derived from `conv.state.*` usage.
 
 use super::super::CommandGroups;
-use super::functions;
+use crate::functions;
 use crate::ids::stable_resource_id;
 use crate::{extract_entities_map, extract_variable_names_from_code, push_command};
 use adk_protobuf::Metadata;
@@ -218,7 +218,7 @@ fn function_reference_target(
             .and_then(Value::as_str)
             .unwrap_or_default();
         let name = functions::local_function_name(path, resource, content);
-        let remote_id = functions::function_entries(projection)
+        let remote_id = crate::functions::function_entries(projection)
             .into_iter()
             .find_map(|(id, function)| {
                 (function.get("name").and_then(Value::as_str) == Some(name.as_str())).then_some(id)

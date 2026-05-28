@@ -15,11 +15,10 @@ mod agent_settings;
 mod api_integration;
 mod asr_settings;
 mod channels;
-mod common;
+pub(crate) mod common;
 mod entity;
 mod experimental_config;
 mod flow;
-mod function;
 mod handoff;
 mod keyphrase_boosting;
 mod lifecycle;
@@ -32,6 +31,7 @@ mod transcript_correction;
 mod variable;
 mod variant;
 
+pub(crate) use crate::functions::Function;
 pub(crate) use agent_settings::{SettingsPersonality, SettingsRole, SettingsRules};
 pub(crate) use api_integration::ApiIntegration;
 pub(crate) use asr_settings::AsrSettings;
@@ -42,7 +42,6 @@ pub(crate) use channels::{
 pub(crate) use entity::Entity;
 pub(crate) use experimental_config::ExperimentalConfig;
 pub(crate) use flow::{FlowConfig, FlowStep, FunctionStep};
-pub(crate) use function::Function;
 pub(crate) use handoff::Handoff;
 pub(crate) use keyphrase_boosting::KeyphraseBoosting;
 pub use lifecycle::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};

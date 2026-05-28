@@ -20,12 +20,11 @@ pub enum CommandGenError {
 
 mod command_gen;
 pub mod discover;
-mod function_parsing;
+pub mod functions;
 pub mod ids;
 mod local_resources;
 mod materialization;
 pub mod projection;
-pub mod python_functions;
 pub mod resource_utils;
 pub mod specs;
 pub mod status_snapshot;
@@ -39,18 +38,18 @@ pub use command_gen::{
     try_build_push_commands_for_changed_resources, try_build_push_commands_with_actor,
 };
 pub use discover::{DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources};
-pub use local_resources::{
-    DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
-    build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
-    type_name_to_resource_prefix, validate_semantic_resource,
-};
-pub use python_functions::{
+pub use functions::{
     PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX, PYTHON_FUNCTION_STATUS_HASH_PREFIX,
     function_parameter_decorator_names, function_signature_parameter_list,
     function_signature_parameters, is_python_function_resource, legacy_python_function_raw,
     legacy_python_snapshot_hashes, local_resource_content,
     normalize_legacy_python_status_function_resources, normalize_python_function_metadata_spacing,
     resource_file_content,
+};
+pub use local_resources::{
+    DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
+    build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
+    type_name_to_resource_prefix, validate_semantic_resource,
 };
 pub use status_snapshot::{
     FileStructureEntry, ResourceStatusPayloadInput, StatusResourcePayload, StatusSnapshot,

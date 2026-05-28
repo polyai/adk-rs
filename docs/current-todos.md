@@ -22,16 +22,21 @@ Current state:
   functions, flows, singleton files, aggregate files, status snapshots, and
   related materialization helpers. `adk-resources/src/tests.rs` is now reserved
   mostly for cross-resource orchestration and broad projection coverage.
+- The first durable function-family module exists at `adk-resources/src/functions`.
+  It owns function discovery, Python parsing/decorator helpers, legacy status
+  compatibility helpers, projection materialization, and push command
+  generation.
 
 Remaining:
 
 1. Consolidate Python function resource semantics.
-   - Function parsing, decorator handling, status payload generation,
-     materialization, validation, and command generation are still not fully
-     grouped under a single resource-family module.
-   - Next target: introduce a durable `adk-resources` function-family module
-     that owns reusable function-resource behavior and leaves only workflow
-     plumbing in `adk-core`.
+   - Discovery, parsing/decorator handling, status compatibility,
+     materialization, and command generation now live under the function-family
+     module.
+   - Function validation is still orchestrated from `adk-core`, including
+     Python syntax checks and decorator/signature validation.
+   - Next target: move the reusable function validation rules behind an
+     `adk-resources` API while leaving only workflow plumbing in `adk-core`.
 
 2. Move cross-resource validation rules behind an `adk-resources` API.
    - Resource-local YAML validation already lives in `adk-resources`.
@@ -45,6 +50,9 @@ Remaining:
    - The longer-term shape should use durable resource-family modules such as
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
+   - `functions` is now the pilot module for this shape; repeat the pattern for
+     flows and other resource families once the remaining function validation
+     seam is cleaned up.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.

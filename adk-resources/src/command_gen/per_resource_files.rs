@@ -6,7 +6,6 @@
 //! rather than a shared aggregate YAML file.
 
 pub(crate) mod flows;
-pub(crate) mod functions;
 pub(crate) mod topics;
 pub(crate) mod variables;
 
@@ -23,7 +22,7 @@ pub(crate) fn per_resource_file_command_groups(
     metadata: &Option<Metadata>,
 ) -> Result<CommandGroups, CommandGenError> {
     let mut groups = variables::variable_resource_command_groups(resources, projection, metadata);
-    groups.append(functions::function_resource_command_groups(
+    groups.append(crate::functions::function_resource_command_groups(
         resources, projection, metadata,
     )?);
     groups.append(topics::topic_resource_command_groups(

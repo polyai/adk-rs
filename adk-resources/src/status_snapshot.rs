@@ -1,5 +1,5 @@
 use crate::clean_name;
-use crate::python_functions::{
+use crate::functions::{
     PYTHON_FUNCTION_STATUS_HASH_PREFIX, PythonDecoratorCallScan,
     extract_normalized_python_adk_decorators, function_signature_parameter_list,
     insert_python_function_decorators, is_python_function_like_path, legacy_python_function_raw,

@@ -1,15 +1,15 @@
 //! Push commands for global functions and special start/end functions.
 
-use super::super::CommandGroups;
 #[cfg(test)]
-pub(crate) use crate::function_parsing::function_code_from_local_content;
-pub(crate) use crate::function_parsing::{
+pub(crate) use super::parsing::function_code_from_local_content;
+pub(crate) use super::parsing::{
     annotated_function_parameter_names, function_create_latency_control,
     function_update_latency_control, infer_function_description, infer_function_parameters,
     insert_python_function_decorators, latency_control_from_projection,
     local_latency_control_from_code, python_signature_for_function, python_string_literal,
     try_function_code_from_local_content,
 };
+use crate::command_gen::CommandGroups;
 use crate::ids::stable_resource_id;
 use crate::{
     CommandGenError, clean_name, extract_entities_map, extract_variable_names_from_code,
@@ -33,8 +33,8 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
-#[path = "functions_tests.rs"]
-mod functions_tests;
+#[path = "command_gen_tests.rs"]
+mod command_gen_tests;
 
 /// Builds phase-ordered push commands for top-level Python functions.
 ///

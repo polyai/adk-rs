@@ -1,5 +1,5 @@
 use super::insert_content_resource;
-use crate::command_gen::per_resource_files::functions;
+use crate::functions;
 use crate::yaml_resources::{
     EnvPhoneNumbersYaml, HandoffYaml, HandoffsYaml, PhraseFilterYaml, PhraseFilteringYaml,
     SmsTemplateYaml, SmsTemplatesYaml, to_yaml_string,

@@ -2,7 +2,7 @@ use super::{
     FlowImportPathMaps, insert_content_resource, insert_yaml_resource,
     replace_flow_import_ids_with_names,
 };
-use crate::command_gen::per_resource_files::functions;
+use crate::functions;
 use crate::projection::projection_entity_values;
 use crate::yaml_resources::{AsrBiasingYaml, DtmfConfigYaml, FlowConfigYaml, FlowStepYaml};
 use crate::{CommandGenError, clean_name};

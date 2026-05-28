@@ -5,7 +5,6 @@ mod broad_resources;
 mod channels;
 mod entities;
 mod flows;
-mod functions;
 mod references;
 mod synthetic;
 mod topics;
@@ -30,7 +29,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
     let flow_import_path_maps = flow_import_path_maps_from_projection(projection);
 
     topics::insert_topic_resources(&mut map, projection)?;
-    functions::insert_function_resources(&mut map, projection, &flow_import_path_maps)?;
+    crate::functions::insert_function_resources(&mut map, projection, &flow_import_path_maps)?;
     flows::insert_flow_resources(&mut map, projection, &flow_import_path_maps)?;
     entities::insert_entity_resources(&mut map, projection)?;
 
@@ -56,7 +55,7 @@ pub(super) fn insert_yaml_resource(
     insert_content_resource(map, file_path, resource_id, name, content)
 }
 
-pub(super) fn insert_content_resource(
+pub(crate) fn insert_content_resource(
     map: &mut ResourceMap,
     file_path: &str,
     resource_id: &str,

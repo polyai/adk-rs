@@ -19,7 +19,7 @@ use self::parsing::{
     ordered_flow_steps, ordered_function_steps, ordered_transition_functions, remote_flows_by_name,
 };
 use super::super::CommandGroups;
-use super::functions::{
+use crate::functions::{
     function_errors_update_from_projection, function_parameters_update_from_projection,
     function_update_latency_control, infer_function_parameters, latency_control_from_projection,
     local_latency_control_from_code, python_function_symbol, variable_reference_ids_from_code,

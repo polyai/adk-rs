@@ -1,11 +1,11 @@
-use super::super::functions::{
-    function_create_latency_control, infer_function_description, local_latency_control_from_code,
-    try_function_code_from_local_content,
-};
 use super::models::{
     FlowStepType, LocalCondition, LocalFlow, LocalFlowStep, LocalFunctionStep,
     LocalTransitionFunction, RemoteCondition, RemoteFlow, RemoteFlowStep, RemoteFunctionStep,
     RemoteTransitionFunction,
+};
+use crate::functions::{
+    function_create_latency_control, infer_function_description, local_latency_control_from_code,
+    try_function_code_from_local_content,
 };
 use crate::{
     CommandGenError, FlowImportPathMaps, PromptReferenceMaps, replace_flow_import_names_with_ids,
