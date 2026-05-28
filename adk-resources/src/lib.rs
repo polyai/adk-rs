@@ -29,7 +29,6 @@ pub mod functions;
 mod handoffs;
 pub mod ids;
 mod keyphrase_boosting;
-mod local_resource_common;
 mod local_resources;
 mod materialization;
 mod materialization_broad_resources;

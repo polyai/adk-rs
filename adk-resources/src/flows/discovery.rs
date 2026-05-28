@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::local_resource_common::{is_dir, is_file, read_yaml_mapping, sorted_read_dir};
+use crate::local_resources::{is_dir, is_file, read_yaml_mapping, sorted_read_dir};
 use crate::resource_utils::rel_under_root;
 use std::path::Path;
 
