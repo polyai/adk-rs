@@ -33,11 +33,11 @@ jobs:
     - name: Install cargo-crap
       run: cargo install cargo-crap
     - name: Run llvm-cov
-      run: cargo llvm-cov --lcov --output-path lcov.info
+      run: cargo llvm-cov --workspace --lcov --output-path lcov.info
     - name: Run cargo-crap
       run: |
-        cargo crap --lcov lcov.info --threshold 30 --top 25
-        cargo crap --lcov lcov.info --threshold 30 --top 25 --format pr-comment --output crap-pr-comment.md
+        cargo crap --workspace --lcov lcov.info --threshold 30 --top 25
+        cargo crap --workspace --lcov lcov.info --threshold 30 --top 25 --format pr-comment --output crap-pr-comment.md
         {
           echo "## CRAP metric"
           echo
