@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   issues: write
@@ -151,11 +155,12 @@ jobs:
           echo "Full reports: [coverage-and-crap-reports artifact]($report_url) ([workflow run]($RUN_URL))."
         } > "$body_file"
 
-        comment_id="$(
+        comment_ids="$(
           gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
-            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" \
-            | head -n 1
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id"
         )"
+        comment_id="$(printf '%s\n' "$comment_ids" | sed -n '1p')"
+        duplicate_comment_ids="$(printf '%s\n' "$comment_ids" | sed '1d')"
 
         if [ -n "$comment_id" ]; then
           gh api \
@@ -170,3 +175,10 @@ jobs:
             -F "body=@${body_file}" \
             --silent
         fi
+
+        for duplicate_comment_id in $duplicate_comment_ids; do
+          gh api \
+            --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/issues/comments/${duplicate_comment_id}" \
+            --silent
+        done
