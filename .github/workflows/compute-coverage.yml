@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
 env:
   RUFF_VERSION: "0.14.2"
   TY_VERSION: "0.0.35"
@@ -30,4 +35,45 @@ jobs:
     - name: Run llvm-cov
       run: cargo llvm-cov --lcov --output-path lcov.info
     - name: Run cargo-crap
-      run: cargo crap --lcov lcov.info --threshold 30
+      run: |
+        cargo crap --lcov lcov.info --threshold 30 --top 25
+        cargo crap --lcov lcov.info --threshold 30 --top 25 --format pr-comment --output crap-pr-comment.md
+        {
+          echo "## CRAP metric"
+          echo
+          cat crap-pr-comment.md
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Post CRAP metric PR comment
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        marker="<!-- adk-rs-cargo-crap-report -->"
+        body_file="$(mktemp)"
+        {
+          echo "$marker"
+          echo
+          cat crap-pr-comment.md
+        } > "$body_file"
+
+        comment_id="$(
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" \
+            | head -n 1
+        )"
+
+        if [ -n "$comment_id" ]; then
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" \
+            -F "body=@${body_file}" \
+            --silent
+        else
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            -F "body=@${body_file}" \
+            --silent
+        fi
