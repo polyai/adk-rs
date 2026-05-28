@@ -261,3 +261,143 @@ fn channel_disclaimer_yaml(disclaimer: &Value) -> Value {
             .unwrap_or("en-GB"),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::projection_to_resource_map;
+
+    #[test]
+    fn projection_materializes_safety_filters_as_python_yaml_shape() {
+        let projection = serde_json::json!({
+            "contentFilterSettings": {
+                "disabled": true,
+                "type": "azure",
+                "azureConfig": {
+                    "violence": {"isActive": true, "precision": "STRICT"},
+                    "hate": {"isActive": false, "precision": "MEDIUM"},
+                    "sexual": {"isActive": false, "precision": "LOOSE"},
+                    "selfHarm": {"isActive": true, "precision": "STRICT"}
+                }
+            },
+            "channels": {
+                "voice": {
+                    "config": {
+                        "safetyFilters": {
+                            "disabled": false,
+                            "azureConfig": {
+                                "violence": {"isActive": true, "precision": "STRICT"},
+                                "hate": {"isActive": true, "precision": "MEDIUM"},
+                                "sexual": {"isActive": false, "precision": "LOOSE"},
+                                "selfHarm": {"isActive": false, "precision": "MEDIUM"}
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let resources = projection_to_resource_map(&projection).expect("projection resources");
+        let general = resources
+            .get("agent_settings/safety_filters.yaml")
+            .and_then(|resource| resource.payload.get("content"))
+            .and_then(serde_json::Value::as_str)
+            .expect("general safety filter YAML");
+        let voice = resources
+            .get("voice/safety_filters.yaml")
+            .and_then(|resource| resource.payload.get("content"))
+            .and_then(serde_json::Value::as_str)
+            .expect("voice safety filter YAML");
+
+        assert!(!general.contains("azureConfig"));
+        assert!(!general.contains("disabled:"));
+        assert!(general.contains("categories:"));
+        assert!(general.contains("self_harm:"));
+        assert!(general.contains("level: strict"));
+        assert!(voice.contains("enabled: true"));
+    }
+
+    #[test]
+    fn projection_materializes_channel_configuration_as_python_yaml_shape() {
+        let projection = serde_json::json!({
+            "channels": {
+                "voice": {
+                    "config": {
+                        "greeting": {
+                            "welcomeMessage": "Hello",
+                            "languageCode": "en-US"
+                        },
+                        "stylePrompt": {"prompt": "Warm and concise"}
+                    },
+                    "disclaimer": {
+                        "message": "Recorded line",
+                        "isEnabled": true,
+                        "languageCode": "en-US"
+                    }
+                },
+                "webChat": {
+                    "status": true,
+                    "config": {
+                        "greeting": {
+                            "welcomeMessage": "Hi",
+                            "languageCode": "en-GB"
+                        },
+                        "stylePrompt": {"prompt": "Helpful"}
+                    }
+                }
+            }
+        });
+
+        let resources = projection_to_resource_map(&projection).expect("projection resources");
+        let voice = resources
+            .get("voice/configuration.yaml")
+            .and_then(|resource| resource.payload.get("content"))
+            .and_then(serde_json::Value::as_str)
+            .expect("voice configuration YAML");
+        let chat = resources
+            .get("chat/configuration.yaml")
+            .and_then(|resource| resource.payload.get("content"))
+            .and_then(serde_json::Value::as_str)
+            .expect("chat configuration YAML");
+
+        assert!(voice.contains("welcome_message: Hello"));
+        assert!(voice.contains("language_code: en-US"));
+        assert!(voice.contains("disclaimer_messages:"));
+        assert!(voice.contains("enabled: true"));
+        assert!(!voice.contains("welcomeMessage"));
+        assert!(!voice.contains("- message:"));
+        assert!(chat.contains("welcome_message: Hi"));
+        assert!(chat.contains("style_prompt:"));
+    }
+
+    #[test]
+    fn projection_materializes_asr_settings_as_python_yaml_shape() {
+        let projection = serde_json::json!({
+            "channels": {
+                "voice": {
+                    "asrSettings": {
+                        "bargeIn": false,
+                        "latencyConfig": {
+                            "interactionStyle": "precise"
+                        },
+                        "updatedAt": "2026-01-21T14:35:16.078Z",
+                        "updatedBy": "miles.nash@poly-ai.com"
+                    }
+                }
+            }
+        });
+
+        let resources = projection_to_resource_map(&projection).expect("projection resources");
+        let content = resources
+            .get("voice/speech_recognition/asr_settings.yaml")
+            .and_then(|resource| resource.payload.get("content"))
+            .and_then(serde_json::Value::as_str)
+            .expect("ASR settings YAML");
+
+        assert!(content.contains("barge_in: false"));
+        assert!(content.contains("interaction_style: precise"));
+        assert!(!content.contains("bargeIn"));
+        assert!(!content.contains("latencyConfig"));
+        assert!(!content.contains("updatedAt"));
+        assert!(!content.contains("updatedBy"));
+    }
+}

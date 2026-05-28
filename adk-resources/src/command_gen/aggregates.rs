@@ -413,3 +413,181 @@ fn number_config_json(config: &entities::NumberConfig) -> Value {
     }
     Value::Object(value)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::local_resource;
+
+    fn flatten(groups: CommandGroups) -> Vec<adk_protobuf::Command> {
+        groups
+            .deletes
+            .into_iter()
+            .chain(groups.creates)
+            .chain(groups.updates)
+            .chain(groups.post_updates)
+            .collect()
+    }
+
+    #[test]
+    fn aggregate_files_emit_real_create_commands() {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            "config/variant_attributes.yaml".to_string(),
+            local_resource(
+                "config/variant_attributes.yaml",
+                "variant_attributes",
+                r#"
+variants:
+  - name: default
+  - name: treatment
+attributes:
+  - name: adk-recording-cohort
+    values:
+      default: control
+      treatment: treatment
+"#,
+            ),
+        );
+        resources.insert(
+            "config/api_integrations.yaml".to_string(),
+            local_resource(
+                "config/api_integrations.yaml",
+                "api_integrations",
+                r#"
+api_integrations:
+  - name: adk_recording_api
+    description: Recording-only API integration.
+    environments:
+      sandbox:
+        base_url: https://example.invalid/sandbox
+        auth_type: none
+    operations:
+      - name: get_recording_status
+        method: GET
+        resource: /status
+  - name: adk_recording_api_backup
+    description: Recording-only backup API integration.
+    operations:
+      - name: get_recording_status
+        method: GET
+        resource: /backup/status
+"#,
+            ),
+        );
+        resources.insert(
+            "voice/speech_recognition/keyphrase_boosting.yaml".to_string(),
+            local_resource(
+                "voice/speech_recognition/keyphrase_boosting.yaml",
+                "keyphrase_boosting",
+                "keyphrases:\n  - keyphrase: ADK parity\n    level: boosted\n",
+            ),
+        );
+        resources.insert(
+            "voice/speech_recognition/transcript_corrections.yaml".to_string(),
+            local_resource(
+                "voice/speech_recognition/transcript_corrections.yaml",
+                "transcript_corrections",
+                r#"
+corrections:
+  - name: ADK spelling
+    description: Correct ADK spelling.
+    regular_expressions:
+      - regular_expression: agent development kid
+        replacement: agent development kit
+        replacement_type: full
+"#,
+            ),
+        );
+        resources.insert(
+            "voice/response_control/pronunciations.yaml".to_string(),
+            local_resource(
+                "voice/response_control/pronunciations.yaml",
+                "pronunciations",
+                r#"
+pronunciations:
+  - regex: \bADK\b
+    replacement: Agent Development Kit
+    case_sensitive: true
+    language_code: en-US
+"#,
+            ),
+        );
+
+        let commands = flatten(aggregate_command_groups(
+            &resources,
+            &serde_json::json!({}),
+            &None,
+        ));
+        let types = commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>();
+        for expected in [
+            "variant_create_variant",
+            "variant_create_attribute",
+            "create_api_integration",
+            "create_api_integration_operation",
+            "create_keyphrase_boosting",
+            "create_transcript_corrections",
+            "pronunciations_create_pronunciation",
+        ] {
+            assert!(
+                types.contains(&expected),
+                "missing aggregate-file create command: {expected}"
+            );
+        }
+
+        let attribute = commands
+            .iter()
+            .find(|command| command.r#type == "variant_create_attribute")
+            .expect("variant_create_attribute command");
+        match &attribute.payload {
+            Some(CommandPayload::VariantCreateAttribute(payload)) => {
+                let values = payload
+                    .variant_values
+                    .as_ref()
+                    .expect("variant values")
+                    .values
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                assert!(values.contains(&"control".to_string()));
+                assert!(values.contains(&"treatment".to_string()));
+            }
+            _ => panic!("unexpected payload variant for variant_create_attribute command"),
+        }
+
+        let api = commands
+            .iter()
+            .find(|command| command.r#type == "create_api_integration")
+            .expect("create_api_integration command");
+        match &api.payload {
+            Some(CommandPayload::CreateApiIntegration(payload)) => {
+                assert_eq!(payload.name, "adk_recording_api");
+                assert_eq!(
+                    payload
+                        .environments
+                        .as_ref()
+                        .and_then(|envs| envs.sandbox.as_ref())
+                        .map(|env| env.base_url.as_str()),
+                    Some("https://example.invalid/sandbox")
+                );
+            }
+            _ => panic!("unexpected payload variant for create_api_integration command"),
+        }
+
+        let operation_ids = commands
+            .iter()
+            .filter(|command| command.r#type == "create_api_integration_operation")
+            .filter_map(|command| match &command.payload {
+                Some(CommandPayload::CreateApiIntegrationOperation(payload)) => {
+                    Some(payload.id.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(operation_ids.len(), 2);
+        assert_ne!(operation_ids[0], operation_ids[1]);
+    }
+}

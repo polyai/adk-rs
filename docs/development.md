@@ -12,7 +12,7 @@ Notes for contributors working on the Rust ADK rewrite.
 - `adk-io`: filesystem, hashing, diff, path, and serialization helpers.
 - `adk-protobuf`: protobuf command definitions used by push.
 - `adk-ffi`: thin FFI-facing wrappers for future library bindings.
-- `docs`: parity TODOs and testing strategy.
+- `docs`: current TODOs, historical parity context, and testing strategy.
 
 Each crate also has a short local README.
 
@@ -83,9 +83,8 @@ git tag v0.0.1
 git push origin v0.0.1
 ```
 
-The release installer installs the `poly` binary and also provides `adk` as a
-packaging-time alias. Crates.io publishing is still a separate `cargo publish`
-process.
+The release installer installs the `poly` binary and provides `adk` as a
+packaging-time alias. Crates.io publishing is not implemented yet.
 
 ## Parity Tests
 
@@ -98,16 +97,8 @@ cargo test --test replay_python_adk_httpmock_fixtures_test
 The `format-local` replay exercises both formatting and `--ty`, so it needs
 the system dependencies from the README.
 
-A smaller direct Python-vs-Rust CLI parity test is also available. It is opt-in
-so ordinary `cargo test` runs do not depend on whichever Python ADK happens to
-be on `PATH`:
-
-```bash
-PYTHON_ADK_BIN=/path/to/python/poly cargo test --test python_adk_direct_cli_parity_test
-```
-
 Recording refreshes are ignored by default because they call the real Agent
-Studio API:
+Studio API. To refresh them explicitly, run:
 
 ```bash
 cargo test --test record_python_adk_from_manifest_test -- --ignored --nocapture

@@ -1,9 +1,9 @@
-use crate::python_functions::{
+use crate::python_syntax::validate_python_module;
+use crate::{CoreError, reference_name_from_logical_path};
+use adk_resources::{
     function_parameter_decorator_names, function_signature_parameter_list,
     function_signature_parameters, is_python_function_resource,
 };
-use crate::python_syntax::validate_python_module;
-use crate::{CoreError, reference_name_from_logical_path};
 use adk_types::{DomainError, ResourceMap};
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;

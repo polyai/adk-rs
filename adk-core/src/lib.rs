@@ -1,29 +1,20 @@
 use adk_types::{DiffMap, DomainError, ProjectConfig, ResourceMap};
 
-mod python_functions;
 mod python_syntax;
 mod service;
-mod status_snapshot;
 mod validation;
 mod workspace;
 
 use adk_api_client::ApiError;
-use adk_io::{FileSystem, StdFileSystem, compute_hash, parse_multi_resource_path};
-use adk_resources as resource_semantics;
+use adk_io::{FileSystem, StdFileSystem, parse_multi_resource_path};
+use adk_resources::current_status_hash_for_expected;
 pub use adk_resources::{
     DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
 };
 use anyhow::Result;
 use globset::{Glob, GlobSetBuilder};
-use python_functions::{
-    PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX, PYTHON_FUNCTION_STATUS_HASH_PREFIX,
-    legacy_python_function_raw, legacy_python_snapshot_hashes, local_resource_content,
-    normalize_legacy_python_status_function_resources, normalize_python_function_metadata_spacing,
-    resource_file_content,
-};
 use serde_json::Value;
 pub use service::{AdkService, PullOutcome};
-use status_snapshot::{StatusResourcePayload, current_status_hash_for_expected};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -35,7 +26,6 @@ pub use workspace::ProjectWorkspace;
 pub const PROJECT_CONFIG_FILE: &str = "project.yaml";
 pub const STATUS_FILE: &str = "_gen/.agent_studio_config";
 const MIGRATED_LEGACY_TOPIC_FILES: &str = "migrated_legacy_topic_files";
-const PYTHON_VARIANT_STATUS_KEY_PREFIX: &str = "__python_variant__/";
 
 struct PushChangeSet {
     resources: ResourceMap,
@@ -88,208 +78,6 @@ fn project_config_contains_branch_id(raw: &str) -> bool {
             _ => None,
         })
         .is_some_and(|mapping| mapping.contains_key("branch_id"))
-}
-
-fn legacy_python_status_resource_path(
-    resource_name: &str,
-    payload: &Value,
-    ordinal: usize,
-) -> Option<String> {
-    let name = payload
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let clean_name = |lowercase| resource_semantics::clean_name(name, lowercase);
-    let flow_folder = || {
-        payload
-            .get("flow_name")
-            .and_then(Value::as_str)
-            .map(|flow_name| resource_semantics::clean_name(flow_name, true))
-    };
-    match resource_name {
-        "api_integration" => Some(format!(
-            "config/api_integrations.yaml/api_integrations/{}",
-            clean_name(false)
-        )),
-        "functions" => {
-            if let Some(flow_folder) = flow_folder() {
-                Some(format!("flows/{flow_folder}/functions/{name}.py"))
-            } else {
-                Some(format!("functions/{name}.py"))
-            }
-        }
-        "topics" => Some(format!("topics/{}.yaml", clean_name(true))),
-        "personality" => Some("agent_settings/personality.yaml".to_string()),
-        "role" => Some("agent_settings/role.yaml".to_string()),
-        "rules" => Some("agent_settings/rules.txt".to_string()),
-        "flow_steps" => flow_folder()
-            .map(|flow_folder| format!("flows/{flow_folder}/steps/{}.yaml", clean_name(true))),
-        "function_steps" => {
-            flow_folder().map(|flow_folder| format!("flows/{flow_folder}/function_steps/{name}.py"))
-        }
-        "flow_config" => Some(format!("flows/{}/flow_config.yaml", clean_name(true))),
-        "entities" => Some(format!(
-            "config/entities.yaml/entities/{}",
-            clean_name(false)
-        )),
-        "experimental_config" => Some("agent_settings/experimental_config.json".to_string()),
-        "safety_filters" => Some("agent_settings/safety_filters.yaml".to_string()),
-        "sms_templates" => Some(format!(
-            "config/sms_templates.yaml/sms_templates/{}",
-            clean_name(false)
-        )),
-        "handoffs" => Some(format!(
-            "config/handoffs.yaml/handoffs/{}",
-            clean_name(false)
-        )),
-        "variants" => Some(format!(
-            "config/variant_attributes.yaml/variants/{}",
-            clean_name(false)
-        )),
-        "variant_attributes" => Some(format!(
-            "config/variant_attributes.yaml/attributes/{}",
-            clean_name(false)
-        )),
-        "variables" => Some(format!("variables/{name}")),
-        "voice_greeting" => Some("voice/configuration.yaml/greeting".to_string()),
-        "voice_safety_filters" => Some("voice/safety_filters.yaml".to_string()),
-        "voice_style_prompt" => Some("voice/configuration.yaml/style_prompt".to_string()),
-        "voice_disclaimer" => Some("voice/configuration.yaml/disclaimer_messages".to_string()),
-        "chat_greeting" => Some("chat/configuration.yaml/greeting".to_string()),
-        "chat_safety_filters" => Some("chat/safety_filters.yaml".to_string()),
-        "chat_style_prompt" => Some("chat/configuration.yaml/style_prompt".to_string()),
-        "keyphrase_boosting" => {
-            let keyphrase = payload
-                .get("keyphrase")
-                .and_then(Value::as_str)
-                .unwrap_or(name);
-            Some(format!(
-                "voice/speech_recognition/keyphrase_boosting.yaml/keyphrases/{}",
-                resource_semantics::clean_name(keyphrase, false)
-            ))
-        }
-        "transcript_corrections" => Some(format!(
-            "voice/speech_recognition/transcript_corrections.yaml/corrections/{}",
-            clean_name(false)
-        )),
-        "asr_settings" => Some("voice/speech_recognition/asr_settings.yaml".to_string()),
-        "phrase_filtering" => Some(format!(
-            "voice/response_control/phrase_filtering.yaml/phrase_filtering/{}",
-            clean_name(false)
-        )),
-        "pronunciations" => {
-            let position = payload
-                .get("position")
-                .and_then(Value::as_i64)
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| ordinal.to_string());
-            Some(format!(
-                "voice/response_control/pronunciations.yaml/pronunciations/{}",
-                resource_semantics::clean_name(&position, false)
-            ))
-        }
-        _ => None,
-    }
-}
-
-fn legacy_python_rules_reference_names(
-    resources: &indexmap::IndexMap<String, indexmap::IndexMap<String, StatusResourcePayload>>,
-) -> Vec<(String, String, String)> {
-    [
-        ("functions", "fn"),
-        ("sms_templates", "sms"),
-        ("handoffs", "handoff"),
-        ("variant_attributes", "attr"),
-        ("variables", "vrbl"),
-    ]
-    .into_iter()
-    .flat_map(|(resource_name, reference_prefix)| {
-        resources
-            .get(resource_name)
-            .into_iter()
-            .flat_map(move |entries| {
-                entries.values().filter_map(move |payload| {
-                    let id = payload.resource_id()?;
-                    let name = payload.name()?;
-                    Some((
-                        reference_prefix.to_string(),
-                        id.to_string(),
-                        name.to_string(),
-                    ))
-                })
-            })
-    })
-    .collect()
-}
-
-fn replace_resource_ids_with_names(
-    content: &str,
-    replacements: &[(String, String, String)],
-) -> String {
-    let mut normalized = content.to_string();
-    for (prefix, id, name) in replacements {
-        if id.is_empty() || id == name {
-            continue;
-        }
-        normalized = normalized.replace(
-            &format!("{{{{{prefix}:{id}}}}}"),
-            &format!("{{{{{prefix}:{name}}}}}"),
-        );
-    }
-    normalized
-}
-
-fn legacy_python_status_resource_file_hash<Fs: FileSystem>(
-    fs: &Fs,
-    root: &Path,
-    resource_name: &str,
-    file_path: &str,
-    payload: &Value,
-    rules_reference_names: &[(String, String, String)],
-) -> Option<String> {
-    if payload.get("file_path").is_some() {
-        return None;
-    }
-    match resource_name {
-        "functions" => {
-            let raw = legacy_python_function_raw(payload, true)?;
-            Some(format!(
-                "{PYTHON_FUNCTION_STATUS_HASH_PREFIX}{}",
-                compute_hash(&normalize_python_function_metadata_spacing(&raw))
-            ))
-        }
-        "function_steps" => {
-            let raw = legacy_python_function_raw(payload, false)?;
-            Some(format!(
-                "{PYTHON_FUNCTION_STATUS_HASH_PREFIX}{}",
-                compute_hash(&normalize_python_function_metadata_spacing(&raw))
-            ))
-        }
-        "rules" => payload
-            .get("behaviour")
-            .and_then(Value::as_str)
-            .map(|raw| compute_hash(&replace_resource_ids_with_names(raw, rules_reference_names))),
-        "variables" => payload
-            .get("name")
-            .and_then(Value::as_str)
-            .map(|name| compute_hash(&format!("vrbl:{name}"))),
-        _ => fs
-            .read_to_string(&root.join(file_path))
-            .ok()
-            .map(|content| compute_hash(&content)),
-    }
-}
-
-fn legacy_python_status_resource_content(resource_name: &str, payload: &Value) -> Option<String> {
-    match resource_name {
-        "functions" => legacy_python_function_raw(payload, true),
-        "function_steps" => legacy_python_function_raw(payload, false),
-        "rules" => payload
-            .get("behaviour")
-            .and_then(Value::as_str)
-            .map(ToString::to_string),
-        _ => None,
-    }
 }
 
 /// ADK operations backed by a concrete platform client.
@@ -360,7 +148,7 @@ fn migrate_legacy_topic_files<Fs: FileSystem>(
             .with_extension("")
             .to_string_lossy()
             .replace('\\', "/");
-        let clean_file_name = resource_semantics::clean_name(&topic_name, true);
+        let clean_file_name = adk_resources::clean_name(&topic_name, true);
         let clean_file_path = topics_dir.join(format!("{clean_file_name}.yaml"));
         if migrated_topics.contains_key(&clean_file_path) {
             return Err(DomainError::InvalidData(format!(

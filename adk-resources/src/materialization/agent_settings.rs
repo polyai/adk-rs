@@ -95,3 +95,46 @@ fn role_yaml(role: &Value) -> Value {
             .unwrap_or_default(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::projection_to_resource_map;
+
+    #[test]
+    fn projection_materializes_agent_settings_as_python_yaml_shape() {
+        let projection = serde_json::json!({
+            "agentSettings": {
+                "personality": {
+                    "adjectives": {"values": {"Calm": true}},
+                    "custom": "Be helpful",
+                    "createdAt": "ignored"
+                },
+                "role": {
+                    "value": "other",
+                    "additionalInfo": "Receptionist",
+                    "custom": "Custom role",
+                    "updatedAt": "ignored"
+                }
+            }
+        });
+
+        let resources = projection_to_resource_map(&projection).expect("projection resources");
+        let personality = resources
+            .get("agent_settings/personality.yaml")
+            .and_then(|resource| resource.payload.get("content"))
+            .and_then(serde_json::Value::as_str)
+            .expect("personality YAML");
+        let role = resources
+            .get("agent_settings/role.yaml")
+            .and_then(|resource| resource.payload.get("content"))
+            .and_then(serde_json::Value::as_str)
+            .expect("role YAML");
+
+        assert!(personality.contains("adjectives:"));
+        assert!(personality.contains("custom: Be helpful"));
+        assert!(!personality.contains("createdAt"));
+        assert!(role.contains("additional_info: Receptionist"));
+        assert!(!role.contains("additionalInfo"));
+        assert!(!role.contains("updatedAt"));
+    }
+}

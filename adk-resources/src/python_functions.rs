@@ -1,16 +1,16 @@
-use adk_resources::clean_name;
+use crate::clean_name;
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
 
-pub(crate) const PYTHON_FUNCTION_STATUS_HASH_PREFIX: &str = "python-function:";
-pub(crate) const PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX: &str = "__python_flow_import__/";
+pub const PYTHON_FUNCTION_STATUS_HASH_PREFIX: &str = "python-function:";
+pub const PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX: &str = "__python_flow_import__/";
 
 const FUNCTION_HEADER: &str = "from _gen import *  # <AUTO GENERATED>\n";
 const LEGACY_FUNCTION_HEADER: &str = "from imports import *  # <AUTO GENERATED>\n";
 
-pub(crate) fn legacy_python_function_raw(
+pub fn legacy_python_function_raw(
     payload: &Value,
     include_metadata_decorators: bool,
 ) -> Option<String> {
@@ -83,7 +83,7 @@ pub(crate) fn legacy_python_function_raw(
     Some(insert_python_function_decorators(code, name, decorators))
 }
 
-pub(crate) fn insert_python_function_decorators(
+pub fn insert_python_function_decorators(
     code: String,
     function_name: &str,
     decorators: Vec<String>,
@@ -126,7 +126,7 @@ pub(crate) fn insert_python_function_decorators(
     out
 }
 
-pub(crate) fn legacy_python_local_function_raw(
+pub fn legacy_python_local_function_raw(
     path: &str,
     content: &str,
     snapshot_hashes: &indexmap::IndexMap<String, String>,
@@ -142,7 +142,7 @@ pub(crate) fn legacy_python_local_function_raw(
     insert_python_function_decorators(code, function_name, decorators)
 }
 
-pub(crate) fn normalize_python_function_metadata_spacing(content: &str) -> String {
+pub fn normalize_python_function_metadata_spacing(content: &str) -> String {
     let lines = content.split_inclusive('\n').collect::<Vec<_>>();
     let mut out = String::new();
     for (idx, line) in lines.iter().enumerate() {
@@ -194,15 +194,13 @@ fn normalize_legacy_python_flow_imports(
     out
 }
 
-pub(crate) fn legacy_python_snapshot_hashes(
-    snapshot_hashes: &indexmap::IndexMap<String, String>,
-) -> bool {
+pub fn legacy_python_snapshot_hashes(snapshot_hashes: &indexmap::IndexMap<String, String>) -> bool {
     snapshot_hashes
         .values()
         .any(|hash| hash.starts_with(PYTHON_FUNCTION_STATUS_HASH_PREFIX))
 }
 
-pub(crate) fn normalize_legacy_python_status_function_resources(
+pub fn normalize_legacy_python_status_function_resources(
     resources: &mut ResourceMap,
     snapshot_hashes: &indexmap::IndexMap<String, String>,
 ) {
@@ -224,7 +222,7 @@ pub(crate) fn normalize_legacy_python_status_function_resources(
     }
 }
 
-pub(crate) fn extract_normalized_python_adk_decorators(
+pub fn extract_normalized_python_adk_decorators(
     code: &str,
     include_metadata_decorators: bool,
 ) -> (String, Vec<String>) {
@@ -318,15 +316,15 @@ fn normalize_python_adk_decorator(
 }
 
 #[derive(Default)]
-pub(crate) struct PythonDecoratorCallScan {
-    pub(crate) args: String,
+pub struct PythonDecoratorCallScan {
+    pub args: String,
     quote: Option<char>,
     escaped: bool,
     depth: i32,
 }
 
 impl PythonDecoratorCallScan {
-    pub(crate) fn scan(&mut self, fragment: &str) -> bool {
+    pub fn scan(&mut self, fragment: &str) -> bool {
         for ch in fragment.chars() {
             if let Some(quote) = self.quote {
                 self.args.push(ch);
@@ -367,7 +365,7 @@ impl PythonDecoratorCallScan {
     }
 }
 
-pub(crate) fn python_repr_string(value: &str) -> String {
+pub fn python_repr_string(value: &str) -> String {
     let quote = if value.contains('\'') && !value.contains('"') {
         '"'
     } else {
@@ -391,12 +389,12 @@ pub(crate) fn python_repr_string(value: &str) -> String {
 }
 
 #[derive(Debug)]
-pub(crate) struct FunctionSignatureParameter {
-    pub(crate) name: String,
-    pub(crate) annotation: Option<String>,
+pub struct FunctionSignatureParameter {
+    pub name: String,
+    pub annotation: Option<String>,
 }
 
-pub(crate) fn function_signature_parameter_list(
+pub fn function_signature_parameter_list(
     content: &str,
     function_name: &str,
 ) -> Option<Vec<FunctionSignatureParameter>> {
@@ -427,7 +425,7 @@ pub(crate) fn function_signature_parameter_list(
     )
 }
 
-pub(crate) fn function_signature_parameters(
+pub fn function_signature_parameters(
     content: &str,
     function_name: &str,
 ) -> Option<HashMap<String, Option<String>>> {
@@ -439,7 +437,7 @@ pub(crate) fn function_signature_parameters(
     )
 }
 
-pub(crate) fn function_parameter_decorator_names(content: &str) -> Vec<String> {
+pub fn function_parameter_decorator_names(content: &str) -> Vec<String> {
     content
         .lines()
         .filter_map(|line| {
@@ -450,7 +448,7 @@ pub(crate) fn function_parameter_decorator_names(content: &str) -> Vec<String> {
         .collect()
 }
 
-pub(crate) fn parse_python_string_args(value: &str) -> Vec<String> {
+pub fn parse_python_string_args(value: &str) -> Vec<String> {
     let mut args = Vec::new();
     let mut current = String::new();
     let mut quote = None;
@@ -512,7 +510,7 @@ fn parse_python_string_literal(value: &str) -> String {
     out
 }
 
-pub(crate) fn local_resource_content(path: &str, content: &str) -> String {
+pub fn local_resource_content(path: &str, content: &str) -> String {
     if is_python_function_like_path(path) {
         raw_function_content(content)
     } else {
@@ -520,7 +518,7 @@ pub(crate) fn local_resource_content(path: &str, content: &str) -> String {
     }
 }
 
-pub(crate) fn resource_file_content(path: &str, content: &str) -> String {
+pub fn resource_file_content(path: &str, content: &str) -> String {
     if is_python_function_like_path(path) {
         pretty_function_content(content)
     } else {
@@ -528,20 +526,20 @@ pub(crate) fn resource_file_content(path: &str, content: &str) -> String {
     }
 }
 
-pub(crate) fn is_python_function_resource(path: &str) -> bool {
+pub fn is_python_function_resource(path: &str) -> bool {
     ((path.starts_with("functions/") && path.ends_with(".py"))
         || (path.starts_with("flows/") && path.contains("/functions/") && path.ends_with(".py")))
         && !path.contains("/function_steps/")
 }
 
-pub(crate) fn is_python_function_like_path(path: &str) -> bool {
+pub fn is_python_function_like_path(path: &str) -> bool {
     path.ends_with(".py")
         && ((path.starts_with("functions/"))
             || (path.starts_with("flows/")
                 && (path.contains("/functions/") || path.contains("/function_steps/"))))
 }
 
-pub(crate) fn raw_function_content(content: &str) -> String {
+pub fn raw_function_content(content: &str) -> String {
     content
         .replace(FUNCTION_HEADER, "")
         .replace(LEGACY_FUNCTION_HEADER, "")

@@ -32,52 +32,52 @@ impl CommandGroups {
     }
 }
 
-pub fn build_phase1_commands(resources: &ResourceMap, projection: &Value) -> Vec<Command> {
-    build_phase1_commands_with_actor(resources, projection, None)
+pub fn build_push_commands(resources: &ResourceMap, projection: &Value) -> Vec<Command> {
+    build_push_commands_with_actor(resources, projection, None)
 }
 
-pub fn try_build_phase1_commands(
+pub fn try_build_push_commands(
     resources: &ResourceMap,
     projection: &Value,
 ) -> Result<Vec<Command>, CommandGenError> {
-    try_build_phase1_commands_with_actor(resources, projection, None)
+    try_build_push_commands_with_actor(resources, projection, None)
 }
 
-pub fn build_phase1_commands_with_actor(
+pub fn build_push_commands_with_actor(
     resources: &ResourceMap,
     projection: &Value,
     actor: Option<&str>,
 ) -> Vec<Command> {
-    try_build_phase1_commands_with_actor(resources, projection, actor)
+    try_build_push_commands_with_actor(resources, projection, actor)
         .expect("valid local resources for command generation")
 }
 
-pub fn try_build_phase1_commands_with_actor(
+pub fn try_build_push_commands_with_actor(
     resources: &ResourceMap,
     projection: &Value,
     actor: Option<&str>,
 ) -> Result<Vec<Command>, CommandGenError> {
-    build_phase1_commands_inner(resources, projection, actor, true)
+    build_push_commands_inner(resources, projection, actor, true)
 }
 
-pub fn build_phase1_commands_for_changed_resources(
+pub fn build_push_commands_for_changed_resources(
     resources: &ResourceMap,
     projection: &Value,
     actor: Option<&str>,
 ) -> Vec<Command> {
-    try_build_phase1_commands_for_changed_resources(resources, projection, actor)
+    try_build_push_commands_for_changed_resources(resources, projection, actor)
         .expect("valid local resources for command generation")
 }
 
-pub fn try_build_phase1_commands_for_changed_resources(
+pub fn try_build_push_commands_for_changed_resources(
     resources: &ResourceMap,
     projection: &Value,
     actor: Option<&str>,
 ) -> Result<Vec<Command>, CommandGenError> {
-    build_phase1_commands_inner(resources, projection, actor, false)
+    build_push_commands_inner(resources, projection, actor, false)
 }
 
-fn build_phase1_commands_inner(
+fn build_push_commands_inner(
     resources: &ResourceMap,
     projection: &Value,
     actor: Option<&str>,
