@@ -30,8 +30,7 @@
 - Filesystem access in library crates should go through `adk-io`: do not add new direct `std::fs`
   usage in `adk-core` or other reusable library logic, and prefer generic `Fs: FileSystem` APIs so
   each binary/test/FFI target chooses `StdFileSystem` or `MemoryFileSystem` at compile time. Direct
-  `std::fs` usage is acceptable in `adk-cli` and test harnesses; avoid `dyn FileSystem` unless
-  runtime filesystem selection is specifically needed.
+  `std::fs` usage is acceptable in `adk-cli` and test harnesses; avoid `dyn FileSystem` if possible.
 - Preserve clean Git diffs for ADK-maintained project files. Users check these files into Git and
   rely on `pull`/`push` to inspect meaningful backend sync changes, so semantically irrelevant YAML
   rewrites, key reordering, scalar restyling, and formatting churn should be minimized.
