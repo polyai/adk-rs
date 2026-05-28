@@ -1,4 +1,4 @@
-use crate::push_commands::input_helpers::{resource_changed, resource_yaml};
+use crate::push_command_inputs::{resource_changed, resource_yaml};
 use crate::specs::{
     AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_RULES_FILE, AGENT_SAFETY_FILTERS_FILE,
 };

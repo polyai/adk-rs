@@ -1,5 +1,5 @@
 use crate::ids::stable_resource_id;
-use crate::push_commands::input_helpers::{
+use crate::push_command_inputs::{
     json_bool, json_str, resource_yaml, yaml_bool, yaml_sequence, yaml_string_map,
 };
 use crate::specs::{VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS};

@@ -1,10 +1,6 @@
 //! Platform projection to local resource materialization.
 
-mod broad_resources;
-mod references;
-mod synthetic;
-
-pub(crate) use references::{
+pub(crate) use crate::materialization_references::{
     FlowImportPathMaps, PromptReferenceMaps, flow_import_path_maps_from_projection,
     prompt_reference_maps_from_projection, replace_flow_import_ids_with_names,
     replace_flow_import_names_with_ids, replace_resource_names_with_ids,
@@ -28,8 +24,8 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
     crate::flows::insert_flow_resources(&mut map, projection, &flow_import_path_maps)?;
     crate::entities::insert_entity_resources(&mut map, projection)?;
 
-    synthetic::insert_synthetic_resources(&mut map, projection)?;
-    broad_resources::insert_broad_resources(&mut map, projection)?;
+    crate::materialization_synthetic::insert_synthetic_resources(&mut map, projection)?;
+    crate::materialization_broad_resources::insert_broad_resources(&mut map, projection)?;
     crate::agent_settings::insert_profile_and_safety_resources(&mut map, projection)?;
     crate::asr_settings::insert_asr_settings_resource(&mut map, projection)?;
     crate::channels::insert_channel_resources(&mut map, projection)?;

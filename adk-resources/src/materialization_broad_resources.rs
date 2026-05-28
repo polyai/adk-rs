@@ -2,7 +2,7 @@ use crate::CommandGenError;
 use adk_types::ResourceMap;
 use serde_json::Value;
 
-pub(super) fn insert_broad_resources(
+pub(crate) fn insert_broad_resources(
     map: &mut ResourceMap,
     projection: &Value,
 ) -> Result<(), CommandGenError> {

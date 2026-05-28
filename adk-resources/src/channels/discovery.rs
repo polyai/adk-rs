@@ -1,5 +1,5 @@
 use crate::discover::DiscoverResources;
-use crate::local_resources::common::{is_file, read_yaml_mapping};
+use crate::local_resource_common::{is_file, read_yaml_mapping};
 use crate::resource_utils::rel_under_root;
 use serde_yaml::Value;
 use std::path::Path;

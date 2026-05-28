@@ -11,9 +11,6 @@
 //! materialization and push command generation live alongside these definitions
 //! in this crate.
 
-pub(crate) mod common;
-mod lifecycle;
-
 pub(crate) use crate::agent_settings::{
     GeneralSafetyFilters, SettingsPersonality, SettingsRole, SettingsRules,
 };
@@ -31,16 +28,16 @@ pub(crate) use crate::handoffs::Handoff;
 pub(crate) use crate::keyphrase_boosting::KeyphraseBoosting;
 pub(crate) use crate::phrase_filters::PhraseFilter;
 pub(crate) use crate::pronunciations::Pronunciation;
+pub use crate::resource_lifecycle::{
+    DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
+    build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
+    type_name_to_resource_prefix,
+};
 pub(crate) use crate::sms_templates::SMSTemplate;
 pub(crate) use crate::topics::Topic;
 pub(crate) use crate::transcript_corrections::TranscriptCorrection;
 pub(crate) use crate::variables::Variable;
 pub(crate) use crate::variants::{Variant, VariantAttribute};
-pub use lifecycle::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
-pub use lifecycle::{
-    build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
-    type_name_to_resource_prefix,
-};
 
 pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
     match path {

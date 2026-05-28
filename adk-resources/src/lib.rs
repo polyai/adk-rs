@@ -29,12 +29,20 @@ pub mod functions;
 mod handoffs;
 pub mod ids;
 mod keyphrase_boosting;
+mod local_resource_common;
 mod local_resources;
 mod materialization;
+mod materialization_broad_resources;
+mod materialization_references;
+mod materialization_synthetic;
 mod phrase_filters;
 pub mod projection;
 mod pronunciations;
+mod push_command_inputs;
+mod push_command_queue;
+mod push_command_summary;
 mod push_commands;
+mod resource_lifecycle;
 pub mod resource_utils;
 mod sms_templates;
 pub mod specs;
@@ -63,10 +71,11 @@ pub use local_resources::{
     build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
     type_name_to_resource_prefix, validate_semantic_resource,
 };
+pub use push_command_summary::command_to_json_summary;
 pub use push_commands::{
     build_push_commands, build_push_commands_for_changed_resources, build_push_commands_with_actor,
-    command_to_json_summary, try_build_push_commands,
-    try_build_push_commands_for_changed_resources, try_build_push_commands_with_actor,
+    try_build_push_commands, try_build_push_commands_for_changed_resources,
+    try_build_push_commands_with_actor,
 };
 pub use status_snapshot::{
     FileStructureEntry, ResourceStatusPayloadInput, StatusResourcePayload, StatusSnapshot,

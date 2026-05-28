@@ -4,8 +4,8 @@
 //! cross-family command queue shape in one place so broad ordering choices stay
 //! visible without reintroducing layout buckets as production module boundaries.
 
-use super::CommandGroups;
 use crate::CommandGenError;
+use crate::push_commands::CommandGroups;
 use adk_protobuf::Metadata;
 use adk_types::ResourceMap;
 use serde_json::Value;

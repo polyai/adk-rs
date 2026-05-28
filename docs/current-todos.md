@@ -68,6 +68,9 @@ Current state:
 - The command-generation orchestration no longer uses layout-named dispatcher
   modules. A neutral command queue preserves cross-family ordering while JSON
   summaries route directly to resource-family helpers.
+- Cross-resource discovery and push-command helpers are top-level modules/files
+  rather than top-level directories; top-level directories in `adk-resources`
+  should be reserved for ADK resource families.
 
 Remaining:
 
@@ -76,6 +79,8 @@ Remaining:
    - The operation-oriented modules (`local_resources`, `materialization`, and
      `push_commands`) are now mostly dispatchers, queue construction, and shared
      helpers.
+   - Continue flattening non-resource top-level directories, or keep them only
+     when they become true resource-family modules.
    - Keep these modules only where they clarify ordering, global command queue
      semantics, cross-resource reference rewriting, or typed lifecycle
      bookkeeping.

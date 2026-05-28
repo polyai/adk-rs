@@ -1,7 +1,5 @@
 use crate::ids::stable_resource_id;
-use crate::push_commands::input_helpers::{
-    SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence,
-};
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
 use crate::specs::{KEYPHRASE_BOOSTING, LEGACY_KEYPHRASE_BOOSTING_FILE_PATH};
 use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;

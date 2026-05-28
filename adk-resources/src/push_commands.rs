@@ -1,11 +1,5 @@
 //! Local resource to platform push-command construction.
 
-pub(crate) mod input_helpers;
-mod queue;
-mod summary;
-
-pub use summary::command_to_json_summary;
-
 use crate::CommandGenError;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::{Command, Metadata};
@@ -83,7 +77,8 @@ fn build_push_commands_inner(
 ) -> Result<Vec<Command>, CommandGenError> {
     let metadata = command_metadata_with_actor(actor);
 
-    let groups = queue::resource_command_groups(resources, projection, &metadata)?;
+    let groups =
+        crate::push_command_queue::resource_command_groups(resources, projection, &metadata)?;
 
     let mut deletes = if include_deletes {
         groups.deletes

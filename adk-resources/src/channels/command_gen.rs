@@ -1,4 +1,4 @@
-use crate::push_commands::input_helpers::{first_yaml_mapping, resource_changed, resource_yaml};
+use crate::push_command_inputs::{first_yaml_mapping, resource_changed, resource_yaml};
 use crate::specs::{
     CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
     VOICE_SAFETY_FILTERS_FILE,
