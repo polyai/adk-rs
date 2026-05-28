@@ -39,12 +39,13 @@ pub use command_gen::{
 };
 pub use discover::{DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources};
 pub use functions::{
-    PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX, PYTHON_FUNCTION_STATUS_HASH_PREFIX,
-    function_parameter_decorator_names, function_signature_parameter_list,
-    function_signature_parameters, is_python_function_resource, legacy_python_function_raw,
-    legacy_python_snapshot_hashes, local_resource_content,
+    FunctionValidationFailure, PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX,
+    PYTHON_FUNCTION_STATUS_HASH_PREFIX, function_parameter_decorator_names,
+    function_signature_parameter_list, function_signature_parameters, is_python_function_resource,
+    legacy_python_function_raw, legacy_python_snapshot_hashes, local_resource_content,
     normalize_legacy_python_status_function_resources, normalize_python_function_metadata_spacing,
-    resource_file_content,
+    resource_file_content, validate_flow_scoped_function_resource,
+    validate_python_function_resource, validate_python_function_resources,
 };
 pub use local_resources::{
     DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,

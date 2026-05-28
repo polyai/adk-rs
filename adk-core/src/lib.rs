@@ -1,6 +1,5 @@
 use adk_types::{DiffMap, DomainError, ProjectConfig, ResourceMap};
 
-mod python_syntax;
 mod service;
 mod validation;
 mod workspace;

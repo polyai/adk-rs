@@ -1,9 +1,5 @@
-use crate::python_syntax::validate_python_module;
-use crate::{CoreError, reference_name_from_logical_path};
-use adk_resources::{
-    function_parameter_decorator_names, function_signature_parameter_list,
-    function_signature_parameters, is_python_function_resource,
-};
+use crate::CoreError;
+use adk_resources::FunctionValidationFailure;
 use adk_types::{DomainError, ResourceMap};
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
@@ -37,7 +33,8 @@ pub(crate) fn validate_local_resources(
             errors.push(format!("{path}: invalid json: {e}"));
         }
     }
-    validate_python_function_resources(root, resources)?;
+    adk_resources::validate_python_function_resources(resources)
+        .map_err(|error| function_validation_error(root, error))?;
     validate_flow_resources(root, resources, &mut errors)?;
     Ok(errors)
 }
@@ -106,70 +103,6 @@ fn validate_flow_resources(
             continue;
         };
         validate_flow_config_resource(&path, &yaml, &flow_steps, errors);
-    }
-    Ok(())
-}
-
-fn validate_python_function_resources(
-    root: &Path,
-    resources: &ResourceMap,
-) -> Result<(), CoreError> {
-    let mut paths = resources
-        .keys()
-        .filter(|path| is_python_function_resource(path))
-        .cloned()
-        .collect::<Vec<_>>();
-    paths.sort();
-    for path in paths {
-        let Some(content) = resource_content(resources, &path) else {
-            continue;
-        };
-        validate_python_resource_syntax(root, &path, content)?;
-        validate_function_parameter_decorators(root, &path, content)?;
-    }
-    Ok(())
-}
-
-fn validate_function_parameter_decorators(
-    root: &Path,
-    path: &str,
-    content: &str,
-) -> Result<(), CoreError> {
-    let function_name = reference_name_from_logical_path(path);
-    let Some(parameters) = function_signature_parameters(content, &function_name) else {
-        return Ok(());
-    };
-    for parameter_name in function_parameter_decorator_names(content) {
-        let Some(annotation) = parameters.get(&parameter_name) else {
-            return Err(DomainError::InvalidData(resource_read_error_with_detail(
-                root,
-                path,
-                &format!(
-                    "Parameter '{parameter_name}' has no type annotation. Supported types: str, int, float, bool."
-                ),
-            ))
-            .into());
-        };
-        let Some(annotation) = annotation else {
-            return Err(DomainError::InvalidData(resource_read_error_with_detail(
-                root,
-                path,
-                &format!(
-                    "Parameter '{parameter_name}' has no type annotation. Supported types: str, int, float, bool."
-                ),
-            ))
-            .into());
-        };
-        if !matches!(annotation.as_str(), "str" | "int" | "float" | "bool") {
-            return Err(DomainError::InvalidData(resource_read_error_with_detail(
-                root,
-                path,
-                &format!(
-                    "Parameter '{parameter_name}' has an unsupported type annotation. Supported types: str, int, float, bool."
-                ),
-            ))
-            .into());
-        }
     }
     Ok(())
 }
@@ -434,65 +367,10 @@ fn validate_flow_scoped_function_resource(
     errors: &mut Vec<String>,
     allow_user_parameters: bool,
 ) -> Result<(), CoreError> {
-    validate_python_resource_syntax(root, path, content)?;
-    validate_function_parameter_decorators(root, path, content)?;
-    let Some(file_name) = path
-        .rsplit('/')
-        .next()
-        .and_then(|name| name.strip_suffix(".py"))
-    else {
-        return Ok(());
-    };
-    let expected_typed = format!("def {file_name}(conv: Conversation, flow: Flow)");
-    let valid_signature = if allow_user_parameters {
-        flow_scoped_signature_has_receiver_prefix(content, file_name)
-    } else {
-        content.contains(&expected_typed)
-            || content.contains(&format!("def {file_name}(conv, flow)"))
-    };
-    if !valid_signature {
-        errors.push(format!(
-            "Validation error in {path}: Function definition '{expected_typed}' not found in code."
-        ));
-    }
-    Ok(())
-}
-
-fn flow_scoped_signature_has_receiver_prefix(content: &str, function_name: &str) -> bool {
-    let Some(parameters) = function_signature_parameter_list(content, function_name) else {
-        return false;
-    };
-    let Some(conv) = parameters.first() else {
-        return false;
-    };
-    let Some(flow) = parameters.get(1) else {
-        return false;
-    };
-    conv.name == "conv"
-        && conv
-            .annotation
-            .as_deref()
-            .is_none_or(|annotation| annotation == "Conversation")
-        && flow.name == "flow"
-        && flow
-            .annotation
-            .as_deref()
-            .is_none_or(|annotation| annotation == "Flow")
-}
-
-fn validate_python_resource_syntax(
-    root: &Path,
-    path: &str,
-    content: &str,
-) -> Result<(), CoreError> {
-    if let Err(error) = validate_python_module(content) {
-        return Err(DomainError::InvalidData(resource_read_error_with_detail(
-            root,
-            path,
-            &error.to_string(),
-        ))
-        .into());
-    }
+    let function_errors =
+        adk_resources::validate_flow_scoped_function_resource(path, content, allow_user_parameters)
+            .map_err(|error| function_validation_error(root, error))?;
+    errors.extend(function_errors);
     Ok(())
 }
 
@@ -557,6 +435,15 @@ fn python_string_set(values: &[String]) -> String {
 fn resource_read_error(root: &Path, path: &str) -> String {
     let abs_path = root.join(path).to_string_lossy().to_string();
     resource_read_error_with_detail(root, path, &format!("Error loading YAML file: {abs_path}"))
+}
+
+fn function_validation_error(root: &Path, error: FunctionValidationFailure) -> CoreError {
+    DomainError::InvalidData(resource_read_error_with_detail(
+        root,
+        error.path(),
+        error.detail(),
+    ))
+    .into()
 }
 
 fn resource_read_error_with_detail(root: &Path, path: &str, detail: &str) -> String {

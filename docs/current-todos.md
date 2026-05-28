@@ -24,35 +24,27 @@ Current state:
   mostly for cross-resource orchestration and broad projection coverage.
 - The first durable function-family module exists at `adk-resources/src/functions`.
   It owns function discovery, Python parsing/decorator helpers, legacy status
-  compatibility helpers, projection materialization, and push command
-  generation.
+  compatibility helpers, projection materialization, validation helpers, and
+  push command generation.
 
 Remaining:
 
-1. Consolidate Python function resource semantics.
-   - Discovery, parsing/decorator handling, status compatibility,
-     materialization, and command generation now live under the function-family
-     module.
-   - Function validation is still orchestrated from `adk-core`, including
-     Python syntax checks and decorator/signature validation.
-   - Next target: move the reusable function validation rules behind an
-     `adk-resources` API while leaving only workflow plumbing in `adk-core`.
-
-2. Move cross-resource validation rules behind an `adk-resources` API.
+1. Move cross-resource validation rules behind an `adk-resources` API.
    - Resource-local YAML validation already lives in `adk-resources`.
+   - Function-local Python syntax, decorator annotation, and flow-scoped
+     signature validation now live in `adk-resources`.
    - Flow/function/entity reference validation still lives in `adk-core`.
    - The target shape is for `adk-core` to call a resource validation entrypoint
      rather than host the resource rules itself.
 
-3. Reorganize `adk-resources` by resource family.
+2. Reorganize `adk-resources` by resource family.
    - Today it is still grouped by operation: `local_resources`,
      `materialization`, `command_gen`, and shared specs.
    - The longer-term shape should use durable resource-family modules such as
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
    - `functions` is now the pilot module for this shape; repeat the pattern for
-     flows and other resource families once the remaining function validation
-     seam is cleaned up.
+     flows and other resource families.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.

@@ -10,6 +10,7 @@ mod discovery;
 mod materialization;
 mod parsing;
 mod python;
+mod validation;
 
 pub(crate) use command_gen::{
     SpecialFunctionKind, function_entries, function_errors_update_from_projection,
@@ -31,4 +32,8 @@ pub use python::{
     legacy_python_snapshot_hashes, local_resource_content,
     normalize_legacy_python_status_function_resources, normalize_python_function_metadata_spacing,
     parse_python_string_args, raw_function_content, resource_file_content,
+};
+pub use validation::{
+    FunctionValidationFailure, validate_flow_scoped_function_resource,
+    validate_python_function_resource, validate_python_function_resources,
 };
