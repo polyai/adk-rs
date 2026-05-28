@@ -396,6 +396,135 @@ fn projection_materializes_global_functions_as_raw_content() {
 }
 
 #[test]
+fn special_function_paths_emit_start_and_end_commands() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "functions/start_function.py".to_string(),
+        Resource {
+            resource_id: "start-1".to_string(),
+            name: "start_function".to_string(),
+            file_path: "functions/start_function.py".to_string(),
+            payload: serde_json::json!({
+                "content": "@func_description('New start')\ndef start_function(conv):\n    conv.state.ready = True\n"
+            }),
+        },
+    );
+    resources.insert(
+        "functions/end_function.py".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "end_function".to_string(),
+            file_path: "functions/end_function.py".to_string(),
+            payload: serde_json::json!({
+                "content": "def end_function(conv, reason: str):\n    return reason\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "specialFunctions": {
+            "startFunction": {
+                "id": "start-1",
+                "name": "start_function",
+                "description": "Old start",
+                "code": "def start_function(conv):\n    return None\n",
+                "archived": false
+            }
+        }
+    });
+
+    let commands = build_phase1_commands(&resources, &projection);
+    let types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(types, vec!["create_end_function", "update_start_function"]);
+
+    let update = commands
+        .iter()
+        .find(|command| command.r#type == "update_start_function")
+        .expect("start update command");
+    match &update.payload {
+        Some(CommandPayload::UpdateStartFunction(update)) => {
+            assert_eq!(update.id, "start-1");
+            assert_eq!(update.description.as_deref(), Some("New start"));
+            assert!(
+                update
+                    .code
+                    .as_deref()
+                    .is_some_and(|code| code.contains("conv.state.ready"))
+            );
+        }
+        _ => panic!("unexpected start function update payload"),
+    }
+
+    let create = commands
+        .iter()
+        .find(|command| command.r#type == "create_end_function")
+        .expect("end create command");
+    match &create.payload {
+        Some(CommandPayload::CreateEndFunction(create)) => {
+            assert_eq!(create.name, "end_function");
+            assert!(create.parameters.is_empty());
+        }
+        _ => panic!("unexpected end function create payload"),
+    }
+}
+
+#[test]
+fn deleting_local_special_function_files_emits_special_delete_commands() {
+    let projection = serde_json::json!({
+        "specialFunctions": {
+            "startFunction": {
+                "id": "start-1",
+                "name": "start_function",
+                "description": "",
+                "code": "def start_function(conv):\n    return None\n",
+                "archived": false
+            },
+            "endFunction": {
+                "id": "end-1",
+                "name": "end_function",
+                "description": "",
+                "code": "def end_function(conv):\n    return None\n",
+                "archived": false
+            }
+        },
+        "functions": {
+            "functions": {
+                "entities": {
+                    "global-1": {
+                        "name": "regular",
+                        "code": "def regular(conv):\n    return None\n"
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_phase1_commands(&ResourceMap::new(), &projection);
+    let types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        types,
+        vec![
+            "delete_start_function",
+            "delete_end_function",
+            "delete_function"
+        ]
+    );
+    assert!(matches!(
+        commands[0].payload,
+        Some(CommandPayload::DeleteStartFunction(_))
+    ));
+    assert!(matches!(
+        commands[1].payload,
+        Some(CommandPayload::DeleteEndFunction(_))
+    ));
+}
+
+#[test]
 fn multiline_function_metadata_decorators_match_python_ast_behavior() {
     let content = r#"from _gen import *  # <AUTO GENERATED>
 

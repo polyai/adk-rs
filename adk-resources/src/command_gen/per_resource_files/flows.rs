@@ -4,6 +4,10 @@ mod models;
 mod parsing;
 mod summary;
 
+#[cfg(test)]
+#[path = "flows_tests.rs"]
+mod flows_tests;
+
 pub(crate) use summary::payload_json_summary;
 
 use self::models::{
