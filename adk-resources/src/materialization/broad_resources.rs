@@ -1,10 +1,9 @@
 use super::insert_yaml_resource;
 use crate::CommandGenError;
-use crate::projection::projection_entity_values_at;
 use crate::specs::FileResourceSpec;
 use crate::specs::{
-    API_INTEGRATIONS, KEYPHRASE_BOOSTING, PRONUNCIATIONS, TRANSCRIPT_CORRECTIONS,
-    VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS,
+    KEYPHRASE_BOOSTING, PRONUNCIATIONS, TRANSCRIPT_CORRECTIONS, VARIANT_ATTRIBUTE_VALUES,
+    VARIANT_ATTRIBUTES, VARIANTS,
 };
 use adk_types::ResourceMap;
 use serde_json::Value;
@@ -18,9 +17,7 @@ pub(super) fn insert_broad_resources(
         insert_spec_yaml_resource(map, VARIANTS.file, value)?;
     }
 
-    if let Some(value) = api_integrations_yaml(projection) {
-        insert_spec_yaml_resource(map, API_INTEGRATIONS.file, value)?;
-    }
+    crate::api_integrations::insert_api_integration_resources(map, projection)?;
 
     if let Some(value) = keyphrase_boosting_yaml(projection) {
         insert_spec_yaml_resource(map, KEYPHRASE_BOOSTING.file, value)?;
@@ -126,89 +123,6 @@ fn variant_attribute_values_by_attribute(
         }
     }
     out
-}
-
-fn api_integrations_yaml(projection: &Value) -> Option<Value> {
-    let integrations = API_INTEGRATIONS.owned_entries(projection);
-    if integrations.is_empty() {
-        return None;
-    }
-    let integrations = integrations
-        .iter()
-        .filter_map(|(_, integration)| {
-            let name = integration.get("name")?.as_str()?;
-            Some(serde_json::json!({
-                "name": name,
-                "description": integration.get("description").and_then(Value::as_str).unwrap_or(""),
-                "environments": api_integration_environments_yaml(integration),
-                "operations": api_integration_operations_yaml(integration),
-            }))
-        })
-        .collect::<Vec<_>>();
-    Some(serde_json::json!({ "api_integrations": integrations }))
-}
-
-fn api_integration_environments_yaml(integration: &Value) -> Value {
-    let mut out = serde_json::Map::new();
-    for (yaml_key, source_keys) in [
-        ("sandbox", &["sandbox"][..]),
-        (
-            "pre-release",
-            &["pre-release", "preRelease", "pre_release"][..],
-        ),
-        ("live", &["live"][..]),
-    ] {
-        if let Some(env) = source_keys.iter().find_map(|key| {
-            integration
-                .get("environments")
-                .and_then(|envs| envs.get(*key))
-        }) {
-            out.insert(
-                yaml_key.to_string(),
-                serde_json::json!({
-                    "base_url": env.get("baseUrl").or_else(|| env.get("base_url")).and_then(Value::as_str).unwrap_or(""),
-                    "auth_type": env.get("authType").or_else(|| env.get("auth_type")).and_then(Value::as_str).unwrap_or(""),
-                }),
-            );
-        }
-    }
-    Value::Object(out)
-}
-
-fn api_integration_operations_yaml(integration: &Value) -> Value {
-    let operations = integration
-        .get("operations")
-        .map(projection_entity_values_at)
-        .unwrap_or_default();
-    let operations = if operations.is_empty() {
-        integration
-            .get("operations")
-            .and_then(Value::as_object)
-            .map(|object| {
-                let mut items = object
-                    .iter()
-                    .map(|(id, value)| (id.clone(), value.clone()))
-                    .collect::<Vec<_>>();
-                items.sort_by(|(left, _), (right, _)| left.cmp(right));
-                items
-            })
-            .unwrap_or_default()
-    } else {
-        operations
-    };
-    Value::Array(
-        operations
-            .into_iter()
-            .filter_map(|(_, operation)| {
-                let name = operation.get("name")?.as_str()?;
-                Some(serde_json::json!({
-                    "name": name,
-                    "method": operation.get("method").and_then(Value::as_str).unwrap_or(""),
-                    "resource": operation.get("resource").and_then(Value::as_str).unwrap_or(""),
-                }))
-            })
-            .collect(),
-    )
 }
 
 fn keyphrase_boosting_yaml(projection: &Value) -> Option<Value> {

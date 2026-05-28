@@ -5,7 +5,6 @@
 //! templates, stop-keyword phrase filters, pronunciations, keyphrase boosting,
 //! and transcript corrections.
 
-mod api_integrations;
 mod interactions;
 mod keyphrases;
 mod pronunciations;
@@ -39,8 +38,10 @@ pub(crate) fn aggregate_command_groups(
     ));
 
     let variant_lifecycle = variants::variant_lifecycle_commands(resources, projection, metadata);
-    let api_lifecycle =
-        api_integrations::api_integration_lifecycle_commands(resources, projection, metadata);
+    let api_lifecycle: crate::api_integrations::ApiIntegrationLifecycleCommands =
+        crate::api_integrations::api_integration_lifecycle_commands(
+            resources, projection, metadata,
+        );
     let keyphrase_lifecycle =
         keyphrases::keyphrase_lifecycle_commands(resources, projection, metadata);
     let transcript_lifecycle =

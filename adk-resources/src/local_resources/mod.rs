@@ -12,7 +12,6 @@
 //! in this crate.
 
 mod agent_settings;
-mod api_integration;
 mod asr_settings;
 mod channels;
 pub(crate) mod common;
@@ -28,12 +27,12 @@ mod sms_template;
 mod transcript_correction;
 mod variant;
 
+pub(crate) use crate::api_integrations::ApiIntegration;
 pub(crate) use crate::flows::{FlowConfig, FlowStep, FunctionStep};
 pub(crate) use crate::functions::Function;
 pub(crate) use crate::topics::Topic;
 pub(crate) use crate::variables::Variable;
 pub(crate) use agent_settings::{SettingsPersonality, SettingsRole, SettingsRules};
-pub(crate) use api_integration::ApiIntegration;
 pub(crate) use asr_settings::AsrSettings;
 pub(crate) use channels::{
     ChatGreeting, ChatSafetyFilters, ChatStylePrompt, VoiceDisclaimerMessage, VoiceGreeting,
@@ -57,7 +56,9 @@ pub(crate) use variant::{Variant, VariantAttribute};
 
 pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
     match path {
-        "config/api_integrations.yaml" => api_integration::validate_local_yaml(yaml, errors),
+        "config/api_integrations.yaml" => {
+            crate::api_integrations::validate_local_yaml(yaml, errors)
+        }
         "config/entities.yaml" => entity::validate_local_yaml(yaml, errors),
         "config/handoffs.yaml" => handoff::validate_local_yaml(yaml, errors),
         "config/sms_templates.yaml" => sms_template::validate_local_yaml(yaml, errors),

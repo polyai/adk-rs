@@ -1,4 +1,4 @@
-use super::super::local_file_helpers::{json_str, resource_yaml, yaml_sequence};
+use crate::command_gen::local_file_helpers::{json_str, resource_yaml, yaml_sequence};
 use crate::ids::{stable_resource_id, stable_resource_uuid};
 use crate::specs::API_INTEGRATIONS;
 use crate::{push_command, yaml_str};
@@ -14,14 +14,14 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
-pub(super) struct ApiIntegrationLifecycleCommands {
-    pub(super) integration_deletes: Vec<adk_protobuf::Command>,
-    pub(super) operation_deletes: Vec<adk_protobuf::Command>,
-    pub(super) integration_creates: Vec<adk_protobuf::Command>,
-    pub(super) operation_creates: Vec<adk_protobuf::Command>,
-    pub(super) integration_updates: Vec<adk_protobuf::Command>,
-    pub(super) operation_updates: Vec<adk_protobuf::Command>,
-    pub(super) config_updates: Vec<adk_protobuf::Command>,
+pub(crate) struct ApiIntegrationLifecycleCommands {
+    pub(crate) integration_deletes: Vec<adk_protobuf::Command>,
+    pub(crate) operation_deletes: Vec<adk_protobuf::Command>,
+    pub(crate) integration_creates: Vec<adk_protobuf::Command>,
+    pub(crate) operation_creates: Vec<adk_protobuf::Command>,
+    pub(crate) integration_updates: Vec<adk_protobuf::Command>,
+    pub(crate) operation_updates: Vec<adk_protobuf::Command>,
+    pub(crate) config_updates: Vec<adk_protobuf::Command>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,7 +47,7 @@ struct ApiOperationItem {
     resource: String,
 }
 
-pub(super) fn api_integration_lifecycle_commands(
+pub(crate) fn api_integration_lifecycle_commands(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,
@@ -427,7 +427,7 @@ fn push_create_api_operation(
     );
 }
 
-pub(super) fn environments_json(environments: Option<&Environments>) -> Value {
+pub(crate) fn environments_json(environments: Option<&Environments>) -> Value {
     let Some(environments) = environments else {
         return json!({});
     };

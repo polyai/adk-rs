@@ -2,7 +2,7 @@
 
 pub(crate) mod aggregates;
 mod json_summary;
-mod local_file_helpers;
+pub(crate) mod local_file_helpers;
 pub(crate) mod per_resource_files;
 pub(crate) mod singletons;
 
