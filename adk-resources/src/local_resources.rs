@@ -115,20 +115,3 @@ pub(crate) fn validate_duplicate_names(
         ));
     }
 }
-
-pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
-    match path {
-        "config/api_integrations.yaml" => {
-            crate::api_integrations::validate_local_yaml(yaml, errors)
-        }
-        "config/entities.yaml" => crate::entities::validate_local_yaml(yaml, errors),
-        "config/handoffs.yaml" => crate::handoffs::validate_local_yaml(yaml, errors),
-        "config/sms_templates.yaml" => crate::sms_templates::validate_local_yaml(yaml, errors),
-        "config/variant_attributes.yaml" => crate::variants::validate_local_yaml(yaml, errors),
-        "voice/speech_recognition/transcript_corrections.yaml" => {
-            crate::transcript_corrections::validate_local_yaml(yaml, errors);
-        }
-        _ if path.starts_with("topics/") => crate::topics::validate_local_yaml(path, yaml, errors),
-        _ => {}
-    }
-}

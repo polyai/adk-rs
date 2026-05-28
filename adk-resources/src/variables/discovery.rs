@@ -1,4 +1,4 @@
-use crate::discover::DiscoverResources;
+use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_dir, sorted_read_dir};
 use crate::resource_utils::{extract_variable_names_from_code, join_under_root, rel_under_root};
 use std::path::{Path, PathBuf};
@@ -6,6 +6,15 @@ use std::path::{Path, PathBuf};
 // poly/resources/variable.py
 pub(crate) struct Variable;
 impl DiscoverResources for Variable {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::Inferred {
+        logical_prefix: "variables",
+        source_patterns: &[
+            "functions/*.py",
+            "flows/*/functions/*.py",
+            "flows/*/function_steps/*.py",
+        ],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let mut function_files: Vec<PathBuf> = Vec::new();
         let global_functions = base_path.join("functions");

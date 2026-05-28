@@ -1,4 +1,4 @@
-use crate::discover::DiscoverResources;
+use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_file, read_yaml_mapping, validate_named_sequence};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde_yaml::Value;
@@ -7,8 +7,14 @@ use std::path::Path;
 // poly/resources/entities.py
 pub(crate) struct Entity;
 impl DiscoverResources for Entity {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: crate::specs::ENTITIES_FILE.file_path,
+        yaml_path: &["entities"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let entities_path = base_path.join("config/entities.yaml");
+        let entities_path =
+            base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if !is_file(fs, &entities_path) {
             return vec![];
         }
@@ -35,10 +41,15 @@ impl DiscoverResources for Entity {
         }
         out
     }
+
+    fn validate_local_yaml(_path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+        validate_local_yaml(yaml, errors);
+    }
 }
 
 pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
-    validate_named_sequence("config/entities.yaml", yaml, "entities", "entity", errors);
+    let path = Entity::LOCAL_PATH.primary_path().expect("local file path");
+    validate_named_sequence(path, yaml, "entities", "entity", errors);
     let Some(items) = yaml
         .get("entities")
         .and_then(serde_yaml::Value::as_sequence)
@@ -63,13 +74,13 @@ pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<Str
             .unwrap_or("<missing>");
         let Some(entity_type) = item.get("entity_type").and_then(serde_yaml::Value::as_str) else {
             errors.push(format!(
-                "Validation error in config/entities.yaml/entities/{name}: entity_type is required."
+                "Validation error in {path}/entities/{name}: entity_type is required."
             ));
             continue;
         };
         if !allowed.contains(&entity_type) {
             errors.push(format!(
-                "Validation error in config/entities.yaml/entities/{name}: unsupported entity_type '{entity_type}'."
+                "Validation error in {path}/entities/{name}: unsupported entity_type '{entity_type}'."
             ));
         }
     }

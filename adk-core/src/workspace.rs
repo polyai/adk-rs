@@ -1,11 +1,13 @@
 use crate::{
-    CoreError, DiscoveredResourceChanges, DiscoveredResourcePaths, MIGRATED_LEGACY_TOPIC_FILES,
-    PROJECT_CONFIG_FILE, ReferenceNameReplacement, STATUS_FILE, TypedResourceLifecycle,
+    CoreError, DiscoveredResourceChanges, DiscoveredResourcePaths,
+    MIGRATED_LEGACY_KEYPHRASE_BOOSTING_FILE, MIGRATED_LEGACY_TOPIC_FILES, PROJECT_CONFIG_FILE,
+    ReferenceNameReplacement, STATUS_FILE, TypedResourceLifecycle,
     apply_reference_name_replacements, compute_modified_files_against_snapshot,
     compute_modified_files_against_snapshot_with_replacements, find_project_root_with_fs,
     flatten_deleted_discovered_paths, flatten_discovered_paths_by_type_order,
-    migrate_legacy_topic_files, migration_flags_from_status, project_config_contains_branch_id,
-    project_config_yaml, recursive_file_paths, reference_name_from_logical_path, stable_dedup,
+    migrate_legacy_keyphrase_boosting_file, migrate_legacy_topic_files,
+    migration_flags_from_status, project_config_contains_branch_id, project_config_yaml,
+    recursive_file_paths, reference_name_from_logical_path, stable_dedup,
 };
 use adk_io::{FileSystem, StdFileSystem, parse_multi_resource_path};
 use adk_resources::{
@@ -176,24 +178,29 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
     ) -> Result<BTreeSet<String>, CoreError> {
         let mut status = self.load_status_snapshot_json(project_root)?;
         let mut migration_flags = migration_flags_from_status(&status);
+        let had_status_snapshot = self.fs.exists(&project_root.join(STATUS_FILE));
+        let mut migrated_files = false;
         if !migration_flags.contains(MIGRATED_LEGACY_TOPIC_FILES) {
-            let had_status_snapshot = self.fs.exists(&project_root.join(STATUS_FILE));
-            let migrated_files = migrate_legacy_topic_files(&self.fs, project_root)?;
+            migrated_files |= migrate_legacy_topic_files(&self.fs, project_root)?;
             migration_flags.insert(MIGRATED_LEGACY_TOPIC_FILES.to_string());
-            if had_status_snapshot || migrated_files {
-                status.insert(
-                    "migration_flags".to_string(),
-                    serde_json::Value::Array(
-                        migration_flags
-                            .iter()
-                            .cloned()
-                            .map(serde_json::Value::String)
-                            .collect(),
-                    ),
-                );
-                self.write_python_gen_package(project_root)?;
-                self.write_status_snapshot_json(project_root, &status)?;
-            }
+        }
+        if !migration_flags.contains(MIGRATED_LEGACY_KEYPHRASE_BOOSTING_FILE) {
+            migrated_files |= migrate_legacy_keyphrase_boosting_file(&self.fs, project_root)?;
+            migration_flags.insert(MIGRATED_LEGACY_KEYPHRASE_BOOSTING_FILE.to_string());
+        }
+        if had_status_snapshot || migrated_files {
+            status.insert(
+                "migration_flags".to_string(),
+                serde_json::Value::Array(
+                    migration_flags
+                        .iter()
+                        .cloned()
+                        .map(serde_json::Value::String)
+                        .collect(),
+                ),
+            );
+            self.write_python_gen_package(project_root)?;
+            self.write_status_snapshot_json(project_root, &status)?;
         }
         Ok(migration_flags)
     }

@@ -1,4 +1,4 @@
-use crate::discover::DiscoverResources;
+use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::rel_under_root;
 use serde_yaml::Value;
@@ -7,8 +7,13 @@ use std::path::Path;
 // poly/resources/channel_settings.py
 pub(crate) struct VoiceGreeting;
 impl DiscoverResources for VoiceGreeting {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: crate::specs::VOICE_CONFIGURATION_FILE.file_path,
+        yaml_path: &["greeting"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let file_path = base_path.join("voice/configuration.yaml");
+        let file_path = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if !is_file(fs, &file_path) {
             return vec![];
         }
@@ -28,8 +33,11 @@ impl DiscoverResources for VoiceGreeting {
 
 pub(crate) struct VoiceSafetyFilters;
 impl DiscoverResources for VoiceSafetyFilters {
+    const LOCAL_PATH: LocalResourcePath =
+        LocalResourcePath::File(crate::specs::VOICE_SAFETY_FILTERS_FILE.file_path);
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let p = base_path.join("voice/safety_filters.yaml");
+        let p = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if is_file(fs, &p) {
             vec![rel_under_root(base_path, &p)]
         } else {
@@ -40,8 +48,13 @@ impl DiscoverResources for VoiceSafetyFilters {
 
 pub(crate) struct VoiceStylePrompt;
 impl DiscoverResources for VoiceStylePrompt {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: crate::specs::VOICE_CONFIGURATION_FILE.file_path,
+        yaml_path: &["style_prompt"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let file_path = base_path.join("voice/configuration.yaml");
+        let file_path = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if !is_file(fs, &file_path) {
             return vec![];
         }
@@ -61,8 +74,13 @@ impl DiscoverResources for VoiceStylePrompt {
 
 pub(crate) struct VoiceDisclaimerMessage;
 impl DiscoverResources for VoiceDisclaimerMessage {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: crate::specs::VOICE_CONFIGURATION_FILE.file_path,
+        yaml_path: &["disclaimer_messages"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let file_path = base_path.join("voice/configuration.yaml");
+        let file_path = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if !is_file(fs, &file_path) {
             return vec![];
         }
@@ -88,8 +106,13 @@ impl DiscoverResources for VoiceDisclaimerMessage {
 
 pub(crate) struct ChatGreeting;
 impl DiscoverResources for ChatGreeting {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: crate::specs::CHAT_CONFIGURATION_FILE.file_path,
+        yaml_path: &["greeting"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let file_path = base_path.join("chat/configuration.yaml");
+        let file_path = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if !is_file(fs, &file_path) {
             return vec![];
         }
@@ -109,8 +132,11 @@ impl DiscoverResources for ChatGreeting {
 
 pub(crate) struct ChatSafetyFilters;
 impl DiscoverResources for ChatSafetyFilters {
+    const LOCAL_PATH: LocalResourcePath =
+        LocalResourcePath::File(crate::specs::CHAT_SAFETY_FILTERS_FILE.file_path);
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let p = base_path.join("chat/safety_filters.yaml");
+        let p = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if is_file(fs, &p) {
             vec![rel_under_root(base_path, &p)]
         } else {
@@ -121,8 +147,13 @@ impl DiscoverResources for ChatSafetyFilters {
 
 pub(crate) struct ChatStylePrompt;
 impl DiscoverResources for ChatStylePrompt {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: crate::specs::CHAT_CONFIGURATION_FILE.file_path,
+        yaml_path: &["style_prompt"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let file_path = base_path.join("chat/configuration.yaml");
+        let file_path = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if !is_file(fs, &file_path) {
             return vec![];
         }

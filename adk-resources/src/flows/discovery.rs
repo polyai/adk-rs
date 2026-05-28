@@ -1,4 +1,4 @@
-use crate::discover::DiscoverResources;
+use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_dir, is_file, read_yaml_mapping, sorted_read_dir};
 use crate::resource_utils::rel_under_root;
 use std::path::Path;
@@ -19,6 +19,8 @@ fn step_file_stem(path: &Path) -> Option<String> {
 // poly/resources/flows.py
 pub(crate) struct FlowStep;
 impl DiscoverResources for FlowStep {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::GlobSet(&["flows/*/steps/*.yaml"]);
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let flows_path = base_path.join("flows");
         if !is_dir(fs, &flows_path) {
@@ -60,6 +62,9 @@ impl DiscoverResources for FlowStep {
 
 pub(crate) struct FunctionStep;
 impl DiscoverResources for FunctionStep {
+    const LOCAL_PATH: LocalResourcePath =
+        LocalResourcePath::GlobSet(&["flows/*/function_steps/*.py"]);
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let flows_path = base_path.join("flows");
         if !is_dir(fs, &flows_path) {
@@ -87,6 +92,8 @@ impl DiscoverResources for FunctionStep {
 
 pub(crate) struct FlowConfig;
 impl DiscoverResources for FlowConfig {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::GlobSet(&["flows/*/flow_config.yaml"]);
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let flows_path = base_path.join("flows");
         if !is_dir(fs, &flows_path) {

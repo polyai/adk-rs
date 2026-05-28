@@ -1,4 +1,4 @@
-use crate::discover::DiscoverResources;
+use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde_yaml::Value;
@@ -7,8 +7,13 @@ use std::path::Path;
 // poly/resources/transcript_correction.py
 pub(crate) struct TranscriptCorrection;
 impl DiscoverResources for TranscriptCorrection {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: crate::specs::TRANSCRIPT_CORRECTIONS_FILE.file_path,
+        yaml_path: &["corrections"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let yaml_path = base_path.join("voice/speech_recognition/transcript_corrections.yaml");
+        let yaml_path = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if !is_file(fs, &yaml_path) {
             return vec![];
         }
@@ -35,9 +40,16 @@ impl DiscoverResources for TranscriptCorrection {
         }
         out
     }
+
+    fn validate_local_yaml(_path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+        validate_local_yaml(yaml, errors);
+    }
 }
 
 pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    let path = TranscriptCorrection::LOCAL_PATH
+        .primary_path()
+        .expect("local file path");
     let Some(corrections) = yaml
         .get("corrections")
         .and_then(serde_yaml::Value::as_sequence)
@@ -56,7 +68,7 @@ pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<Str
         if regular_expression_count == 0 {
             let name = clean_name(raw_name, false);
             errors.push(format!(
-                "Validation error in voice/speech_recognition/transcript_corrections.yaml/corrections/{name}: At least one regular expression rule is required"
+                "Validation error in {path}/corrections/{name}: At least one regular expression rule is required"
             ));
         }
     }

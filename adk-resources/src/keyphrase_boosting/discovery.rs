@@ -1,4 +1,4 @@
-use crate::discover::DiscoverResources;
+use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde_yaml::Value;
@@ -7,15 +7,16 @@ use std::path::Path;
 // poly/resources/keyphrase_boosting.py
 pub(crate) struct KeyphraseBoosting;
 impl DiscoverResources for KeyphraseBoosting {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: crate::specs::KEYPHRASE_BOOSTING_FILE.file_path,
+        yaml_path: &["keyphrases"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let candidates = [
-            base_path.join("voice/speech_recognition/keyphrase_boosting.yaml"),
-            base_path.join("speech_recognition/keyphrase_boosting.yaml"),
-        ];
-        let yaml_path = candidates.into_iter().find(|p| is_file(fs, p));
-        let Some(yaml_path) = yaml_path else {
+        let yaml_path = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
+        if !is_file(fs, &yaml_path) {
             return vec![];
-        };
+        }
         let Some(m) = read_yaml_mapping(fs, &yaml_path) else {
             return vec![];
         };

@@ -1,4 +1,4 @@
-use crate::discover::DiscoverResources;
+use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_file, read_yaml_mapping, validate_duplicate_names};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde_yaml::Value;
@@ -7,8 +7,13 @@ use std::path::Path;
 // poly/resources/variant_attributes.py
 pub(crate) struct Variant;
 impl DiscoverResources for Variant {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: crate::specs::VARIANT_ATTRIBUTES_FILE.file_path,
+        yaml_path: &["variants"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let path = base_path.join("config/variant_attributes.yaml");
+        let path = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if !is_file(fs, &path) {
             return vec![];
         }
@@ -35,22 +40,21 @@ impl DiscoverResources for Variant {
         }
         out
     }
+
+    fn validate_local_yaml(_path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+        validate_local_yaml(yaml, errors);
+    }
 }
 
 pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    let path = Variant::LOCAL_PATH.primary_path().expect("local file path");
     let Some(variants) = yaml
         .get("variants")
         .and_then(serde_yaml::Value::as_sequence)
     else {
         return;
     };
-    validate_duplicate_names(
-        "config/variant_attributes.yaml",
-        "variants",
-        "variant",
-        variants,
-        errors,
-    );
+    validate_duplicate_names(path, "variants", "variant", variants, errors);
     let default_names = variants
         .iter()
         .filter(|variant| {
@@ -75,8 +79,13 @@ pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<Str
 
 pub(crate) struct VariantAttribute;
 impl DiscoverResources for VariantAttribute {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: crate::specs::VARIANT_ATTRIBUTES_FILE.file_path,
+        yaml_path: &["attributes"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let path = base_path.join("config/variant_attributes.yaml");
+        let path = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if !is_file(fs, &path) {
             return vec![];
         }

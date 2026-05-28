@@ -1,4 +1,4 @@
-use crate::discover::DiscoverResources;
+use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_dir, sorted_read_dir};
 use crate::resource_utils::rel_under_root;
 use std::path::Path;
@@ -6,6 +6,9 @@ use std::path::Path;
 // poly/resources/function.py
 pub(crate) struct Function;
 impl DiscoverResources for Function {
+    const LOCAL_PATH: LocalResourcePath =
+        LocalResourcePath::GlobSet(&["functions/*.py", "flows/*/functions/*.py"]);
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         let flows = base_path.join("flows");

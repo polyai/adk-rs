@@ -1,4 +1,4 @@
-use crate::discover::DiscoverResources;
+use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde_yaml::Value;
@@ -7,8 +7,13 @@ use std::path::Path;
 // poly/resources/phrase_filter.py
 pub(crate) struct PhraseFilter;
 impl DiscoverResources for PhraseFilter {
+    const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
+        path: "voice/response_control/phrase_filtering.yaml",
+        yaml_path: &["phrase_filters"],
+    };
+
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let yaml_path = base_path.join("voice/response_control/phrase_filtering.yaml");
+        let yaml_path = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
         if !is_file(fs, &yaml_path) {
             return vec![];
         }

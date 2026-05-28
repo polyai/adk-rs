@@ -1,6 +1,6 @@
 use crate::ids::stable_resource_id;
 use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
-use crate::specs::{KEYPHRASE_BOOSTING, LEGACY_KEYPHRASE_BOOSTING_FILE_PATH};
+use crate::specs::KEYPHRASE_BOOSTING;
 use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -24,9 +24,7 @@ pub(crate) fn keyphrase_lifecycle_commands(
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, KEYPHRASE_BOOSTING.file.file_path)
-        .or_else(|| resource_yaml(resources, LEGACY_KEYPHRASE_BOOSTING_FILE_PATH))
-    else {
+    let Some(yaml) = resource_yaml(resources, KEYPHRASE_BOOSTING.file.file_path) else {
         return SimpleLifecycleCommands::default();
     };
     let local_items = local_keyphrase_items(&yaml);

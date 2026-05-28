@@ -51,7 +51,9 @@ mod transcript_corrections;
 mod variables;
 mod variants;
 
-pub use discover::{DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources};
+pub use discover::{
+    DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources, validate_semantic_resource,
+};
 pub use flows::validate_flow_resources;
 pub use functions::{
     FunctionValidationFailure, PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX,
@@ -65,7 +67,7 @@ pub use functions::{
 pub use local_resources::{
     DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
     build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
-    type_name_to_resource_prefix, validate_semantic_resource,
+    type_name_to_resource_prefix,
 };
 pub use push_command_summary::command_to_json_summary;
 pub use push_commands::{
