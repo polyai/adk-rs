@@ -3,7 +3,6 @@
 mod agent_settings;
 mod broad_resources;
 mod channels;
-mod entities;
 mod references;
 mod synthetic;
 
@@ -29,7 +28,7 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
     crate::topics::insert_topic_resources(&mut map, projection)?;
     crate::functions::insert_function_resources(&mut map, projection, &flow_import_path_maps)?;
     crate::flows::insert_flow_resources(&mut map, projection, &flow_import_path_maps)?;
-    entities::insert_entity_resources(&mut map, projection)?;
+    crate::entities::insert_entity_resources(&mut map, projection)?;
 
     synthetic::insert_synthetic_resources(&mut map, projection)?;
     broad_resources::insert_broad_resources(&mut map, projection)?;

@@ -5,7 +5,6 @@
 //! command generation helpers.
 
 use adk_protobuf::agent::RulesReferences;
-use adk_protobuf::entities;
 use serde_json::Value;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -21,6 +20,7 @@ pub enum CommandGenError {
 mod api_integrations;
 mod command_gen;
 pub mod discover;
+mod entities;
 pub mod flows;
 pub mod functions;
 mod handoffs;
@@ -90,10 +90,6 @@ pub(crate) use materialization::{
 };
 
 pub const PYTHON_VARIANT_STATUS_KEY_PREFIX: &str = "__python_variant__/";
-
-pub(crate) fn entity_entries(projection: &Value) -> HashMap<String, Value> {
-    extract_entities_map(projection, &["entities", "entities", "entities"])
-}
 
 pub(crate) fn rules_references_from_projection(projection: &Value) -> Option<RulesReferences> {
     let references = projection.pointer("/agentSettings/rules/references")?;
@@ -287,126 +283,8 @@ pub(crate) fn is_synthetic_local_resource_id(resource_id: &str) -> bool {
         || trimmed.ends_with(".py")
 }
 
-pub(crate) fn build_entity_create_config(
-    entity_type: &str,
-    config: Option<&serde_yaml::Value>,
-) -> Option<entities::entity_create::Config> {
-    match entity_type {
-        "numeric" => Some(entities::entity_create::Config::Numeric(
-            entities::NumberConfig {
-                has_decimal: yaml_bool(config, "has_decimal", false),
-                has_range: yaml_bool(config, "has_range", false),
-                min: yaml_f32_opt(config, "min"),
-                max: yaml_f32_opt(config, "max"),
-            },
-        )),
-        "alphanumeric" => Some(entities::entity_create::Config::Alphanumeric(
-            entities::AlphanumericConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                validation_type: yaml_string(config, "validation_type"),
-                regular_expression: yaml_string(config, "regular_expression"),
-            },
-        )),
-        "enum" => Some(entities::entity_create::Config::Enum(
-            entities::MultipleOptionsConfig {
-                options: yaml_string_list(config, "options"),
-            },
-        )),
-        "date" => Some(entities::entity_create::Config::Date(
-            entities::DateConfig {
-                relative_date: yaml_bool(config, "relative_date", false),
-            },
-        )),
-        "phone_number" => Some(entities::entity_create::Config::PhoneNumber(
-            entities::PhoneNumberConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                country_codes: yaml_string_list(config, "country_codes"),
-            },
-        )),
-        "time" => Some(entities::entity_create::Config::Time(
-            entities::TimeConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                start_time: yaml_string(config, "start_time"),
-                end_time: yaml_string(config, "end_time"),
-            },
-        )),
-        "address" => Some(entities::entity_create::Config::Address(
-            entities::AddressConfig {},
-        )),
-        "free_text" => Some(entities::entity_create::Config::FreeText(
-            entities::FreeTextConfig {},
-        )),
-        "name_config" => Some(entities::entity_create::Config::NameConfig(
-            entities::NameConfig {},
-        )),
-        _ => None,
-    }
-}
-
-pub(crate) fn build_entity_update_config(
-    entity_type: &str,
-    config: Option<&serde_yaml::Value>,
-) -> Option<entities::entity_update::Config> {
-    match entity_type {
-        "numeric" => Some(entities::entity_update::Config::Numeric(
-            entities::NumberConfig {
-                has_decimal: yaml_bool(config, "has_decimal", false),
-                has_range: yaml_bool(config, "has_range", false),
-                min: yaml_f32_opt(config, "min"),
-                max: yaml_f32_opt(config, "max"),
-            },
-        )),
-        "alphanumeric" => Some(entities::entity_update::Config::Alphanumeric(
-            entities::AlphanumericConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                validation_type: yaml_string(config, "validation_type"),
-                regular_expression: yaml_string(config, "regular_expression"),
-            },
-        )),
-        "enum" => Some(entities::entity_update::Config::Enum(
-            entities::MultipleOptionsConfig {
-                options: yaml_string_list(config, "options"),
-            },
-        )),
-        "date" => Some(entities::entity_update::Config::Date(
-            entities::DateConfig {
-                relative_date: yaml_bool(config, "relative_date", false),
-            },
-        )),
-        "phone_number" => Some(entities::entity_update::Config::PhoneNumber(
-            entities::PhoneNumberConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                country_codes: yaml_string_list(config, "country_codes"),
-            },
-        )),
-        "time" => Some(entities::entity_update::Config::Time(
-            entities::TimeConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                start_time: yaml_string(config, "start_time"),
-                end_time: yaml_string(config, "end_time"),
-            },
-        )),
-        "address" => Some(entities::entity_update::Config::Address(
-            entities::AddressConfig {},
-        )),
-        "free_text" => Some(entities::entity_update::Config::FreeText(
-            entities::FreeTextConfig {},
-        )),
-        "name_config" => Some(entities::entity_update::Config::NameConfig(
-            entities::NameConfig {},
-        )),
-        _ => None,
-    }
-}
-
 fn yaml_get<'a>(config: Option<&'a serde_yaml::Value>, key: &str) -> Option<&'a serde_yaml::Value> {
     config.and_then(|c| c.get(key))
-}
-
-fn yaml_bool(config: Option<&serde_yaml::Value>, key: &str, default: bool) -> bool {
-    yaml_get(config, key)
-        .and_then(serde_yaml::Value::as_bool)
-        .unwrap_or(default)
 }
 
 fn yaml_string(config: Option<&serde_yaml::Value>, key: &str) -> String {
@@ -418,25 +296,6 @@ fn yaml_string(config: Option<&serde_yaml::Value>, key: &str) -> String {
 
 pub(crate) fn yaml_str(config: &serde_yaml::Value, key: &str) -> String {
     yaml_string(Some(config), key)
-}
-
-fn yaml_string_list(config: Option<&serde_yaml::Value>, key: &str) -> Vec<String> {
-    yaml_get(config, key)
-        .and_then(serde_yaml::Value::as_sequence)
-        .map(|seq| {
-            seq.iter()
-                .filter_map(serde_yaml::Value::as_str)
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
-}
-
-fn yaml_f32_opt(config: Option<&serde_yaml::Value>, key: &str) -> Option<f32> {
-    yaml_get(config, key).and_then(|v| match v {
-        serde_yaml::Value::Number(n) => n.as_f64().map(|x| x as f32),
-        _ => None,
-    })
 }
 
 #[cfg(test)]

@@ -15,12 +15,12 @@ mod agent_settings;
 mod asr_settings;
 mod channels;
 pub(crate) mod common;
-mod entity;
 mod experimental_config;
 mod lifecycle;
 mod safety_filters;
 
 pub(crate) use crate::api_integrations::ApiIntegration;
+pub(crate) use crate::entities::Entity;
 pub(crate) use crate::flows::{FlowConfig, FlowStep, FunctionStep};
 pub(crate) use crate::functions::Function;
 pub(crate) use crate::handoffs::Handoff;
@@ -38,7 +38,6 @@ pub(crate) use channels::{
     ChatGreeting, ChatSafetyFilters, ChatStylePrompt, VoiceDisclaimerMessage, VoiceGreeting,
     VoiceSafetyFilters, VoiceStylePrompt,
 };
-pub(crate) use entity::Entity;
 pub(crate) use experimental_config::ExperimentalConfig;
 pub use lifecycle::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 pub use lifecycle::{
@@ -52,7 +51,7 @@ pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: 
         "config/api_integrations.yaml" => {
             crate::api_integrations::validate_local_yaml(yaml, errors)
         }
-        "config/entities.yaml" => entity::validate_local_yaml(yaml, errors),
+        "config/entities.yaml" => crate::entities::validate_local_yaml(yaml, errors),
         "config/handoffs.yaml" => crate::handoffs::validate_local_yaml(yaml, errors),
         "config/sms_templates.yaml" => crate::sms_templates::validate_local_yaml(yaml, errors),
         "config/variant_attributes.yaml" => crate::variants::validate_local_yaml(yaml, errors),

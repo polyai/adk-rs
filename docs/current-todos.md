@@ -52,6 +52,9 @@ Current state:
 - The SMS template and phrase filter modules own their aggregate-file
   discovery, projection materialization, push command generation, and command
   JSON summaries. SMS templates also owns local YAML validation.
+- The entity-family module at `adk-resources/src/entities` owns aggregate-file
+  discovery and validation, projection materialization, push command
+  generation, entity config conversion, and command JSON summaries.
 
 Remaining:
 
@@ -61,11 +64,11 @@ Remaining:
    - The longer-term shape should use durable resource-family modules such as
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
-   - `functions`, `flows`, `topics`, `variables`, `api_integrations`,
-     `variants`, `keyphrase_boosting`, `transcript_corrections`,
-     `pronunciations`, `handoffs`, `sms_templates`, and `phrase_filters` now
-     follow this shape. Repeat the pattern for agent settings and other
-     resource families.
+   - `functions`, `flows`, `topics`, `variables`, `entities`,
+     `api_integrations`, `variants`, `keyphrase_boosting`,
+     `transcript_corrections`, `pronunciations`, `handoffs`, `sms_templates`,
+     and `phrase_filters` now follow this shape. Repeat the pattern for agent
+     settings and other resource families.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.

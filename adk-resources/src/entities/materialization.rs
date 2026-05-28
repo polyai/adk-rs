@@ -1,11 +1,11 @@
-use super::insert_content_resource;
+use crate::materialization::insert_content_resource;
 use crate::specs::ENTITIES_FILE;
 use crate::yaml_resources::{EntitiesYaml, EntityYaml, to_yaml_string};
 use crate::{CommandGenError, extract_entities_vec, snake_case_json_keys, to_snake_case};
 use adk_types::ResourceMap;
 use serde_json::Value;
 
-pub(super) fn insert_entity_resources(
+pub(crate) fn insert_entity_resources(
     map: &mut ResourceMap,
     projection: &Value,
 ) -> Result<(), CommandGenError> {
