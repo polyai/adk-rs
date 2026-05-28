@@ -32,6 +32,7 @@ pub mod status_snapshot;
 #[cfg(test)]
 mod test_support;
 mod topics;
+mod variables;
 mod yaml_resources;
 
 pub use command_gen::{

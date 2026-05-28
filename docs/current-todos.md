@@ -32,6 +32,9 @@ Current state:
 - The topic-family module at `adk-resources/src/topics` owns topic discovery,
   local YAML validation, projection materialization, and push command
   generation.
+- The variable-family module at `adk-resources/src/variables` owns virtual
+  variable discovery from Python `conv.state.*` usage and variable push command
+  generation.
 
 Remaining:
 
@@ -41,9 +44,9 @@ Remaining:
    - The longer-term shape should use durable resource-family modules such as
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
-   - `functions`, `flows`, and `topics` now follow this shape. Repeat the
-     pattern for agent settings, API integrations, variants, and other resource
-     families.
+   - `functions`, `flows`, `topics`, and `variables` now follow this shape.
+     Repeat the pattern for agent settings, API integrations, variants, and
+     other resource families.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.

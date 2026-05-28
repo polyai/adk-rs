@@ -5,8 +5,6 @@
 //! resources, but they are still organized around one resource path at a time
 //! rather than a shared aggregate YAML file.
 
-pub(crate) mod variables;
-
 use super::CommandGroups;
 use crate::CommandGenError;
 use adk_protobuf::Metadata;
@@ -19,7 +17,8 @@ pub(crate) fn per_resource_file_command_groups(
     projection: &Value,
     metadata: &Option<Metadata>,
 ) -> Result<CommandGroups, CommandGenError> {
-    let mut groups = variables::variable_resource_command_groups(resources, projection, metadata);
+    let mut groups =
+        crate::variables::variable_resource_command_groups(resources, projection, metadata);
     groups.append(crate::functions::function_resource_command_groups(
         resources, projection, metadata,
     )?);

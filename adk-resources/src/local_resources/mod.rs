@@ -26,12 +26,12 @@ mod pronunciation;
 mod safety_filters;
 mod sms_template;
 mod transcript_correction;
-mod variable;
 mod variant;
 
 pub(crate) use crate::flows::{FlowConfig, FlowStep, FunctionStep};
 pub(crate) use crate::functions::Function;
 pub(crate) use crate::topics::Topic;
+pub(crate) use crate::variables::Variable;
 pub(crate) use agent_settings::{SettingsPersonality, SettingsRole, SettingsRules};
 pub(crate) use api_integration::ApiIntegration;
 pub(crate) use asr_settings::AsrSettings;
@@ -53,7 +53,6 @@ pub(crate) use pronunciation::Pronunciation;
 pub(crate) use safety_filters::GeneralSafetyFilters;
 pub(crate) use sms_template::SMSTemplate;
 pub(crate) use transcript_correction::TranscriptCorrection;
-pub(crate) use variable::Variable;
 pub(crate) use variant::{Variant, VariantAttribute};
 
 pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
