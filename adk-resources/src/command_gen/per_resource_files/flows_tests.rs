@@ -1,4 +1,4 @@
-use crate::{build_phase1_commands, projection_to_resource_map};
+use crate::{build_push_commands, projection_to_resource_map};
 use serde_json::Value;
 
 #[test]
@@ -184,7 +184,7 @@ fn flow_function_import_pretty_paths_round_trip_without_push_commands() {
     });
 
     let resources = projection_to_resource_map(&projection).expect("projection resources");
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     assert!(
         commands.is_empty(),
         "expected no commands, got types: {:?}",

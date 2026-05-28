@@ -6,7 +6,7 @@
 //! **Execution ordering:** Python `SyncClientHandler.queue_resources` walks deletes (respecting
 //! `PRIORITY_DELETE_TYPES`), then creates (`PRIORITY_CREATE_TYPES`), then updates
 //! (`PRIORITY_UPDATE_TYPES`), and finally appends `handoff_set_default` for default handoffs.
-//! This module emits per-family command groups; `build_phase1_commands` applies the global
+//! This module emits per-family command groups; `build_push_commands` applies the global
 //! delete/create/update ordering across all resource-family modules.
 
 use crate::ids::stable_resource_id;

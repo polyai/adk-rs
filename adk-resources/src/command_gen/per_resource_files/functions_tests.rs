@@ -1,6 +1,6 @@
 use super::*;
 use crate::test_support::local_resource;
-use crate::{build_phase1_commands, projection_to_resource_map, try_build_phase1_commands};
+use crate::{build_push_commands, projection_to_resource_map, try_build_push_commands};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::{Resource, ResourceMap};
 
@@ -33,7 +33,7 @@ fn update_function_uses_remote_metadata_when_available() {
             }
         }
     });
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     let update = commands
         .iter()
         .find(|c| c.r#type == "update_function")
@@ -71,7 +71,7 @@ fn projection_function_with_distinct_display_name_round_trips_without_commands()
         }
     });
     let resources = projection_to_resource_map(&projection).expect("projection resources");
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
 
     assert!(commands.is_empty());
 }
@@ -92,7 +92,7 @@ fn archived_remote_function_absent_from_disk_is_not_deleted() {
             }
         }
     });
-    let commands = build_phase1_commands(&ResourceMap::new(), &projection);
+    let commands = build_push_commands(&ResourceMap::new(), &projection);
 
     assert!(
         commands
@@ -115,7 +115,7 @@ fn create_function_infers_description_and_parameters_from_code() {
             }),
         },
     );
-    let commands = build_phase1_commands(&resources, &serde_json::json!({}));
+    let commands = build_push_commands(&resources, &serde_json::json!({}));
     let create = commands
         .iter()
         .find(|c| c.r#type == "create_function")
@@ -160,7 +160,7 @@ fn create_function_infers_parameters_from_def_when_display_name_differs() {
             }),
         },
     );
-    let commands = build_phase1_commands(&resources, &serde_json::json!({}));
+    let commands = build_push_commands(&resources, &serde_json::json!({}));
     let create = commands
         .iter()
         .find(|c| c.r#type == "create_function")
@@ -191,7 +191,7 @@ fn function_latency_control_decorator_populates_create_and_update_commands() {
         },
     );
 
-    let create_commands = build_phase1_commands(&resources, &serde_json::json!({}));
+    let create_commands = build_push_commands(&resources, &serde_json::json!({}));
     let create = create_commands
         .iter()
         .find(|c| c.r#type == "create_function")
@@ -228,7 +228,7 @@ fn function_latency_control_decorator_populates_create_and_update_commands() {
             }
         }
     });
-    let update_commands = build_phase1_commands(&resources, &projection);
+    let update_commands = build_push_commands(&resources, &projection);
     let update = update_commands
         .iter()
         .find(|c| c.r#type == "update_latency_control")
@@ -296,7 +296,7 @@ fn transition_function_latency_control_decorator_emits_flow_scoped_update() {
         }
     });
 
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     let update = commands
         .iter()
         .find(|c| c.r#type == "update_flow_transition_function_latency_control")
@@ -432,7 +432,7 @@ fn special_function_paths_emit_start_and_end_commands() {
         }
     });
 
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     let types = commands
         .iter()
         .map(|command| command.r#type.as_str())
@@ -501,7 +501,7 @@ fn deleting_local_special_function_files_emits_special_delete_commands() {
         }
     });
 
-    let commands = build_phase1_commands(&ResourceMap::new(), &projection);
+    let commands = build_push_commands(&ResourceMap::new(), &projection);
     let types = commands
         .iter()
         .map(|command| command.r#type.as_str())
@@ -705,7 +705,7 @@ fn command_generation_fails_on_unparseable_function_content() {
         },
     );
 
-    let error = try_build_phase1_commands(&resources, &serde_json::json!({}))
+    let error = try_build_push_commands(&resources, &serde_json::json!({}))
         .expect_err("invalid function code should prevent command generation");
 
     let message = error.to_string();

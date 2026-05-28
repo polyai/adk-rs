@@ -17,7 +17,7 @@ fn builds_create_topic_command_when_remote_missing() {
         },
     );
     let projection = serde_json::json!({});
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].r#type, "create_topic");
     assert!(commands[0].metadata.is_some());
@@ -42,7 +42,7 @@ fn create_topic_uses_local_resource_id_before_synthetic_fallback() {
         },
     );
     let projection = serde_json::json!({});
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     let create_cmd = commands
         .iter()
         .find(|c| c.r#type == "create_topic")
@@ -84,7 +84,7 @@ fn push_commands_can_use_supplied_projection_and_actor() {
     });
 
     let commands =
-        build_phase1_commands_with_actor(&resources, &projection, Some("reviewer@example.com"));
+        build_push_commands_with_actor(&resources, &projection, Some("reviewer@example.com"));
 
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].r#type, "update_topic");
@@ -109,7 +109,7 @@ fn push_commands_default_to_python_sdk_user_metadata() {
         },
     );
 
-    let commands = build_phase1_commands(&resources, &serde_json::json!({}));
+    let commands = build_push_commands(&resources, &serde_json::json!({}));
 
     assert_eq!(
         commands[0].metadata.as_ref().map(|m| m.created_by.as_str()),
@@ -133,7 +133,7 @@ fn builds_delete_topic_command_when_local_removed() {
             }
         }
     });
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].r#type, "delete_topic");
     assert!(matches!(
@@ -388,7 +388,7 @@ fn reference_named_materialization_round_trips_without_push_commands() {
     });
 
     let resources = projection_to_resource_map(&projection).expect("projection resources");
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     assert!(
         commands.is_empty(),
         "expected no commands, got types: {:?}",
@@ -788,7 +788,7 @@ fn push_builder_appends_variable_commands() {
         },
     );
     let projection = serde_json::json!({});
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     let types: Vec<&str> = commands.iter().map(|c| c.r#type.as_str()).collect();
     assert!(types.contains(&"create_topic"));
     assert!(types.contains(&"variable_create"));
@@ -841,7 +841,7 @@ fn push_builder_follows_global_delete_create_update_order() {
         "knowledgeBase": {"topics": {"entities": {"topic-old": {"name": "old"}}}},
         "variables": {"variables": {"entities": {"vrbl-old": {"name": "OldVar"}}}}
     });
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     let types: Vec<&str> = commands.iter().map(|c| c.r#type.as_str()).collect();
     let delete_topic_idx = types
         .iter()
@@ -891,7 +891,7 @@ fn queue_prioritizes_variable_commands_across_all_phases() {
         "knowledgeBase": {"topics": {"entities": {"topic-old": {"name": "old"}, "topic-new": {"name": "new"}}}},
         "variables": {"variables": {"entities": {"vrbl-old": {"name": "OldVar"}, "vrbl-keep": {"name": "NewVar"}}}}
     });
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     let types: Vec<&str> = commands.iter().map(|c| c.r#type.as_str()).collect();
     let variable_delete_idx = types
         .iter()

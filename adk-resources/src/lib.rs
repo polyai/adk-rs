@@ -34,9 +34,9 @@ mod test_support;
 mod yaml_resources;
 
 pub use command_gen::{
-    build_phase1_commands, build_phase1_commands_for_changed_resources,
-    build_phase1_commands_with_actor, command_to_json_summary, try_build_phase1_commands,
-    try_build_phase1_commands_for_changed_resources, try_build_phase1_commands_with_actor,
+    build_push_commands, build_push_commands_for_changed_resources, build_push_commands_with_actor,
+    command_to_json_summary, try_build_push_commands,
+    try_build_push_commands_for_changed_resources, try_build_push_commands_with_actor,
 };
 pub use discover::{DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources};
 pub use local_resources::{

@@ -42,7 +42,7 @@ impl Case {
     fn run(&self) {
         let resources = resources_for(self.kind, self.operation);
         let projection = projection_for(self.kind, self.operation);
-        let commands = build_phase1_commands(&resources, &projection);
+        let commands = build_push_commands(&resources, &projection);
         let command_types = commands
             .iter()
             .map(|command| command.r#type.as_str())
@@ -281,7 +281,7 @@ fn push_command_lifecycle_matrix() {
 
 #[test]
 fn flow_function_step_create_uses_python_empty_latency_control_shape() {
-    let commands = build_phase1_commands(
+    let commands = build_push_commands(
         &resources_for(ResourceKind::FlowFunctionStep, Operation::Create),
         &projection_for(ResourceKind::FlowFunctionStep, Operation::Create),
     );
@@ -341,7 +341,7 @@ fn flow_recording_command_coverage_runs_as_pure_unit_contracts() {
         ),
     );
 
-    let commands = build_phase1_commands(&resources, &json!({}));
+    let commands = build_push_commands(&resources, &json!({}));
     assert_eq!(
         command_types(&commands),
         vec!["create_flow", "create_step", "create_no_code_condition"]
@@ -383,7 +383,7 @@ fn flow_deletion_and_lifecycle_recordings_are_command_generation_unit_contracts(
         "content": "step_type: default_step\nname: default_step\nprompt: What do you need?\nconditions: []\nextracted_entities:\n- ENTITY-age\n"
     });
 
-    let commands = build_phase1_commands(&without_condition, &projection);
+    let commands = build_push_commands(&without_condition, &projection);
     assert_eq!(
         command_types(&commands),
         vec!["delete_no_code_condition", "update_no_code_step"]
@@ -420,7 +420,7 @@ fn flow_deletion_and_lifecycle_recordings_are_command_generation_unit_contracts(
         ),
     );
 
-    let commands = build_phase1_commands(&lifecycle, &projection);
+    let commands = build_push_commands(&lifecycle, &projection);
     let types = command_types(&commands);
     for expected in [
         "delete_step",
@@ -509,7 +509,7 @@ fn synthetic_lifecycle_recording_is_pure_command_generation_coverage() {
         ),
     );
 
-    let commands = build_phase1_commands(&resources, &projection);
+    let commands = build_push_commands(&resources, &projection);
     let types = command_types(&commands);
     for expected in [
         "handoff_delete",
