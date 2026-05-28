@@ -10,7 +10,6 @@ mod keyphrases;
 mod pronunciations;
 mod summaries;
 mod transcript_corrections;
-mod variants;
 
 use super::CommandGroups;
 use adk_protobuf::Metadata;
@@ -37,7 +36,8 @@ pub(crate) fn aggregate_command_groups(
         resources, projection, metadata,
     ));
 
-    let variant_lifecycle = variants::variant_lifecycle_commands(resources, projection, metadata);
+    let variant_lifecycle: crate::variants::VariantLifecycleCommands =
+        crate::variants::variant_lifecycle_commands(resources, projection, metadata);
     let api_lifecycle: crate::api_integrations::ApiIntegrationLifecycleCommands =
         crate::api_integrations::api_integration_lifecycle_commands(
             resources, projection, metadata,

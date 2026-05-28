@@ -25,13 +25,13 @@ mod pronunciation;
 mod safety_filters;
 mod sms_template;
 mod transcript_correction;
-mod variant;
 
 pub(crate) use crate::api_integrations::ApiIntegration;
 pub(crate) use crate::flows::{FlowConfig, FlowStep, FunctionStep};
 pub(crate) use crate::functions::Function;
 pub(crate) use crate::topics::Topic;
 pub(crate) use crate::variables::Variable;
+pub(crate) use crate::variants::{Variant, VariantAttribute};
 pub(crate) use agent_settings::{SettingsPersonality, SettingsRole, SettingsRules};
 pub(crate) use asr_settings::AsrSettings;
 pub(crate) use channels::{
@@ -52,7 +52,6 @@ pub(crate) use pronunciation::Pronunciation;
 pub(crate) use safety_filters::GeneralSafetyFilters;
 pub(crate) use sms_template::SMSTemplate;
 pub(crate) use transcript_correction::TranscriptCorrection;
-pub(crate) use variant::{Variant, VariantAttribute};
 
 pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
     match path {
@@ -62,7 +61,7 @@ pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: 
         "config/entities.yaml" => entity::validate_local_yaml(yaml, errors),
         "config/handoffs.yaml" => handoff::validate_local_yaml(yaml, errors),
         "config/sms_templates.yaml" => sms_template::validate_local_yaml(yaml, errors),
-        "config/variant_attributes.yaml" => variant::validate_local_yaml(yaml, errors),
+        "config/variant_attributes.yaml" => crate::variants::validate_local_yaml(yaml, errors),
         "voice/speech_recognition/transcript_corrections.yaml" => {
             transcript_correction::validate_local_yaml(yaml, errors);
         }

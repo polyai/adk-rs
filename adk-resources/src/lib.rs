@@ -34,6 +34,7 @@ pub mod status_snapshot;
 mod test_support;
 mod topics;
 mod variables;
+mod variants;
 mod yaml_resources;
 
 pub use command_gen::{

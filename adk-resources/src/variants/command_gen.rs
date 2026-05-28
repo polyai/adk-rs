@@ -1,4 +1,4 @@
-use super::super::local_file_helpers::{
+use crate::command_gen::local_file_helpers::{
     json_bool, json_str, resource_yaml, yaml_bool, yaml_sequence, yaml_string_map,
 };
 use crate::ids::stable_resource_id;
@@ -16,13 +16,13 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
-pub(super) struct VariantLifecycleCommands {
-    pub(super) variant_deletes: Vec<adk_protobuf::Command>,
-    pub(super) attribute_deletes: Vec<adk_protobuf::Command>,
-    pub(super) variant_creates: Vec<adk_protobuf::Command>,
-    pub(super) attribute_creates: Vec<adk_protobuf::Command>,
-    pub(super) variant_updates: Vec<adk_protobuf::Command>,
-    pub(super) attribute_updates: Vec<adk_protobuf::Command>,
+pub(crate) struct VariantLifecycleCommands {
+    pub(crate) variant_deletes: Vec<adk_protobuf::Command>,
+    pub(crate) attribute_deletes: Vec<adk_protobuf::Command>,
+    pub(crate) variant_creates: Vec<adk_protobuf::Command>,
+    pub(crate) attribute_creates: Vec<adk_protobuf::Command>,
+    pub(crate) variant_updates: Vec<adk_protobuf::Command>,
+    pub(crate) attribute_updates: Vec<adk_protobuf::Command>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,7 +39,7 @@ struct VariantAttributeItem {
     values: HashMap<String, String>,
 }
 
-pub(super) fn variant_lifecycle_commands(
+pub(crate) fn variant_lifecycle_commands(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,
@@ -313,7 +313,7 @@ fn empty_attribute_references() -> AttributeReferences {
     }
 }
 
-pub(super) fn attribute_values_json(values: Option<&AttributeValues>) -> Value {
+pub(crate) fn attribute_values_json(values: Option<&AttributeValues>) -> Value {
     let Some(values) = values else {
         return json!({});
     };
@@ -324,7 +324,7 @@ pub(super) fn attribute_values_json(values: Option<&AttributeValues>) -> Value {
     }
 }
 
-pub(super) fn attribute_references_json(references: Option<&AttributeReferences>) -> Value {
+pub(crate) fn attribute_references_json(references: Option<&AttributeReferences>) -> Value {
     let Some(references) = references else {
         return json!({});
     };

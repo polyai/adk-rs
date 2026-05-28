@@ -38,6 +38,9 @@ Current state:
 - The API integration-family module at `adk-resources/src/api_integrations`
   owns aggregate-file discovery and validation, projection materialization, push
   command generation, and command JSON summaries for API integrations.
+- The variant-family module at `adk-resources/src/variants` owns aggregate-file
+  discovery and validation, projection materialization, push command generation,
+  and command JSON summaries for variants and variant attributes.
 
 Remaining:
 
@@ -47,9 +50,9 @@ Remaining:
    - The longer-term shape should use durable resource-family modules such as
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
-   - `functions`, `flows`, `topics`, `variables`, and `api_integrations` now
-     follow this shape. Repeat the pattern for agent settings, variants, and
-     other resource families.
+   - `functions`, `flows`, `topics`, `variables`, `api_integrations`, and
+     `variants` now follow this shape. Repeat the pattern for agent settings
+     and other resource families.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.
