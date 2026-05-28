@@ -58,6 +58,9 @@ Current state:
 - The experimental-config module at `adk-resources/src/experimental_config`
   owns singleton discovery, projection materialization, push command generation,
   and command JSON summaries for `agent_settings/experimental_config.json`.
+- The agent-settings module at `adk-resources/src/agent_settings` owns
+  discovery, projection materialization, push command generation, and command
+  JSON summaries for personality, role, rules, and agent-level safety filters.
 
 Remaining:
 
@@ -68,10 +71,10 @@ Remaining:
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
    - `functions`, `flows`, `topics`, `variables`, `entities`,
-     `experimental_config`, `api_integrations`, `variants`,
+     `experimental_config`, `agent_settings`, `api_integrations`, `variants`,
      `keyphrase_boosting`, `transcript_corrections`, `pronunciations`,
      `handoffs`, `sms_templates`, and `phrase_filters` now follow this shape.
-     Repeat the pattern for agent settings and other resource families.
+     Repeat the pattern for channel settings and ASR settings.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.

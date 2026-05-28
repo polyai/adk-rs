@@ -17,6 +17,7 @@ pub enum CommandGenError {
     PythonSyntax { path: String, message: String },
 }
 
+mod agent_settings;
 mod api_integrations;
 mod command_gen;
 pub mod discover;

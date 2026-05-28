@@ -1,15 +1,11 @@
 use super::super::local_file_helpers::{first_yaml_mapping, resource_changed, resource_yaml};
 use crate::specs::{
-    AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_SAFETY_FILTERS_FILE, ASR_SETTINGS_FILE,
-    CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
+    ASR_SETTINGS_FILE, CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
     VOICE_SAFETY_FILTERS_FILE,
 };
 use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
-use adk_protobuf::agent::{
-    Adjectives, DisclaimerMessageUpdateDisclaimerMessage, GreetingUpdateGreeting,
-    PersonalityUpdatePersonality, RoleUpdateRole,
-};
+use adk_protobuf::agent::{DisclaimerMessageUpdateDisclaimerMessage, GreetingUpdateGreeting};
 use adk_protobuf::asr_settings::{AsrSettingsUpdateAsrSettings, LatencyConfig};
 use adk_protobuf::channels::{
     ChannelType, ChannelUpdateGreeting, ChannelUpdateSafetyFilters, ChannelUpdateStylePrompt,
@@ -21,72 +17,6 @@ use adk_protobuf::content_filter_settings::{
     ContentFilterSettingsUpdateContentFilterSettings,
 };
 use adk_types::ResourceMap;
-use std::collections::HashMap;
-
-pub(super) fn append_agent_settings_updates(
-    commands: &mut Vec<adk_protobuf::Command>,
-    resources: &ResourceMap,
-    remote_resources: &ResourceMap,
-    metadata: &Option<Metadata>,
-) {
-    if resource_changed(
-        resources,
-        remote_resources,
-        AGENT_PERSONALITY_FILE.file_path,
-    ) && let Some(yaml) = resource_yaml(resources, AGENT_PERSONALITY_FILE.file_path)
-    {
-        let values = yaml
-            .get("adjectives")
-            .and_then(serde_yaml::Value::as_mapping)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|(key, value)| Some((key.as_str()?.to_string(), value.as_bool()?)))
-                    .collect::<HashMap<_, _>>()
-            })
-            .unwrap_or_default();
-        push_command(
-            commands,
-            metadata,
-            "update_personality",
-            CommandPayload::UpdatePersonality(PersonalityUpdatePersonality {
-                adjectives: Some(Adjectives { values }),
-                custom: Some(yaml_str(&yaml, "custom")),
-                references: None,
-            }),
-        );
-    }
-
-    if resource_changed(resources, remote_resources, AGENT_ROLE_FILE.file_path)
-        && let Some(yaml) = resource_yaml(resources, AGENT_ROLE_FILE.file_path)
-    {
-        push_command(
-            commands,
-            metadata,
-            "update_role",
-            CommandPayload::UpdateRole(RoleUpdateRole {
-                value: Some(yaml_str(&yaml, "value")),
-                additional_info: Some(yaml_str(&yaml, "additional_info")),
-                custom: Some(yaml_str(&yaml, "custom")),
-                references: None,
-            }),
-        );
-    }
-
-    if resource_changed(
-        resources,
-        remote_resources,
-        AGENT_SAFETY_FILTERS_FILE.file_path,
-    ) && let Some(yaml) = resource_yaml(resources, AGENT_SAFETY_FILTERS_FILE.file_path)
-    {
-        push_command(
-            commands,
-            metadata,
-            "update_content_filter_settings",
-            CommandPayload::UpdateContentFilterSettings(content_filter_settings_from_yaml(&yaml)),
-        );
-    }
-}
 
 pub(super) fn append_channel_settings_updates(
     commands: &mut Vec<adk_protobuf::Command>,

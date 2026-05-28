@@ -8,14 +8,8 @@ mod settings;
 mod summaries;
 
 use super::CommandGroups;
-use crate::specs::AGENT_RULES_FILE;
-use crate::{
-    projection_to_resource_map, prompt_reference_maps_from_projection, push_command,
-    replace_resource_names_with_ids, rules_references_from_behaviour,
-    rules_references_from_projection,
-};
+use crate::projection_to_resource_map;
 use adk_protobuf::Metadata;
-use adk_protobuf::agent::RulesUpdateRules;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::ResourceMap;
 use serde_json::Value;
@@ -28,17 +22,17 @@ pub(crate) fn singleton_command_groups(
     let remote_resources = projection_to_resource_map(projection).unwrap_or_default();
     let mut groups = CommandGroups::default();
 
-    append_rules_update(&mut groups.updates, resources, projection, metadata);
+    crate::agent_settings::append_agent_settings_updates(
+        &mut groups.updates,
+        resources,
+        &remote_resources,
+        projection,
+        metadata,
+    );
     crate::experimental_config::append_experimental_config_update(
         &mut groups.updates,
         resources,
         projection,
-        metadata,
-    );
-    settings::append_agent_settings_updates(
-        &mut groups.updates,
-        resources,
-        &remote_resources,
         metadata,
     );
     settings::append_channel_settings_updates(
@@ -51,43 +45,9 @@ pub(crate) fn singleton_command_groups(
     groups
 }
 
-fn append_rules_update(
-    commands: &mut Vec<adk_protobuf::Command>,
-    resources: &ResourceMap,
-    projection: &Value,
-    metadata: &Option<Metadata>,
-) {
-    let Some(resource) = resources.get(AGENT_RULES_FILE.file_path) else {
-        return;
-    };
-    let content = resource
-        .payload
-        .get("content")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
-    let normalized_content = replace_resource_names_with_ids(content, &prompt_reference_maps, None);
-    let remote_behaviour = projection
-        .pointer("/agentSettings/rules/behaviour")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    if normalized_content == remote_behaviour {
-        return;
-    }
-    push_command(
-        commands,
-        metadata,
-        "update_rules",
-        CommandPayload::UpdateRules(RulesUpdateRules {
-            behaviour: Some(normalized_content.clone()),
-            references: rules_references_from_behaviour(&normalized_content)
-                .or_else(|| rules_references_from_projection(projection)),
-        }),
-    );
-}
-
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
-    crate::experimental_config::payload_json_summary(payload)
+    crate::agent_settings::payload_json_summary(payload)
+        .or_else(|| crate::experimental_config::payload_json_summary(payload))
         .or_else(|| summaries::payload_json_summary(payload))
 }
 

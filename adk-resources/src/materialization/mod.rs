@@ -1,6 +1,5 @@
 //! Platform projection to local resource materialization.
 
-mod agent_settings;
 mod broad_resources;
 mod channels;
 mod references;
@@ -32,9 +31,9 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
 
     synthetic::insert_synthetic_resources(&mut map, projection)?;
     broad_resources::insert_broad_resources(&mut map, projection)?;
-    agent_settings::insert_profile_and_safety_resources(&mut map, projection)?;
+    crate::agent_settings::insert_profile_and_safety_resources(&mut map, projection)?;
     channels::insert_channel_resources(&mut map, projection)?;
-    agent_settings::insert_rules_resource(&mut map, projection)?;
+    crate::agent_settings::insert_rules_resource(&mut map, projection)?;
 
     rewrite_materialized_prompt_references(&mut map, &prompt_reference_maps);
     Ok(map)
