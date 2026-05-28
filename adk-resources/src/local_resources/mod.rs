@@ -11,8 +11,6 @@
 //! materialization and push command generation live alongside these definitions
 //! in this crate.
 
-mod asr_settings;
-mod channels;
 pub(crate) mod common;
 mod lifecycle;
 
@@ -20,6 +18,11 @@ pub(crate) use crate::agent_settings::{
     GeneralSafetyFilters, SettingsPersonality, SettingsRole, SettingsRules,
 };
 pub(crate) use crate::api_integrations::ApiIntegration;
+pub(crate) use crate::asr_settings::AsrSettings;
+pub(crate) use crate::channels::{
+    ChatGreeting, ChatSafetyFilters, ChatStylePrompt, VoiceDisclaimerMessage, VoiceGreeting,
+    VoiceSafetyFilters, VoiceStylePrompt,
+};
 pub(crate) use crate::entities::Entity;
 pub(crate) use crate::experimental_config::ExperimentalConfig;
 pub(crate) use crate::flows::{FlowConfig, FlowStep, FunctionStep};
@@ -33,11 +36,6 @@ pub(crate) use crate::topics::Topic;
 pub(crate) use crate::transcript_corrections::TranscriptCorrection;
 pub(crate) use crate::variables::Variable;
 pub(crate) use crate::variants::{Variant, VariantAttribute};
-pub(crate) use asr_settings::AsrSettings;
-pub(crate) use channels::{
-    ChatGreeting, ChatSafetyFilters, ChatStylePrompt, VoiceDisclaimerMessage, VoiceGreeting,
-    VoiceSafetyFilters, VoiceStylePrompt,
-};
 pub use lifecycle::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 pub use lifecycle::{
     build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,

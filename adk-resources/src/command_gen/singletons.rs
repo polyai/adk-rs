@@ -4,9 +4,6 @@
 //! own command semantics, such as role, personality, rules, channel settings,
 //! ASR settings, safety filters, and experimental config.
 
-mod settings;
-mod summaries;
-
 use super::CommandGroups;
 use crate::projection_to_resource_map;
 use adk_protobuf::Metadata;
@@ -35,7 +32,13 @@ pub(crate) fn singleton_command_groups(
         projection,
         metadata,
     );
-    settings::append_channel_settings_updates(
+    crate::channels::append_channel_settings_updates(
+        &mut groups.updates,
+        resources,
+        &remote_resources,
+        metadata,
+    );
+    crate::asr_settings::append_asr_settings_update(
         &mut groups.updates,
         resources,
         &remote_resources,
@@ -48,7 +51,8 @@ pub(crate) fn singleton_command_groups(
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
     crate::agent_settings::payload_json_summary(payload)
         .or_else(|| crate::experimental_config::payload_json_summary(payload))
-        .or_else(|| summaries::payload_json_summary(payload))
+        .or_else(|| crate::asr_settings::payload_json_summary(payload))
+        .or_else(|| crate::channels::payload_json_summary(payload))
 }
 
 #[cfg(test)]

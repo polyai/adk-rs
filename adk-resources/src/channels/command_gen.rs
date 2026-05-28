@@ -1,15 +1,14 @@
-use super::super::local_file_helpers::{first_yaml_mapping, resource_changed, resource_yaml};
+use crate::command_gen::local_file_helpers::{first_yaml_mapping, resource_changed, resource_yaml};
 use crate::specs::{
-    ASR_SETTINGS_FILE, CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
+    CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
     VOICE_SAFETY_FILTERS_FILE,
 };
 use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::agent::{DisclaimerMessageUpdateDisclaimerMessage, GreetingUpdateGreeting};
-use adk_protobuf::asr_settings::{AsrSettingsUpdateAsrSettings, LatencyConfig};
 use adk_protobuf::channels::{
     ChannelType, ChannelUpdateGreeting, ChannelUpdateSafetyFilters, ChannelUpdateStylePrompt,
-    StylePromptUpdateStylePrompt, VoiceChannelUpdateAsrSettings, VoiceChannelUpdateDisclaimer,
+    StylePromptUpdateStylePrompt, VoiceChannelUpdateDisclaimer,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::content_filter_settings::{
@@ -18,7 +17,7 @@ use adk_protobuf::content_filter_settings::{
 };
 use adk_types::ResourceMap;
 
-pub(super) fn append_channel_settings_updates(
+pub(crate) fn append_channel_settings_updates(
     commands: &mut Vec<adk_protobuf::Command>,
     resources: &ResourceMap,
     remote_resources: &ResourceMap,
@@ -140,28 +139,6 @@ pub(super) fn append_channel_settings_updates(
                 channel_type: ChannelType::WebChat as i32,
                 style_prompt: Some(StylePromptUpdateStylePrompt {
                     prompt: yaml_str(style_prompt, "prompt"),
-                }),
-            }),
-        );
-    }
-
-    if resource_changed(resources, remote_resources, ASR_SETTINGS_FILE.file_path)
-        && let Some(yaml) = resource_yaml(resources, ASR_SETTINGS_FILE.file_path)
-    {
-        push_command(
-            commands,
-            metadata,
-            "voice_channel_update_asr_settings",
-            CommandPayload::VoiceChannelUpdateAsrSettings(VoiceChannelUpdateAsrSettings {
-                asr_settings: Some(AsrSettingsUpdateAsrSettings {
-                    barge_in: Some(
-                        yaml.get("barge_in")
-                            .and_then(serde_yaml::Value::as_bool)
-                            .unwrap_or(false),
-                    ),
-                    latency_config: Some(LatencyConfig {
-                        interaction_style: yaml_str(&yaml, "interaction_style"),
-                    }),
                 }),
             }),
         );

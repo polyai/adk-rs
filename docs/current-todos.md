@@ -61,20 +61,25 @@ Current state:
 - The agent-settings module at `adk-resources/src/agent_settings` owns
   discovery, projection materialization, push command generation, and command
   JSON summaries for personality, role, rules, and agent-level safety filters.
+- The channel and ASR modules at `adk-resources/src/channels` and
+  `adk-resources/src/asr_settings` own discovery, projection materialization,
+  push command generation, and command JSON summaries for voice/chat channel
+  settings, channel safety filters, and ASR settings.
 
 Remaining:
 
-1. Reorganize `adk-resources` by resource family.
-   - Today it is still grouped by operation: `local_resources`,
-     `materialization`, `command_gen`, and shared specs.
-   - The longer-term shape should use durable resource-family modules such as
-     `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
-     `variants`.
+1. Clean up the remaining orchestration layer now that resource-family modules
+   own the resource-specific behavior.
+   - The operation-oriented modules (`local_resources`, `materialization`, and
+     `command_gen`) are now mostly dispatchers and shared helpers.
+   - Keep these modules only where they clarify ordering, global command queue
+     semantics, cross-resource reference rewriting, or typed lifecycle
+     bookkeeping.
    - `functions`, `flows`, `topics`, `variables`, `entities`,
-     `experimental_config`, `agent_settings`, `api_integrations`, `variants`,
-     `keyphrase_boosting`, `transcript_corrections`, `pronunciations`,
-     `handoffs`, `sms_templates`, and `phrase_filters` now follow this shape.
-     Repeat the pattern for channel settings and ASR settings.
+     `experimental_config`, `agent_settings`, `asr_settings`, `channels`,
+     `api_integrations`, `variants`, `keyphrase_boosting`,
+     `transcript_corrections`, `pronunciations`, `handoffs`, `sms_templates`,
+     and `phrase_filters` now follow the resource-family shape.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.

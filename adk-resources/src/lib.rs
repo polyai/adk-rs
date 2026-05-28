@@ -19,6 +19,8 @@ pub enum CommandGenError {
 
 mod agent_settings;
 mod api_integrations;
+mod asr_settings;
+mod channels;
 mod command_gen;
 pub mod discover;
 mod entities;

@@ -1,5 +1,4 @@
 use adk_protobuf::agent::{DisclaimerMessageUpdateDisclaimerMessage, GreetingUpdateGreeting};
-use adk_protobuf::asr_settings::AsrSettingsUpdateAsrSettings;
 use adk_protobuf::channels::ChannelType;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::content_filter_settings::{
@@ -8,33 +7,8 @@ use adk_protobuf::content_filter_settings::{
 };
 use serde_json::{Value, json};
 
-pub(super) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
+pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
     match payload {
-        CommandPayload::UpdatePersonality(msg) => Some((
-            "update_personality",
-            json!({
-                "adjectives": {
-                    "values": msg
-                        .adjectives
-                        .as_ref()
-                        .map(|adjectives| json!(adjectives.values))
-                        .unwrap_or_else(|| json!({})),
-                },
-                "custom": msg.custom.clone().unwrap_or_default(),
-            }),
-        )),
-        CommandPayload::UpdateRole(msg) => Some((
-            "update_role",
-            json!({
-                "value": msg.value.clone().unwrap_or_default(),
-                "additional_info": msg.additional_info.clone().unwrap_or_default(),
-                "custom": msg.custom.clone().unwrap_or_default(),
-            }),
-        )),
-        CommandPayload::UpdateContentFilterSettings(msg) => Some((
-            "update_content_filter_settings",
-            content_filter_settings_json(msg),
-        )),
         CommandPayload::ChannelUpdateGreeting(msg) => Some((
             "channel_update_greeting",
             channel_payload_json(
@@ -75,16 +49,6 @@ pub(super) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
                     .disclaimer
                     .as_ref()
                     .map(disclaimer_json)
-                    .unwrap_or_else(|| json!({})),
-            }),
-        )),
-        CommandPayload::VoiceChannelUpdateAsrSettings(msg) => Some((
-            "voice_channel_update_asr_settings",
-            json!({
-                "asr_settings": msg
-                    .asr_settings
-                    .as_ref()
-                    .map(asr_settings_json)
                     .unwrap_or_else(|| json!({})),
             }),
         )),
@@ -172,18 +136,5 @@ fn disclaimer_json(disclaimer: &DisclaimerMessageUpdateDisclaimerMessage) -> Val
         "message": disclaimer.message.clone().unwrap_or_default(),
         "is_enabled": disclaimer.is_enabled.unwrap_or(false),
         "language_code": disclaimer.language_code,
-    })
-}
-
-fn asr_settings_json(settings: &AsrSettingsUpdateAsrSettings) -> Value {
-    json!({
-        "barge_in": settings.barge_in.unwrap_or(false),
-        "latency_config": {
-            "interaction_style": settings
-                .latency_config
-                .as_ref()
-                .map(|config| config.interaction_style.clone())
-                .unwrap_or_default(),
-        },
     })
 }
