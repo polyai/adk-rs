@@ -27,14 +27,11 @@
 - Use the local file layout taxonomy from `docs/development.md` (`singletons`, `aggregates`, and
   `per_resource_files`) as a resource property or migration aid, not as the long-term module boundary.
   Avoid older vague buckets such as `single-file` or `structured` for new or refactored modules.
-- Filesystem access in library crates should go through `adk-io`. Do not add new direct
-  `std::fs` usage in `adk-core` or other reusable library logic; migrate existing call sites to
-  `FileSystem`/`StdFileSystem`/`MemoryFileSystem`. Direct `std::fs` usage is acceptable in
-  `adk-cli` and test harnesses.
-- Prefer static dispatch for filesystem-polymorphic library code: generic APIs over
-  `Fs: FileSystem` should let each binary/test/FFI target choose `StdFileSystem` or
-  `MemoryFileSystem` at compile time. Avoid `dyn FileSystem` unless there is a concrete need for
-  runtime filesystem selection.
+- Filesystem access in library crates should go through `adk-io`: do not add new direct `std::fs`
+  usage in `adk-core` or other reusable library logic, and prefer generic `Fs: FileSystem` APIs so
+  each binary/test/FFI target chooses `StdFileSystem` or `MemoryFileSystem` at compile time. Direct
+  `std::fs` usage is acceptable in `adk-cli` and test harnesses; avoid `dyn FileSystem` unless
+  runtime filesystem selection is specifically needed.
 - Preserve clean Git diffs for ADK-maintained project files. Users check these files into Git and
   rely on `pull`/`push` to inspect meaningful backend sync changes, so semantically irrelevant YAML
   rewrites, key reordering, scalar restyling, and formatting churn should be minimized.
