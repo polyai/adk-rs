@@ -1,5 +1,5 @@
-use super::flows::flow_entries;
 use crate::clean_name;
+use crate::flows::flow_entries;
 use crate::projection::projection_entity_values;
 use crate::specs::{AGENT_RULES_FILE, VARIANT_ATTRIBUTES};
 use adk_types::ResourceMap;

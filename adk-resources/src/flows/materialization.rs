@@ -1,15 +1,15 @@
-use super::{
+use crate::functions;
+use crate::materialization::{
     FlowImportPathMaps, insert_content_resource, insert_yaml_resource,
     replace_flow_import_ids_with_names,
 };
-use crate::functions;
 use crate::projection::projection_entity_values;
 use crate::yaml_resources::{AsrBiasingYaml, DtmfConfigYaml, FlowConfigYaml, FlowStepYaml};
 use crate::{CommandGenError, clean_name};
 use adk_types::ResourceMap;
 use serde_json::Value;
 
-pub(super) fn insert_flow_resources(
+pub(crate) fn insert_flow_resources(
     map: &mut ResourceMap,
     projection: &Value,
     flow_import_path_maps: &FlowImportPathMaps,
@@ -21,7 +21,7 @@ pub(super) fn insert_flow_resources(
     Ok(())
 }
 
-pub(super) fn flow_entries(projection: &Value) -> Vec<(String, Value)> {
+pub(crate) fn flow_entries(projection: &Value) -> Vec<(String, Value)> {
     projection_entity_values(projection, &["flows", "flows"])
 }
 

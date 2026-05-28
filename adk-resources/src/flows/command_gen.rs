@@ -5,8 +5,8 @@ mod parsing;
 mod summary;
 
 #[cfg(test)]
-#[path = "flows_tests.rs"]
-mod flows_tests;
+#[path = "command_gen_tests.rs"]
+mod command_gen_tests;
 
 pub(crate) use summary::payload_json_summary;
 
@@ -18,7 +18,7 @@ use self::parsing::{
     default_dtmf_config, default_step_position, function_step_latency_control, local_flows,
     ordered_flow_steps, ordered_function_steps, ordered_transition_functions, remote_flows_by_name,
 };
-use super::super::CommandGroups;
+use crate::command_gen::CommandGroups;
 use crate::functions::{
     function_errors_update_from_projection, function_parameters_update_from_projection,
     function_update_latency_control, infer_function_parameters, latency_control_from_projection,

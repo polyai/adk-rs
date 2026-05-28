@@ -26,9 +26,9 @@ Current state:
   It owns function discovery, Python parsing/decorator helpers, legacy status
   compatibility helpers, projection materialization, validation helpers, and
   push command generation.
-- The first flow-family module exists at `adk-resources/src/flows`. It owns the
-  cross-resource validation rules for flow config, steps, function steps,
-  transition functions, and entity references.
+- The flow-family module at `adk-resources/src/flows` owns flow discovery,
+  projection materialization, cross-resource validation, and push command
+  generation for flow config, steps, function steps, and transition functions.
 
 Remaining:
 
@@ -38,9 +38,9 @@ Remaining:
    - The longer-term shape should use durable resource-family modules such as
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
-   - `functions` is now the fullest pilot module for this shape, and `flows`
-     owns validation. Repeat the pattern for flow discovery/materialization/
-     command generation and then other resource families.
+   - `functions` and `flows` are now the pilot modules for this shape. Repeat
+     the pattern for topics, agent settings, API integrations, variants, and
+     other resource families.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.
