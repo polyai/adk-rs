@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 env:
   RUFF_VERSION: "0.14.2"
   TY_VERSION: "0.0.35"
@@ -28,6 +33,140 @@ jobs:
     - name: Install cargo-crap
       run: cargo install cargo-crap
     - name: Run llvm-cov
-      run: cargo llvm-cov --lcov --output-path lcov.info
+      run: |
+        cargo llvm-cov --workspace --lcov --output-path lcov.info
+        cargo llvm-cov report --html --output-dir coverage-html
     - name: Run cargo-crap
-      run: cargo crap --lcov lcov.info --threshold 30
+      run: |
+        CRAP_EXCLUDES=(
+          --exclude 'tests/**'
+          --exclude 'src/tests.rs'
+          --exclude 'src/testing.rs'
+          --exclude 'src/*_test.rs'
+          --exclude 'src/**/*_test.rs'
+          --exclude 'src/*_tests.rs'
+          --exclude 'src/**/*_tests.rs'
+          --exclude 'src/**/tests.rs'
+          --exclude 'src/**/testing.rs'
+        )
+
+        cargo crap --workspace "${CRAP_EXCLUDES[@]}" --lcov lcov.info --threshold 30 --summary
+        cargo crap --workspace "${CRAP_EXCLUDES[@]}" --lcov lcov.info --threshold 30 --format markdown --output crap-full-report.md
+        cargo crap --workspace "${CRAP_EXCLUDES[@]}" --lcov lcov.info --threshold 30 --format json --output crap-report.json
+        python3 - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        threshold = 30.0
+        workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+        server_url = os.environ["GITHUB_SERVER_URL"]
+        repository = os.environ["GITHUB_REPOSITORY"]
+        commit = os.environ["GITHUB_SHA"]
+
+        with open("crap-report.json", encoding="utf-8") as report:
+          entries = json.load(report)["entries"]
+
+        def coverage_label(value):
+          return "-" if value is None else f"{value:.1f}%"
+
+        def location(entry):
+          path = Path(entry["file"]).resolve()
+          rel = path.relative_to(workspace).as_posix()
+          url = f"{server_url}/{repository}/blob/{commit}/{rel}#L{entry['line']}"
+          return rel, f"[{rel}:{entry['line']}]({url})"
+
+        def function_link(entry):
+          rel, _ = location(entry)
+          url = f"{server_url}/{repository}/blob/{commit}/{rel}#L{entry['line']}"
+          name = entry["function"].replace("|", "\\|")
+          return f"[`{name}`]({url})"
+
+        crappy = sorted(
+          (entry for entry in entries if entry["crap"] > threshold),
+          key=lambda entry: entry["crap"],
+          reverse=True,
+        )
+
+        with open("crap-pr-comment.md", "w", encoding="utf-8") as output:
+          output.write("## CRAP metric\n\n")
+          if crappy:
+            worst = crappy[0]
+            output.write(
+              f"Warning: {len(crappy)} of {len(entries)} analyzed functions exceed CRAP threshold {threshold:.0f}. "
+            )
+            output.write(
+              f"Worst: `{worst['function']}` at {worst['crap']:.1f} "
+              f"(CC {worst['cyclomatic']:.0f}, coverage {coverage_label(worst['coverage'])}).\n\n"
+            )
+            output.write("| CRAP | CC | Cov % | Function | Location |\n")
+            output.write("|---:|---:|---:|---|---|\n")
+            for entry in crappy[:5]:
+              _, loc = location(entry)
+              output.write(
+                f"| {entry['crap']:.1f} | {entry['cyclomatic']:.0f} | "
+                f"{coverage_label(entry['coverage'])} | {function_link(entry)} | {loc} |\n"
+              )
+          else:
+            output.write(f"No functions exceed CRAP threshold {threshold:.0f}.\n")
+        PY
+        {
+          cat crap-pr-comment.md
+          echo
+          echo "Full reports are attached to this workflow run."
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload coverage and CRAP reports
+      id: upload-reports
+      uses: actions/upload-artifact@v6
+      with:
+        name: coverage-and-crap-reports
+        path: |
+          coverage-html/
+          lcov.info
+          crap-full-report.md
+          crap-report.json
+    - name: Add report links to summary
+      run: |
+        {
+          echo
+          echo "Full reports: [coverage-and-crap-reports artifact](${{ steps.upload-reports.outputs.artifact-url }})"
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Post CRAP metric PR comment
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPORT_URL: ${{ steps.upload-reports.outputs.artifact-url }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        marker="<!-- adk-rs-cargo-crap-report -->"
+        body_file="$(mktemp)"
+        report_url="${REPORT_URL:-$RUN_URL}"
+        {
+          echo "$marker"
+          echo
+          cat crap-pr-comment.md
+          echo
+          echo "Full reports: [coverage-and-crap-reports artifact]($report_url) ([workflow run]($RUN_URL))."
+        } > "$body_file"
+
+        comment_id="$(
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" \
+            | head -n 1
+        )"
+
+        if [ -n "$comment_id" ]; then
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" \
+            -F "body=@${body_file}" \
+            --silent
+        else
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            -F "body=@${body_file}" \
+            --silent
+        fi
