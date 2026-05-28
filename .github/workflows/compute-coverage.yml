@@ -36,8 +36,20 @@ jobs:
       run: cargo llvm-cov --workspace --lcov --output-path lcov.info
     - name: Run cargo-crap
       run: |
-        cargo crap --workspace --lcov lcov.info --threshold 30 --top 25
-        cargo crap --workspace --lcov lcov.info --threshold 30 --top 25 --format pr-comment --output crap-pr-comment.md
+        CRAP_EXCLUDES=(
+          --exclude 'tests/**'
+          --exclude 'src/tests.rs'
+          --exclude 'src/testing.rs'
+          --exclude 'src/*_test.rs'
+          --exclude 'src/**/*_test.rs'
+          --exclude 'src/*_tests.rs'
+          --exclude 'src/**/*_tests.rs'
+          --exclude 'src/**/tests.rs'
+          --exclude 'src/**/testing.rs'
+        )
+
+        cargo crap --workspace "${CRAP_EXCLUDES[@]}" --lcov lcov.info --threshold 30 --top 25
+        cargo crap --workspace "${CRAP_EXCLUDES[@]}" --lcov lcov.info --threshold 30 --top 25 --format pr-comment --output crap-pr-comment.md
         {
           echo "## CRAP metric"
           echo
