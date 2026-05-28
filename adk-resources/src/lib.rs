@@ -20,6 +20,7 @@ pub enum CommandGenError {
 
 mod command_gen;
 pub mod discover;
+pub mod flows;
 pub mod functions;
 pub mod ids;
 mod local_resources;
@@ -38,6 +39,7 @@ pub use command_gen::{
     try_build_push_commands_for_changed_resources, try_build_push_commands_with_actor,
 };
 pub use discover::{DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources};
+pub use flows::validate_flow_resources;
 pub use functions::{
     FunctionValidationFailure, PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX,
     PYTHON_FUNCTION_STATUS_HASH_PREFIX, function_parameter_decorator_names,

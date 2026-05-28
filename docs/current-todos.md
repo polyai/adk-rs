@@ -26,25 +26,21 @@ Current state:
   It owns function discovery, Python parsing/decorator helpers, legacy status
   compatibility helpers, projection materialization, validation helpers, and
   push command generation.
+- The first flow-family module exists at `adk-resources/src/flows`. It owns the
+  cross-resource validation rules for flow config, steps, function steps,
+  transition functions, and entity references.
 
 Remaining:
 
-1. Move cross-resource validation rules behind an `adk-resources` API.
-   - Resource-local YAML validation already lives in `adk-resources`.
-   - Function-local Python syntax, decorator annotation, and flow-scoped
-     signature validation now live in `adk-resources`.
-   - Flow/function/entity reference validation still lives in `adk-core`.
-   - The target shape is for `adk-core` to call a resource validation entrypoint
-     rather than host the resource rules itself.
-
-2. Reorganize `adk-resources` by resource family.
+1. Reorganize `adk-resources` by resource family.
    - Today it is still grouped by operation: `local_resources`,
      `materialization`, `command_gen`, and shared specs.
    - The longer-term shape should use durable resource-family modules such as
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
-   - `functions` is now the pilot module for this shape; repeat the pattern for
-     flows and other resource families.
+   - `functions` is now the fullest pilot module for this shape, and `flows`
+     owns validation. Repeat the pattern for flow discovery/materialization/
+     command generation and then other resource families.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.
