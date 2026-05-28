@@ -1,8 +1,8 @@
 //! Push commands for virtual variable resources derived from `conv.state.*` usage.
 
-use crate::command_gen::CommandGroups;
 use crate::functions;
 use crate::ids::stable_resource_id;
+use crate::push_commands::CommandGroups;
 use crate::{extract_entities_map, extract_variable_names_from_code, push_command};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;

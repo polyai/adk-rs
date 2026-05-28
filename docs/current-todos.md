@@ -74,7 +74,7 @@ Remaining:
 1. Clean up the remaining orchestration layer now that resource-family modules
    own the resource-specific behavior.
    - The operation-oriented modules (`local_resources`, `materialization`, and
-     `command_gen`) are now mostly dispatchers, queue construction, and shared
+     `push_commands`) are now mostly dispatchers, queue construction, and shared
      helpers.
    - Keep these modules only where they clarify ordering, global command queue
      semantics, cross-resource reference rewriting, or typed lifecycle

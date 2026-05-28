@@ -1,3 +1,5 @@
+//! Shared input helpers for resource-family push-command builders.
+
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;

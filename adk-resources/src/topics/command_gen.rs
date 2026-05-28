@@ -1,7 +1,7 @@
 //! Push commands for knowledge-base topic resources.
 
-use crate::command_gen::CommandGroups;
 use crate::ids::stable_resource_id;
+use crate::push_commands::CommandGroups;
 use crate::{
     extract_entities_map, is_synthetic_local_resource_id, prompt_reference_maps_from_projection,
     push_command, replace_resource_names_with_ids,

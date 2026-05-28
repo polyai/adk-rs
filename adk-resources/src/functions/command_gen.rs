@@ -9,8 +9,8 @@ pub(crate) use super::parsing::{
     local_latency_control_from_code, python_signature_for_function, python_string_literal,
     try_function_code_from_local_content,
 };
-use crate::command_gen::CommandGroups;
 use crate::ids::stable_resource_id;
+use crate::push_commands::CommandGroups;
 use crate::{
     CommandGenError, clean_name, extract_entities_map, extract_variable_names_from_code,
     flow_import_path_maps_from_projection, is_synthetic_local_resource_id, push_command,

@@ -21,7 +21,6 @@ mod agent_settings;
 mod api_integrations;
 mod asr_settings;
 mod channels;
-mod command_gen;
 pub mod discover;
 mod entities;
 mod experimental_config;
@@ -35,6 +34,7 @@ mod materialization;
 mod phrase_filters;
 pub mod projection;
 mod pronunciations;
+mod push_commands;
 pub mod resource_utils;
 mod sms_templates;
 pub mod specs;
@@ -47,11 +47,6 @@ mod variables;
 mod variants;
 mod yaml_resources;
 
-pub use command_gen::{
-    build_push_commands, build_push_commands_for_changed_resources, build_push_commands_with_actor,
-    command_to_json_summary, try_build_push_commands,
-    try_build_push_commands_for_changed_resources, try_build_push_commands_with_actor,
-};
 pub use discover::{DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources};
 pub use flows::validate_flow_resources;
 pub use functions::{
@@ -68,6 +63,11 @@ pub use local_resources::{
     build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
     type_name_to_resource_prefix, validate_semantic_resource,
 };
+pub use push_commands::{
+    build_push_commands, build_push_commands_for_changed_resources, build_push_commands_with_actor,
+    command_to_json_summary, try_build_push_commands,
+    try_build_push_commands_for_changed_resources, try_build_push_commands_with_actor,
+};
 pub use status_snapshot::{
     FileStructureEntry, ResourceStatusPayloadInput, StatusResourcePayload, StatusSnapshot,
     current_status_hash_for_expected, flow_folder_name, legacy_python_rules_reference_names,
@@ -79,7 +79,7 @@ pub use status_snapshot::{
     status_variant_attribute_hash_payload, status_variant_attribute_payload, status_yaml_payload,
 };
 
-pub(crate) use command_gen::push_command;
+pub(crate) use push_commands::push_command;
 
 pub use materialization::projection_to_resource_map;
 pub use resource_utils::{

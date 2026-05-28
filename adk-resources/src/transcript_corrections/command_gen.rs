@@ -1,7 +1,7 @@
-use crate::command_gen::local_file_helpers::{
+use crate::ids::stable_resource_id;
+use crate::push_commands::input_helpers::{
     SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence,
 };
-use crate::ids::stable_resource_id;
 use crate::specs::TRANSCRIPT_CORRECTIONS;
 use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;

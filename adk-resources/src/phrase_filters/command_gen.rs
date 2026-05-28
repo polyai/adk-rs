@@ -20,7 +20,7 @@ use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
-use crate::command_gen::CommandGroups;
+use crate::push_commands::CommandGroups;
 
 fn remote_phrase_filters(projection: &Value) -> HashMap<String, String> {
     let entities = extract_entities_map(projection, &["stopKeywords", "filters", "entities"]);

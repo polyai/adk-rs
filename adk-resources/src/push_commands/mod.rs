@@ -1,10 +1,10 @@
-//! Local resource to platform command generation.
+//! Local resource to platform push-command construction.
 
-mod json_summary;
-pub(crate) mod local_file_helpers;
+pub(crate) mod input_helpers;
 mod queue;
+mod summary;
 
-pub use json_summary::command_to_json_summary;
+pub use summary::command_to_json_summary;
 
 use crate::CommandGenError;
 use adk_protobuf::command::Payload as CommandPayload;

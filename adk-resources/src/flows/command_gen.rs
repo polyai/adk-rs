@@ -18,13 +18,13 @@ use self::parsing::{
     default_dtmf_config, default_step_position, function_step_latency_control, local_flows,
     ordered_flow_steps, ordered_function_steps, ordered_transition_functions, remote_flows_by_name,
 };
-use crate::command_gen::CommandGroups;
 use crate::functions::{
     function_errors_update_from_projection, function_parameters_update_from_projection,
     function_update_latency_control, infer_function_parameters, latency_control_from_projection,
     local_latency_control_from_code, python_function_symbol, variable_reference_ids_from_code,
 };
 use crate::ids::stable_resource_id;
+use crate::push_commands::CommandGroups;
 use crate::{
     CommandGenError, flow_import_path_maps_from_projection, prompt_reference_maps_from_projection,
     push_command,

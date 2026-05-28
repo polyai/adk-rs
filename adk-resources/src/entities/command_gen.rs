@@ -3,7 +3,7 @@
 //! Entities are stored together in `config/entities.yaml`, but their command
 //! generation semantics are specific to the entity resource family.
 
-use crate::command_gen::CommandGroups;
+use crate::push_commands::CommandGroups;
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityUpdate};

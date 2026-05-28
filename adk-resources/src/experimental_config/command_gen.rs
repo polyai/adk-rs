@@ -1,4 +1,4 @@
-use crate::command_gen::default_metadata_created_by;
+use crate::push_commands::default_metadata_created_by;
 use crate::specs::EXPERIMENTAL_CONFIG_FILE;
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
 use adk_protobuf::Metadata;

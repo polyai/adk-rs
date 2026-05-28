@@ -1,5 +1,5 @@
-use crate::command_gen::CommandGroups;
 use crate::ids::stable_resource_id;
+use crate::push_commands::CommandGroups;
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::sms::{
