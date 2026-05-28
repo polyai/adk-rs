@@ -65,13 +65,17 @@ Current state:
   `adk-resources/src/asr_settings` own discovery, projection materialization,
   push command generation, and command JSON summaries for voice/chat channel
   settings, channel safety filters, and ASR settings.
+- The command-generation orchestration no longer uses layout-named dispatcher
+  modules. A neutral command queue preserves cross-family ordering while JSON
+  summaries route directly to resource-family helpers.
 
 Remaining:
 
 1. Clean up the remaining orchestration layer now that resource-family modules
    own the resource-specific behavior.
    - The operation-oriented modules (`local_resources`, `materialization`, and
-     `command_gen`) are now mostly dispatchers and shared helpers.
+     `command_gen`) are now mostly dispatchers, queue construction, and shared
+     helpers.
    - Keep these modules only where they clarify ordering, global command queue
      semantics, cross-resource reference rewriting, or typed lifecycle
      bookkeeping.
@@ -81,8 +85,8 @@ Remaining:
      `transcript_corrections`, `pronunciations`, `handoffs`, `sms_templates`,
      and `phrase_filters` now follow the resource-family shape.
    - The local layout taxonomy (`singletons`, `aggregates`,
-     `per_resource_files`) should remain descriptive vocabulary, not the module
-     boundary.
+     `per_resource_files`) remains descriptive vocabulary only, not a command
+     generation module boundary.
    - Use the colocated tests as a guide for the production module boundaries:
      resource-family semantics should move together, while broad orchestration
      tests stay in umbrella modules.

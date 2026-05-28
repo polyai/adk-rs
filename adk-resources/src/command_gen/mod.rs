@@ -1,10 +1,8 @@
 //! Local resource to platform command generation.
 
-pub(crate) mod aggregates;
 mod json_summary;
 pub(crate) mod local_file_helpers;
-pub(crate) mod per_resource_files;
-pub(crate) mod singletons;
+mod queue;
 
 pub use json_summary::command_to_json_summary;
 
@@ -85,18 +83,10 @@ fn build_push_commands_inner(
 ) -> Result<Vec<Command>, CommandGenError> {
     let metadata = command_metadata_with_actor(actor);
 
-    let per_resource_file_groups =
-        per_resource_files::per_resource_file_command_groups(resources, projection, &metadata)?;
-    let singleton_groups = singletons::singleton_command_groups(resources, projection, &metadata);
-    let aggregate_groups = aggregates::aggregate_command_groups(resources, projection, &metadata);
+    let groups = queue::resource_command_groups(resources, projection, &metadata)?;
 
-    let mut deletes: Vec<Command> = if include_deletes {
-        per_resource_file_groups
-            .deletes
-            .into_iter()
-            .chain(aggregate_groups.deletes)
-            .chain(singleton_groups.deletes)
-            .collect()
+    let mut deletes = if include_deletes {
+        groups.deletes
     } else {
         Vec::new()
     };
@@ -104,29 +94,17 @@ fn build_push_commands_inner(
         order_commands_with_priority(&mut deletes, DELETE_COMMAND_PRIORITY);
     }
 
-    let mut creates: Vec<Command> = per_resource_file_groups
-        .creates
-        .into_iter()
-        .chain(aggregate_groups.creates)
-        .chain(singleton_groups.creates)
-        .collect();
+    let mut creates = groups.creates;
     order_commands_with_priority(&mut creates, CREATE_COMMAND_PRIORITY);
 
-    let mut updates: Vec<Command> = per_resource_file_groups
-        .updates
-        .into_iter()
-        .chain(aggregate_groups.updates)
-        .chain(singleton_groups.updates)
-        .collect();
+    let mut updates = groups.updates;
     order_commands_with_priority(&mut updates, UPDATE_COMMAND_PRIORITY);
 
     let mut out: Vec<Command> = Vec::new();
     out.extend(deletes);
     out.extend(creates);
     out.extend(updates);
-    out.extend(per_resource_file_groups.post_updates);
-    out.extend(aggregate_groups.post_updates);
-    out.extend(singleton_groups.post_updates);
+    out.extend(groups.post_updates);
     Ok(out)
 }
 
