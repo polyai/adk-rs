@@ -1,4 +1,4 @@
-use super::super::local_file_helpers::{
+use crate::command_gen::local_file_helpers::{
     SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence,
 };
 use crate::ids::stable_resource_id;
@@ -23,7 +23,7 @@ struct TranscriptItem {
     regular_expressions: Vec<RegularExpression>,
 }
 
-pub(super) fn transcript_lifecycle_commands(
+pub(crate) fn transcript_lifecycle_commands(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,
@@ -216,7 +216,7 @@ fn transcript_correction_proto(item: &TranscriptItem) -> TranscriptCorrection {
     }
 }
 
-pub(super) fn regular_expression_json(regex: &RegularExpression) -> Value {
+pub(crate) fn regular_expression_json(regex: &RegularExpression) -> Value {
     json!({
         "id": regex.id,
         "regular_expression": regex.regular_expression,
@@ -225,7 +225,7 @@ pub(super) fn regular_expression_json(regex: &RegularExpression) -> Value {
     })
 }
 
-pub(super) fn transcript_correction_json(correction: &TranscriptCorrection) -> Value {
+pub(crate) fn transcript_correction_json(correction: &TranscriptCorrection) -> Value {
     json!({
         "id": correction.id,
         "name": correction.name,

@@ -41,6 +41,10 @@ Current state:
 - The variant-family module at `adk-resources/src/variants` owns aggregate-file
   discovery and validation, projection materialization, push command generation,
   and command JSON summaries for variants and variant attributes.
+- The keyphrase boosting, transcript corrections, and pronunciations modules
+  own their aggregate-file discovery, projection materialization, and push
+  command generation. Transcript corrections also owns its local YAML
+  validation and command JSON summaries.
 
 Remaining:
 
@@ -50,9 +54,10 @@ Remaining:
    - The longer-term shape should use durable resource-family modules such as
      `flows`, `functions`, `topics`, `agent_settings`, `api_integrations`, and
      `variants`.
-   - `functions`, `flows`, `topics`, `variables`, `api_integrations`, and
-     `variants` now follow this shape. Repeat the pattern for agent settings
-     and other resource families.
+   - `functions`, `flows`, `topics`, `variables`, `api_integrations`,
+     `variants`, `keyphrase_boosting`, `transcript_corrections`, and
+     `pronunciations` now follow this shape. Repeat the pattern for agent
+     settings and other resource families.
    - The local layout taxonomy (`singletons`, `aggregates`,
      `per_resource_files`) should remain descriptive vocabulary, not the module
      boundary.

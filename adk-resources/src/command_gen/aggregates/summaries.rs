@@ -1,5 +1,5 @@
-use super::transcript_corrections::{regular_expression_json, transcript_correction_json};
 use crate::api_integrations::environments_json;
+use crate::transcript_corrections::{regular_expression_json, transcript_correction_json};
 use crate::variants::{attribute_references_json, attribute_values_json};
 use adk_protobuf::command::Payload as CommandPayload;
 use serde_json::{Value, json};

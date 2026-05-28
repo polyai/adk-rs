@@ -1,4 +1,4 @@
-use super::super::local_file_helpers::{
+use crate::command_gen::local_file_helpers::{
     SimpleLifecycleCommands, json_bool, json_i32, json_str, resource_yaml, yaml_bool, yaml_sequence,
 };
 use crate::ids::stable_resource_id;
@@ -26,7 +26,7 @@ struct PronunciationItem {
     name: String,
 }
 
-pub(super) fn pronunciation_lifecycle_commands(
+pub(crate) fn pronunciation_lifecycle_commands(
     resources: &ResourceMap,
     projection: &Value,
     metadata: &Option<Metadata>,

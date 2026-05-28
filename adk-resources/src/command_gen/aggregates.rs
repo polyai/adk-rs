@@ -6,10 +6,7 @@
 //! and transcript corrections.
 
 mod interactions;
-mod keyphrases;
-mod pronunciations;
 mod summaries;
-mod transcript_corrections;
 
 use super::CommandGroups;
 use adk_protobuf::Metadata;
@@ -43,11 +40,12 @@ pub(crate) fn aggregate_command_groups(
             resources, projection, metadata,
         );
     let keyphrase_lifecycle =
-        keyphrases::keyphrase_lifecycle_commands(resources, projection, metadata);
-    let transcript_lifecycle =
-        transcript_corrections::transcript_lifecycle_commands(resources, projection, metadata);
+        crate::keyphrase_boosting::keyphrase_lifecycle_commands(resources, projection, metadata);
+    let transcript_lifecycle = crate::transcript_corrections::transcript_lifecycle_commands(
+        resources, projection, metadata,
+    );
     let pronunciation_lifecycle =
-        pronunciations::pronunciation_lifecycle_commands(resources, projection, metadata);
+        crate::pronunciations::pronunciation_lifecycle_commands(resources, projection, metadata);
 
     groups.deletes.extend(variant_lifecycle.variant_deletes);
     groups.deletes.extend(api_lifecycle.integration_deletes);

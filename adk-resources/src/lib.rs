@@ -24,15 +24,18 @@ pub mod discover;
 pub mod flows;
 pub mod functions;
 pub mod ids;
+mod keyphrase_boosting;
 mod local_resources;
 mod materialization;
 pub mod projection;
+mod pronunciations;
 pub mod resource_utils;
 pub mod specs;
 pub mod status_snapshot;
 #[cfg(test)]
 mod test_support;
 mod topics;
+mod transcript_corrections;
 mod variables;
 mod variants;
 mod yaml_resources;

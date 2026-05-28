@@ -18,18 +18,18 @@ pub(crate) mod common;
 mod entity;
 mod experimental_config;
 mod handoff;
-mod keyphrase_boosting;
 mod lifecycle;
 mod phrase_filter;
-mod pronunciation;
 mod safety_filters;
 mod sms_template;
-mod transcript_correction;
 
 pub(crate) use crate::api_integrations::ApiIntegration;
 pub(crate) use crate::flows::{FlowConfig, FlowStep, FunctionStep};
 pub(crate) use crate::functions::Function;
+pub(crate) use crate::keyphrase_boosting::KeyphraseBoosting;
+pub(crate) use crate::pronunciations::Pronunciation;
 pub(crate) use crate::topics::Topic;
+pub(crate) use crate::transcript_corrections::TranscriptCorrection;
 pub(crate) use crate::variables::Variable;
 pub(crate) use crate::variants::{Variant, VariantAttribute};
 pub(crate) use agent_settings::{SettingsPersonality, SettingsRole, SettingsRules};
@@ -41,17 +41,14 @@ pub(crate) use channels::{
 pub(crate) use entity::Entity;
 pub(crate) use experimental_config::ExperimentalConfig;
 pub(crate) use handoff::Handoff;
-pub(crate) use keyphrase_boosting::KeyphraseBoosting;
 pub use lifecycle::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 pub use lifecycle::{
     build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,
     type_name_to_resource_prefix,
 };
 pub(crate) use phrase_filter::PhraseFilter;
-pub(crate) use pronunciation::Pronunciation;
 pub(crate) use safety_filters::GeneralSafetyFilters;
 pub(crate) use sms_template::SMSTemplate;
-pub(crate) use transcript_correction::TranscriptCorrection;
 
 pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
     match path {
@@ -63,7 +60,7 @@ pub fn validate_semantic_resource(path: &str, yaml: &serde_yaml::Value, errors: 
         "config/sms_templates.yaml" => sms_template::validate_local_yaml(yaml, errors),
         "config/variant_attributes.yaml" => crate::variants::validate_local_yaml(yaml, errors),
         "voice/speech_recognition/transcript_corrections.yaml" => {
-            transcript_correction::validate_local_yaml(yaml, errors);
+            crate::transcript_corrections::validate_local_yaml(yaml, errors);
         }
         _ if path.starts_with("topics/") => crate::topics::validate_local_yaml(path, yaml, errors),
         _ => {}
