@@ -15,12 +15,12 @@ mod agent_settings;
 mod asr_settings;
 mod channels;
 pub(crate) mod common;
-mod experimental_config;
 mod lifecycle;
 mod safety_filters;
 
 pub(crate) use crate::api_integrations::ApiIntegration;
 pub(crate) use crate::entities::Entity;
+pub(crate) use crate::experimental_config::ExperimentalConfig;
 pub(crate) use crate::flows::{FlowConfig, FlowStep, FunctionStep};
 pub(crate) use crate::functions::Function;
 pub(crate) use crate::handoffs::Handoff;
@@ -38,7 +38,6 @@ pub(crate) use channels::{
     ChatGreeting, ChatSafetyFilters, ChatStylePrompt, VoiceDisclaimerMessage, VoiceGreeting,
     VoiceSafetyFilters, VoiceStylePrompt,
 };
-pub(crate) use experimental_config::ExperimentalConfig;
 pub use lifecycle::{DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle};
 pub use lifecycle::{
     build_typed_resource_lifecycle, empty_discovered_resource_paths, find_new_kept_deleted,

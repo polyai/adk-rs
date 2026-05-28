@@ -21,6 +21,7 @@ mod api_integrations;
 mod command_gen;
 pub mod discover;
 mod entities;
+mod experimental_config;
 pub mod flows;
 pub mod functions;
 mod handoffs;
@@ -75,7 +76,7 @@ pub use status_snapshot::{
     status_variant_attribute_hash_payload, status_variant_attribute_payload, status_yaml_payload,
 };
 
-pub(crate) use command_gen::{default_metadata_created_by, push_command};
+pub(crate) use command_gen::push_command;
 
 pub use materialization::projection_to_resource_map;
 pub use resource_utils::{

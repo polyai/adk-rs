@@ -6,8 +6,6 @@ use adk_protobuf::content_filter_settings::{
     AzureContentFilter, AzureContentFilterCategory,
     ContentFilterSettingsUpdateContentFilterSettings,
 };
-use prost_types::value::Kind;
-use prost_types::{Struct, Value as ProstValue};
 use serde_json::{Value, json};
 
 pub(super) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
@@ -87,17 +85,6 @@ pub(super) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
                     .asr_settings
                     .as_ref()
                     .map(asr_settings_json)
-                    .unwrap_or_else(|| json!({})),
-            }),
-        )),
-        CommandPayload::ExperimentalConfigUpdateConfig(update) => Some((
-            "experimental_config_update_config",
-            json!({
-                "id": update.id,
-                "features": update
-                    .features
-                    .as_ref()
-                    .map(prost_struct_json)
                     .unwrap_or_else(|| json!({})),
             }),
         )),
@@ -199,27 +186,4 @@ fn asr_settings_json(settings: &AsrSettingsUpdateAsrSettings) -> Value {
                 .unwrap_or_default(),
         },
     })
-}
-
-fn prost_struct_json(value: &Struct) -> Value {
-    Value::Object(
-        value
-            .fields
-            .iter()
-            .map(|(key, value)| (key.clone(), prost_value_json(value)))
-            .collect(),
-    )
-}
-
-fn prost_value_json(value: &ProstValue) -> Value {
-    match value.kind.as_ref() {
-        Some(Kind::NullValue(_)) | None => Value::Null,
-        Some(Kind::NumberValue(value)) => json!(value),
-        Some(Kind::StringValue(value)) => Value::String(value.clone()),
-        Some(Kind::BoolValue(value)) => Value::Bool(*value),
-        Some(Kind::StructValue(value)) => prost_struct_json(value),
-        Some(Kind::ListValue(value)) => {
-            Value::Array(value.values.iter().map(prost_value_json).collect())
-        }
-    }
 }
