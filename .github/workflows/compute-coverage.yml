@@ -42,10 +42,11 @@ jobs:
     - name: Restore base CRAP report cache
       if: github.event_name == 'pull_request'
       id: restore-base-crap
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: coverage-base
         key: crap-report-${{ github.event.pull_request.base.sha }}
+        enableCrossOsArchive: true
     - name: Run coverage and CRAP reports
       env:
         HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
@@ -72,10 +73,11 @@ jobs:
     - name: Save main CRAP report cache
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       continue-on-error: true
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: coverage-base
         key: crap-report-${{ github.sha }}
+        enableCrossOsArchive: true
     - name: Add CRAP report to summary
       run: |
         {
