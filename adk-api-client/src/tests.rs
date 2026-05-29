@@ -444,3 +444,408 @@ fn default_voice_id_matches_region_defaults_and_fallback() {
     assert_eq!(default_voice_id("staging"), "VOICE-e2b01d55");
     assert_eq!(default_voice_id("studio"), "VOICE-afe2b8e8");
 }
+
+fn function_resource(path: &str, name: &str, code: &str) -> Resource {
+    Resource {
+        resource_id: "local".to_string(),
+        name: name.to_string(),
+        file_path: path.to_string(),
+        payload: serde_json::json!({"content": code}),
+    }
+}
+
+#[test]
+fn push_main_resources_to_new_branch_pushes_generated_commands() {
+    use httpmock::Method::{GET, POST};
+    use httpmock::MockServer;
+
+    let server = MockServer::start();
+    let main_projection = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches/main/projection");
+        then.status(200).json_body(serde_json::json!({
+            "lastKnownSequence": "41",
+            "projection": {}
+        }));
+    });
+    let create_branch = server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/branches")
+            .body_includes("feature-push")
+            .body_includes("expectedMainLastKnownSequence");
+        then.status(200)
+            .json_body(serde_json::json!({"branchId": "br-new"}));
+    });
+    let push = server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/branches/br-new/command-batch");
+        then.status(200).json_body(serde_json::json!({
+            "message": "pushed to new branch",
+            "commands": [{"type": "create_function"}]
+        }));
+    });
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "functions/new_branch_fn.py".to_string(),
+        function_resource(
+            "functions/new_branch_fn.py",
+            "new_branch_fn",
+            "def new_branch_fn(conv):\n    return 'ok'\n",
+        ),
+    );
+
+    let (branch_id, result) = test_client(server.base_url())
+        .push_main_resources_to_new_branch("feature-push", &resources, Some("tester@example.com"))
+        .expect("push main resources to new branch");
+
+    assert_eq!(branch_id, "br-new");
+    assert!(result.success);
+    assert_eq!(result.message, "pushed to new branch");
+    assert_eq!(
+        result.commands,
+        vec![serde_json::json!({"type": "create_function"})]
+    );
+    main_projection.assert();
+    create_branch.assert();
+    push.assert();
+}
+
+#[test]
+fn push_main_resources_to_new_branch_reports_no_changes_without_command_batch() {
+    use httpmock::Method::{GET, POST};
+    use httpmock::MockServer;
+
+    let server = MockServer::start();
+    let main_projection = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches/main/projection");
+        then.status(200).json_body(serde_json::json!({
+            "lastKnownSequence": 7,
+            "projection": {}
+        }));
+    });
+    let create_branch = server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/branches")
+            .body_includes("empty-branch");
+        then.status(200)
+            .json_body(serde_json::json!({"branchId": "br-empty"}));
+    });
+    let push = server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/branches/br-empty/command-batch");
+        then.status(200).json_body(serde_json::json!({}));
+    });
+
+    let (branch_id, result) = test_client(server.base_url())
+        .push_main_resources_to_new_branch("empty-branch", &ResourceMap::new(), None)
+        .expect("push no-op resources to new branch");
+
+    assert_eq!(branch_id, "br-empty");
+    assert!(!result.success);
+    assert_eq!(result.message, "No changes detected");
+    assert!(result.commands.is_empty());
+    main_projection.assert();
+    create_branch.assert();
+    push.assert_calls(0);
+}
+
+#[test]
+fn create_chat_session_maps_live_and_draft_payloads() {
+    use httpmock::Method::{GET, POST};
+    use httpmock::MockServer;
+
+    let live_server = MockServer::start();
+    let live_chat = live_server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/chat")
+            .body_includes("client_env")
+            .body_includes("live")
+            .body_includes("variant_id")
+            .body_includes("asr_lang_code")
+            .body_includes("tts_lang_code");
+        then.status(200).json_body(serde_json::json!({
+            "conversation_id": "conv-live",
+            "response": "hello"
+        }));
+    });
+
+    let live = test_client(live_server.base_url())
+        .create_chat_session(serde_json::json!({
+            "environment": "live",
+            "channel": "web",
+            "variant": "variant-1",
+            "input_lang": "en-US",
+            "output_lang": "en-GB"
+        }))
+        .expect("create live chat");
+    assert_eq!(live["conversation_id"], "conv-live");
+    live_chat.assert();
+
+    let draft_server = MockServer::start();
+    let sequence = draft_server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches/main/sequence");
+        then.status(200)
+            .json_body(serde_json::json!({"lastKnownSequence": "5"}));
+    });
+    let prepare = draft_server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/branches/main/chat")
+            .body_includes("expectedBranchLastKnownSequence");
+        then.status(200).json_body(serde_json::json!({
+            "artifactVersion": "artifact-1",
+            "lambdaDeploymentVersion": "lambda-1"
+        }));
+    });
+    let draft_chat = draft_server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/draft/chat")
+            .body_includes("artifact_version")
+            .body_includes("lambda_deployment_version")
+            .body_excludes("client_env");
+        then.status(200).json_body(serde_json::json!({
+            "conversation_id": "conv-draft"
+        }));
+    });
+
+    let draft = test_client(draft_server.base_url())
+        .create_chat_session(serde_json::json!({"environment": "draft"}))
+        .expect("create draft chat");
+    assert_eq!(draft["conversation_id"], "conv-draft");
+    sequence.assert();
+    prepare.assert();
+    draft_chat.assert();
+}
+
+#[test]
+fn create_chat_session_reports_missing_draft_chat_versions() {
+    use httpmock::Method::{GET, POST};
+    use httpmock::MockServer;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches/main/sequence");
+        then.status(200)
+            .json_body(serde_json::json!({"lastKnownSequence": "5"}));
+    });
+    server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/branches/main/chat");
+        then.status(200).json_body(serde_json::json!({
+            "lambdaDeploymentVersion": "lambda-1"
+        }));
+    });
+
+    let error = test_client(server.base_url())
+        .create_chat_session(serde_json::json!({"environment": "draft"}))
+        .expect_err("missing artifact version should fail")
+        .to_string();
+
+    assert!(error.contains("missing artifactVersion in branch chat response"));
+}
+
+#[test]
+fn send_chat_message_maps_environment_and_requires_conversation_id() {
+    use httpmock::Method::POST;
+    use httpmock::MockServer;
+
+    let missing = test_client("http://localhost".to_string())
+        .send_chat_message(serde_json::json!({"message": "hello"}))
+        .expect_err("conversation_id is required")
+        .to_string();
+    assert!(missing.contains("conversation_id"));
+
+    let live_server = MockServer::start();
+    let live_send = live_server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/chat/conv-live")
+            .body_includes("client_env")
+            .body_includes("pre-release")
+            .body_includes("message")
+            .body_includes("asr_lang_code")
+            .body_includes("tts_lang_code");
+        then.status(200)
+            .json_body(serde_json::json!({"response": "ok"}));
+    });
+    let live = test_client(live_server.base_url())
+        .send_chat_message(serde_json::json!({
+            "conversation_id": "conv-live",
+            "environment": "pre-release",
+            "message": "Hello",
+            "input_lang": "en-US",
+            "output_lang": "en-GB"
+        }))
+        .expect("send live chat message");
+    assert_eq!(live["response"], "ok");
+    live_send.assert();
+
+    let draft_server = MockServer::start();
+    let draft_send = draft_server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/draft/chat/conv-draft")
+            .body_includes("Hello draft")
+            .body_excludes("client_env");
+        then.status(200)
+            .json_body(serde_json::json!({"response": "draft ok"}));
+    });
+    let draft = test_client(draft_server.base_url())
+        .send_chat_message(serde_json::json!({
+            "conversation_id": "conv-draft",
+            "environment": "draft",
+            "message": "Hello draft"
+        }))
+        .expect("send draft chat message");
+    assert_eq!(draft["response"], "draft ok");
+    draft_send.assert();
+}
+
+#[test]
+fn merge_branch_returns_success_and_conflict_results() {
+    use httpmock::Method::{GET, POST};
+    use httpmock::MockServer;
+
+    let success_server = MockServer::start();
+    let success_sequence = success_server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches/main/sequence");
+        then.status(200)
+            .json_body(serde_json::json!({"lastKnownSequence": "7"}));
+    });
+    let success_merge = success_server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/branches/main/merge")
+            .body_includes("deploymentMessage")
+            .body_includes("conflictResolutions");
+        then.status(200)
+            .json_body(serde_json::json!({"sequence": "8"}));
+    });
+
+    let success = test_client(success_server.base_url())
+        .merge_branch(
+            "ship it",
+            Some(vec![
+                serde_json::json!({"path": ["topics"], "resolution": "ours"}),
+            ]),
+        )
+        .expect("merge branch");
+    assert!(success.success);
+    assert_eq!(success.sequence.as_deref(), Some("8"));
+    assert!(success.conflicts.is_empty());
+    success_sequence.assert();
+    success_merge.assert();
+
+    let conflict_server = MockServer::start();
+    let conflict_sequence = conflict_server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches/main/sequence");
+        then.status(200)
+            .json_body(serde_json::json!({"lastKnownSequence": 9}));
+    });
+    let conflict_merge = conflict_server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/branches/main/merge")
+            .body_excludes("conflictResolutions");
+        then.status(400).json_body(serde_json::json!({
+            "hasConflicts": true,
+            "sequence": "10",
+            "conflicts": [{"path": ["knowledgeBase", "topics"]}],
+            "errors": [{"message": "resolve conflicts"}]
+        }));
+    });
+
+    let conflict = test_client(conflict_server.base_url())
+        .merge_branch("blocked", None)
+        .expect("conflicting merge returns structured result");
+    assert!(!conflict.success);
+    assert_eq!(conflict.sequence.as_deref(), Some("10"));
+    assert_eq!(conflict.conflicts.len(), 1);
+    assert_eq!(conflict.errors.len(), 1);
+    conflict_sequence.assert();
+    conflict_merge.assert();
+}
+
+#[test]
+fn merge_branch_reports_non_conflict_errors() {
+    use httpmock::Method::{GET, POST};
+    use httpmock::MockServer;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches/main/sequence");
+        then.status(200)
+            .json_body(serde_json::json!({"lastKnownSequence": 3}));
+    });
+    server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/branches/main/merge");
+        then.status(500)
+            .json_body(serde_json::json!({"error": "boom"}));
+    });
+
+    let error = test_client(server.base_url())
+        .merge_branch("boom", None)
+        .expect_err("server error should fail")
+        .to_string();
+
+    assert!(error.contains("status=500"));
+    assert!(error.contains("boom"));
+}
+
+#[test]
+fn in_memory_pull_resources_by_name_uses_exact_prefix_and_default_fallback() {
+    let fallback = ResourceMap::from([(
+        "functions/fallback.py".to_string(),
+        function_resource(
+            "functions/fallback.py",
+            "fallback",
+            "def fallback(conv):\n    return 'fallback'\n",
+        ),
+    )]);
+    let exact = ResourceMap::from([(
+        "functions/exact.py".to_string(),
+        function_resource(
+            "functions/exact.py",
+            "exact",
+            "def exact(conv):\n    return 'exact'\n",
+        ),
+    )]);
+    let prefixed = ResourceMap::from([(
+        "functions/prefixed.py".to_string(),
+        function_resource(
+            "functions/prefixed.py",
+            "prefixed",
+            "def prefixed(conv):\n    return 'prefixed'\n",
+        ),
+    )]);
+    let mut named = indexmap::IndexMap::new();
+    named.insert("friendly".to_string(), exact.clone());
+    named.insert("abcdef123999".to_string(), prefixed.clone());
+    let client = InMemoryPlatformClient::with_named_resources(
+        fallback.clone(),
+        named,
+        DeploymentList {
+            versions: vec![],
+            active_deployment_hashes: Default::default(),
+        },
+    );
+
+    assert_eq!(
+        client.pull_resources_by_name("friendly").expect("exact"),
+        exact
+    );
+    assert_eq!(
+        client
+            .pull_resources_by_name("ABCDEF123000")
+            .expect("prefix"),
+        prefixed
+    );
+    assert_eq!(
+        client
+            .pull_resources_by_name("does-not-exist")
+            .expect("fallback"),
+        fallback
+    );
+}
