@@ -24,8 +24,7 @@ pub struct Snapshot {
     #[prost(message, optional, tag = "6")]
     pub llm_settings: ::core::option::Option<super::llm_settings::LlmSettings>,
     #[prost(message, optional, tag = "7")]
-    pub content_filter_settings:
-        ::core::option::Option<super::content_filter_settings::ContentFilterSettings>,
+    pub content_filter_settings: ::core::option::Option<super::content_filter_settings::ContentFilterSettings>,
     #[prost(message, optional, tag = "8")]
     pub asr_settings: ::core::option::Option<super::asr_settings::AsrSettings>,
     #[prost(message, optional, tag = "9")]
@@ -42,8 +41,7 @@ pub struct Snapshot {
     pub agent_settings: ::core::option::Option<super::agent::AgentSettings>,
     /// Transcript corrections
     #[prost(message, optional, tag = "13")]
-    pub transcript_corrections:
-        ::core::option::Option<super::transcript_corrections::TranscriptCorrections>,
+    pub transcript_corrections: ::core::option::Option<super::transcript_corrections::TranscriptCorrections>,
     /// Experimental Config
     #[prost(message, optional, tag = "14")]
     pub experimental_config: ::core::option::Option<super::experimental_config::ExperimentalConfig>,

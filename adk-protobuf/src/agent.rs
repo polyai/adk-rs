@@ -15,8 +15,7 @@ pub struct AgentSettings {
     pub rules: ::core::option::Option<Rules>,
     /// Map language code to LanguageBehavior object
     #[prost(map = "string, message", tag = "6")]
-    pub language_behaviors:
-        ::std::collections::HashMap<::prost::alloc::string::String, LanguageBehavior>,
+    pub language_behaviors: ::std::collections::HashMap<::prost::alloc::string::String, LanguageBehavior>,
 }
 /// Greeting component
 #[derive(Clone, PartialEq, ::prost::Message)]

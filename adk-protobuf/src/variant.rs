@@ -60,16 +60,14 @@ pub struct VariantAttributeValues {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AttributeValues {
     #[prost(map = "string, string", tag = "1")]
-    pub values:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub values: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// used to upsert attributes across all variants
 /// value represents the value of the attribute for the variant
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VariantValues {
     #[prost(map = "string, string", tag = "1")]
-    pub values:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub values: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AttributeReferences {
@@ -172,8 +170,7 @@ pub struct VariantImportVariants {
     #[prost(message, repeated, tag = "2")]
     pub attributes: ::prost::alloc::vec::Vec<VariantImportAttributeForCsv>,
     #[prost(message, repeated, tag = "3")]
-    pub variant_attribute_values:
-        ::prost::alloc::vec::Vec<VariantImportVariantAttributeValuesForCsv>,
+    pub variant_attribute_values: ::prost::alloc::vec::Vec<VariantImportVariantAttributeValuesForCsv>,
     #[prost(string, repeated, tag = "4")]
     pub deleted_variant_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, repeated, tag = "5")]

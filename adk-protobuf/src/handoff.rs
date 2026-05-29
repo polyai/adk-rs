@@ -40,7 +40,8 @@ pub struct SipReferHandoffConfig {
 }
 /// Empty config
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct SipByeHandoffConfig {}
+pub struct SipByeHandoffConfig {
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SipHeaders {
     #[prost(message, repeated, tag = "1")]

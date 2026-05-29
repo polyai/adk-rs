@@ -72,10 +72,7 @@ pub struct EntityCreate {
     pub description: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "5")]
     pub references: ::core::option::Option<EntityReferences>,
-    #[prost(
-        oneof = "entity_create::Config",
-        tags = "6, 7, 8, 9, 10, 11, 12, 13, 14"
-    )]
+    #[prost(oneof = "entity_create::Config", tags = "6, 7, 8, 9, 10, 11, 12, 13, 14")]
     pub config: ::core::option::Option<entity_create::Config>,
 }
 /// Nested message and enum types in `Entity_Create`.
@@ -114,10 +111,7 @@ pub struct EntityUpdate {
     pub description: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "5")]
     pub references: ::core::option::Option<EntityReferences>,
-    #[prost(
-        oneof = "entity_update::Config",
-        tags = "6, 7, 8, 9, 10, 11, 12, 13, 14"
-    )]
+    #[prost(oneof = "entity_update::Config", tags = "6, 7, 8, 9, 10, 11, 12, 13, 14")]
     pub config: ::core::option::Option<entity_update::Config>,
 }
 /// Nested message and enum types in `Entity_Update`.
@@ -197,11 +191,14 @@ pub struct TimeConfig {
 }
 /// Entity types that don't require a specific configuration yet.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AddressConfig {}
+pub struct AddressConfig {
+}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct FreeTextConfig {}
+pub struct FreeTextConfig {
+}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct NameConfig {}
+pub struct NameConfig {
+}
 /// Encoded file descriptor set for the `entities` package
 pub const FILE_DESCRIPTOR_SET: &[u8] = &[
     0x0a, 0x85, 0x3a, 0x0a, 0x0e, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x69, 0x65, 0x73, 0x2e, 0x70, 0x72,

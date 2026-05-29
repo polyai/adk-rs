@@ -394,7 +394,8 @@ pub struct DeleteCachedParams {
     pub version: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct DeleteCachedOutput {}
+pub struct DeleteCachedOutput {
+}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteCachedResponse {
     #[prost(oneof = "delete_cached_response::OutputOrError", tags = "1, 2")]
@@ -423,7 +424,8 @@ pub struct UpdateModelParams {
     pub version: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct UpdateModelOutput {}
+pub struct UpdateModelOutput {
+}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UpdateModelResponse {
     #[prost(oneof = "update_model_response::OutputOrError", tags = "1, 2")]
