@@ -1,3 +1,5 @@
+![PolyAI](logo.png)
+
 # adk-rs (WIP Rust ADK)
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
