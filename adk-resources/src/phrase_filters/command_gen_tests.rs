@@ -1,6 +1,7 @@
 use super::*;
 use adk_types::Resource;
 use indexmap::IndexMap;
+use std::collections::HashMap;
 
 fn map_with(resources: Vec<(String, Resource)>) -> ResourceMap {
     let mut map: ResourceMap = IndexMap::new();
@@ -18,6 +19,65 @@ fn flatten(groups: CommandGroups) -> Vec<Command> {
         .chain(groups.updates)
         .chain(groups.post_updates)
         .collect()
+}
+
+#[test]
+fn stop_keyword_payload_summaries_cover_optional_defaults_and_refs() {
+    let mut global_functions = HashMap::new();
+    global_functions.insert("fn-1".to_string(), true);
+    let payloads = [
+        (
+            CommandPayload::StopKeywordsCreate(StopKeywordCreate {
+                id: "sk-1".into(),
+                title: "Stop".into(),
+                description: "halt".into(),
+                regular_expressions: vec!["stop".into()],
+                say_phrase: true,
+                references: Some(StopKeywordReferences { global_functions }),
+                language_code: "en-US".into(),
+            }),
+            "stop_keywords_create",
+            serde_json::json!({
+                "id": "sk-1",
+                "title": "Stop",
+                "description": "halt",
+                "regular_expressions": ["stop"],
+                "say_phrase": true,
+                "references": {"global_functions": {"fn-1": true}},
+                "language_code": "en-US",
+            }),
+        ),
+        (
+            CommandPayload::StopKeywordsUpdate(StopKeywordUpdate {
+                id: "sk-2".into(),
+                title: None,
+                description: Some("updated".into()),
+                regular_expressions: vec![],
+                say_phrase: Some(false),
+                references: None,
+                language_code: None,
+            }),
+            "stop_keywords_update",
+            serde_json::json!({
+                "id": "sk-2",
+                "title": "",
+                "description": "updated",
+                "regular_expressions": [],
+                "say_phrase": false,
+                "references": {},
+                "language_code": "",
+            }),
+        ),
+        (
+            CommandPayload::StopKeywordsDelete(StopKeywordDelete { id: "sk-3".into() }),
+            "stop_keywords_delete",
+            serde_json::json!({"id": "sk-3"}),
+        ),
+    ];
+
+    for (payload, key, value) in payloads {
+        assert_eq!(payload_json_summary(&payload), Some((key, value)));
+    }
 }
 
 #[test]
