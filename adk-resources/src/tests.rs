@@ -891,3 +891,56 @@ fn projection_materializes_broad_resources_without_python_omitted_metadata() {
     assert!(variants.contains("is_default: true"));
     assert!(!variants.contains("is_default: false"));
 }
+
+#[test]
+fn rules_references_from_projection_accepts_camel_and_snake_global_functions() {
+    let cases = [
+        (
+            serde_json::json!({
+                "agentSettings": {
+                    "rules": {
+                        "references": {
+                            "sms": {"sms-1": true},
+                            "handoff": {"ho-1": false},
+                            "attributes": {"attr-1": true},
+                            "globalFunctions": {"fn-camel": true},
+                            "variables": {"var-1": true},
+                            "translations": {"tr-1": false},
+                        }
+                    }
+                }
+            }),
+            "fn-camel",
+        ),
+        (
+            serde_json::json!({
+                "agentSettings": {
+                    "rules": {
+                        "references": {
+                            "global_functions": {"fn-snake": true},
+                        }
+                    }
+                }
+            }),
+            "fn-snake",
+        ),
+    ];
+
+    for (projection, function_id) in cases {
+        let refs = rules_references_from_projection(&projection).expect("rules references");
+        assert!(
+            refs.global_functions
+                .get(function_id)
+                .copied()
+                .unwrap_or(false)
+        );
+    }
+
+    assert!(
+        rules_references_from_projection(&serde_json::json!({
+            "agentSettings": {"rules": {"references": {}}}
+        }))
+        .is_none()
+    );
+    assert!(rules_references_from_projection(&serde_json::json!({})).is_none());
+}

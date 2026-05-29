@@ -484,6 +484,90 @@ fn sip_headers_json(headers: Option<&SipHeaders>) -> JsonValue {
 }
 
 #[cfg(test)]
+mod payload_summary_tests {
+    use super::*;
+    use adk_protobuf::handoff::{
+        HandoffCreate, HandoffDelete, HandoffSetDefault, HandoffUpdate, SipConfig, SipHeader,
+        SipHeaders, SipInviteHandoffConfig, SipReferHandoffConfig, sip_config,
+    };
+
+    #[test]
+    fn handoff_payload_summaries_cover_sip_shapes_and_defaults() {
+        let payloads = [
+            (
+                CommandPayload::HandoffCreate(HandoffCreate {
+                    id: "ho-1".into(),
+                    name: "Sales".into(),
+                    description: "transfer".into(),
+                    sip_config: Some(SipConfig {
+                        config: Some(sip_config::Config::Invite(SipInviteHandoffConfig {
+                            phone_number: "+1555".into(),
+                            outbound_endpoint: "sip.example.com".into(),
+                            outbound_encryption: "tls".into(),
+                        })),
+                    }),
+                    sip_headers: Some(SipHeaders {
+                        headers: vec![SipHeader {
+                            key: "X-Team".into(),
+                            value: "sales".into(),
+                        }],
+                    }),
+                    active: true,
+                    references: None,
+                }),
+                "handoff_create",
+                serde_json::json!({
+                    "id": "ho-1",
+                    "name": "Sales",
+                    "description": "transfer",
+                    "sip_config": {"invite": {"phone_number": "+1555", "outbound_endpoint": "sip.example.com", "outbound_encryption": "tls"}},
+                    "sip_headers": {"headers": [{"key": "X-Team", "value": "sales"}]},
+                    "active": true,
+                }),
+            ),
+            (
+                CommandPayload::HandoffUpdate(HandoffUpdate {
+                    id: "ho-2".into(),
+                    name: None,
+                    description: Some("refer".into()),
+                    sip_config: Some(SipConfig {
+                        config: Some(sip_config::Config::Refer(SipReferHandoffConfig {
+                            phone_number: "+1666".into(),
+                        })),
+                    }),
+                    sip_headers: None,
+                    active: None,
+                    references: None,
+                }),
+                "handoff_update",
+                serde_json::json!({
+                    "id": "ho-2",
+                    "name": "",
+                    "description": "refer",
+                    "sip_config": {"refer": {"phone_number": "+1666"}},
+                    "sip_headers": {},
+                    "active": false,
+                }),
+            ),
+            (
+                CommandPayload::HandoffDelete(HandoffDelete { id: "ho-3".into() }),
+                "handoff_delete",
+                serde_json::json!({"id": "ho-3"}),
+            ),
+            (
+                CommandPayload::HandoffSetDefault(HandoffSetDefault { id: "ho-4".into() }),
+                "handoff_set_default",
+                serde_json::json!({"id": "ho-4"}),
+            ),
+        ];
+
+        for (payload, key, value) in payloads {
+            assert_eq!(payload_json_summary(&payload), Some((key, value)));
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use adk_types::Resource;

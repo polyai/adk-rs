@@ -480,6 +480,85 @@ fn sms_references_json(references: Option<&SmsTemplateReferences>) -> JsonValue 
 }
 
 #[cfg(test)]
+mod payload_summary_tests {
+    use super::*;
+    use adk_protobuf::sms::{
+        SmsCreateTemplate, SmsDeleteTemplate, SmsEnvPhoneNumbers, SmsTemplateReferences,
+        SmsUpdateTemplate, UpdateSmsEnvPhoneNumbers,
+    };
+    use std::collections::HashMap;
+
+    #[test]
+    fn sms_payload_summaries_cover_env_refs_and_update_defaults() {
+        let mut topics = HashMap::new();
+        topics.insert("topic-1".to_string(), true);
+        let mut variables = HashMap::new();
+        variables.insert("var-1".to_string(), false);
+        let payloads = [
+            (
+                CommandPayload::SmsCreateTemplate(SmsCreateTemplate {
+                    id: "sms-1".into(),
+                    name: "Welcome".into(),
+                    text: "Hi".into(),
+                    env_phone_numbers: Some(SmsEnvPhoneNumbers {
+                        sandbox: "+100".into(),
+                        pre_release: "".into(),
+                        live: "+199".into(),
+                    }),
+                    references: Some(SmsTemplateReferences {
+                        topics,
+                        flow_steps: HashMap::new(),
+                        variables,
+                        translations: HashMap::new(),
+                    }),
+                    active: true,
+                }),
+                "sms_create_template",
+                serde_json::json!({
+                    "id": "sms-1",
+                    "name": "Welcome",
+                    "text": "Hi",
+                    "env_phone_numbers": {"sandbox": "+100", "live": "+199"},
+                    "references": {"topics": {"topic-1": true}, "variables": {"var-1": false}},
+                    "active": true,
+                }),
+            ),
+            (
+                CommandPayload::SmsUpdateTemplate(SmsUpdateTemplate {
+                    id: "sms-2".into(),
+                    name: None,
+                    text: Some("Updated".into()),
+                    env_phone_numbers: Some(UpdateSmsEnvPhoneNumbers {
+                        sandbox: Some("+200".into()),
+                        pre_release: None,
+                        live: Some("+299".into()),
+                    }),
+                    references: None,
+                    active: None,
+                }),
+                "sms_update_template",
+                serde_json::json!({
+                    "id": "sms-2",
+                    "name": "",
+                    "text": "Updated",
+                    "env_phone_numbers": {"sandbox": "+200", "live": "+299"},
+                    "active": false,
+                }),
+            ),
+            (
+                CommandPayload::SmsDeleteTemplate(SmsDeleteTemplate { id: "sms-3".into() }),
+                "sms_delete_template",
+                serde_json::json!({"id": "sms-3"}),
+            ),
+        ];
+
+        for (payload, key, value) in payloads {
+            assert_eq!(payload_json_summary(&payload), Some((key, value)));
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use adk_types::Resource;
