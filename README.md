@@ -5,8 +5,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Minimum rustc version](https://img.shields.io/badge/rustc-1.95.0%2B-lightgray.svg)](Cargo.toml)
 [![GitHub release](https://img.shields.io/github/v/release/polyai/adk-rs?sort=semver&label=release)](https://github.com/polyai/adk-rs/releases)
-[![Lint/Test](https://github.com/polyai/adk-rs/actions/workflows/lint-and-test.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/lint-and-test.yml)
-[![Untested slop risk](https://github.com/polyai/adk-rs/actions/workflows/compute-coverage.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/compute-coverage.yml)
+[![Tests](https://github.com/polyai/adk-rs/actions/workflows/lint-and-test.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/lint-and-test.yml)
 [![Release workflow](https://github.com/polyai/adk-rs/actions/workflows/release.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/release.yml)
 
 A Rust implementation of the PolyAI Agent Development Kit CLI for managing

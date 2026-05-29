@@ -1,12 +1,15 @@
 use crate::*;
 use adk_api_client::PlatformClient;
 use adk_io::{FileSystem, StdFileSystem, diff_resources, parse_multi_resource_path};
+use adk_protobuf::Command;
 use adk_resources::{
     FileStructureEntry, ResourceStatusPayloadInput, StatusResourcePayload, StatusSnapshot,
-    clean_name, current_status_hash_for_expected, extract_variable_names_from_code,
-    flow_folder_name, legacy_python_snapshot_hashes, local_resource_content,
-    normalize_legacy_python_status_function_resources, resource_file_content,
-    resource_status_file_hash, resource_status_payload,
+    clean_name, command_to_json_summary, current_status_hash_for_expected,
+    extract_variable_names_from_code, flow_folder_name, legacy_python_snapshot_hashes,
+    local_resource_content, normalize_legacy_python_status_function_resources,
+    projection_to_resource_map, resource_file_content, resource_status_file_hash,
+    resource_status_payload, try_build_push_commands_for_changed_resources,
+    try_build_push_commands_with_actor,
 };
 use adk_types::{
     BranchDescriptor, BranchMergeResult, DeploymentList, DiffMap, DomainError, ProjectConfig,
@@ -211,7 +214,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         } else if let Some(resources) = status_snapshot_resources {
             resources
         } else {
-            self.client.pull_resources()?
+            self.pull_remote_resources()?
         };
         let mut changed_file_paths = None;
         let mut deleted_file_paths = HashSet::new();
@@ -356,18 +359,8 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             }
             if changes.has_deletions {
                 self.add_discovered_variable_resources(root, &mut changes.resources);
-                if dry_run {
-                    return Ok(self.client.preview_push_resources_with_options(
-                        &changes.resources,
-                        projection,
-                        actor,
-                    )?);
-                }
-                let result = self.client.push_resources_with_options(
-                    &changes.resources,
-                    projection,
-                    actor,
-                )?;
+                let result =
+                    self.push_resource_map(&changes.resources, projection, actor, dry_run, false)?;
                 if result.success {
                     self.save_replay_state_resources(root, &persistent_local)?;
                     self.write_status_snapshot_from_resources(root, &persistent_local)?;
@@ -375,18 +368,8 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 return Ok(result);
             }
             self.add_variable_resources_for_changed_resources(&mut changes.resources);
-            if dry_run {
-                return Ok(self.client.preview_push_changed_resources_with_options(
-                    &changes.resources,
-                    projection,
-                    actor,
-                )?);
-            }
-            let result = self.client.push_changed_resources_with_options(
-                &changes.resources,
-                projection,
-                actor,
-            )?;
+            let result =
+                self.push_resource_map(&changes.resources, projection, actor, dry_run, true)?;
             if result.success {
                 self.save_replay_state_resources(root, &persistent_local)?;
                 self.write_status_snapshot_from_resources(root, &persistent_local)?;
@@ -395,19 +378,63 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         }
         let mut local = persistent_local.clone();
         self.add_discovered_variable_resources(root, &mut local);
-        if dry_run {
-            return Ok(self
-                .client
-                .preview_push_resources_with_options(&local, projection, actor)?);
-        }
-        let result = self
-            .client
-            .push_resources_with_options(&local, projection, actor)?;
+        let result = self.push_resource_map(&local, projection, actor, dry_run, false)?;
         if result.success {
             self.save_replay_state_resources(root, &persistent_local)?;
             self.write_status_snapshot_from_resources(root, &persistent_local)?;
         }
         Ok(result)
+    }
+
+    fn push_resource_map(
+        &self,
+        resources: &ResourceMap,
+        projection_override: Option<&JsonValue>,
+        actor: Option<&str>,
+        dry_run: bool,
+        changed_only: bool,
+    ) -> Result<PushResult, CoreError> {
+        let (projection, last_known_sequence) = self.push_projection(projection_override)?;
+        let commands = if changed_only {
+            try_build_push_commands_for_changed_resources(resources, &projection, actor)?
+        } else {
+            try_build_push_commands_with_actor(resources, &projection, actor)?
+        };
+        self.finish_push_commands(commands, last_known_sequence, dry_run)
+    }
+
+    fn push_projection(
+        &self,
+        projection_override: Option<&JsonValue>,
+    ) -> Result<(JsonValue, u64), CoreError> {
+        if let Some(projection) = projection_override {
+            return Ok((projection.clone(), 0));
+        }
+        let snapshot = self.client.pull_projection_snapshot()?;
+        Ok((snapshot.projection, snapshot.last_known_sequence))
+    }
+
+    fn finish_push_commands(
+        &self,
+        commands: Vec<Command>,
+        last_known_sequence: u64,
+        dry_run: bool,
+    ) -> Result<PushResult, CoreError> {
+        if commands.is_empty() {
+            return Ok(PushResult {
+                success: false,
+                message: "No changes detected".to_string(),
+                commands: vec![],
+            });
+        }
+        if dry_run {
+            return Ok(PushResult {
+                success: true,
+                message: "Dry run completed. No changes were pushed.".to_string(),
+                commands: commands.iter().map(command_to_json_summary).collect(),
+            });
+        }
+        Ok(self.client.push_commands(last_known_sequence, commands)?)
     }
 
     fn push_resource_map_for_status_changes(
@@ -584,9 +611,25 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             .map(|changes| changes.resources)
             .unwrap_or_else(|| persistent_local.clone());
         self.add_discovered_variable_resources(root, &mut local);
-        let (branch_id, push_result) =
-            self.client
-                .push_main_resources_to_new_branch(branch_name, &local, actor)?;
+        let main_snapshot = self.client.pull_projection_snapshot_for_branch("main")?;
+        let branch_id = self
+            .client
+            .create_branch_with_main_sequence(branch_name, main_snapshot.last_known_sequence)?;
+        let commands =
+            try_build_push_commands_with_actor(&local, &main_snapshot.projection, actor)?;
+        let push_result = if commands.is_empty() {
+            PushResult {
+                success: false,
+                message: "No changes detected".to_string(),
+                commands: vec![],
+            }
+        } else {
+            self.client.push_commands_to_branch(
+                &branch_id,
+                main_snapshot.last_known_sequence,
+                commands,
+            )?
+        };
         let mut cfg = self.load_project_config(root)?;
         if push_result.success {
             cfg.branch_id = branch_id;
@@ -655,6 +698,20 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         Ok(self.client.pull_projection_json_by_name(name)?)
     }
 
+    fn pull_remote_resources(&self) -> Result<ResourceMap, CoreError> {
+        Self::resources_from_projection_payload(&self.client.pull_projection_json()?)
+    }
+
+    fn resources_from_projection_payload(payload: &JsonValue) -> Result<ResourceMap, CoreError> {
+        let resources = projection_to_resource_map(payload)?;
+        if !resources.is_empty() || !looks_like_resource_map(payload) {
+            return Ok(resources);
+        }
+        // Test adapters can provide already-materialized resources as JSON; real
+        // platform payloads are materialized through `adk-resources` above.
+        Ok(serde_json::from_value(payload.clone())?)
+    }
+
     pub fn pull_named(
         &self,
         root: &Path,
@@ -674,7 +731,9 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         let remote = if let Some(resources) = self.load_replay_state_resources(root)? {
             resources
         } else {
-            self.client.pull_resources_by_name(name)?
+            Self::resources_from_projection_payload(
+                &self.client.pull_projection_json_by_name(name)?,
+            )?
         };
         self.write_pulled_resources(root, remote, force, format)
     }
@@ -685,14 +744,14 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     ) -> Result<(ResourceMap, Option<BranchDescriptor>), CoreError> {
         let cfg = self.load_project_config(root)?;
         if cfg.branch_id == "main" {
-            return Ok((self.client.pull_resources()?, None));
+            return Ok((self.pull_remote_resources()?, None));
         }
         let branches = self.client.list_branches()?;
         if branches
             .iter()
             .any(|branch| branch.branch_id == cfg.branch_id || branch.name == cfg.branch_id)
         {
-            return Ok((self.client.pull_resources()?, None));
+            return Ok((self.pull_remote_resources()?, None));
         }
         let Some(branch) = branches
             .iter()
@@ -700,13 +759,15 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             .or_else(|| branches.first())
             .cloned()
         else {
-            return Ok((self.client.pull_resources()?, None));
+            return Ok((self.pull_remote_resources()?, None));
         };
         let mut updated = cfg;
         updated.branch_id = branch.branch_id.clone();
         self.write_project_config(root, &updated)?;
         Ok((
-            self.client.pull_resources_by_name(&branch.name)?,
+            Self::resources_from_projection_payload(
+                &self.client.pull_projection_json_by_name(&branch.name)?,
+            )?,
             Some(branch),
         ))
     }
@@ -898,7 +959,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     }
 
     pub fn revert_changes(&self, root: &Path, files: &[String]) -> Result<Vec<String>, CoreError> {
-        let remote = self.client.pull_resources()?;
+        let remote = self.pull_remote_resources()?;
         let all_files = files.is_empty();
         let selected: std::collections::HashSet<&str> = files.iter().map(String::as_str).collect();
         let mut reverted = Vec::new();
@@ -1248,7 +1309,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             self.apply_status_resource_ids(root, &mut resources)?;
             return Ok(resources);
         }
-        Ok(self.client.pull_resources_by_name(name)?)
+        Self::resources_from_projection_payload(&self.client.pull_projection_json_by_name(name)?)
     }
 
     fn apply_status_resource_ids(

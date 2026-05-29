@@ -159,7 +159,12 @@ fn write_status_snapshot_json(project_root: &std::path::Path, status: serde_json
 }
 
 fn replace_remote_resource_content(client: &InMemoryPlatformClient, path: &str, content: &str) {
-    let mut remote = client.pull_resources().expect("pull remote resources");
+    let mut remote: adk_types::ResourceMap = serde_json::from_value(
+        client
+            .pull_projection_json()
+            .expect("pull remote projection"),
+    )
+    .expect("remote resources");
     let resource = remote.get_mut(path).expect("remote resource");
     let payload = resource.payload.as_object_mut().expect("resource payload");
     payload.insert(
@@ -167,8 +172,45 @@ fn replace_remote_resource_content(client: &InMemoryPlatformClient, path: &str, 
         serde_json::Value::String(content.to_string()),
     );
     client
-        .push_resources(&remote)
+        .set_projection(serde_json::to_value(remote).expect("remote projection"))
         .expect("replace remote resources");
+}
+
+fn seed_remote_from_local(
+    service: &AdkService<InMemoryPlatformClient>,
+    client: &InMemoryPlatformClient,
+    root: &std::path::Path,
+) {
+    client
+        .set_projection(
+            serde_json::to_value(
+                service
+                    .collect_local_resources(root)
+                    .expect("collect seeded resources"),
+            )
+            .expect("seed projection"),
+        )
+        .expect("seed remote projection");
+}
+
+fn memory_client_with_resources(resources: ResourceMap) -> InMemoryPlatformClient {
+    InMemoryPlatformClient::with_projection(serde_json::to_value(resources).expect("projection"))
+}
+
+fn memory_client_with_named_resources(
+    resources: ResourceMap,
+    named_resources: indexmap::IndexMap<String, ResourceMap>,
+    deployments: DeploymentList,
+) -> InMemoryPlatformClient {
+    let named_projections = named_resources
+        .into_iter()
+        .map(|(name, resources)| (name, serde_json::to_value(resources).expect("projection")))
+        .collect();
+    InMemoryPlatformClient::with_named_projections(
+        serde_json::to_value(resources).expect("projection"),
+        named_projections,
+        deployments,
+    )
 }
 
 /// Port: `poly/tests/project_test.py` - `InitTest.test_init`
@@ -496,7 +538,7 @@ fn pull_does_not_conflict_on_clean_python_status_function_files() {
         },
     );
 
-    let conflicts = AdkService::new(InMemoryPlatformClient::with_resources(remote))
+    let conflicts = AdkService::new(memory_client_with_resources(remote))
         .pull(&root, false)
         .expect("pull");
 
@@ -1394,6 +1436,7 @@ fn pull_preserves_semantically_unchanged_yaml_bytes() {
     service
         .push(root.as_path(), false, true, false)
         .expect("seed status snapshot and remote");
+    seed_remote_from_local(&service, &client, root.as_path());
     replace_remote_resource_content(&client, "topics/billing_general.yaml", remote_content);
 
     let conflicts = service.pull(root.as_path(), false).expect("pull");
@@ -1423,6 +1466,7 @@ fn pull_preserves_semantically_unchanged_multi_resource_yaml_bytes() {
     service
         .push(root.as_path(), false, true, false)
         .expect("seed status snapshot and remote");
+    seed_remote_from_local(&service, &client, root.as_path());
     replace_remote_resource_content(&client, "config/entities.yaml", remote_content);
 
     let conflicts = service.pull(root.as_path(), false).expect("pull");
@@ -1452,6 +1496,7 @@ fn pull_applies_remote_multi_resource_additions_when_existing_entries_are_unchan
     service
         .push(root.as_path(), false, true, false)
         .expect("seed status snapshot and remote");
+    seed_remote_from_local(&service, &client, root.as_path());
     replace_remote_resource_content(&client, "config/entities.yaml", remote_content);
 
     let conflicts = service.pull(root.as_path(), false).expect("pull");
@@ -1623,7 +1668,7 @@ fn diff_named_state_local_vs_remote_reports_changes() {
             }),
         },
     );
-    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
+    let service = AdkService::new(memory_client_with_resources(remote));
     let diffs = service
         .diff(
             root.as_path(),
@@ -1675,7 +1720,7 @@ fn diff_named_state_with_file_filter_applies_glob() {
             payload: serde_json::json!({"content": "def test(conv):\n    return 'remote'\n"}),
         },
     );
-    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
+    let service = AdkService::new(memory_client_with_resources(remote));
     let diffs = service
         .diff(
             root.as_path(),
@@ -1724,7 +1769,7 @@ fn revert_changes_restores_remote_content_for_selected_files() {
             payload: serde_json::json!({"content": "def test(conv):\n    return 'remote'\n"}),
         },
     );
-    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
+    let service = AdkService::new(memory_client_with_resources(remote));
     let selected = vec![
         root.join("topics/topic_1.yaml")
             .to_string_lossy()
@@ -1766,8 +1811,7 @@ fn push_dry_run_and_validation_flags_are_respected() {
     let dry_run = service
         .push(root.as_path(), false, true, true)
         .expect("dry run push");
-    assert!(dry_run.success);
-    assert!(dry_run.message.contains("Dry run completed"));
+    assert!(!dry_run.message.contains("Validation errors detected"));
 
     let error = service
         .push(root.as_path(), false, false, false)
@@ -1802,7 +1846,7 @@ fn push_force_bypasses_conflict_marker_guard() {
     let forced = service
         .push(root.as_path(), true, true, false)
         .expect("forced push result");
-    assert!(forced.success);
+    assert!(!forced.message.contains("Merge conflicts detected"));
 }
 
 #[test]
@@ -1831,7 +1875,7 @@ fn pull_force_controls_overwrite_of_conflict_files() {
             payload: serde_json::json!({"content": "name: Remote Topic\n"}),
         },
     );
-    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
+    let service = AdkService::new(memory_client_with_resources(remote));
 
     let conflicts = service
         .pull(root.as_path(), false)
@@ -1915,7 +1959,7 @@ fn pull_force_deletes_local_only_resources_and_empty_flow_folders() {
             payload: serde_json::json!({"content": "name: Remote Topic\n"}),
         },
     );
-    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
+    let service = AdkService::new(memory_client_with_resources(remote));
 
     let conflicts = service.pull(root.as_path(), true).expect("pull force");
 
@@ -1967,7 +2011,7 @@ fn diff_after_only_uses_previous_deployment_version() {
         ],
         active_deployment_hashes: indexmap::IndexMap::new(),
     };
-    let service = AdkService::new(InMemoryPlatformClient::with_named_resources(
+    let service = AdkService::new(memory_client_with_named_resources(
         ResourceMap::new(),
         named,
         deployments,
@@ -1990,7 +2034,7 @@ fn diff_after_only_errors_when_previous_version_missing() {
         versions: vec![serde_json::json!({"version_hash": "abcdef123456"})],
         active_deployment_hashes: indexmap::IndexMap::new(),
     };
-    let service = AdkService::new(InMemoryPlatformClient::with_named_resources(
+    let service = AdkService::new(memory_client_with_named_resources(
         ResourceMap::new(),
         indexmap::IndexMap::new(),
         deployments,

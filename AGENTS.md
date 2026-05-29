@@ -21,6 +21,9 @@
 - Put resource-family-specific semantics in `adk-resources`: discovery facts, local file layout,
   projection materialization, validation helpers, typed lifecycle helpers, stable IDs, and command
   generation helpers should stay near modules named for the resource family.
+- Keep `adk-api-client` transport-focused. It should not depend on `adk-resources`; `adk-core`
+  orchestrates projection materialization and resource command generation by calling
+  `adk-resources`, then asks `adk-api-client` to fetch payloads or submit command batches.
 - In `adk-resources`, reserve top-level directories for ADK resource families. Cross-cutting
   orchestration and shared helpers should live in top-level Rust modules/files unless they are nested
   inside a resource-family module.

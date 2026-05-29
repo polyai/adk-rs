@@ -1,5 +1,4 @@
 use super::*;
-use adk_types::Resource;
 use httpmock::Method::GET;
 use httpmock::{Mock, MockServer};
 use serde_json::json;
@@ -336,7 +335,7 @@ fn named_projection_reports_unknown_name_after_all_resolution_attempts() {
 }
 
 #[test]
-fn named_resources_uses_active_environment_deployment() {
+fn named_projection_uses_active_environment_deployment() {
     let server = MockServer::start();
     let active = active_deployments_mock(
         &server,
@@ -350,17 +349,17 @@ fn named_resources_uses_active_environment_deployment() {
         deployment_projection_mock(&server, "dep-sandbox", empty_projection());
     let client = adk_v1_test_client(&server);
 
-    let resources = client
-        .pull_resources_by_name("sandbox")
-        .expect("sandbox resources");
+    let projection = client
+        .pull_projection_json_by_name("sandbox")
+        .expect("sandbox projection");
 
-    assert!(resources.is_empty());
+    assert_eq!(projection, empty_projection());
     active.assert_calls(1);
     deployment_projection.assert_calls(1);
 }
 
 #[test]
-fn named_resources_resolves_branch_by_name() {
+fn named_projection_resolves_branch_by_name() {
     let server = MockServer::start();
     let branches = branches_mock(
         &server,
@@ -376,17 +375,17 @@ fn named_resources_resolves_branch_by_name() {
     let branch_projection = branch_projection_mock(&server, "branch-123", empty_projection());
     let client = adk_v1_test_client(&server);
 
-    let resources = client
-        .pull_resources_by_name("feature branch")
-        .expect("branch resources");
+    let projection = client
+        .pull_projection_json_by_name("feature branch")
+        .expect("branch projection");
 
-    assert!(resources.is_empty());
+    assert_eq!(projection, empty_projection());
     branches.assert_calls(1);
     branch_projection.assert_calls(1);
 }
 
 #[test]
-fn named_resources_resolves_deployment_hash() {
+fn named_projection_resolves_deployment_hash() {
     let server = MockServer::start();
     let branches = branches_mock(&server, json!({ "branches": [] }));
     let deployments = deployments_mock(
@@ -404,117 +403,14 @@ fn named_resources_resolves_deployment_hash() {
         deployment_projection_mock(&server, "dep-direct", empty_projection());
     let client = adk_v1_test_client(&server);
 
-    let resources = client
-        .pull_resources_by_name("fedcba987")
-        .expect("deployment resources");
+    let projection = client
+        .pull_projection_json_by_name("fedcba987")
+        .expect("deployment projection");
 
-    assert!(resources.is_empty());
+    assert_eq!(projection, empty_projection());
     branches.assert_calls(1);
     deployments.assert_calls(1);
     deployment_projection.assert_calls(1);
-}
-
-#[test]
-fn named_resources_reports_unknown_name_after_all_resolution_attempts() {
-    let server = MockServer::start();
-    let branches = branches_mock(&server, json!({ "branches": [] }));
-    let deployments = deployments_mock(&server, json!({ "deployments": [] }));
-    let client = adk_v1_test_client(&server);
-
-    let message = client
-        .pull_resources_by_name("missing")
-        .expect_err("missing named resources")
-        .to_string();
-
-    assert_eq!(
-        message,
-        "http error: Name 'missing' not found in environments, branches, or deployments"
-    );
-    branches.assert_calls(1);
-    deployments.assert_calls(4);
-}
-
-#[test]
-fn push_no_changes_uses_python_failure_contract() {
-    let client = HttpPlatformClient {
-        client: reqwest::blocking::Client::new(),
-        base_url: "http://localhost".to_string(),
-        api_key: "test-key".to_string(),
-        account_id: "test-account".to_string(),
-        project_id: "test-project".to_string(),
-        branch_id: "main".to_string(),
-    };
-    let resources = ResourceMap::new();
-    let projection = serde_json::json!({});
-
-    let result = client
-        .push_resources_with_options(&resources, Some(&projection), None)
-        .expect("push result");
-
-    assert!(!result.success);
-    assert_eq!(result.message, "No changes detected");
-    assert!(result.commands.is_empty());
-}
-
-#[test]
-fn changed_resource_preview_does_not_delete_unmentioned_remote_resources() {
-    let client = HttpPlatformClient {
-        client: reqwest::blocking::Client::new(),
-        base_url: "http://localhost".to_string(),
-        api_key: "test-key".to_string(),
-        account_id: "test-account".to_string(),
-        project_id: "test-project".to_string(),
-        branch_id: "main".to_string(),
-    };
-    let mut resources = ResourceMap::new();
-    resources.insert(
-        "functions/new_func.py".to_string(),
-        Resource {
-            resource_id: "local".to_string(),
-            name: "new_func".to_string(),
-            file_path: "functions/new_func.py".to_string(),
-            payload: serde_json::json!({
-                "content": "def new_func(conv):\n    return 'ok'\n"
-            }),
-        },
-    );
-    let projection = serde_json::json!({
-        "functions": {
-            "functions": {
-                "entities": {
-                    "fn-1": {
-                        "name": "existing_func",
-                        "code": "def existing_func(conv):\n    return 'remote'\n",
-                        "archived": false
-                    }
-                }
-            }
-        },
-        "knowledgeBase": {
-            "topics": {
-                "ids": ["topic-1"],
-                "entities": {
-                    "topic-1": {
-                        "name": "Existing Topic",
-                        "content": "Remote content",
-                        "actions": "",
-                        "isActive": true
-                    }
-                }
-            }
-        }
-    });
-
-    let result = client
-        .preview_push_changed_resources_with_options(&resources, Some(&projection), None)
-        .expect("preview changed resources");
-    let command_types = result
-        .commands
-        .iter()
-        .filter_map(|command| command.get("type").and_then(serde_json::Value::as_str))
-        .collect::<Vec<_>>();
-
-    assert_eq!(command_types, vec!["create_function"]);
 }
 
 #[test]
@@ -579,7 +475,7 @@ fn pull_projection_by_environment_uses_active_deployment_id() {
             "sandbox": {"deployment_id": "dep-active"}
         }));
     });
-    let projection = server.mock(|when, then| {
+    let projection_mock = server.mock(|when, then| {
         when.method(GET)
             .path("/accounts/test-account/projects/test-project/deployments/dep-active/projection");
         then.status(200).json_body(serde_json::json!({
@@ -593,7 +489,7 @@ fn pull_projection_by_environment_uses_active_deployment_id() {
 
     assert_eq!(pulled, serde_json::json!({"selected": "active-deployment"}));
     active.assert();
-    projection.assert();
+    projection_mock.assert();
 }
 
 #[test]
@@ -618,7 +514,7 @@ fn pull_projection_by_environment_falls_back_from_active_hash_to_deployment_pref
             ]
         }));
     });
-    let projection = server.mock(|when, then| {
+    let projection_mock = server.mock(|when, then| {
         when.method(GET).path(
             "/accounts/test-account/projects/test-project/deployments/dep-from-hash/projection",
         );
@@ -634,7 +530,7 @@ fn pull_projection_by_environment_falls_back_from_active_hash_to_deployment_pref
     assert_eq!(pulled["selected"], "hash-fallback");
     active.assert();
     deployments.assert();
-    projection.assert();
+    projection_mock.assert();
 }
 
 #[test]
@@ -735,7 +631,7 @@ fn deployment_prefix_resolution_uses_first_matching_deployment_for_ambiguous_pre
 }
 
 #[test]
-fn pull_resources_by_name_reports_missing_environment_and_unknown_name() {
+fn pull_projection_by_name_reports_missing_environment_and_unknown_name() {
     use httpmock::Method::GET;
     use httpmock::MockServer;
 
@@ -746,7 +642,7 @@ fn pull_resources_by_name_reports_missing_environment_and_unknown_name() {
         then.status(200).json_body(serde_json::json!({}));
     });
     let missing_env = test_client(missing_env_server.base_url())
-        .pull_resources_by_name("pre-release")
+        .pull_projection_json_by_name("pre-release")
         .expect_err("missing active environment should error")
         .to_string();
     assert!(missing_env.contains("No active deployment found for environment 'pre-release'"));
@@ -773,7 +669,7 @@ fn pull_resources_by_name_reports_missing_environment_and_unknown_name() {
     }
 
     let unknown = test_client(unknown_server.base_url())
-        .pull_resources_by_name("does-not-exist")
+        .pull_projection_json_by_name("does-not-exist")
         .expect_err("unknown name should error")
         .to_string();
     assert!(unknown.contains("Name 'does-not-exist' not found"));
@@ -781,7 +677,7 @@ fn pull_resources_by_name_reports_missing_environment_and_unknown_name() {
 }
 
 #[test]
-fn pull_resources_by_branch_materializes_projection() {
+fn pull_projection_by_branch_returns_projection_payload() {
     use httpmock::Method::GET;
     use httpmock::MockServer;
 
@@ -801,17 +697,12 @@ fn pull_resources_by_branch_materializes_projection() {
         }));
     });
 
-    let resources = test_client(server.base_url())
-        .pull_resources_by_name("functions-branch")
-        .expect("pull branch resources");
+    let payload = projection_with_function("Lookup Customer");
+    let pulled = test_client(server.base_url())
+        .pull_projection_json_by_name("functions-branch")
+        .expect("pull branch projection");
 
-    let function = resources
-        .get("functions/lookup_customer.py")
-        .and_then(|resource| resource.payload.get("content"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    assert!(function.contains("Look up a customer"));
-    assert!(function.contains("def lookup_customer"));
+    assert_eq!(pulled, payload);
     branches.assert();
     projection.assert();
 }
@@ -826,17 +717,8 @@ fn default_voice_id_matches_region_defaults_and_fallback() {
     assert_eq!(default_voice_id("studio"), "VOICE-afe2b8e8");
 }
 
-fn function_resource(path: &str, name: &str, code: &str) -> Resource {
-    Resource {
-        resource_id: "local".to_string(),
-        name: name.to_string(),
-        file_path: path.to_string(),
-        payload: serde_json::json!({"content": code}),
-    }
-}
-
 #[test]
-fn push_main_resources_to_new_branch_pushes_generated_commands() {
+fn branch_creation_and_command_push_are_transport_operations() {
     use httpmock::Method::{GET, POST};
     use httpmock::MockServer;
 
@@ -865,20 +747,26 @@ fn push_main_resources_to_new_branch_pushes_generated_commands() {
             "commands": [{"type": "create_function"}]
         }));
     });
-    let mut resources = ResourceMap::new();
-    resources.insert(
-        "functions/new_branch_fn.py".to_string(),
-        function_resource(
-            "functions/new_branch_fn.py",
-            "new_branch_fn",
-            "def new_branch_fn(conv):\n    return 'ok'\n",
-        ),
-    );
+    let client = test_client(server.base_url());
+    let snapshot = client
+        .pull_projection_snapshot_for_branch("main")
+        .expect("main projection snapshot");
+    let branch_id = client
+        .create_branch_with_main_sequence("feature-push", snapshot.last_known_sequence)
+        .expect("create branch");
+    let result = client
+        .push_commands_to_branch(
+            &branch_id,
+            snapshot.last_known_sequence,
+            vec![Command {
+                r#type: "create_function".to_string(),
+                ..Default::default()
+            }],
+        )
+        .expect("push commands to new branch");
 
-    let (branch_id, result) = test_client(server.base_url())
-        .push_main_resources_to_new_branch("feature-push", &resources, Some("tester@example.com"))
-        .expect("push main resources to new branch");
-
+    assert_eq!(snapshot.last_known_sequence, 41);
+    assert_eq!(snapshot.projection, serde_json::json!({}));
     assert_eq!(branch_id, "br-new");
     assert!(result.success);
     assert_eq!(result.message, "pushed to new branch");
@@ -892,7 +780,7 @@ fn push_main_resources_to_new_branch_pushes_generated_commands() {
 }
 
 #[test]
-fn push_main_resources_to_new_branch_reports_no_changes_without_command_batch() {
+fn create_branch_with_main_sequence_does_not_fetch_projection() {
     use httpmock::Method::{GET, POST};
     use httpmock::MockServer;
 
@@ -912,23 +800,14 @@ fn push_main_resources_to_new_branch_reports_no_changes_without_command_batch() 
         then.status(200)
             .json_body(serde_json::json!({"branchId": "br-empty"}));
     });
-    let push = server.mock(|when, then| {
-        when.method(POST)
-            .path("/accounts/test-account/projects/test-project/branches/br-empty/command-batch");
-        then.status(200).json_body(serde_json::json!({}));
-    });
-
-    let (branch_id, result) = test_client(server.base_url())
-        .push_main_resources_to_new_branch("empty-branch", &ResourceMap::new(), None)
-        .expect("push no-op resources to new branch");
+    let client = test_client(server.base_url());
+    let branch_id = client
+        .create_branch_with_main_sequence("empty-branch", 7)
+        .expect("create branch with supplied sequence");
 
     assert_eq!(branch_id, "br-empty");
-    assert!(!result.success);
-    assert_eq!(result.message, "No changes detected");
-    assert!(result.commands.is_empty());
-    main_projection.assert();
+    main_projection.assert_calls(0);
     create_branch.assert();
-    push.assert_calls(0);
 }
 
 #[test]
@@ -1176,35 +1055,14 @@ fn merge_branch_reports_non_conflict_errors() {
 }
 
 #[test]
-fn in_memory_pull_resources_by_name_uses_exact_prefix_and_default_fallback() {
-    let fallback = ResourceMap::from([(
-        "functions/fallback.py".to_string(),
-        function_resource(
-            "functions/fallback.py",
-            "fallback",
-            "def fallback(conv):\n    return 'fallback'\n",
-        ),
-    )]);
-    let exact = ResourceMap::from([(
-        "functions/exact.py".to_string(),
-        function_resource(
-            "functions/exact.py",
-            "exact",
-            "def exact(conv):\n    return 'exact'\n",
-        ),
-    )]);
-    let prefixed = ResourceMap::from([(
-        "functions/prefixed.py".to_string(),
-        function_resource(
-            "functions/prefixed.py",
-            "prefixed",
-            "def prefixed(conv):\n    return 'prefixed'\n",
-        ),
-    )]);
+fn in_memory_pull_projection_by_name_uses_exact_prefix_and_default_fallback() {
+    let fallback = json!({"projection": "fallback"});
+    let exact = json!({"projection": "exact"});
+    let prefixed = json!({"projection": "prefixed"});
     let mut named = indexmap::IndexMap::new();
     named.insert("friendly".to_string(), exact.clone());
     named.insert("abcdef123999".to_string(), prefixed.clone());
-    let client = InMemoryPlatformClient::with_named_resources(
+    let client = InMemoryPlatformClient::with_named_projections(
         fallback.clone(),
         named,
         DeploymentList {
@@ -1214,18 +1072,20 @@ fn in_memory_pull_resources_by_name_uses_exact_prefix_and_default_fallback() {
     );
 
     assert_eq!(
-        client.pull_resources_by_name("friendly").expect("exact"),
+        client
+            .pull_projection_json_by_name("friendly")
+            .expect("exact"),
         exact
     );
     assert_eq!(
         client
-            .pull_resources_by_name("ABCDEF123000")
+            .pull_projection_json_by_name("ABCDEF123000")
             .expect("prefix"),
         prefixed
     );
     assert_eq!(
         client
-            .pull_resources_by_name("does-not-exist")
+            .pull_projection_json_by_name("does-not-exist")
             .expect("fallback"),
         fallback
     );

@@ -8,7 +8,7 @@ mod workspace;
 
 use adk_api_client::ApiError;
 use adk_io::{FileSystem, StdFileSystem, parse_multi_resource_path};
-use adk_resources::current_status_hash_for_expected;
+use adk_resources::{CommandGenError, current_status_hash_for_expected};
 pub use adk_resources::{
     DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
 };
@@ -43,6 +43,8 @@ pub enum CoreError {
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("{0}")]
+    Resource(#[from] CommandGenError),
 }
 
 fn project_config_yaml(cfg: &ProjectConfig) -> Result<String, CoreError> {
@@ -387,6 +389,21 @@ fn flatten_discovered_paths(paths: &DiscoveredResourcePaths) -> Vec<String> {
     let mut out: Vec<String> = paths.values().flat_map(|v| v.iter().cloned()).collect();
     out.sort();
     out
+}
+
+fn looks_like_resource_map(payload: &JsonValue) -> bool {
+    payload
+        .as_object()
+        .is_some_and(|resources| resources.values().any(looks_like_resource))
+}
+
+fn looks_like_resource(value: &JsonValue) -> bool {
+    value.as_object().is_some_and(|resource| {
+        resource.contains_key("resource_id")
+            && resource.contains_key("name")
+            && resource.contains_key("file_path")
+            && resource.contains_key("payload")
+    })
 }
 
 fn flatten_discovered_paths_by_type_order(paths: &DiscoveredResourcePaths) -> Vec<String> {

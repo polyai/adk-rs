@@ -21,7 +21,6 @@ uuid.workspace = true
 prost.workspace = true
 adk-protobuf.workspace = true
 adk-types.workspace = true
-adk-resources.workspace = true
 
 [dev-dependencies]
 httpmock.workspace = true

@@ -7,7 +7,7 @@ Notes for contributors working on the Rust ADK rewrite.
 - `adk-cli`: `poly` binary, CLI parsing, output, and integration tests.
 - `adk-core`: project workflows such as init, pull, push, status, diff, validate, chat, and deployments.
 - `adk-resources`: resource-family semantics such as discovery, local file layout, projection paths, materialization facts, validation helpers, stable IDs, and command generation helpers.
-- `adk-api-client`: HTTP communication with PolyAI backend, plus in-memory implementation for testing.
+- `adk-api-client`: HTTP communication with PolyAI backend, projection/branch/deployment/chat payload transport, protobuf command-batch submission, plus in-memory implementation for testing.
 - `adk-types`: shared data models and errors.
 - `adk-io`: filesystem, hashing, diff, path, and serialization helpers.
 - `adk-protobuf`: protobuf command definitions used by push.
@@ -22,8 +22,9 @@ Resource type metadata and behavior are intentionally split by responsibility:
 
 - `adk-types/src/lib.rs` owns the central `RESOURCE_TYPE_REGISTRY`: Python class name, status resource key, ID prefix, and registry order.
 - `adk-resources` is the home for resource-specific semantics: discovery, local file paths, projection extraction, materialization, validation helpers, typed lifecycle helpers, stable ID facts, and command generation helpers.
+- `adk-api-client` should not depend on `adk-resources`; it transports API payloads and command batches without knowing how projections become resources or resources become commands.
 - `adk-core/src/validation.rs` owns validation orchestration plus cross-resource checks, such as flow step references, entity references, and flow-scoped function call-site rules. Resource-local validation helpers should live with the resource family.
-- Push/pull orchestration should call `adk-resources` directly rather than adding a resource-specific intermediary crate.
+- Push/pull orchestration in `adk-core` should call `adk-resources` directly for projection materialization and command generation, then call `adk-api-client` only to fetch projection payloads or submit command batches.
 
 Within `adk-resources`, top-level directories are reserved for ADK resource
 families. Cross-resource orchestration such as discovery dispatch, push-command

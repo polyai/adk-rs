@@ -1,27 +1,24 @@
-use crate::{ApiError, PlatformClient};
-use adk_resources::{
-    command_to_json_summary, try_build_push_commands_for_changed_resources,
-    try_build_push_commands_with_actor,
-};
-use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
+use crate::{ApiError, PlatformClient, ProjectionSnapshot};
+use adk_protobuf::Command;
+use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
 /// Deterministic non-network client used by local tests and explicit local/projection flows.
 #[derive(Debug, Clone)]
 pub struct InMemoryPlatformClient {
-    resources: Arc<Mutex<ResourceMap>>,
+    projection: Arc<Mutex<Value>>,
     branches: Arc<Mutex<indexmap::IndexMap<String, String>>>,
-    named_resources: Arc<Mutex<indexmap::IndexMap<String, ResourceMap>>>,
+    named_projections: Arc<Mutex<indexmap::IndexMap<String, Value>>>,
     deployments: Arc<Mutex<DeploymentList>>,
 }
 
 impl Default for InMemoryPlatformClient {
     fn default() -> Self {
         Self {
-            resources: Arc::new(Mutex::new(ResourceMap::new())),
+            projection: Arc::new(Mutex::new(Value::Object(Default::default()))),
             branches: Arc::new(Mutex::new(default_branches())),
-            named_resources: Arc::new(Mutex::new(indexmap::IndexMap::new())),
+            named_projections: Arc::new(Mutex::new(indexmap::IndexMap::new())),
             deployments: Arc::new(Mutex::new(DeploymentList {
                 versions: vec![],
                 active_deployment_hashes: Default::default(),
@@ -31,13 +28,13 @@ impl Default for InMemoryPlatformClient {
 }
 
 impl InMemoryPlatformClient {
-    pub fn with_resources(resources: ResourceMap) -> Self {
-        let mut named_resources = indexmap::IndexMap::new();
-        named_resources.insert("main".to_string(), resources.clone());
+    pub fn with_projection(projection: Value) -> Self {
+        let mut named_projections = indexmap::IndexMap::new();
+        named_projections.insert("main".to_string(), projection.clone());
         Self {
-            resources: Arc::new(Mutex::new(resources)),
+            projection: Arc::new(Mutex::new(projection)),
             branches: Arc::new(Mutex::new(default_branches())),
-            named_resources: Arc::new(Mutex::new(named_resources)),
+            named_projections: Arc::new(Mutex::new(named_projections)),
             deployments: Arc::new(Mutex::new(DeploymentList {
                 versions: vec![],
                 active_deployment_hashes: Default::default(),
@@ -45,25 +42,25 @@ impl InMemoryPlatformClient {
         }
     }
 
-    pub fn with_named_resources(
-        resources: ResourceMap,
-        named_resources: indexmap::IndexMap<String, ResourceMap>,
+    pub fn with_named_projections(
+        projection: Value,
+        named_projections: indexmap::IndexMap<String, Value>,
         deployments: DeploymentList,
     ) -> Self {
         Self {
-            resources: Arc::new(Mutex::new(resources)),
+            projection: Arc::new(Mutex::new(projection)),
             branches: Arc::new(Mutex::new(default_branches())),
-            named_resources: Arc::new(Mutex::new(named_resources)),
+            named_projections: Arc::new(Mutex::new(named_projections)),
             deployments: Arc::new(Mutex::new(deployments)),
         }
     }
 
-    fn preview_projection(&self, projection: Option<&Value>) -> Result<Value, ApiError> {
-        if let Some(projection) = projection {
-            Ok(projection.clone())
-        } else {
-            self.pull_projection_json()
-        }
+    pub fn set_projection(&self, projection: Value) -> Result<(), ApiError> {
+        *self
+            .projection
+            .lock()
+            .map_err(|e| ApiError::Http(e.to_string()))? = projection;
+        Ok(())
     }
 }
 
@@ -75,54 +72,20 @@ fn default_branches() -> indexmap::IndexMap<String, String> {
 
 impl PlatformClient for InMemoryPlatformClient {
     fn pull_projection_json(&self) -> Result<Value, ApiError> {
-        let resources = self.pull_resources()?;
-        serde_json::to_value(resources).map_err(|e| ApiError::Http(e.to_string()))
+        Ok(self
+            .projection
+            .lock()
+            .map_err(|e| ApiError::Http(e.to_string()))?
+            .clone())
     }
 
-    fn preview_push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
-        self.preview_push_resources_with_options(resources, None, None)
-    }
-
-    fn preview_push_resources_with_options(
-        &self,
-        resources: &ResourceMap,
-        projection: Option<&Value>,
-        actor: Option<&str>,
-    ) -> Result<PushResult, ApiError> {
-        let projection = self.preview_projection(projection)?;
-        let commands = try_build_push_commands_with_actor(resources, &projection, actor)?;
-        let summaries = commands.iter().map(command_to_json_summary).collect();
-        Ok(PushResult {
-            success: true,
-            message: "Dry run completed. No changes were pushed.".to_string(),
-            commands: summaries,
-        })
-    }
-
-    fn preview_push_changed_resources_with_options(
-        &self,
-        resources: &ResourceMap,
-        projection: Option<&Value>,
-        actor: Option<&str>,
-    ) -> Result<PushResult, ApiError> {
-        let projection = self.preview_projection(projection)?;
-        let commands =
-            try_build_push_commands_for_changed_resources(resources, &projection, actor)?;
-        let summaries = commands.iter().map(command_to_json_summary).collect();
-        Ok(PushResult {
-            success: true,
-            message: "Dry run completed. No changes were pushed.".to_string(),
-            commands: summaries,
-        })
-    }
-
-    fn pull_resources_by_name(&self, name: &str) -> Result<ResourceMap, ApiError> {
+    fn pull_projection_json_by_name(&self, name: &str) -> Result<Value, ApiError> {
         let named = self
-            .named_resources
+            .named_projections
             .lock()
             .map_err(|e| ApiError::Http(e.to_string()))?;
-        if let Some(resources) = named.get(name) {
-            return Ok(resources.clone());
+        if let Some(projection) = named.get(name) {
+            return Ok(projection.clone());
         }
         let prefix = name.chars().take(9).collect::<String>().to_lowercase();
         if !prefix.is_empty() {
@@ -133,22 +96,33 @@ impl PlatformClient for InMemoryPlatformClient {
             }
         }
         drop(named);
-        self.pull_resources()
+        self.pull_projection_json()
     }
 
-    fn pull_resources(&self) -> Result<ResourceMap, ApiError> {
-        Ok(self
-            .resources
-            .lock()
-            .map_err(|e| ApiError::Http(e.to_string()))?
-            .clone())
+    fn pull_projection_snapshot_for_branch(
+        &self,
+        branch_id: &str,
+    ) -> Result<ProjectionSnapshot, ApiError> {
+        Ok(ProjectionSnapshot {
+            projection: self.pull_projection_json_by_name(branch_id)?,
+            last_known_sequence: 0,
+        })
     }
 
-    fn push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
-        *self
-            .resources
-            .lock()
-            .map_err(|e| ApiError::Http(e.to_string()))? = resources.clone();
+    fn push_commands(
+        &self,
+        last_known_sequence: u64,
+        commands: Vec<Command>,
+    ) -> Result<PushResult, ApiError> {
+        self.push_commands_to_branch("main", last_known_sequence, commands)
+    }
+
+    fn push_commands_to_branch(
+        &self,
+        _branch_id: &str,
+        _last_known_sequence: u64,
+        _commands: Vec<Command>,
+    ) -> Result<PushResult, ApiError> {
         Ok(PushResult {
             success: true,
             message: "Push successful".to_string(),
