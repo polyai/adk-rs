@@ -4,6 +4,13 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+## 0.0.6 - 2026-05-29
+
+- Improved Python function parsing robustness with AST-backed decorator and signature handling.
+- Consolidated resource discovery, materialization, validation, status, and command generation semantics around resource-family modules.
+- Expanded parity coverage for resource command generation, API-client named pull resolution, and CLI command flows.
+- Improved CRAP risk reporting by excluding generated protobuf code and caching the baseline report in CI.
+
 ## 0.0.5 - 2026-05-21
 
 - Removed hidden in-memory fallback behavior from remote-backed CLI commands so missing remote configuration now fails clearly.
