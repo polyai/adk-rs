@@ -4,7 +4,7 @@ use httpmock::Method::GET;
 use httpmock::{Mock, MockServer};
 use serde_json::json;
 
-fn test_client(server: &MockServer) -> HttpPlatformClient {
+fn adk_v1_test_client(server: &MockServer) -> HttpPlatformClient {
     HttpPlatformClient {
         client: reqwest::blocking::Client::new(),
         base_url: format!("{}/adk/v1", server.base_url()),
@@ -150,7 +150,7 @@ fn deployment_version_prefix_matches_first_nine_hash_characters() {
             ]
         }),
     );
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let deployment_id = client
         .deployment_id_from_version_prefix("abcdef123extra")
@@ -163,7 +163,7 @@ fn deployment_version_prefix_matches_first_nine_hash_characters() {
 #[test]
 fn empty_deployment_version_prefix_does_not_call_platform() {
     let server = MockServer::start();
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let deployment_id = client
         .deployment_id_from_version_prefix("")
@@ -185,7 +185,7 @@ fn named_projection_uses_active_environment_deployment_id() {
     );
     let deployment_projection =
         deployment_projection_mock(&server, "dep-sandbox", json!({ "source": "sandbox" }));
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let projection = client
         .pull_projection_json_by_name("sandbox")
@@ -220,7 +220,7 @@ fn named_projection_resolves_active_environment_version_hash() {
     );
     let deployment_projection =
         deployment_projection_mock(&server, "dep-live", json!({ "source": "live" }));
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let projection = client
         .pull_projection_json_by_name("live")
@@ -236,7 +236,7 @@ fn named_projection_resolves_active_environment_version_hash() {
 fn named_projection_reports_missing_active_environment() {
     let server = MockServer::start();
     let active = active_deployments_mock(&server, json!({}));
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let message = client
         .pull_projection_json_by_name("pre-release")
@@ -274,7 +274,7 @@ fn named_projection_resolves_branch_by_name_and_id() {
         );
         let branch_projection =
             branch_projection_mock(&server, expected_branch_id, json!({ "branch": name }));
-        let client = test_client(&server);
+        let client = adk_v1_test_client(&server);
 
         let projection = client
             .pull_projection_json_by_name(name)
@@ -303,7 +303,7 @@ fn named_projection_resolves_deployment_hash_after_branch_miss() {
     );
     let deployment_projection =
         deployment_projection_mock(&server, "dep-direct", json!({ "source": "deployment" }));
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let projection = client
         .pull_projection_json_by_name("123456789")
@@ -320,7 +320,7 @@ fn named_projection_reports_unknown_name_after_all_resolution_attempts() {
     let server = MockServer::start();
     let branches = branches_mock(&server, json!({ "branches": [] }));
     let deployments = deployments_mock(&server, json!({ "deployments": [] }));
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let message = client
         .pull_projection_json_by_name("missing")
@@ -348,7 +348,7 @@ fn named_resources_uses_active_environment_deployment() {
     );
     let deployment_projection =
         deployment_projection_mock(&server, "dep-sandbox", empty_projection());
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let resources = client
         .pull_resources_by_name("sandbox")
@@ -374,7 +374,7 @@ fn named_resources_resolves_branch_by_name() {
         }),
     );
     let branch_projection = branch_projection_mock(&server, "branch-123", empty_projection());
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let resources = client
         .pull_resources_by_name("feature branch")
@@ -402,7 +402,7 @@ fn named_resources_resolves_deployment_hash() {
     );
     let deployment_projection =
         deployment_projection_mock(&server, "dep-direct", empty_projection());
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let resources = client
         .pull_resources_by_name("fedcba987")
@@ -419,7 +419,7 @@ fn named_resources_reports_unknown_name_after_all_resolution_attempts() {
     let server = MockServer::start();
     let branches = branches_mock(&server, json!({ "branches": [] }));
     let deployments = deployments_mock(&server, json!({ "deployments": [] }));
-    let client = test_client(&server);
+    let client = adk_v1_test_client(&server);
 
     let message = client
         .pull_resources_by_name("missing")
