@@ -17,12 +17,15 @@ permissions:
 env:
   RUFF_VERSION: "0.14.2"
   TY_VERSION: "0.0.35"
+  CRAP_THRESHOLD: "30"
 
 jobs:
   compute-untested-slop-risk:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     - name: Specify Rust toolchain
       run: rustup toolchain install stable --profile minimal
     - name: Cache Rust dependencies
@@ -36,89 +39,45 @@ jobs:
       uses: taiki-e/install-action@cargo-llvm-cov
     - name: Install cargo-crap
       run: cargo install cargo-crap
-    - name: Run llvm-cov
+    - name: Restore base CRAP report cache
+      if: github.event_name == 'pull_request'
+      id: restore-base-crap
+      uses: actions/cache/restore@v4
+      with:
+        path: coverage-base
+        key: crap-report-${{ github.event.pull_request.base.sha }}
+    - name: Run coverage and CRAP reports
+      env:
+        HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        BASE_CACHE_HIT: ${{ steps.restore-base-crap.outputs.cache-hit }}
       run: |
-        cargo llvm-cov --workspace --lcov --output-path lcov.info
-        cargo llvm-cov report --html --output-dir coverage-html
-    - name: Run cargo-crap
+        report_args=(
+          --output-dir .
+          --html-dir coverage-html
+          --pr-comment-output crap-pr-comment.md
+          --repo-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+          --commit-ref "$HEAD_SHA"
+        )
+
+        if [ "$BASE_CACHE_HIT" = "true" ]; then
+          report_args+=(--baseline coverage-base/crap-report.json)
+        fi
+
+        bash .github/scripts/run_crap_coverage.sh "${report_args[@]}"
+    - name: Prepare main CRAP report cache
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
-        CRAP_EXCLUDES=(
-          --exclude 'tests/**'
-          --exclude 'src/tests.rs'
-          --exclude 'src/testing.rs'
-          --exclude 'src/*_test.rs'
-          --exclude 'src/**/*_test.rs'
-          --exclude 'src/*_tests.rs'
-          --exclude 'src/**/*_tests.rs'
-          --exclude 'src/**/tests.rs'
-          --exclude 'src/**/testing.rs'
-        )
-        CRAP_ALLOWS=(
-          # `adk-protobuf/src/*.rs` is prost-generated apart from the crate root.
-          # Suppress generated enum mapper noise instead of chasing low-value tests.
-          --allow 'adk-protobuf/src/*.rs'
-        )
-
-        cargo crap --workspace "${CRAP_EXCLUDES[@]}" "${CRAP_ALLOWS[@]}" --lcov lcov.info --threshold 30 --summary
-        cargo crap --workspace "${CRAP_EXCLUDES[@]}" "${CRAP_ALLOWS[@]}" --lcov lcov.info --threshold 30 --format markdown --output crap-full-report.md
-        cargo crap --workspace "${CRAP_EXCLUDES[@]}" "${CRAP_ALLOWS[@]}" --lcov lcov.info --threshold 30 --format json --output crap-report.json
-        python3 - <<'PY'
-        import json
-        import os
-        from pathlib import Path
-
-        threshold = 30.0
-        workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
-        server_url = os.environ["GITHUB_SERVER_URL"]
-        repository = os.environ["GITHUB_REPOSITORY"]
-        commit = os.environ["GITHUB_SHA"]
-
-        with open("crap-report.json", encoding="utf-8") as report:
-          entries = json.load(report)["entries"]
-
-        def coverage_label(value):
-          return "-" if value is None else f"{value:.1f}%"
-
-        def location(entry):
-          path = Path(entry["file"]).resolve()
-          rel = path.relative_to(workspace).as_posix()
-          url = f"{server_url}/{repository}/blob/{commit}/{rel}#L{entry['line']}"
-          return rel, f"[{rel}:{entry['line']}]({url})"
-
-        def function_link(entry):
-          rel, _ = location(entry)
-          url = f"{server_url}/{repository}/blob/{commit}/{rel}#L{entry['line']}"
-          name = entry["function"].replace("|", "\\|")
-          return f"[`{name}`]({url})"
-
-        crappy = sorted(
-          (entry for entry in entries if entry["crap"] > threshold),
-          key=lambda entry: entry["crap"],
-          reverse=True,
-        )
-
-        with open("crap-pr-comment.md", "w", encoding="utf-8") as output:
-          output.write("## CRAP metric\n\n")
-          if crappy:
-            worst = crappy[0]
-            output.write(
-              f"Warning: {len(crappy)} of {len(entries)} analyzed functions exceed CRAP threshold {threshold:.0f}. "
-            )
-            output.write(
-              f"Worst: `{worst['function']}` at {worst['crap']:.1f} "
-              f"(CC {worst['cyclomatic']:.0f}, coverage {coverage_label(worst['coverage'])}).\n\n"
-            )
-            output.write("| CRAP | CC | Cov % | Function | Location |\n")
-            output.write("|---:|---:|---:|---|---|\n")
-            for entry in crappy[:5]:
-              _, loc = location(entry)
-              output.write(
-                f"| {entry['crap']:.1f} | {entry['cyclomatic']:.0f} | "
-                f"{coverage_label(entry['coverage'])} | {function_link(entry)} | {loc} |\n"
-              )
-          else:
-            output.write(f"No functions exceed CRAP threshold {threshold:.0f}.\n")
-        PY
+        mkdir -p coverage-base
+        cp crap-report.json coverage-base/crap-report.json
+    - name: Save main CRAP report cache
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: coverage-base
+        key: crap-report-${{ github.sha }}
+    - name: Add CRAP report to summary
+      run: |
         {
           cat crap-pr-comment.md
           echo
@@ -131,6 +90,7 @@ jobs:
         name: coverage-and-crap-reports
         path: |
           coverage-html/
+          coverage-base/
           lcov.info
           crap-full-report.md
           crap-report.json
