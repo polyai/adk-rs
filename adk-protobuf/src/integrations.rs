@@ -3,7 +3,8 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Integrations {
     #[prost(map = "string, message", tag = "1")]
-    pub paragon_providers_by_name: ::std::collections::HashMap<::prost::alloc::string::String, ParagonProvider>,
+    pub paragon_providers_by_name:
+        ::std::collections::HashMap<::prost::alloc::string::String, ParagonProvider>,
     #[prost(message, optional, tag = "2")]
     pub mcp: ::core::option::Option<McpConfiguration>,
 }
@@ -84,7 +85,8 @@ pub struct ParagonProvider {
     #[prost(message, optional, tag = "4")]
     pub env_integrations: ::core::option::Option<EnvironmentIntegrationRefs>,
     #[prost(map = "string, message", tag = "5")]
-    pub integrations_by_id: ::std::collections::HashMap<::prost::alloc::string::String, ParagonIntegration>,
+    pub integrations_by_id:
+        ::std::collections::HashMap<::prost::alloc::string::String, ParagonIntegration>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct EnvironmentIntegrationRefs {

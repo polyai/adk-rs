@@ -12,8 +12,7 @@ pub struct ElevenLabsTtsConfig {
     pub speed: ::core::option::Option<f64>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct PlayHtTtsConfig {
-}
+pub struct PlayHtTtsConfig {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CartesiaTtsConfig {
     #[prost(string, tag = "1")]
@@ -161,7 +160,10 @@ pub struct VoiceCreateAgentVoiceSettings {
     /// Maps to `id` field of message Voice
     #[prost(string, tag = "1")]
     pub voice_id: ::prost::alloc::string::String,
-    #[prost(oneof = "voice_create_agent_voice_settings::Settings", tags = "2, 7, 8, 9")]
+    #[prost(
+        oneof = "voice_create_agent_voice_settings::Settings",
+        tags = "2, 7, 8, 9"
+    )]
     pub settings: ::core::option::Option<voice_create_agent_voice_settings::Settings>,
 }
 /// Nested message and enum types in `Voice_CreateAgentVoiceSettings`.
@@ -182,7 +184,10 @@ pub mod voice_create_agent_voice_settings {
 pub struct VoiceUpdateAgentVoiceSettings {
     #[prost(string, tag = "1")]
     pub voice_id: ::prost::alloc::string::String,
-    #[prost(oneof = "voice_update_agent_voice_settings::Settings", tags = "2, 7, 8, 9")]
+    #[prost(
+        oneof = "voice_update_agent_voice_settings::Settings",
+        tags = "2, 7, 8, 9"
+    )]
     pub settings: ::core::option::Option<voice_update_agent_voice_settings::Settings>,
 }
 /// Nested message and enum types in `Voice_UpdateAgentVoiceSettings`.
@@ -210,7 +215,10 @@ pub struct VoiceUpdateDisclaimerVoice {
 pub struct VoiceCreateDisclaimerVoiceSettings {
     #[prost(string, tag = "1")]
     pub voice_id: ::prost::alloc::string::String,
-    #[prost(oneof = "voice_create_disclaimer_voice_settings::Settings", tags = "2, 7, 8, 9")]
+    #[prost(
+        oneof = "voice_create_disclaimer_voice_settings::Settings",
+        tags = "2, 7, 8, 9"
+    )]
     pub settings: ::core::option::Option<voice_create_disclaimer_voice_settings::Settings>,
 }
 /// Nested message and enum types in `Voice_CreateDisclaimerVoiceSettings`.
@@ -231,7 +239,10 @@ pub mod voice_create_disclaimer_voice_settings {
 pub struct VoiceUpdateDisclaimerVoiceSettings {
     #[prost(string, tag = "1")]
     pub voice_id: ::prost::alloc::string::String,
-    #[prost(oneof = "voice_update_disclaimer_voice_settings::Settings", tags = "2, 7, 8, 9")]
+    #[prost(
+        oneof = "voice_update_disclaimer_voice_settings::Settings",
+        tags = "2, 7, 8, 9"
+    )]
     pub settings: ::core::option::Option<voice_update_disclaimer_voice_settings::Settings>,
 }
 /// Nested message and enum types in `Voice_UpdateDisclaimerVoiceSettings`.

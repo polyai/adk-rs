@@ -19,7 +19,8 @@ pub struct FunctionCallAssertion {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(map = "string, message", tag = "2")]
-    pub arguments: ::std::collections::HashMap<::prost::alloc::string::String, FunctionCallAssertionArgument>,
+    pub arguments:
+        ::std::collections::HashMap<::prost::alloc::string::String, FunctionCallAssertionArgument>,
     #[prost(bool, tag = "3")]
     pub is_asserted: bool,
 }

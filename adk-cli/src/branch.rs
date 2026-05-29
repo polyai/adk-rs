@@ -7,6 +7,7 @@ use crate::{
 };
 use adk_api_client::PlatformClient;
 use serde_json::json;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read, Write};
@@ -117,93 +118,178 @@ fn cmd_branch_create_with_service<C: PlatformClient>(
     if !ensure_project_loaded(service, &a.path, a.json) {
         return ExitCode::from(1);
     }
-    let branch_name_from_prompt;
-    let branch_name = match a.branch_name.as_deref() {
-        Some(branch_name) => branch_name,
-        None if a.json => {
-            emit_error(
-                true,
-                "branch create with --json requires a branch name argument.",
-            );
-            return ExitCode::from(1);
-        }
-        None => {
-            let _ = console::prompt("Enter the name of the new branch: ");
-            let _ = std::io::stdout().flush();
-            branch_name_from_prompt = read_stdin_line().trim().to_string();
-            if branch_name_from_prompt.is_empty() {
-                emit_error(false, "branch create requires a branch name argument.");
-                return ExitCode::from(1);
-            }
-            branch_name_from_prompt.as_str()
-        }
+    let branch_name = match branch_create_name_or_exit(&a) {
+        Ok(branch_name) => branch_name,
+        Err(code) => return code,
     };
     let path = PathBuf::from(&a.path);
-    if matches!(a.environment.as_deref(), Some("pre-release" | "live")) {
-        if !a.force {
-            match service.diff(path.as_path(), &[], None, None) {
-                Ok(diffs) if !diffs.is_empty() => {
-                    let changed_files = diffs
-                        .keys()
-                        .map(String::as_str)
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    emit_error(
-                        a.json,
-                        &format!("Uncommitted changes on main branch: {changed_files}"),
-                    );
-                    return ExitCode::from(1);
-                }
-                Err(error) => {
-                    emit_error(a.json, &error.to_string());
-                    return ExitCode::from(1);
-                }
-                _ => {}
-            }
-        }
-        if let Some(env_name) = a.environment.as_deref()
-            && let Err(error) = service.pull_named(path.as_path(), env_name, true)
-        {
-            emit_error(a.json, &error.to_string());
-            return ExitCode::from(1);
-        }
+    let target_environment = branch_create_release_environment(a.environment.as_deref());
+    if let Err(code) = branch_create_sync_release_environment_or_exit(
+        service,
+        path.as_path(),
+        target_environment,
+        a.force,
+        a.json,
+    ) {
+        return code;
     }
-    match service.create_branch(path.as_path(), branch_name) {
-        Ok(cfg) if matches!(a.environment.as_deref(), Some("pre-release" | "live")) => {
-            match service.push(path.as_path(), true, true, false) {
-                Ok(push) if push.success || push.message == "No changes detected" => print_payload(
-                    a.json,
-                    json!({"success": true, "branch_name": branch_name, "new_branch_id": cfg.branch_id}),
-                ),
-                Ok(push) => {
-                    emit_error(a.json, &push.message);
-                    ExitCode::from(1)
-                }
-                Err(error) => {
-                    emit_error(a.json, &error.to_string());
-                    ExitCode::from(1)
-                }
+    match service.create_branch(path.as_path(), branch_name.as_ref()) {
+        Ok(cfg) if target_environment.is_some() => {
+            if let Err(code) =
+                branch_create_push_release_environment_or_exit(service, path.as_path(), a.json)
+            {
+                return code;
             }
+            print_payload(
+                a.json,
+                branch_create_success_payload(branch_name.as_ref(), &cfg.branch_id),
+            )
         }
-        Ok(cfg) => {
-            if a.json {
-                print_payload(
-                    true,
-                    json!({"success": true, "branch_name": branch_name, "new_branch_id": cfg.branch_id}),
-                )
-            } else {
-                console::success(format!(
-                    "Branch '{branch_name}' created (ID: {})",
-                    cfg.branch_id
-                ));
-                ExitCode::SUCCESS
-            }
-        }
+        Ok(cfg) => branch_create_print_success(a.json, branch_name.as_ref(), &cfg.branch_id),
         Err(error) => {
             emit_error(a.json, &error.to_string());
             ExitCode::from(1)
         }
     }
+}
+
+fn branch_create_sync_release_environment_or_exit<C: PlatformClient>(
+    service: &AdkService<C>,
+    path: &Path,
+    target_environment: Option<&str>,
+    force: bool,
+    json_mode: bool,
+) -> Result<(), ExitCode> {
+    let Some(env_name) = target_environment else {
+        return Ok(());
+    };
+    branch_create_check_main_clean_or_exit(service, path, target_environment, force, json_mode)?;
+    branch_create_pull_environment_or_exit(service, path, env_name, json_mode)
+}
+
+fn branch_create_check_main_clean_or_exit<C: PlatformClient>(
+    service: &AdkService<C>,
+    path: &Path,
+    target_environment: Option<&str>,
+    force: bool,
+    json_mode: bool,
+) -> Result<(), ExitCode> {
+    if !branch_create_requires_clean_main(target_environment, force) {
+        return Ok(());
+    }
+    branch_create_check_diff_clean_or_exit(service, path, json_mode)
+}
+
+fn branch_create_check_diff_clean_or_exit<C: PlatformClient>(
+    service: &AdkService<C>,
+    path: &Path,
+    json_mode: bool,
+) -> Result<(), ExitCode> {
+    let diffs = match service.diff(path, &[], None, None) {
+        Ok(diffs) => diffs,
+        Err(error) => {
+            emit_error(json_mode, &error.to_string());
+            return Err(ExitCode::from(1));
+        }
+    };
+    if diffs.is_empty() {
+        return Ok(());
+    }
+    let changed_files = diffs
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    emit_error(
+        json_mode,
+        &format!("Uncommitted changes on main branch: {changed_files}"),
+    );
+    Err(ExitCode::from(1))
+}
+
+fn branch_create_pull_environment_or_exit<C: PlatformClient>(
+    service: &AdkService<C>,
+    path: &Path,
+    env_name: &str,
+    json_mode: bool,
+) -> Result<(), ExitCode> {
+    service.pull_named(path, env_name, true).map(|_| ()).map_err(|error| {
+        emit_error(json_mode, &error.to_string());
+        ExitCode::from(1)
+    })
+}
+
+fn branch_create_push_release_environment_or_exit<C: PlatformClient>(
+    service: &AdkService<C>,
+    path: &Path,
+    json_mode: bool,
+) -> Result<(), ExitCode> {
+    match service.push(path, true, true, false) {
+        Ok(push) if branch_create_push_succeeded(push.success, &push.message) => Ok(()),
+        Ok(push) => {
+            emit_error(json_mode, &push.message);
+            Err(ExitCode::from(1))
+        }
+        Err(error) => {
+            emit_error(json_mode, &error.to_string());
+            Err(ExitCode::from(1))
+        }
+    }
+}
+
+fn branch_create_print_success(json_mode: bool, branch_name: &str, branch_id: &str) -> ExitCode {
+    if json_mode {
+        print_payload(
+            true,
+            branch_create_success_payload(branch_name, branch_id),
+        )
+    } else {
+        console::success(format!("Branch '{branch_name}' created (ID: {branch_id})"));
+        ExitCode::SUCCESS
+    }
+}
+
+fn branch_create_name_or_exit(args: &BranchCreateArgs) -> Result<Cow<'_, str>, ExitCode> {
+    match args.branch_name.as_deref() {
+        Some(branch_name) => Ok(Cow::Borrowed(branch_name)),
+        None if args.json => {
+            emit_error(
+                true,
+                "branch create with --json requires a branch name argument.",
+            );
+            Err(ExitCode::from(1))
+        }
+        None => {
+            let _ = console::prompt("Enter the name of the new branch: ");
+            let _ = std::io::stdout().flush();
+            let branch_name = read_stdin_line().trim().to_string();
+            if branch_name.is_empty() {
+                emit_error(false, "branch create requires a branch name argument.");
+                Err(ExitCode::from(1))
+            } else {
+                Ok(Cow::Owned(branch_name))
+            }
+        }
+    }
+}
+
+fn branch_create_release_environment(environment: Option<&str>) -> Option<&str> {
+    match environment {
+        Some("pre-release" | "live") => environment,
+        _ => None,
+    }
+}
+
+fn branch_create_requires_clean_main(environment: Option<&str>, force: bool) -> bool {
+    branch_create_release_environment(environment).is_some() && !force
+}
+
+fn branch_create_push_succeeded(success: bool, message: &str) -> bool {
+    success || message == "No changes detected"
+}
+
+fn branch_create_success_payload(branch_name: &str, branch_id: &str) -> serde_json::Value {
+    json!({"success": true, "branch_name": branch_name, "new_branch_id": branch_id})
 }
 
 fn cmd_branch_current_with_service<C: PlatformClient>(
@@ -1141,4 +1227,77 @@ fn parse_branch_merge_resolutions(
         .cloned()
         .ok_or_else(|| "merge resolutions must be a JSON array".to_string())?;
     Ok(Some(array))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn branch_create_args(branch_name: Option<&str>, json: bool) -> BranchCreateArgs {
+        BranchCreateArgs {
+            path: ".".to_string(),
+            branch_name: branch_name.map(ToString::to_string),
+            environment: None,
+            force: false,
+            json,
+            debug: false,
+            verbose: false,
+        }
+    }
+
+    #[test]
+    fn branch_create_name_uses_argument_when_present() {
+        let args = branch_create_args(Some("feature"), true);
+
+        assert_eq!(
+            branch_create_name_or_exit(&args).expect("branch name"),
+            Cow::Borrowed("feature")
+        );
+    }
+
+    #[test]
+    fn branch_create_json_requires_name_without_prompting() {
+        let args = branch_create_args(None, true);
+
+        assert_eq!(
+            branch_create_name_or_exit(&args),
+            Err(ExitCode::from(1))
+        );
+    }
+
+    #[test]
+    fn branch_create_release_environment_only_selects_remote_envs() {
+        assert_eq!(branch_create_release_environment(Some("pre-release")), Some("pre-release"));
+        assert_eq!(branch_create_release_environment(Some("live")), Some("live"));
+        assert_eq!(branch_create_release_environment(Some("sandbox")), None);
+        assert_eq!(branch_create_release_environment(None), None);
+    }
+
+    #[test]
+    fn branch_create_clean_main_check_is_only_for_unforced_remote_envs() {
+        assert!(branch_create_requires_clean_main(Some("pre-release"), false));
+        assert!(branch_create_requires_clean_main(Some("live"), false));
+        assert!(!branch_create_requires_clean_main(Some("pre-release"), true));
+        assert!(!branch_create_requires_clean_main(Some("sandbox"), false));
+        assert!(!branch_create_requires_clean_main(None, false));
+    }
+
+    #[test]
+    fn branch_create_push_success_accepts_python_no_changes_message() {
+        assert!(branch_create_push_succeeded(true, "Push successful"));
+        assert!(branch_create_push_succeeded(false, "No changes detected"));
+        assert!(!branch_create_push_succeeded(false, "backend rejected push"));
+    }
+
+    #[test]
+    fn branch_create_success_payload_matches_json_contract() {
+        assert_eq!(
+            branch_create_success_payload("feature", "branch-123"),
+            json!({
+                "success": true,
+                "branch_name": "feature",
+                "new_branch_id": "branch-123",
+            })
+        );
+    }
 }

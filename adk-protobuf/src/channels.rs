@@ -27,7 +27,8 @@ pub struct ChannelConfig {
     #[prost(message, optional, tag = "3")]
     pub greeting: ::core::option::Option<super::agent::Greeting>,
     #[prost(message, optional, tag = "4")]
-    pub safety_filters: ::core::option::Option<super::content_filter_settings::ContentFilterSettings>,
+    pub safety_filters:
+        ::core::option::Option<super::content_filter_settings::ContentFilterSettings>,
     #[prost(float, optional, tag = "5")]
     pub temperature: ::core::option::Option<f32>,
 }
@@ -182,7 +183,9 @@ pub struct ChannelUpdateSafetyFilters {
     #[prost(enumeration = "ChannelType", tag = "1")]
     pub channel_type: i32,
     #[prost(message, optional, tag = "2")]
-    pub safety_filters: ::core::option::Option<super::content_filter_settings::ContentFilterSettingsUpdateContentFilterSettings>,
+    pub safety_filters: ::core::option::Option<
+        super::content_filter_settings::ContentFilterSettingsUpdateContentFilterSettings,
+    >,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ChannelUpdateLlmSettings {
@@ -221,32 +224,28 @@ pub struct VoiceChannelUpdateVadConfig {
     pub vad_config: ::core::option::Option<VadConfig>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct VoiceChannelResetVadConfig {
-}
+pub struct VoiceChannelResetVadConfig {}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct VoiceChannelUpdateAudioEnhancement {
     #[prost(message, optional, tag = "1")]
     pub audio_enhancement: ::core::option::Option<AudioEnhancement>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct VoiceChannelResetAudioEnhancement {
-}
+pub struct VoiceChannelResetAudioEnhancement {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VoiceChannelUpdateSilenceFillerUtterances {
     #[prost(message, optional, tag = "1")]
     pub silence_filler_utterances: ::core::option::Option<FillerUtterances>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct VoiceChannelResetSilenceFillerUtterances {
-}
+pub struct VoiceChannelResetSilenceFillerUtterances {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VoiceChannelUpdateAsrConfig {
     #[prost(message, optional, tag = "1")]
     pub asr_config: ::core::option::Option<super::asr::Asr>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct VoiceChannelResetAsrConfig {
-}
+pub struct VoiceChannelResetAsrConfig {}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct VoiceChannelUpdateBargeInConfig {
     #[prost(bool, optional, tag = "1")]
@@ -259,16 +258,14 @@ pub struct VoiceChannelUpdateBargeInConfig {
     pub min_speech_duration_seconds: ::core::option::Option<f64>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct VoiceChannelResetBargeInConfig {
-}
+pub struct VoiceChannelResetBargeInConfig {}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct VoiceChannelUpdateTemperature {
     #[prost(float, optional, tag = "1")]
     pub temperature: ::core::option::Option<f32>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct VoiceChannelResetTemperature {
-}
+pub struct VoiceChannelResetTemperature {}
 /// WebChatChannel messages
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct WebChatChannelUpdateStatus {
