@@ -181,7 +181,7 @@ fn resolve_project_create_account_id(
         Some(account_id) => account_id,
         None => {
             let accounts =
-                HttpPlatformClient::list_accounts(&region).map_err(|error| error.to_string())?;
+                HttpPlatformClient::list_accounts(region).map_err(|error| error.to_string())?;
             if accounts.is_empty() {
                 return Err("No accounts found in the selected region.".to_string());
             }
@@ -230,7 +230,7 @@ fn resolve_project_create_project_id(
     match project_id {
         Some(project_id) => Ok(Some(project_id)),
         None => {
-            let default_id = default_project_id_for_name(&project_name);
+            let default_id = default_project_id_for_name(project_name);
             let Some(project_id) = prompt_text(
                 "Enter project ID (leave empty to let the platform generate one):",
                 Some(&default_id),

@@ -399,41 +399,6 @@ fn prompt_text_value_from_input(
     Some(value.to_string())
 }
 
-#[cfg(test)]
-mod prompt_tests {
-    use super::*;
-
-    #[test]
-    fn prompt_text_value_uses_none_for_eof() {
-        assert_eq!(prompt_text_value_from_input(0, "ignored", Some("default")), None);
-    }
-
-    #[test]
-    fn prompt_text_label_includes_non_empty_default() {
-        assert_eq!(
-            prompt_text_label("Project ID:", Some("my-project")),
-            "Project ID: [my-project] "
-        );
-        assert_eq!(prompt_text_label("Project ID:", Some("")), "Project ID: ");
-    }
-
-    #[test]
-    fn prompt_text_value_uses_default_for_blank_input() {
-        assert_eq!(
-            prompt_text_value_from_input(1, "  \n", Some("default")),
-            Some("default".to_string())
-        );
-    }
-
-    #[test]
-    fn prompt_text_value_trims_explicit_input() {
-        assert_eq!(
-            prompt_text_value_from_input(6, "  hello  \n", Some("default")),
-            Some("hello".to_string())
-        );
-    }
-}
-
 fn prompt_multi_select(
     label: &str,
     choices: &[(String, String)],
@@ -689,4 +654,39 @@ fn remote_service_for_path(
 
 fn emit_remote_service_error(json_mode: bool, error: &str) {
     emit_error(json_mode, error);
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+
+    #[test]
+    fn prompt_text_value_uses_none_for_eof() {
+        assert_eq!(prompt_text_value_from_input(0, "ignored", Some("default")), None);
+    }
+
+    #[test]
+    fn prompt_text_label_includes_non_empty_default() {
+        assert_eq!(
+            prompt_text_label("Project ID:", Some("my-project")),
+            "Project ID: [my-project] "
+        );
+        assert_eq!(prompt_text_label("Project ID:", Some("")), "Project ID: ");
+    }
+
+    #[test]
+    fn prompt_text_value_uses_default_for_blank_input() {
+        assert_eq!(
+            prompt_text_value_from_input(1, "  \n", Some("default")),
+            Some("default".to_string())
+        );
+    }
+
+    #[test]
+    fn prompt_text_value_trims_explicit_input() {
+        assert_eq!(
+            prompt_text_value_from_input(6, "  hello  \n", Some("default")),
+            Some("hello".to_string())
+        );
+    }
 }
