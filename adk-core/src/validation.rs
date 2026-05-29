@@ -1,6 +1,8 @@
 use crate::CoreError;
 use adk_resources::FunctionValidationFailure;
 use adk_types::{DomainError, ResourceMap};
+use serde_json::Value as JsonValue;
+use serde_yaml_ng::{Value as YamlValue, from_str};
 use std::path::Path;
 
 pub(crate) fn validate_local_resources(
@@ -18,7 +20,7 @@ pub(crate) fn validate_local_resources(
             .and_then(|v| v.as_str())
             .unwrap_or_default();
         if path.ends_with(".yaml") || path.ends_with(".yml") {
-            let yaml = match serde_yaml::from_str::<serde_yaml::Value>(content) {
+            let yaml = match from_str::<YamlValue>(content) {
                 Ok(yaml) => yaml,
                 Err(e) => {
                     let _ = e;
@@ -27,7 +29,7 @@ pub(crate) fn validate_local_resources(
             };
             adk_resources::validate_semantic_resource(path, &yaml, &mut errors);
         } else if path.ends_with(".json")
-            && let Err(e) = serde_json::from_str::<serde_json::Value>(content)
+            && let Err(e) = serde_json::from_str::<JsonValue>(content)
         {
             errors.push(format!("{path}: invalid json: {e}"));
         }

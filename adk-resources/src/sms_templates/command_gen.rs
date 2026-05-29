@@ -8,12 +8,13 @@ use adk_protobuf::sms::{
 };
 use adk_protobuf::{Command, Metadata};
 use adk_types::ResourceMap;
-use serde_json::Value;
+use serde_json::{self, Value as JsonValue};
+use serde_yaml_ng::{Value as YamlValue, from_str};
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn sms_template_command_groups(
     resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> CommandGroups {
     let remote = remote_sms(projection);
@@ -37,14 +38,12 @@ pub(crate) fn sms_template_command_groups(
             let content = resource
                 .payload
                 .get("content")
-                .and_then(Value::as_str)
+                .and_then(JsonValue::as_str)
                 .unwrap_or_default();
 
             if path == "config/sms_templates.yaml" {
-                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
-                    && let Some(items) = yaml
-                        .get("sms_templates")
-                        .and_then(serde_yaml::Value::as_sequence)
+                if let Ok(yaml) = from_str::<YamlValue>(content)
+                    && let Some(items) = yaml.get("sms_templates").and_then(YamlValue::as_sequence)
                 {
                     for item in items {
                         queue.queue(item, "local");
@@ -54,7 +53,7 @@ pub(crate) fn sms_template_command_groups(
             }
 
             if path.starts_with("config/sms_templates.yaml/sms_templates/")
-                && let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
+                && let Ok(yaml) = from_str::<YamlValue>(content)
             {
                 queue.queue(&yaml, &resource.resource_id);
             }
@@ -80,20 +79,20 @@ pub(crate) fn sms_template_command_groups(
     }
 }
 
-fn remote_sms(projection: &Value) -> HashMap<String, String> {
+fn remote_sms(projection: &JsonValue) -> HashMap<String, String> {
     let entities = extract_entities_map(projection, &["sms", "templates", "entities"]);
     let mut sms = HashMap::new();
     for (id, value) in entities {
         if !value
             .get("active")
-            .and_then(Value::as_bool)
+            .and_then(JsonValue::as_bool)
             .unwrap_or(false)
         {
             continue;
         }
         let name = value
             .get("name")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .unwrap_or(&id)
             .to_string();
         sms.insert(name, id);
@@ -101,14 +100,14 @@ fn remote_sms(projection: &Value) -> HashMap<String, String> {
     sms
 }
 
-fn yaml_str(yaml: &serde_yaml::Value, key: &str) -> String {
+fn yaml_str(yaml: &YamlValue, key: &str) -> String {
     yaml.get(key)
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(YamlValue::as_str)
         .unwrap_or("")
         .to_string()
 }
 
-fn sms_env_phone_numbers(yaml: &serde_yaml::Value) -> SmsEnvPhoneNumbers {
+fn sms_env_phone_numbers(yaml: &YamlValue) -> SmsEnvPhoneNumbers {
     let env = yaml
         .get("env_phone_numbers")
         .or_else(|| yaml.get("envPhoneNumbers"));
@@ -130,7 +129,7 @@ fn sms_env_phone_numbers(yaml: &serde_yaml::Value) -> SmsEnvPhoneNumbers {
     }
 }
 
-fn sms_env_update(yaml: &serde_yaml::Value) -> UpdateSmsEnvPhoneNumbers {
+fn sms_env_update(yaml: &YamlValue) -> UpdateSmsEnvPhoneNumbers {
     let env = yaml
         .get("env_phone_numbers")
         .or_else(|| yaml.get("envPhoneNumbers"));
@@ -156,14 +155,14 @@ fn non_empty(left: String, right: String) -> String {
     if left.is_empty() { right } else { left }
 }
 
-fn sms_matches_remote(local: &serde_yaml::Value, remote: &Value) -> bool {
+fn sms_matches_remote(local: &YamlValue, remote: &JsonValue) -> bool {
     if local.get("name").and_then(|v| v.as_str()).unwrap_or("")
-        != remote.get("name").and_then(Value::as_str).unwrap_or("")
+        != remote.get("name").and_then(JsonValue::as_str).unwrap_or("")
     {
         return false;
     }
     if local.get("text").and_then(|v| v.as_str()).unwrap_or("")
-        != remote.get("text").and_then(Value::as_str).unwrap_or("")
+        != remote.get("text").and_then(JsonValue::as_str).unwrap_or("")
     {
         return false;
     }
@@ -174,47 +173,47 @@ fn sms_matches_remote(local: &serde_yaml::Value, remote: &Value) -> bool {
     let local_pre = non_empty(
         local_env
             .and_then(|env| env.get("pre_release"))
-            .and_then(serde_yaml::Value::as_str)
+            .and_then(YamlValue::as_str)
             .unwrap_or("")
             .to_string(),
         local_env
             .and_then(|env| env.get("preRelease"))
-            .and_then(serde_yaml::Value::as_str)
+            .and_then(YamlValue::as_str)
             .unwrap_or("")
             .to_string(),
     );
     let remote_pre = non_empty(
         remote_env
             .and_then(|env| env.get("preRelease"))
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .unwrap_or("")
             .to_string(),
         remote_env
             .and_then(|env| env.get("pre_release"))
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .unwrap_or("")
             .to_string(),
     );
     local_env
         .and_then(|env| env.get("sandbox"))
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(YamlValue::as_str)
         .unwrap_or("")
         == remote_env
             .and_then(|env| env.get("sandbox"))
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .unwrap_or("")
         && local_pre == remote_pre
         && local_env
             .and_then(|env| env.get("live"))
-            .and_then(serde_yaml::Value::as_str)
+            .and_then(YamlValue::as_str)
             .unwrap_or("")
             == remote_env
                 .and_then(|env| env.get("live"))
-                .and_then(Value::as_str)
+                .and_then(JsonValue::as_str)
                 .unwrap_or("")
 }
 
-fn yaml_reference_map(yaml: Option<&serde_yaml::Value>) -> HashMap<String, bool> {
+fn yaml_reference_map(yaml: Option<&YamlValue>) -> HashMap<String, bool> {
     let Some(yaml) = yaml else {
         return HashMap::new();
     };
@@ -235,9 +234,9 @@ fn yaml_reference_map(yaml: Option<&serde_yaml::Value>) -> HashMap<String, bool>
     HashMap::new()
 }
 
-fn json_reference_map(value: Option<&Value>) -> HashMap<String, bool> {
+fn json_reference_map(value: Option<&JsonValue>) -> HashMap<String, bool> {
     value
-        .and_then(Value::as_object)
+        .and_then(JsonValue::as_object)
         .map(|object| {
             object
                 .iter()
@@ -247,7 +246,7 @@ fn json_reference_map(value: Option<&Value>) -> HashMap<String, bool> {
         .unwrap_or_default()
 }
 
-fn sms_references_from_yaml(yaml: &serde_yaml::Value) -> Option<SmsTemplateReferences> {
+fn sms_references_from_yaml(yaml: &YamlValue) -> Option<SmsTemplateReferences> {
     let refs = yaml.get("references").or_else(|| yaml.get("refs"));
     let topics = yaml_reference_map(refs.and_then(|refs| refs.get("topics")));
     let flow_steps = yaml_reference_map(refs.and_then(|refs| refs.get("flow_steps")));
@@ -265,7 +264,7 @@ fn sms_references_from_yaml(yaml: &serde_yaml::Value) -> Option<SmsTemplateRefer
     })
 }
 
-fn sms_references_from_remote(remote: Option<&Value>) -> Option<SmsTemplateReferences> {
+fn sms_references_from_remote(remote: Option<&JsonValue>) -> Option<SmsTemplateReferences> {
     let refs = remote.and_then(|value| value.get("references"))?;
     let topics = json_reference_map(refs.get("topics"));
     let flow_steps = json_reference_map(refs.get("flowSteps").or_else(|| refs.get("flow_steps")));
@@ -284,7 +283,7 @@ fn sms_references_from_remote(remote: Option<&Value>) -> Option<SmsTemplateRefer
 }
 
 struct SmsItemQueue<'a> {
-    projection: &'a Value,
+    projection: &'a JsonValue,
     remote: &'a HashMap<String, String>,
     metadata: &'a Option<Metadata>,
     local_names: &'a mut HashSet<String>,
@@ -293,7 +292,7 @@ struct SmsItemQueue<'a> {
 }
 
 impl SmsItemQueue<'_> {
-    fn queue(&mut self, yaml: &serde_yaml::Value, resource_id: &str) {
+    fn queue(&mut self, yaml: &YamlValue, resource_id: &str) {
         let name = yaml_str(yaml, "name");
         if name.is_empty() {
             return;
@@ -316,7 +315,7 @@ impl SmsItemQueue<'_> {
         if self.remote.contains_key(&name) {
             let sms_entities =
                 extract_entities_map(self.projection, &["sms", "templates", "entities"]);
-            let mut remote_template: Option<&Value> = None;
+            let mut remote_template: Option<&JsonValue> = None;
             if let Some(remote_id) = self.remote.get(&name)
                 && let Some(remote) = sms_entities.get(remote_id.as_str())
             {
@@ -358,7 +357,7 @@ impl SmsItemQueue<'_> {
     }
 }
 
-pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
+pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {
     match payload {
         CommandPayload::SmsDeleteTemplate(delete) => Some((
             "sms_delete_template",
@@ -379,14 +378,14 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
         )),
         CommandPayload::SmsUpdateTemplate(update) => {
             let mut value = serde_json::Map::new();
-            value.insert("id".to_string(), Value::String(update.id.clone()));
+            value.insert("id".to_string(), JsonValue::String(update.id.clone()));
             value.insert(
                 "name".to_string(),
-                Value::String(update.name.clone().unwrap_or_default()),
+                JsonValue::String(update.name.clone().unwrap_or_default()),
             );
             value.insert(
                 "text".to_string(),
-                Value::String(update.text.clone().unwrap_or_default()),
+                JsonValue::String(update.text.clone().unwrap_or_default()),
             );
             value.insert(
                 "env_phone_numbers".to_string(),
@@ -400,55 +399,58 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
             }
             value.insert(
                 "active".to_string(),
-                Value::Bool(update.active.unwrap_or(false)),
+                JsonValue::Bool(update.active.unwrap_or(false)),
             );
-            Some(("sms_update_template", Value::Object(value)))
+            Some(("sms_update_template", JsonValue::Object(value)))
         }
         _ => None,
     }
 }
 
-fn sms_env_json(env: Option<&SmsEnvPhoneNumbers>) -> Value {
+fn sms_env_json(env: Option<&SmsEnvPhoneNumbers>) -> JsonValue {
     let Some(env) = env else {
         return serde_json::json!({});
     };
     let mut value = serde_json::Map::new();
     if !env.sandbox.is_empty() {
-        value.insert("sandbox".to_string(), Value::String(env.sandbox.clone()));
+        value.insert(
+            "sandbox".to_string(),
+            JsonValue::String(env.sandbox.clone()),
+        );
     }
     if !env.pre_release.is_empty() {
         value.insert(
             "pre_release".to_string(),
-            Value::String(env.pre_release.clone()),
+            JsonValue::String(env.pre_release.clone()),
         );
     }
     if !env.live.is_empty() {
-        value.insert("live".to_string(), Value::String(env.live.clone()));
+        value.insert("live".to_string(), JsonValue::String(env.live.clone()));
     }
-    Value::Object(value)
+    JsonValue::Object(value)
 }
 
-fn sms_env_update_json(env: Option<&UpdateSmsEnvPhoneNumbers>) -> Value {
+fn sms_env_update_json(env: Option<&UpdateSmsEnvPhoneNumbers>) -> JsonValue {
     let Some(env) = env else {
         return serde_json::json!({});
     };
     let mut value = serde_json::Map::new();
     if let Some(sandbox) = &env.sandbox {
-        value.insert("sandbox".to_string(), Value::String(sandbox.clone()));
+        value.insert("sandbox".to_string(), JsonValue::String(sandbox.clone()));
     }
     if let Some(pre_release) = &env.pre_release {
         value.insert(
             "pre_release".to_string(),
-            Value::String(pre_release.clone()),
+            JsonValue::String(pre_release.clone()),
         );
     }
     if let Some(live) = &env.live {
-        value.insert("live".to_string(), Value::String(live.clone()));
+        value.insert("live".to_string(), JsonValue::String(live.clone()));
     }
-    Value::Object(value)
+    JsonValue::Object(value)
 }
 
-fn sms_references_json(references: Option<&SmsTemplateReferences>) -> Value {
+fn sms_references_json(references: Option<&SmsTemplateReferences>) -> JsonValue {
     let Some(references) = references else {
         return serde_json::json!({});
     };
@@ -474,7 +476,7 @@ fn sms_references_json(references: Option<&SmsTemplateReferences>) -> Value {
             serde_json::json!(references.translations),
         );
     }
-    Value::Object(value)
+    JsonValue::Object(value)
 }
 
 #[cfg(test)]

@@ -5,7 +5,8 @@
 //! command generation helpers.
 
 use adk_protobuf::agent::RulesReferences;
-use serde_json::Value;
+use serde_json::Value as JsonValue;
+use serde_yaml_ng::Value as YamlValue;
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -102,7 +103,7 @@ pub(crate) use materialization::{
 
 pub const PYTHON_VARIANT_STATUS_KEY_PREFIX: &str = "__python_variant__/";
 
-pub(crate) fn rules_references_from_projection(projection: &Value) -> Option<RulesReferences> {
+pub(crate) fn rules_references_from_projection(projection: &JsonValue) -> Option<RulesReferences> {
     let references = projection.pointer("/agentSettings/rules/references")?;
     let refs = RulesReferences {
         sms: json_bool_map(references.get("sms")),
@@ -172,9 +173,9 @@ fn extract_template_references(behaviour: &str, prefix: &str) -> HashMap<String,
     out
 }
 
-fn json_bool_map(value: Option<&Value>) -> HashMap<String, bool> {
+fn json_bool_map(value: Option<&JsonValue>) -> HashMap<String, bool> {
     value
-        .and_then(Value::as_object)
+        .and_then(JsonValue::as_object)
         .map(|object| {
             object
                 .iter()
@@ -184,16 +185,16 @@ fn json_bool_map(value: Option<&Value>) -> HashMap<String, bool> {
         .unwrap_or_default()
 }
 
-fn snake_case_json_keys(value: &mut Value) {
+fn snake_case_json_keys(value: &mut JsonValue) {
     match value {
-        Value::Object(object) => {
+        JsonValue::Object(object) => {
             let old = std::mem::take(object);
             for (key, mut value) in old {
                 snake_case_json_keys(&mut value);
                 object.insert(to_snake_case(&key), value);
             }
         }
-        Value::Array(items) => {
+        JsonValue::Array(items) => {
             for item in items {
                 snake_case_json_keys(item);
             }
@@ -202,7 +203,7 @@ fn snake_case_json_keys(value: &mut Value) {
     }
 }
 
-pub(crate) fn extract_entities_map(root: &Value, path: &[&str]) -> HashMap<String, Value> {
+pub(crate) fn extract_entities_map(root: &JsonValue, path: &[&str]) -> HashMap<String, JsonValue> {
     let mut cur = root;
     for key in path {
         cur = match cur.get(*key) {
@@ -219,7 +220,7 @@ pub(crate) fn extract_entities_map(root: &Value, path: &[&str]) -> HashMap<Strin
         .unwrap_or_default()
 }
 
-fn extract_entities_vec(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
+fn extract_entities_vec(root: &JsonValue, path: &[&str]) -> Vec<(String, JsonValue)> {
     let mut cur = root;
     for key in path {
         cur = match cur.get(*key) {
@@ -228,8 +229,8 @@ fn extract_entities_vec(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
         };
     }
 
-    let (entities, ids) = match cur.get("entities").and_then(Value::as_object) {
-        Some(entities) => (entities, cur.get("ids").and_then(Value::as_array)),
+    let (entities, ids) = match cur.get("entities").and_then(JsonValue::as_object) {
+        Some(entities) => (entities, cur.get("ids").and_then(JsonValue::as_array)),
         None => match cur.as_object() {
             Some(entities) => (entities, None),
             None => return Vec::new(),
@@ -239,7 +240,7 @@ fn extract_entities_vec(root: &Value, path: &[&str]) -> Vec<(String, Value)> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     if let Some(ids) = ids {
-        for id in ids.iter().filter_map(Value::as_str) {
+        for id in ids.iter().filter_map(JsonValue::as_str) {
             if let Some(entity) = entities.get(id) {
                 out.push((id.to_string(), entity.clone()));
                 seen.insert(id.to_string());
@@ -294,18 +295,18 @@ pub(crate) fn is_synthetic_local_resource_id(resource_id: &str) -> bool {
         || trimmed.ends_with(".py")
 }
 
-fn yaml_get<'a>(config: Option<&'a serde_yaml::Value>, key: &str) -> Option<&'a serde_yaml::Value> {
+fn yaml_get<'a>(config: Option<&'a YamlValue>, key: &str) -> Option<&'a YamlValue> {
     config.and_then(|c| c.get(key))
 }
 
-fn yaml_string(config: Option<&serde_yaml::Value>, key: &str) -> String {
+fn yaml_string(config: Option<&YamlValue>, key: &str) -> String {
     yaml_get(config, key)
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(YamlValue::as_str)
         .unwrap_or_default()
         .to_string()
 }
 
-pub(crate) fn yaml_str(config: &serde_yaml::Value, key: &str) -> String {
+pub(crate) fn yaml_str(config: &YamlValue, key: &str) -> String {
     yaml_string(Some(config), key)
 }
 

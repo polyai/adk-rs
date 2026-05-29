@@ -1,5 +1,6 @@
 use crate::FunctionValidationFailure;
 use adk_types::ResourceMap;
+use serde_yaml_ng::{Value, from_str};
 use std::collections::{BTreeSet, HashMap};
 
 pub fn validate_flow_resources(
@@ -103,7 +104,7 @@ fn flow_validation_step_names(resources: &ResourceMap) -> FlowValidationNames {
                 flow_names.insert(stem.to_string());
             }
             if let Some(yaml) = resource_yaml_content(resources, path)
-                && let Some(name) = yaml.get("name").and_then(serde_yaml::Value::as_str)
+                && let Some(name) = yaml.get("name").and_then(Value::as_str)
             {
                 flow_names.insert(name.to_string());
             }
@@ -130,14 +131,11 @@ fn flow_validation_entity_ids(resources: &ResourceMap) -> BTreeSet<String> {
     let Some(yaml) = resource_yaml_content(resources, "config/entities.yaml") else {
         return ids;
     };
-    let Some(items) = yaml
-        .get("entities")
-        .and_then(serde_yaml::Value::as_sequence)
-    else {
+    let Some(items) = yaml.get("entities").and_then(Value::as_sequence) else {
         return ids;
     };
     for item in items {
-        let Some(name) = item.get("name").and_then(serde_yaml::Value::as_str) else {
+        let Some(name) = item.get("name").and_then(Value::as_str) else {
             continue;
         };
         ids.insert(format!("ENTITY-{name}"));
@@ -148,14 +146,14 @@ fn flow_validation_entity_ids(resources: &ResourceMap) -> BTreeSet<String> {
 
 fn validate_flow_config_resource(
     path: &str,
-    yaml: &serde_yaml::Value,
+    yaml: &Value,
     flow_steps: &FlowValidationNames,
     errors: &mut Vec<String>,
 ) {
     let flow_name = flow_name_from_resource_path(path).unwrap_or_default();
     let start_step = yaml
         .get("start_step")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(Value::as_str)
         .unwrap_or_default();
     if start_step.is_empty() {
         errors.push(format!(
@@ -171,7 +169,7 @@ fn validate_flow_config_resource(
     }
     let description = yaml
         .get("description")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(Value::as_str)
         .unwrap_or_default();
     if description.is_empty() {
         errors.push(format!(
@@ -186,16 +184,13 @@ fn validate_flow_config_resource(
 
 fn validate_flow_step_resource(
     path: &str,
-    yaml: &serde_yaml::Value,
+    yaml: &Value,
     flow_steps: &FlowValidationNames,
     entity_ids: &BTreeSet<String>,
     errors: &mut Vec<String>,
 ) {
     let flow_name = flow_name_from_resource_path(path).unwrap_or_default();
-    let name = yaml
-        .get("name")
-        .and_then(serde_yaml::Value::as_str)
-        .unwrap_or_default();
+    let name = yaml.get("name").and_then(Value::as_str).unwrap_or_default();
     if name.is_empty() {
         errors.push(format!("Validation error in {path}: Name cannot be empty."));
         return;
@@ -208,7 +203,7 @@ fn validate_flow_step_resource(
     }
     let prompt = yaml
         .get("prompt")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(Value::as_str)
         .unwrap_or_default();
     if prompt.trim().is_empty() {
         errors.push(format!(
@@ -218,7 +213,7 @@ fn validate_flow_step_resource(
     }
     let step_type = yaml
         .get("step_type")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(Value::as_str)
         .unwrap_or_default();
     if !matches!(
         step_type,
@@ -238,9 +233,7 @@ fn validate_flow_step_resource(
         return;
     }
     if step_type == "default_step"
-        && let Some(conditions) = yaml
-            .get("conditions")
-            .and_then(serde_yaml::Value::as_sequence)
+        && let Some(conditions) = yaml.get("conditions").and_then(Value::as_sequence)
     {
         for condition in conditions {
             validate_flow_condition(path, condition, flow_name, flow_steps, entity_ids, errors);
@@ -250,7 +243,7 @@ fn validate_flow_step_resource(
 
 fn validate_flow_condition(
     path: &str,
-    condition: &serde_yaml::Value,
+    condition: &Value,
     flow_name: &str,
     flow_steps: &FlowValidationNames,
     entity_ids: &BTreeSet<String>,
@@ -258,7 +251,7 @@ fn validate_flow_condition(
 ) {
     let name = condition
         .get("name")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(Value::as_str)
         .unwrap_or_default();
     if name.is_empty() {
         errors.push(format!(
@@ -268,12 +261,12 @@ fn validate_flow_condition(
     }
     let condition_type = condition
         .get("condition_type")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(Value::as_str)
         .unwrap_or("exit_flow_condition");
     if condition_type != "exit_flow_condition" {
         let child_step = condition
             .get("child_step")
-            .and_then(serde_yaml::Value::as_str)
+            .and_then(Value::as_str)
             .unwrap_or_default();
         if !flow_steps.contains(flow_name, child_step) {
             errors.push(format!(
@@ -284,10 +277,10 @@ fn validate_flow_condition(
     }
     let missing_entities = condition
         .get("required_entities")
-        .and_then(serde_yaml::Value::as_sequence)
+        .and_then(Value::as_sequence)
         .into_iter()
         .flatten()
-        .filter_map(serde_yaml::Value::as_str)
+        .filter_map(Value::as_str)
         .filter(|entity| !entity_ids.contains(*entity))
         .map(ToString::to_string)
         .collect::<Vec<_>>();
@@ -300,7 +293,7 @@ fn validate_flow_condition(
     }
     let description = condition
         .get("description")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(Value::as_str)
         .unwrap_or_default();
     if !description.is_empty() && description != description.trim() {
         errors.push(format!(
@@ -313,8 +306,8 @@ fn resource_content<'a>(resources: &'a ResourceMap, path: &str) -> Option<&'a st
     resources.get(path)?.payload.get("content")?.as_str()
 }
 
-fn resource_yaml_content(resources: &ResourceMap, path: &str) -> Option<serde_yaml::Value> {
-    serde_yaml::from_str(resource_content(resources, path)?).ok()
+fn resource_yaml_content(resources: &ResourceMap, path: &str) -> Option<Value> {
+    from_str(resource_content(resources, path)?).ok()
 }
 
 fn flow_name_from_resource_path(path: &str) -> Option<&str> {

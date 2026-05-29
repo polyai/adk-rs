@@ -10,7 +10,8 @@ use adk_protobuf::api_integrations::{
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::ResourceMap;
-use serde_json::{Value, json};
+use serde_json::{self, Value as JsonValue, json};
+use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -49,7 +50,7 @@ struct ApiOperationItem {
 
 pub(crate) fn api_integration_lifecycle_commands(
     resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> ApiIntegrationLifecycleCommands {
     let Some(yaml) = resource_yaml(resources, API_INTEGRATIONS.file.file_path) else {
@@ -223,7 +224,7 @@ pub(crate) fn api_integration_lifecycle_commands(
     commands
 }
 
-fn local_api_integration_items(yaml: &serde_yaml::Value) -> Vec<ApiIntegrationItem> {
+fn local_api_integration_items(yaml: &YamlValue) -> Vec<ApiIntegrationItem> {
     yaml_sequence(yaml, API_INTEGRATIONS.yaml_key)
         .into_iter()
         .filter_map(|item| {
@@ -242,7 +243,7 @@ fn local_api_integration_items(yaml: &serde_yaml::Value) -> Vec<ApiIntegrationIt
         .collect()
 }
 
-fn remote_api_integration_items(projection: &Value) -> Vec<ApiIntegrationItem> {
+fn remote_api_integration_items(projection: &JsonValue) -> Vec<ApiIntegrationItem> {
     API_INTEGRATIONS
         .entries(projection)
         .into_iter()
@@ -262,12 +263,10 @@ fn remote_api_integration_items(projection: &Value) -> Vec<ApiIntegrationItem> {
         .collect()
 }
 
-fn api_environment_items_from_yaml(
-    integration: &serde_yaml::Value,
-) -> HashMap<String, ApiEnvironmentItem> {
+fn api_environment_items_from_yaml(integration: &YamlValue) -> HashMap<String, ApiEnvironmentItem> {
     let Some(envs) = integration
         .get("environments")
-        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(YamlValue::as_mapping)
     else {
         return HashMap::new();
     };
@@ -278,7 +277,7 @@ fn api_environment_items_from_yaml(
         ("pre_release", "pre_release"),
         ("live", "live"),
     ] {
-        if let Some(env) = envs.get(serde_yaml::Value::String(source_key.to_string())) {
+        if let Some(env) = envs.get(YamlValue::String(source_key.to_string())) {
             out.insert(
                 normalized_key.to_string(),
                 ApiEnvironmentItem {
@@ -291,8 +290,8 @@ fn api_environment_items_from_yaml(
     out
 }
 
-fn api_environment_items_from_projection(value: &Value) -> HashMap<String, ApiEnvironmentItem> {
-    let Some(envs) = value.get("environments").and_then(Value::as_object) else {
+fn api_environment_items_from_projection(value: &JsonValue) -> HashMap<String, ApiEnvironmentItem> {
+    let Some(envs) = value.get("environments").and_then(JsonValue::as_object) else {
         return HashMap::new();
     };
     let mut out = HashMap::new();
@@ -316,7 +315,7 @@ fn api_environment_items_from_projection(value: &Value) -> HashMap<String, ApiEn
     out
 }
 
-fn api_operations_from_yaml(integration: &serde_yaml::Value) -> Vec<ApiOperationItem> {
+fn api_operations_from_yaml(integration: &YamlValue) -> Vec<ApiOperationItem> {
     yaml_sequence(integration, "operations")
         .into_iter()
         .filter_map(|item| {
@@ -334,43 +333,44 @@ fn api_operations_from_yaml(integration: &serde_yaml::Value) -> Vec<ApiOperation
         .collect()
 }
 
-fn api_operations_from_projection(integration: &Value) -> Vec<ApiOperationItem> {
+fn api_operations_from_projection(integration: &JsonValue) -> Vec<ApiOperationItem> {
     let Some(operations) = integration.get("operations") else {
         return Vec::new();
     };
-    let mut items = if let Some(entities) = operations.get("entities").and_then(Value::as_object) {
-        let ids = operations.get("ids").and_then(Value::as_array);
-        let mut ordered = Vec::new();
-        let mut seen = HashSet::new();
-        if let Some(ids) = ids {
-            for id in ids.iter().filter_map(Value::as_str) {
-                if let Some(operation) = entities.get(id) {
-                    ordered.push((id.to_string(), operation));
-                    seen.insert(id.to_string());
+    let mut items =
+        if let Some(entities) = operations.get("entities").and_then(JsonValue::as_object) {
+            let ids = operations.get("ids").and_then(JsonValue::as_array);
+            let mut ordered = Vec::new();
+            let mut seen = HashSet::new();
+            if let Some(ids) = ids {
+                for id in ids.iter().filter_map(JsonValue::as_str) {
+                    if let Some(operation) = entities.get(id) {
+                        ordered.push((id.to_string(), operation));
+                        seen.insert(id.to_string());
+                    }
                 }
             }
-        }
-        let mut remaining = entities
-            .iter()
-            .filter(|(id, _)| !seen.contains(*id))
-            .collect::<Vec<_>>();
-        remaining.sort_by_key(|(left, _)| *left);
-        ordered.extend(
-            remaining
-                .into_iter()
-                .map(|(id, operation)| (id.clone(), operation)),
-        );
-        ordered
-    } else if let Some(object) = operations.as_object() {
-        let mut pairs = object
-            .iter()
-            .map(|(id, operation)| (id.clone(), operation))
-            .collect::<Vec<_>>();
-        pairs.sort_by(|(left, _), (right, _)| left.cmp(right));
-        pairs
-    } else {
-        Vec::new()
-    };
+            let mut remaining = entities
+                .iter()
+                .filter(|(id, _)| !seen.contains(*id))
+                .collect::<Vec<_>>();
+            remaining.sort_by_key(|(left, _)| *left);
+            ordered.extend(
+                remaining
+                    .into_iter()
+                    .map(|(id, operation)| (id.clone(), operation)),
+            );
+            ordered
+        } else if let Some(object) = operations.as_object() {
+            let mut pairs = object
+                .iter()
+                .map(|(id, operation)| (id.clone(), operation))
+                .collect::<Vec<_>>();
+            pairs.sort_by(|(left, _), (right, _)| left.cmp(right));
+            pairs
+        } else {
+            Vec::new()
+        };
 
     items
         .drain(..)
@@ -427,7 +427,7 @@ fn push_create_api_operation(
     );
 }
 
-pub(crate) fn environments_json(environments: Option<&Environments>) -> Value {
+pub(crate) fn environments_json(environments: Option<&Environments>) -> JsonValue {
     let Some(environments) = environments else {
         return json!({});
     };
@@ -444,10 +444,10 @@ pub(crate) fn environments_json(environments: Option<&Environments>) -> Value {
     if let Some(live) = &environments.live {
         value.insert("live".to_string(), api_integration_config_json(live));
     }
-    Value::Object(value)
+    JsonValue::Object(value)
 }
 
-fn api_integration_config_json(config: &ApiIntegrationConfig) -> Value {
+fn api_integration_config_json(config: &ApiIntegrationConfig) -> JsonValue {
     json!({
         "base_url": config.base_url,
         "auth_type": config.auth_type,

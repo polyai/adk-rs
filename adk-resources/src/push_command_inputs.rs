@@ -1,7 +1,8 @@
 //! Shared input helpers for resource-family push-command builders.
 
 use adk_types::ResourceMap;
-use serde_json::Value;
+use serde_json::Value as JsonValue;
+use serde_yaml_ng::{Value as YamlValue, from_str};
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -11,12 +12,12 @@ pub(crate) struct SimpleLifecycleCommands {
     pub(crate) updates: Vec<adk_protobuf::Command>,
 }
 
-pub(crate) fn resource_yaml(resources: &ResourceMap, path: &str) -> Option<serde_yaml::Value> {
+pub(crate) fn resource_yaml(resources: &ResourceMap, path: &str) -> Option<YamlValue> {
     let content = resources.get(path)?.payload.get("content")?.as_str()?;
-    serde_yaml::from_str(content).ok()
+    from_str(content).ok()
 }
 
-pub(crate) fn first_yaml_mapping(value: &serde_yaml::Value) -> Option<&serde_yaml::Value> {
+pub(crate) fn first_yaml_mapping(value: &YamlValue) -> Option<&YamlValue> {
     value
         .as_sequence()?
         .iter()
@@ -27,59 +28,54 @@ pub(crate) fn resource_changed(local: &ResourceMap, remote: &ResourceMap, path: 
     let Some(local_content) = local
         .get(path)
         .and_then(|resource| resource.payload.get("content"))
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
     else {
         return false;
     };
     let Some(remote_content) = remote
         .get(path)
         .and_then(|resource| resource.payload.get("content"))
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
     else {
         return true;
     };
     local_content != remote_content
 }
 
-pub(crate) fn yaml_sequence<'a>(
-    yaml: &'a serde_yaml::Value,
-    key: &str,
-) -> Vec<&'a serde_yaml::Value> {
+pub(crate) fn yaml_sequence<'a>(yaml: &'a YamlValue, key: &str) -> Vec<&'a YamlValue> {
     yaml.get(key)
-        .and_then(serde_yaml::Value::as_sequence)
+        .and_then(YamlValue::as_sequence)
         .map(|items| items.iter().collect())
         .unwrap_or_default()
 }
 
-pub(crate) fn yaml_bool(yaml: &serde_yaml::Value, key: &str) -> bool {
-    yaml.get(key)
-        .and_then(serde_yaml::Value::as_bool)
-        .unwrap_or(false)
+pub(crate) fn yaml_bool(yaml: &YamlValue, key: &str) -> bool {
+    yaml.get(key).and_then(YamlValue::as_bool).unwrap_or(false)
 }
 
-pub(crate) fn json_str(value: &Value, keys: &[&str]) -> String {
+pub(crate) fn json_str(value: &JsonValue, keys: &[&str]) -> String {
     keys.iter()
-        .find_map(|key| value.get(*key).and_then(Value::as_str))
+        .find_map(|key| value.get(*key).and_then(JsonValue::as_str))
         .unwrap_or("")
         .to_string()
 }
 
-pub(crate) fn json_bool(value: &Value, keys: &[&str]) -> bool {
+pub(crate) fn json_bool(value: &JsonValue, keys: &[&str]) -> bool {
     keys.iter()
-        .find_map(|key| value.get(*key).and_then(Value::as_bool))
+        .find_map(|key| value.get(*key).and_then(JsonValue::as_bool))
         .unwrap_or(false)
 }
 
-pub(crate) fn json_i32(value: &Value, keys: &[&str]) -> i32 {
+pub(crate) fn json_i32(value: &JsonValue, keys: &[&str]) -> i32 {
     keys.iter()
-        .find_map(|key| value.get(*key).and_then(Value::as_i64))
+        .find_map(|key| value.get(*key).and_then(JsonValue::as_i64))
         .and_then(|value| i32::try_from(value).ok())
         .unwrap_or(0)
 }
 
-pub(crate) fn yaml_string_map(value: Option<&serde_yaml::Value>) -> HashMap<String, String> {
+pub(crate) fn yaml_string_map(value: Option<&YamlValue>) -> HashMap<String, String> {
     value
-        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(YamlValue::as_mapping)
         .map(|items| {
             items
                 .iter()

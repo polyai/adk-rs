@@ -16,14 +16,15 @@ use adk_protobuf::content_filter_settings::{
     ContentFilterSettingsUpdateContentFilterSettings,
 };
 use adk_types::ResourceMap;
-use serde_json::{Value, json};
+use serde_json::{self, Value as JsonValue, json};
+use serde_yaml_ng::{Mapping, Value as YamlValue};
 use std::collections::HashMap;
 
 pub(crate) fn append_agent_settings_updates(
     commands: &mut Vec<adk_protobuf::Command>,
     resources: &ResourceMap,
     remote_resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) {
     append_rules_update(commands, resources, projection, metadata);
@@ -35,7 +36,7 @@ pub(crate) fn append_agent_settings_updates(
 fn append_rules_update(
     commands: &mut Vec<adk_protobuf::Command>,
     resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) {
     let Some(resource) = resources.get(AGENT_RULES_FILE.file_path) else {
@@ -44,13 +45,13 @@ fn append_rules_update(
     let content = resource
         .payload
         .get("content")
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
         .unwrap_or_default();
     let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
     let normalized_content = replace_resource_names_with_ids(content, &prompt_reference_maps, None);
     let remote_behaviour = projection
         .pointer("/agentSettings/rules/behaviour")
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
         .unwrap_or_default();
     if normalized_content == remote_behaviour {
         return;
@@ -81,7 +82,7 @@ fn append_personality_update(
     {
         let values = yaml
             .get("adjectives")
-            .and_then(serde_yaml::Value::as_mapping)
+            .and_then(YamlValue::as_mapping)
             .map(|items| {
                 items
                     .iter()
@@ -147,17 +148,15 @@ fn append_safety_filter_update(
 }
 
 fn content_filter_settings_from_yaml(
-    yaml: &serde_yaml::Value,
+    yaml: &YamlValue,
 ) -> ContentFilterSettingsUpdateContentFilterSettings {
-    let categories = yaml
-        .get("categories")
-        .and_then(serde_yaml::Value::as_mapping);
+    let categories = yaml.get("categories").and_then(YamlValue::as_mapping);
     ContentFilterSettingsUpdateContentFilterSettings {
         r#type: Some("azure".to_string()),
         disabled: Some(
             !yaml
                 .get("enabled")
-                .and_then(serde_yaml::Value::as_bool)
+                .and_then(YamlValue::as_bool)
                 .unwrap_or(true),
         ),
         azure_config: Some(AzureContentFilter {
@@ -170,20 +169,20 @@ fn content_filter_settings_from_yaml(
 }
 
 fn content_filter_category_from_yaml(
-    categories: Option<&serde_yaml::Mapping>,
+    categories: Option<&Mapping>,
     name: &str,
 ) -> Option<AzureContentFilterCategory> {
-    let category = categories?.get(serde_yaml::Value::String(name.to_string()))?;
+    let category = categories?.get(YamlValue::String(name.to_string()))?;
     Some(AzureContentFilterCategory {
         is_active: category
             .get("enabled")
-            .and_then(serde_yaml::Value::as_bool)
+            .and_then(YamlValue::as_bool)
             .unwrap_or(false),
         precision: yaml_str(category, "level").to_ascii_uppercase(),
     })
 }
 
-pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
+pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {
     match payload {
         CommandPayload::UpdatePersonality(msg) => Some((
             "update_personality",
@@ -216,15 +215,15 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
 
 fn content_filter_settings_json(
     settings: &ContentFilterSettingsUpdateContentFilterSettings,
-) -> Value {
+) -> JsonValue {
     let mut value = serde_json::Map::new();
     value.insert(
         "type".to_string(),
-        Value::String(settings.r#type.clone().unwrap_or_default()),
+        JsonValue::String(settings.r#type.clone().unwrap_or_default()),
     );
     value.insert(
         "disabled".to_string(),
-        Value::Bool(settings.disabled.unwrap_or(false)),
+        JsonValue::Bool(settings.disabled.unwrap_or(false)),
     );
     if let Some(azure_config) = &settings.azure_config {
         value.insert(
@@ -232,10 +231,10 @@ fn content_filter_settings_json(
             azure_content_filter_json(azure_config),
         );
     }
-    Value::Object(value)
+    JsonValue::Object(value)
 }
 
-fn azure_content_filter_json(filter: &AzureContentFilter) -> Value {
+fn azure_content_filter_json(filter: &AzureContentFilter) -> JsonValue {
     let mut value = serde_json::Map::new();
     if let Some(hate) = &filter.hate {
         value.insert("hate".to_string(), content_filter_category_json(hate));
@@ -255,17 +254,17 @@ fn azure_content_filter_json(filter: &AzureContentFilter) -> Value {
             content_filter_category_json(violence),
         );
     }
-    Value::Object(value)
+    JsonValue::Object(value)
 }
 
-fn content_filter_category_json(category: &AzureContentFilterCategory) -> Value {
+fn content_filter_category_json(category: &AzureContentFilterCategory) -> JsonValue {
     let mut value = serde_json::Map::new();
     if category.is_active {
-        value.insert("is_active".to_string(), Value::Bool(true));
+        value.insert("is_active".to_string(), JsonValue::Bool(true));
     }
     value.insert(
         "precision".to_string(),
-        Value::String(category.precision.clone()),
+        JsonValue::String(category.precision.clone()),
     );
-    Value::Object(value)
+    JsonValue::Object(value)
 }

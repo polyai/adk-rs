@@ -11,6 +11,7 @@ use crate::local_resources::{
 };
 use adk_io::FileSystem;
 use indexmap::IndexMap;
+use serde_yaml_ng::Value;
 use std::path::Path;
 
 /// Canonical local storage shape for a resource family.
@@ -58,7 +59,7 @@ pub(crate) trait DiscoverResources {
     /// Logical paths relative to `base_path`, `/`-separated, matching Python logical paths.
     fn discover_resources<Fs: FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String>;
 
-    fn validate_local_yaml(_path: &str, _yaml: &serde_yaml::Value, _errors: &mut Vec<String>) {}
+    fn validate_local_yaml(_path: &str, _yaml: &Value, _errors: &mut Vec<String>) {}
 }
 
 pub struct DiscoverDispatchEntry {
@@ -93,7 +94,7 @@ macro_rules! discover_resources {
 
         pub fn validate_semantic_resource(
             path: &str,
-            yaml: &serde_yaml::Value,
+            yaml: &Value,
             errors: &mut Vec<String>,
         ) {
             $(

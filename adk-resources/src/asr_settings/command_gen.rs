@@ -6,7 +6,8 @@ use adk_protobuf::asr_settings::{AsrSettingsUpdateAsrSettings, LatencyConfig};
 use adk_protobuf::channels::VoiceChannelUpdateAsrSettings;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::ResourceMap;
-use serde_json::{Value, json};
+use serde_json::{self, Value as JsonValue, json};
+use serde_yaml_ng::Value as YamlValue;
 
 pub(crate) fn append_asr_settings_update(
     commands: &mut Vec<adk_protobuf::Command>,
@@ -25,7 +26,7 @@ pub(crate) fn append_asr_settings_update(
                 asr_settings: Some(AsrSettingsUpdateAsrSettings {
                     barge_in: Some(
                         yaml.get("barge_in")
-                            .and_then(serde_yaml::Value::as_bool)
+                            .and_then(YamlValue::as_bool)
                             .unwrap_or(false),
                     ),
                     latency_config: Some(LatencyConfig {
@@ -37,7 +38,7 @@ pub(crate) fn append_asr_settings_update(
     }
 }
 
-pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
+pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {
     match payload {
         CommandPayload::VoiceChannelUpdateAsrSettings(msg) => Some((
             "voice_channel_update_asr_settings",
@@ -53,7 +54,7 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
     }
 }
 
-fn asr_settings_json(settings: &AsrSettingsUpdateAsrSettings) -> Value {
+fn asr_settings_json(settings: &AsrSettingsUpdateAsrSettings) -> JsonValue {
     json!({
         "barge_in": settings.barge_in.unwrap_or(false),
         "latency_config": {

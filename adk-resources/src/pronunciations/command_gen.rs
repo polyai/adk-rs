@@ -11,7 +11,8 @@ use adk_protobuf::pronunciations::{
     PronunciationsUpdatePronunciation,
 };
 use adk_types::ResourceMap;
-use serde_json::Value;
+use serde_json::Value as JsonValue;
+use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,7 +29,7 @@ struct PronunciationItem {
 
 pub(crate) fn pronunciation_lifecycle_commands(
     resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
     let Some(yaml) = resource_yaml(resources, PRONUNCIATIONS.file.file_path) else {
@@ -109,7 +110,7 @@ pub(crate) fn pronunciation_lifecycle_commands(
     commands
 }
 
-fn local_pronunciation_items(yaml: &serde_yaml::Value) -> Vec<PronunciationItem> {
+fn local_pronunciation_items(yaml: &YamlValue) -> Vec<PronunciationItem> {
     yaml_sequence(yaml, PRONUNCIATIONS.yaml_key)
         .into_iter()
         .enumerate()
@@ -127,7 +128,7 @@ fn local_pronunciation_items(yaml: &serde_yaml::Value) -> Vec<PronunciationItem>
                 description: yaml_str(item, "description"),
                 position: item
                     .get("position")
-                    .and_then(serde_yaml::Value::as_i64)
+                    .and_then(YamlValue::as_i64)
                     .and_then(|value| i32::try_from(value).ok())
                     .unwrap_or(idx as i32),
                 name: yaml_str(item, "name"),
@@ -136,7 +137,7 @@ fn local_pronunciation_items(yaml: &serde_yaml::Value) -> Vec<PronunciationItem>
         .collect()
 }
 
-fn remote_pronunciation_items(projection: &Value) -> Vec<PronunciationItem> {
+fn remote_pronunciation_items(projection: &JsonValue) -> Vec<PronunciationItem> {
     PRONUNCIATIONS
         .entries(projection)
         .into_iter()

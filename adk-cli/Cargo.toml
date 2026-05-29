@@ -12,25 +12,26 @@ exclude = ["tests/**"]
 
 [dependencies]
 anyhow.workspace = true
-axoupdater.workspace = true
-clap.workspace = true
-clap_complete.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 indexmap.workspace = true
 reqwest.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
 rich_rust.workspace = true
 adk-core.workspace = true
 adk-api-client.workspace = true
 adk-resources.workspace = true
+# 3rd-party CLI-only dependencies
+axoupdater = { version = "0.10.0", features = ["blocking"] }
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }
 ctrlc = "3.5.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
-httpmock.workspace = true
-serde_yaml.workspace = true
+httpmock = { version = "0.8.3", features = ["record"] }
+serde_yaml_ng.workspace = true
 
 [[bin]]
 name = "poly"

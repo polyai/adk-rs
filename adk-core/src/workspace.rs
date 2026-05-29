@@ -18,6 +18,7 @@ use adk_resources::{
 };
 use adk_types::{DomainError, ProjectConfig, Resource, ResourceMap, StatusSummary};
 use base64::Engine;
+use serde_yaml_ng::from_str;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -133,7 +134,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         if self.fs.exists(&config_path) {
             let raw = self.fs.read_to_string(&config_path)?;
             let mut config: ProjectConfig =
-                serde_yaml::from_str(&raw).map_err(|e| DomainError::InvalidData(e.to_string()))?;
+                from_str(&raw).map_err(|e| DomainError::InvalidData(e.to_string()))?;
             if !project_config_contains_branch_id(&raw)
                 && let Some(snapshot) = self.load_status_snapshot(&discovered)?
             {

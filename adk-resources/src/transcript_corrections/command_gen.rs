@@ -10,7 +10,8 @@ use adk_protobuf::transcript_corrections::{
     TranscriptCorrectionsUpdateTranscriptCorrections,
 };
 use adk_types::ResourceMap;
-use serde_json::{Value, json};
+use serde_json::{self, Value as JsonValue, json};
+use serde_yaml_ng::Value as YamlValue;
 use std::collections::HashSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,7 +24,7 @@ struct TranscriptItem {
 
 pub(crate) fn transcript_lifecycle_commands(
     resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
     let Some(yaml) = resource_yaml(resources, TRANSCRIPT_CORRECTIONS.file.file_path) else {
@@ -103,7 +104,7 @@ pub(crate) fn transcript_lifecycle_commands(
     commands
 }
 
-fn local_transcript_items(yaml: &serde_yaml::Value) -> Vec<TranscriptItem> {
+fn local_transcript_items(yaml: &YamlValue) -> Vec<TranscriptItem> {
     yaml_sequence(yaml, TRANSCRIPT_CORRECTIONS.yaml_key)
         .into_iter()
         .filter_map(|item| {
@@ -121,7 +122,7 @@ fn local_transcript_items(yaml: &serde_yaml::Value) -> Vec<TranscriptItem> {
         .collect()
 }
 
-fn remote_transcript_items(projection: &Value) -> Vec<TranscriptItem> {
+fn remote_transcript_items(projection: &JsonValue) -> Vec<TranscriptItem> {
     TRANSCRIPT_CORRECTIONS
         .entries(projection)
         .into_iter()
@@ -140,7 +141,7 @@ fn remote_transcript_items(projection: &Value) -> Vec<TranscriptItem> {
         .collect()
 }
 
-fn regexes_from_yaml(item: &serde_yaml::Value) -> Vec<RegularExpression> {
+fn regexes_from_yaml(item: &YamlValue) -> Vec<RegularExpression> {
     yaml_sequence(item, "regular_expressions")
         .into_iter()
         .map(|regex| RegularExpression {
@@ -152,10 +153,10 @@ fn regexes_from_yaml(item: &serde_yaml::Value) -> Vec<RegularExpression> {
         .collect()
 }
 
-fn regexes_from_projection(item: &Value) -> Vec<RegularExpression> {
+fn regexes_from_projection(item: &JsonValue) -> Vec<RegularExpression> {
     item.get("regularExpressions")
         .or_else(|| item.get("regular_expressions"))
-        .and_then(Value::as_array)
+        .and_then(JsonValue::as_array)
         .into_iter()
         .flatten()
         .map(|regex| RegularExpression {
@@ -214,7 +215,7 @@ fn transcript_correction_proto(item: &TranscriptItem) -> TranscriptCorrection {
     }
 }
 
-pub(crate) fn regular_expression_json(regex: &RegularExpression) -> Value {
+pub(crate) fn regular_expression_json(regex: &RegularExpression) -> JsonValue {
     json!({
         "id": regex.id,
         "regular_expression": regex.regular_expression,
@@ -223,7 +224,7 @@ pub(crate) fn regular_expression_json(regex: &RegularExpression) -> Value {
     })
 }
 
-pub(crate) fn transcript_correction_json(correction: &TranscriptCorrection) -> Value {
+pub(crate) fn transcript_correction_json(correction: &TranscriptCorrection) -> JsonValue {
     json!({
         "id": correction.id,
         "name": correction.name,

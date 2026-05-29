@@ -16,6 +16,7 @@ use adk_protobuf::content_filter_settings::{
     ContentFilterSettingsUpdateContentFilterSettings,
 };
 use adk_types::ResourceMap;
+use serde_yaml_ng::{Mapping, Value as YamlValue};
 
 pub(crate) fn append_channel_settings_updates(
     commands: &mut Vec<adk_protobuf::Command>,
@@ -79,7 +80,7 @@ pub(crate) fn append_channel_settings_updates(
                             disclaimer
                                 .get("enabled")
                                 .or_else(|| disclaimer.get("is_enabled"))
-                                .and_then(serde_yaml::Value::as_bool)
+                                .and_then(YamlValue::as_bool)
                                 .unwrap_or(false),
                         ),
                         ringing_tone: None,
@@ -149,7 +150,7 @@ fn push_channel_safety_filters_update(
     commands: &mut Vec<adk_protobuf::Command>,
     metadata: &Option<Metadata>,
     channel_type: ChannelType,
-    yaml: &serde_yaml::Value,
+    yaml: &YamlValue,
 ) {
     push_command(
         commands,
@@ -163,17 +164,15 @@ fn push_channel_safety_filters_update(
 }
 
 fn content_filter_settings_from_yaml(
-    yaml: &serde_yaml::Value,
+    yaml: &YamlValue,
 ) -> ContentFilterSettingsUpdateContentFilterSettings {
-    let categories = yaml
-        .get("categories")
-        .and_then(serde_yaml::Value::as_mapping);
+    let categories = yaml.get("categories").and_then(YamlValue::as_mapping);
     ContentFilterSettingsUpdateContentFilterSettings {
         r#type: Some("azure".to_string()),
         disabled: Some(
             !yaml
                 .get("enabled")
-                .and_then(serde_yaml::Value::as_bool)
+                .and_then(YamlValue::as_bool)
                 .unwrap_or(true),
         ),
         azure_config: Some(AzureContentFilter {
@@ -186,14 +185,14 @@ fn content_filter_settings_from_yaml(
 }
 
 fn content_filter_category_from_yaml(
-    categories: Option<&serde_yaml::Mapping>,
+    categories: Option<&Mapping>,
     name: &str,
 ) -> Option<AzureContentFilterCategory> {
-    let category = categories?.get(serde_yaml::Value::String(name.to_string()))?;
+    let category = categories?.get(YamlValue::String(name.to_string()))?;
     Some(AzureContentFilterCategory {
         is_active: category
             .get("enabled")
-            .and_then(serde_yaml::Value::as_bool)
+            .and_then(YamlValue::as_bool)
             .unwrap_or(false),
         precision: yaml_str(category, "level").to_ascii_uppercase(),
     })
