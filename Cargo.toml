@@ -47,6 +47,7 @@ globset = "0.4"
 regex = "1"
 fancy-regex = "0.14"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+httpmock = "0.8.3"
 url = "2"
 rich_rust = { version = "0.2.1", features = ["backtrace"] }
 ruff_python_ast = { package = "littrs-ruff-python-ast", version = "0.6.2" }

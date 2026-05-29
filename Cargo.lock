@@ -2019,6 +2019,7 @@ dependencies = [
 name = "poly-adk-api-client"
 version = "0.0.5"
 dependencies = [
+ "httpmock",
  "indexmap",
  "poly-adk-protobuf",
  "poly-adk-resources",

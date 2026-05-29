@@ -153,3 +153,294 @@ fn extract_response_commands_reads_common_response_shapes() {
     });
     assert_eq!(extract_response_commands(&nested_result).len(), 1);
 }
+
+fn test_client(base_url: String) -> HttpPlatformClient {
+    HttpPlatformClient {
+        client: reqwest::blocking::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("test client"),
+        base_url,
+        api_key: "test-key".to_string(),
+        account_id: "test-account".to_string(),
+        project_id: "test-project".to_string(),
+        branch_id: "main".to_string(),
+    }
+}
+
+fn projection_with_function(name: &str) -> Value {
+    serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": name,
+                        "description": "Look up a customer",
+                        "code": "def lookup_customer(conv):\n    return None\n"
+                    }
+                }
+            }
+        }
+    })
+}
+
+#[test]
+fn pull_projection_by_environment_uses_active_deployment_id() {
+    use httpmock::Method::GET;
+    use httpmock::MockServer;
+
+    let server = MockServer::start();
+    let active = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/deployments/active");
+        then.status(200).json_body(serde_json::json!({
+            "sandbox": {"deployment_id": "dep-active"}
+        }));
+    });
+    let projection = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/deployments/dep-active/projection");
+        then.status(200).json_body(serde_json::json!({
+            "projection": {"selected": "active-deployment"}
+        }));
+    });
+
+    let pulled = test_client(server.base_url())
+        .pull_projection_json_by_name("sandbox")
+        .expect("pull sandbox projection");
+
+    assert_eq!(pulled, serde_json::json!({"selected": "active-deployment"}));
+    active.assert();
+    projection.assert();
+}
+
+#[test]
+fn pull_projection_by_environment_falls_back_from_active_hash_to_deployment_prefix() {
+    use httpmock::Method::GET;
+    use httpmock::MockServer;
+
+    let server = MockServer::start();
+    let active = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/deployments/active");
+        then.status(200).json_body(serde_json::json!({
+            "live": {"version_hash": "abcdef123999"}
+        }));
+    });
+    let deployments = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/deployments");
+        then.status(200).json_body(serde_json::json!({
+            "deployments": [
+                {"id": "dep-from-hash", "version_hash": "abcdef123456"}
+            ]
+        }));
+    });
+    let projection = server.mock(|when, then| {
+        when.method(GET).path(
+            "/accounts/test-account/projects/test-project/deployments/dep-from-hash/projection",
+        );
+        then.status(200).json_body(serde_json::json!({
+            "projection": {"selected": "hash-fallback"}
+        }));
+    });
+
+    let pulled = test_client(server.base_url())
+        .pull_projection_json_by_name("live")
+        .expect("pull live projection");
+
+    assert_eq!(pulled["selected"], "hash-fallback");
+    active.assert();
+    deployments.assert();
+    projection.assert();
+}
+
+#[test]
+fn pull_projection_by_branch_matches_name_and_branch_id() {
+    use httpmock::Method::GET;
+    use httpmock::MockServer;
+
+    for (query_name, expected_branch_id) in [("feature", "br-123"), ("br-456", "br-456")] {
+        let server = MockServer::start();
+        let branches = server.mock(|when, then| {
+            when.method(GET)
+                .path("/accounts/test-account/projects/test-project/branches");
+            then.status(200).json_body(serde_json::json!({
+                "branches": [
+                    {"branchId": "br-123", "name": "feature"},
+                    {"branchId": "br-456", "name": "other"}
+                ]
+            }));
+        });
+        let projection = server.mock(|when, then| {
+            when.method(GET).path(format!(
+                "/accounts/test-account/projects/test-project/branches/{expected_branch_id}/projection"
+            ));
+            then.status(200).json_body(serde_json::json!({
+                "projection": {"branch": expected_branch_id}
+            }));
+        });
+
+        let pulled = test_client(server.base_url())
+            .pull_projection_json_by_name(query_name)
+            .expect("pull branch projection");
+
+        assert_eq!(pulled["branch"], expected_branch_id);
+        branches.assert();
+        projection.assert();
+    }
+}
+
+#[test]
+fn deployment_prefix_resolution_uses_first_matching_deployment_for_ambiguous_prefixes() {
+    use httpmock::Method::GET;
+    use httpmock::MockServer;
+
+    let server = MockServer::start();
+    let base = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/deployments");
+        then.status(200).json_body(serde_json::json!({
+            "deployments": [
+                {"id": "dep-base", "version_hash": "111222333000"}
+            ]
+        }));
+    });
+    let sandbox = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/deployments")
+            .query_param("client_env", "sandbox");
+        then.status(200).json_body(serde_json::json!({
+            "deployments": [
+                {"id": "dep-sandbox", "version_hash": "111222333aaa"}
+            ]
+        }));
+    });
+    let pre_release = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/deployments")
+            .query_param("client_env", "pre-release");
+        then.status(200).json_body(serde_json::json!({
+            "deployments": [
+                {"id": "dep-pre", "version_hash": "111222333bbb"}
+            ]
+        }));
+    });
+    let projection = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/deployments/dep-base/projection");
+        then.status(200).json_body(serde_json::json!({
+            "projection": {"deployment": "dep-base"}
+        }));
+    });
+    let branches = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches");
+        then.status(200)
+            .json_body(serde_json::json!({"branches": []}));
+    });
+
+    let pulled = test_client(server.base_url())
+        .pull_projection_json_by_name("111222333")
+        .expect("pull deployment projection");
+
+    assert_eq!(pulled["deployment"], "dep-base");
+    branches.assert();
+    base.assert();
+    sandbox.assert_calls(0);
+    pre_release.assert_calls(0);
+    projection.assert();
+}
+
+#[test]
+fn pull_resources_by_name_reports_missing_environment_and_unknown_name() {
+    use httpmock::Method::GET;
+    use httpmock::MockServer;
+
+    let missing_env_server = MockServer::start();
+    let active = missing_env_server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/deployments/active");
+        then.status(200).json_body(serde_json::json!({}));
+    });
+    let missing_env = test_client(missing_env_server.base_url())
+        .pull_resources_by_name("pre-release")
+        .expect_err("missing active environment should error")
+        .to_string();
+    assert!(missing_env.contains("No active deployment found for environment 'pre-release'"));
+    active.assert();
+
+    let unknown_server = MockServer::start();
+    let branches = unknown_server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches");
+        then.status(200)
+            .json_body(serde_json::json!({"branches": []}));
+    });
+    for env_name in [None, Some("sandbox"), Some("pre-release"), Some("live")] {
+        unknown_server.mock(|when, then| {
+            let when = when
+                .method(GET)
+                .path("/accounts/test-account/projects/test-project/deployments");
+            if let Some(env_name) = env_name {
+                when.query_param("client_env", env_name);
+            }
+            then.status(200)
+                .json_body(serde_json::json!({"deployments": []}));
+        });
+    }
+
+    let unknown = test_client(unknown_server.base_url())
+        .pull_resources_by_name("does-not-exist")
+        .expect_err("unknown name should error")
+        .to_string();
+    assert!(unknown.contains("Name 'does-not-exist' not found"));
+    branches.assert();
+}
+
+#[test]
+fn pull_resources_by_branch_materializes_projection() {
+    use httpmock::Method::GET;
+    use httpmock::MockServer;
+
+    let server = MockServer::start();
+    let branches = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches");
+        then.status(200).json_body(serde_json::json!({
+            "branches": [{"branchId": "br-funcs", "name": "functions-branch"}]
+        }));
+    });
+    let projection = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches/br-funcs/projection");
+        then.status(200).json_body(serde_json::json!({
+            "projection": projection_with_function("Lookup Customer")
+        }));
+    });
+
+    let resources = test_client(server.base_url())
+        .pull_resources_by_name("functions-branch")
+        .expect("pull branch resources");
+
+    let function = resources
+        .get("functions/lookup_customer.py")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    assert!(function.contains("Look up a customer"));
+    assert!(function.contains("def lookup_customer"));
+    branches.assert();
+    projection.assert();
+}
+
+#[test]
+fn default_voice_id_matches_region_defaults_and_fallback() {
+    assert_eq!(default_voice_id("us-1"), "VOICE-6fad73f6");
+    assert_eq!(default_voice_id("euw-1"), "VOICE-8b814724");
+    assert_eq!(default_voice_id("uk-1"), "VOICE-37966683");
+    assert_eq!(default_voice_id("dev"), "VOICE-e2b01d55");
+    assert_eq!(default_voice_id("staging"), "VOICE-e2b01d55");
+    assert_eq!(default_voice_id("studio"), "VOICE-afe2b8e8");
+}
