@@ -53,10 +53,15 @@ jobs:
           --exclude 'src/**/tests.rs'
           --exclude 'src/**/testing.rs'
         )
+        CRAP_ALLOWS=(
+          # `adk-protobuf/src/*.rs` is prost-generated apart from the crate root.
+          # Suppress generated enum mapper noise instead of chasing low-value tests.
+          --allow 'adk-protobuf/src/*.rs'
+        )
 
-        cargo crap --workspace "${CRAP_EXCLUDES[@]}" --lcov lcov.info --threshold 30 --summary
-        cargo crap --workspace "${CRAP_EXCLUDES[@]}" --lcov lcov.info --threshold 30 --format markdown --output crap-full-report.md
-        cargo crap --workspace "${CRAP_EXCLUDES[@]}" --lcov lcov.info --threshold 30 --format json --output crap-report.json
+        cargo crap --workspace "${CRAP_EXCLUDES[@]}" "${CRAP_ALLOWS[@]}" --lcov lcov.info --threshold 30 --summary
+        cargo crap --workspace "${CRAP_EXCLUDES[@]}" "${CRAP_ALLOWS[@]}" --lcov lcov.info --threshold 30 --format markdown --output crap-full-report.md
+        cargo crap --workspace "${CRAP_EXCLUDES[@]}" "${CRAP_ALLOWS[@]}" --lcov lcov.info --threshold 30 --format json --output crap-report.json
         python3 - <<'PY'
         import json
         import os

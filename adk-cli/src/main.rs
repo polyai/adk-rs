@@ -365,11 +365,8 @@ fn prompt_select(label: &str, choices: &[(String, String)]) -> Result<Option<Str
 }
 
 fn prompt_text(label: &str, default: Option<&str>) -> Result<Option<String>, String> {
-    match default {
-        Some(default) if !default.is_empty() => console::prompt(format!("{label} [{default}] ")),
-        _ => console::prompt(format!("{label} ")),
-    }
-    .map_err(|error| format!("Failed to write prompt: {error}"))?;
+    console::prompt(prompt_text_label(label, default))
+        .map_err(|error| format!("Failed to write prompt: {error}"))?;
     io::stdout()
         .flush()
         .map_err(|error| format!("Failed to write prompt: {error}"))?;
@@ -377,14 +374,29 @@ fn prompt_text(label: &str, default: Option<&str>) -> Result<Option<String>, Str
     let bytes = io::stdin()
         .read_line(&mut input)
         .map_err(|error| format!("Failed to read input: {error}"))?;
-    if bytes == 0 {
-        return Ok(None);
+    Ok(prompt_text_value_from_input(bytes, &input, default))
+}
+
+fn prompt_text_label(label: &str, default: Option<&str>) -> String {
+    match default {
+        Some(default) if !default.is_empty() => format!("{label} [{default}] "),
+        _ => format!("{label} "),
+    }
+}
+
+fn prompt_text_value_from_input(
+    bytes_read: usize,
+    input: &str,
+    default: Option<&str>,
+) -> Option<String> {
+    if bytes_read == 0 {
+        return None;
     }
     let value = input.trim();
     if value.is_empty() {
-        return Ok(default.map(ToString::to_string));
+        return default.map(ToString::to_string);
     }
-    Ok(Some(value.to_string()))
+    Some(value.to_string())
 }
 
 fn prompt_multi_select(
@@ -404,7 +416,10 @@ fn prompt_multi_select(
     let bytes = io::stdin()
         .read_line(&mut input)
         .map_err(|error| format!("Failed to read selections: {error}"))?;
-    if bytes == 0 || input.trim().is_empty() {
+    if bytes == 0 {
+        return Ok(None);
+    }
+    if input.trim().is_empty() {
         return Ok(None);
     }
 
@@ -639,4 +654,39 @@ fn remote_service_for_path(
 
 fn emit_remote_service_error(json_mode: bool, error: &str) {
     emit_error(json_mode, error);
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+
+    #[test]
+    fn prompt_text_value_uses_none_for_eof() {
+        assert_eq!(prompt_text_value_from_input(0, "ignored", Some("default")), None);
+    }
+
+    #[test]
+    fn prompt_text_label_includes_non_empty_default() {
+        assert_eq!(
+            prompt_text_label("Project ID:", Some("my-project")),
+            "Project ID: [my-project] "
+        );
+        assert_eq!(prompt_text_label("Project ID:", Some("")), "Project ID: ");
+    }
+
+    #[test]
+    fn prompt_text_value_uses_default_for_blank_input() {
+        assert_eq!(
+            prompt_text_value_from_input(1, "  \n", Some("default")),
+            Some("default".to_string())
+        );
+    }
+
+    #[test]
+    fn prompt_text_value_trims_explicit_input() {
+        assert_eq!(
+            prompt_text_value_from_input(6, "  hello  \n", Some("default")),
+            Some("hello".to_string())
+        );
+    }
 }
