@@ -498,3 +498,7 @@ fn number_config_json(config: &entities::NumberConfig) -> JsonValue {
     }
     JsonValue::Object(value)
 }
+
+#[cfg(test)]
+#[path = "command_gen_tests.rs"]
+mod command_gen_tests;

@@ -152,35 +152,5 @@ fn prost_value_json(value: &ProstValue) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use adk_types::Resource;
-
-    #[test]
-    fn experimental_config_singleton_emits_update() {
-        let mut resources = ResourceMap::new();
-        resources.insert(
-            EXPERIMENTAL_CONFIG_FILE.file_path.into(),
-            Resource {
-                resource_id: "default".into(),
-                name: EXPERIMENTAL_CONFIG_FILE.name.into(),
-                file_path: EXPERIMENTAL_CONFIG_FILE.file_path.into(),
-                payload: serde_json::json!({
-                    "content": r#"{ "flag_test": true }"#
-                }),
-            },
-        );
-        let mut commands = Vec::new();
-        append_experimental_config_update(&mut commands, &resources, &serde_json::json!({}), &None);
-        let command = commands
-            .iter()
-            .find(|command| command.r#type == "experimental_config_update_config")
-            .expect("experimental config update command");
-        match &command.payload {
-            Some(CommandPayload::ExperimentalConfigUpdateConfig(payload)) => {
-                assert_eq!(payload.id, "default");
-            }
-            _ => panic!("unexpected payload variant for experimental config update command"),
-        }
-    }
-}
+#[path = "command_gen_tests.rs"]
+mod command_gen_tests;

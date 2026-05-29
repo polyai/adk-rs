@@ -1,5 +1,14 @@
+use super::payload_json_summary;
 use crate::{build_push_commands, projection_to_resource_map};
+use adk_protobuf::command::Payload as CommandPayload;
+use adk_protobuf::flows::{
+    AdvancedStepCondition, ConditionDetails, ExitFlowCondition, FlowUpdateTransitionFunction,
+    FunctionStepCondition, NoCodeStepCondition, StepPosition, TransitionFunctionReferences,
+    TransitionFunctionUpdateTransitionFunction, UpdateNoCodeCondition, update_no_code_condition,
+};
+use adk_protobuf::functions::{ErrorsUpdate, ParametersUpdate};
 use serde_json::Value;
+use std::collections::HashMap;
 
 #[test]
 fn projection_to_resource_map_rejects_duplicate_cleaned_flow_step_paths() {
@@ -333,4 +342,124 @@ fn projection_to_resource_map_includes_flow_transition_function_decorators() {
         content.contains("@func_latency_control("),
         "missing @func_latency_control: {content}"
     );
+}
+
+#[test]
+fn update_transition_function_summary_includes_optional_sections() {
+    let mut flow_steps = HashMap::new();
+    flow_steps.insert("step-1".to_string(), true);
+    let mut variables = HashMap::new();
+    variables.insert("var-1".to_string(), false);
+    let payload = CommandPayload::UpdateFlowTransitionFunction(FlowUpdateTransitionFunction {
+        flow_id: "flow-1".into(),
+        transition_function: Some(TransitionFunctionUpdateTransitionFunction {
+            id: "fn-1".into(),
+            name: Some("route".into()),
+            description: Some("choose route".into()),
+            parameters: Some(ParametersUpdate { parameters: vec![] }),
+            code: Some("def route(conv):\n    return {}".into()),
+            errors: Some(ErrorsUpdate { errors: vec![] }),
+            references: Some(TransitionFunctionReferences {
+                flow_steps,
+                variables,
+            }),
+        }),
+    });
+
+    assert_eq!(
+        payload_json_summary(&payload),
+        Some((
+            "update_flow_transition_function",
+            serde_json::json!({
+                "flow_id": "flow-1",
+                "transition_function": {
+                    "id": "fn-1",
+                    "name": "route",
+                    "description": "choose route",
+                    "parameters": {},
+                    "code": "def route(conv):\n    return {}",
+                    "errors": {},
+                    "references": {
+                        "flow_steps": {"step-1": true},
+                        "variables": {"var-1": false},
+                    },
+                },
+            })
+        ))
+    );
+}
+
+#[test]
+fn update_no_code_condition_summary_covers_config_variants() {
+    let variants = [
+        (
+            Some(update_no_code_condition::Config::ExitFlowCondition(
+                ExitFlowCondition {
+                    details: Some(ConditionDetails {
+                        label: "done".into(),
+                        description: Some("finish".into()),
+                        required_entities: vec!["ent-1".into()],
+                        position: Some(StepPosition { x: 1.0, y: 2.0 }),
+                        ingress_position: "left".into(),
+                    }),
+                    exit_flow_position: Some(StepPosition { x: 3.0, y: 4.0 }),
+                },
+            )),
+            "exit_flow_condition",
+            serde_json::json!({
+                "details": {
+                    "label": "done",
+                    "description": "finish",
+                    "required_entities": ["ent-1"],
+                    "position": {"x": 1.0, "y": 2.0},
+                    "ingress_position": "left",
+                },
+                "exit_flow_position": {"x": 3.0, "y": 4.0},
+            }),
+        ),
+        (
+            Some(update_no_code_condition::Config::StepCondition(
+                AdvancedStepCondition {
+                    details: None,
+                    child_step_id: "step-child".into(),
+                },
+            )),
+            "step_condition",
+            serde_json::json!({}),
+        ),
+        (
+            Some(update_no_code_condition::Config::NoCodeStepCondition(
+                NoCodeStepCondition {
+                    details: None,
+                    child_step_id: "nocode-child".into(),
+                },
+            )),
+            "no_code_step_condition",
+            serde_json::json!({}),
+        ),
+        (
+            Some(update_no_code_condition::Config::FunctionStepCondition(
+                FunctionStepCondition {
+                    details: None,
+                    child_step_id: "function-child".into(),
+                },
+            )),
+            "function_step_condition",
+            serde_json::json!({}),
+        ),
+    ];
+
+    for (config, expected_key, expected_value) in variants {
+        let payload = CommandPayload::UpdateNoCodeCondition(UpdateNoCodeCondition {
+            flow_id: "flow-1".into(),
+            step_id: "step-1".into(),
+            condition_id: "cond-1".into(),
+            config,
+        });
+        let (_, summary) = payload_json_summary(&payload).expect("flow condition summary");
+        assert_eq!(summary["flow_id"], "flow-1");
+        assert_eq!(summary["step_id"], "step-1");
+        assert_eq!(summary["condition_id"], "cond-1");
+        assert_eq!(summary[expected_key], expected_value);
+    }
 }
