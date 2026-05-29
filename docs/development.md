@@ -25,6 +25,11 @@ Resource type metadata and behavior are intentionally split by responsibility:
 - `adk-core/src/validation.rs` owns validation orchestration plus cross-resource checks, such as flow step references, entity references, and flow-scoped function call-site rules. Resource-local validation helpers should live with the resource family.
 - Push/pull orchestration should call `adk-resources` directly rather than adding a resource-specific intermediary crate.
 
+Within `adk-resources`, top-level directories are reserved for ADK resource
+families. Cross-resource orchestration such as discovery dispatch, push-command
+queueing, command summaries, and shared input helpers should live as top-level
+Rust modules/files unless they are nested inside a resource-family module.
+
 When adding a Python ADK resource type to Rust:
 
 1. Add one descriptor to `RESOURCE_TYPE_REGISTRY` in the same order as Python `RESOURCE_NAME_TO_CLASS`.

@@ -1,6 +1,5 @@
 use adk_types::{DiffMap, DomainError, ProjectConfig, ResourceMap};
 
-mod python_syntax;
 mod service;
 mod validation;
 mod workspace;
@@ -26,6 +25,7 @@ pub use workspace::ProjectWorkspace;
 pub const PROJECT_CONFIG_FILE: &str = "project.yaml";
 pub const STATUS_FILE: &str = "_gen/.agent_studio_config";
 const MIGRATED_LEGACY_TOPIC_FILES: &str = "migrated_legacy_topic_files";
+const MIGRATED_LEGACY_KEYPHRASE_BOOSTING_FILE: &str = "migrated_legacy_keyphrase_boosting_file";
 
 struct PushChangeSet {
     resources: ResourceMap,
@@ -107,7 +107,12 @@ fn migration_flags_from_status(
             flags
                 .iter()
                 .filter_map(serde_json::Value::as_str)
-                .filter(|flag| *flag == MIGRATED_LEGACY_TOPIC_FILES)
+                .filter(|flag| {
+                    matches!(
+                        *flag,
+                        MIGRATED_LEGACY_TOPIC_FILES | MIGRATED_LEGACY_KEYPHRASE_BOOSTING_FILE
+                    )
+                })
                 .map(ToString::to_string)
                 .collect()
         })
@@ -192,6 +197,39 @@ fn migrate_legacy_topic_files<Fs: FileSystem>(
         }
     }
     Ok(!migrated_topics.is_empty())
+}
+
+fn migrate_legacy_keyphrase_boosting_file<Fs: FileSystem>(
+    fs: &Fs,
+    project_root: &Path,
+) -> Result<bool, CoreError> {
+    let legacy_path = project_root.join(adk_resources::specs::LEGACY_KEYPHRASE_BOOSTING_FILE_PATH);
+    if !fs.is_file(&legacy_path) {
+        return Ok(false);
+    }
+
+    let canonical_path = project_root.join(adk_resources::specs::KEYPHRASE_BOOSTING_FILE.file_path);
+    if fs.exists(&canonical_path) {
+        return Err(DomainError::InvalidData(format!(
+            "Can't migrate legacy keyphrase boosting file: canonical path already exists: {}",
+            canonical_path.to_string_lossy()
+        ))
+        .into());
+    }
+
+    let raw = fs.read(&legacy_path)?;
+    if let Some(parent) = canonical_path.parent() {
+        fs.create_dir_all(parent)?;
+    }
+    fs.write(&canonical_path, &raw)?;
+    fs.remove_file(&legacy_path)?;
+    if let Some(parent) = legacy_path.parent()
+        && fs.is_dir(parent)
+        && fs.read_dir(parent)?.is_empty()
+    {
+        fs.remove_dir(parent)?;
+    }
+    Ok(true)
 }
 
 fn recursive_file_paths<Fs: FileSystem>(fs: &Fs, root: &Path) -> Result<Vec<PathBuf>, CoreError> {
@@ -998,6 +1036,34 @@ mod tests {
     }
 
     #[test]
+    fn typed_discovery_uses_configured_filesystem() {
+        let fs = adk_io::MemoryFileSystem::new();
+        fs.write_string(
+            Path::new("workspace/topics/support.yaml"),
+            "name: Support\nenabled: true\nactions: Help.\ncontent: Hi.\nexample_queries: []\n",
+        )
+        .expect("write topic");
+        fs.write_string(
+            Path::new("workspace/functions/greet.py"),
+            "def greet(conv):\n    conv.state.customer_name = 'Ada'\n",
+        )
+        .expect("write function");
+
+        let service =
+            AdkService::with_file_system(adk_api_client::InMemoryPlatformClient::default(), fs);
+        let discovered = service.discover_local_resources(Path::new("workspace"));
+
+        assert_eq!(
+            discovered.get("Topic").cloned().unwrap_or_default(),
+            vec!["topics/support.yaml".to_string()]
+        );
+        assert_eq!(
+            discovered.get("Variable").cloned().unwrap_or_default(),
+            vec!["variables/customer_name".to_string()]
+        );
+    }
+
+    #[test]
     fn project_migrations_use_memory_filesystem() {
         let fs = adk_io::MemoryFileSystem::new();
         fs.write_string(
@@ -1010,6 +1076,11 @@ mod tests {
             "content: Hello\n",
         )
         .expect("write legacy topic");
+        fs.write_string(
+            Path::new("workspace/speech_recognition/keyphrase_boosting.yaml"),
+            "keyphrases:\n- keyphrase: PolyAI\n  level: boosted\n",
+        )
+        .expect("write legacy keyphrase boosting");
 
         let service = AdkService::with_file_system(
             adk_api_client::InMemoryPlatformClient::default(),
@@ -1025,5 +1096,17 @@ mod tests {
         assert!(migrated_content.contains("name: nested/Hello Topic"));
         assert!(!fs.exists(Path::new("workspace/topics/nested/Hello Topic.yaml")));
         assert!(!fs.exists(Path::new("workspace/topics/nested")));
+
+        let keyphrase_path =
+            Path::new("workspace/voice/speech_recognition/keyphrase_boosting.yaml");
+        assert!(fs.is_file(keyphrase_path));
+        let keyphrase_content = fs
+            .read_to_string(keyphrase_path)
+            .expect("read migrated keyphrase boosting");
+        assert!(keyphrase_content.contains("keyphrase: PolyAI"));
+        assert!(!fs.exists(Path::new(
+            "workspace/speech_recognition/keyphrase_boosting.yaml"
+        )));
+        assert!(!fs.exists(Path::new("workspace/speech_recognition")));
     }
 }
