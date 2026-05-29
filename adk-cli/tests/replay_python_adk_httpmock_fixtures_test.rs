@@ -12,6 +12,7 @@ use httpmock::prelude::*;
 use httpmock::{HttpMockRequest, HttpMockResponse};
 use serde::Deserialize;
 use serde_json::Value;
+use serde_yaml_ng::{Deserializer, from_str, to_string};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -83,7 +84,7 @@ fn replay_scenario(scenario: &str, subject: ReplaySubject) {
             manifest_path.display()
         )
     });
-    let manifest: Manifest = serde_yaml::from_str(&manifest_text).unwrap_or_else(|error| {
+    let manifest: Manifest = from_str(&manifest_text).unwrap_or_else(|error| {
         panic!(
             "{scenario}: parse manifest {}: {error}",
             manifest_path.display()
@@ -274,7 +275,7 @@ fn add_extra_special_function_pre_push_projection(interactions: &mut Vec<Cassett
 }
 
 fn parse_cassette_interactions(scenario: &str, cassette_text: &str) -> Vec<CassetteInteraction> {
-    serde_yaml::Deserializer::from_str(cassette_text)
+    Deserializer::from_str(cassette_text)
         .map(|document| {
             let value = Value::deserialize(document).unwrap_or_else(|error| {
                 panic!("{scenario}: parse httpmock cassette document: {error}")
@@ -725,7 +726,7 @@ fn write_playback_cassette_without_request_bodies(
     cassette_text: &str,
 ) -> PathBuf {
     let mut documents = Vec::new();
-    for document in serde_yaml::Deserializer::from_str(cassette_text) {
+    for document in Deserializer::from_str(cassette_text) {
         let mut value = Value::deserialize(document).unwrap_or_else(|error| {
             panic!("{scenario}: parse httpmock cassette document: {error}")
         });
@@ -756,7 +757,7 @@ fn write_playback_cassette_without_request_bodies(
     let sanitized_documents = documents
         .iter()
         .map(|value| {
-            serde_yaml::to_string(value)
+            to_string(value)
                 .unwrap_or_else(|error| panic!("{scenario}: serialize sanitized cassette: {error}"))
         })
         .collect::<Vec<_>>();

@@ -11,6 +11,7 @@ mod support;
 
 use httpmock::prelude::*;
 use serde_json::Value;
+use serde_yaml_ng::{from_str, to_string};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -50,7 +51,7 @@ fn record_scenario_from_manifest(scenario: &str) {
     let manifest_path = fixture_dir.join(format!("{scenario}.commands.yaml"));
     let manifest_text = fs::read_to_string(&manifest_path)
         .unwrap_or_else(|error| panic!("{scenario}: read manifest: {error}"));
-    let mut manifest: Manifest = serde_yaml::from_str(&manifest_text)
+    let mut manifest: Manifest = from_str(&manifest_text)
         .unwrap_or_else(|error| panic!("{scenario}: parse manifest: {error}"));
     let target_account_id = manifest_target_account_id(&manifest).to_string();
     let target_project_id = manifest_target_project_id(&manifest).to_string();
@@ -128,7 +129,7 @@ fn record_scenario_from_manifest(scenario: &str) {
     )
     .unwrap_or_else(|error| panic!("{scenario}: write cassette: {error}"));
 
-    let manifest_yaml = serde_yaml::to_string(&manifest)
+    let manifest_yaml = to_string(&manifest)
         .unwrap_or_else(|error| panic!("{scenario}: serialize refreshed manifest: {error}"));
     fs::write(&manifest_path, manifest_yaml)
         .unwrap_or_else(|error| panic!("{scenario}: write refreshed manifest: {error}"));

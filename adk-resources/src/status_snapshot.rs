@@ -9,7 +9,8 @@ use crate::functions::{
 use adk_io::{FileSystem, compute_hash, parse_multi_resource_path};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{self, Map, Value as JsonValue};
+use serde_yaml_ng::{Value as YamlValue, from_str};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
@@ -41,7 +42,7 @@ pub struct StatusSnapshot {
     #[serde(default, deserialize_with = "default_if_null")]
     pub migration_flags: Vec<String>,
     #[serde(default, flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: Map<String, JsonValue>,
 }
 
 fn default_branch() -> String {
@@ -72,16 +73,16 @@ pub struct StatusResourcePayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_path: Option<String>,
     #[serde(default, flatten)]
-    pub fields: Map<String, Value>,
+    pub fields: Map<String, JsonValue>,
 }
 
 impl StatusResourcePayload {
-    pub fn from_value(value: Value) -> Self {
+    pub fn from_value(value: JsonValue) -> Self {
         serde_json::from_value(value).unwrap_or_default()
     }
 
-    pub fn as_value(&self) -> Value {
-        serde_json::to_value(self).unwrap_or(Value::Null)
+    pub fn as_value(&self) -> JsonValue {
+        serde_json::to_value(self).unwrap_or(JsonValue::Null)
     }
 
     pub fn name(&self) -> Option<&str> {
@@ -108,7 +109,7 @@ pub struct FileStructureEntry {
     #[serde(default)]
     pub hash: String,
     #[serde(default, flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: Map<String, JsonValue>,
 }
 
 pub struct ResourceStatusPayloadInput<'a> {
@@ -123,18 +124,18 @@ pub struct ResourceStatusPayloadInput<'a> {
 
 pub fn legacy_python_status_resource_path(
     resource_name: &str,
-    payload: &Value,
+    payload: &JsonValue,
     ordinal: usize,
 ) -> Option<String> {
     let name = payload
         .get("name")
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
         .unwrap_or_default();
     let clean_status_name = |lowercase| clean_name(name, lowercase);
     let flow_folder = || {
         payload
             .get("flow_name")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .map(|flow_name| clean_name(flow_name, true))
     };
     match resource_name {
@@ -196,7 +197,7 @@ pub fn legacy_python_status_resource_path(
         "keyphrase_boosting" => {
             let keyphrase = payload
                 .get("keyphrase")
-                .and_then(Value::as_str)
+                .and_then(JsonValue::as_str)
                 .unwrap_or(name);
             Some(format!(
                 "voice/speech_recognition/keyphrase_boosting.yaml/keyphrases/{}",
@@ -215,7 +216,7 @@ pub fn legacy_python_status_resource_path(
         "pronunciations" => {
             let position = payload
                 .get("position")
-                .and_then(Value::as_i64)
+                .and_then(JsonValue::as_i64)
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| ordinal.to_string());
             Some(format!(
@@ -279,7 +280,7 @@ pub fn legacy_python_status_resource_file_hash<Fs: FileSystem>(
     root: &Path,
     resource_name: &str,
     file_path: &str,
-    payload: &Value,
+    payload: &JsonValue,
     rules_reference_names: &[(String, String, String)],
 ) -> Option<String> {
     if payload.get("file_path").is_some() {
@@ -302,11 +303,11 @@ pub fn legacy_python_status_resource_file_hash<Fs: FileSystem>(
         }
         "rules" => payload
             .get("behaviour")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .map(|raw| compute_hash(&replace_resource_ids_with_names(raw, rules_reference_names))),
         "variables" => payload
             .get("name")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .map(|name| compute_hash(&format!("vrbl:{name}"))),
         _ => fs
             .read_to_string(&root.join(file_path))
@@ -317,20 +318,20 @@ pub fn legacy_python_status_resource_file_hash<Fs: FileSystem>(
 
 pub fn legacy_python_status_resource_content(
     resource_name: &str,
-    payload: &Value,
+    payload: &JsonValue,
 ) -> Option<String> {
     match resource_name {
         "functions" => legacy_python_function_raw(payload, true),
         "function_steps" => legacy_python_function_raw(payload, false),
         "rules" => payload
             .get("behaviour")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .map(ToString::to_string),
         _ => None,
     }
 }
 
-pub fn resource_status_payload(input: ResourceStatusPayloadInput<'_>) -> Value {
+pub fn resource_status_payload(input: ResourceStatusPayloadInput<'_>) -> JsonValue {
     let mut payload = match input.type_name {
         "Function" => {
             status_function_payload(input.logical_path, input.content, input.fallback_name)
@@ -352,7 +353,7 @@ pub fn resource_status_payload(input: ResourceStatusPayloadInput<'_>) -> Value {
         }),
         "ExperimentalConfig" => serde_json::json!({
             "name": "experimental_config",
-            "config": serde_json::from_str::<Value>(input.content).unwrap_or_else(|_| serde_json::json!({})),
+            "config": serde_json::from_str::<JsonValue>(input.content).unwrap_or_else(|_| serde_json::json!({})),
         }),
         "GeneralSafetyFilters" => {
             status_safety_filters_payload(input.logical_path, input.content, false)
@@ -385,24 +386,24 @@ pub fn resource_status_payload(input: ResourceStatusPayloadInput<'_>) -> Value {
         let object = payload.as_object_mut().expect("payload object");
         object.insert(
             "resource_id".to_string(),
-            Value::String(input.resource_id.to_string()),
+            JsonValue::String(input.resource_id.to_string()),
         );
         object.insert(
             "file_path".to_string(),
-            Value::String(input.logical_path.to_string()),
+            JsonValue::String(input.logical_path.to_string()),
         );
         return payload;
     };
     object
         .entry("name".to_string())
-        .or_insert_with(|| Value::String(input.fallback_name.to_string()));
+        .or_insert_with(|| JsonValue::String(input.fallback_name.to_string()));
     object.insert(
         "resource_id".to_string(),
-        Value::String(input.resource_id.to_string()),
+        JsonValue::String(input.resource_id.to_string()),
     );
     object.insert(
         "file_path".to_string(),
-        Value::String(input.logical_path.to_string()),
+        JsonValue::String(input.logical_path.to_string()),
     );
     payload
 }
@@ -411,7 +412,7 @@ pub fn resource_status_file_hash(
     type_name: &str,
     logical_path: &str,
     content: &str,
-    payload: &Value,
+    payload: &JsonValue,
     variant_name_to_id: &BTreeMap<String, String>,
 ) -> String {
     if let Some(name) = logical_path.strip_prefix("variables/") {
@@ -429,18 +430,18 @@ pub fn resource_status_file_hash(
         "SettingsRules" => compute_hash(
             payload
                 .get("behaviour")
-                .and_then(Value::as_str)
+                .and_then(JsonValue::as_str)
                 .unwrap_or_default(),
         ),
         "ExperimentalConfig" => {
-            let config = payload.get("config").unwrap_or(&Value::Null);
+            let config = payload.get("config").unwrap_or(&JsonValue::Null);
             compute_hash(&python_json_dumps_pretty_sorted(config))
         }
         "Pronunciation" => compute_hash(&python_json_dumps_sorted(
             &status_pronunciation_hash_payload(payload),
         )),
         "VariantAttribute" => {
-            let value = status_yaml_payload(logical_path, content).unwrap_or(Value::Null);
+            let value = status_yaml_payload(logical_path, content).unwrap_or(JsonValue::Null);
             compute_hash(&python_json_dumps_sorted(
                 &status_variant_attribute_hash_payload(&value, variant_name_to_id),
             ))
@@ -455,7 +456,11 @@ pub fn resource_status_file_hash(
     }
 }
 
-pub fn status_function_payload(logical_path: &str, content: &str, fallback_name: &str) -> Value {
+pub fn status_function_payload(
+    logical_path: &str,
+    content: &str,
+    fallback_name: &str,
+) -> JsonValue {
     let name = path_stem(logical_path).unwrap_or(fallback_name).to_string();
     let flow_name = flow_folder_name(logical_path);
     let raw_code = raw_function_content(content);
@@ -481,7 +486,7 @@ pub fn status_function_payload(logical_path: &str, content: &str, fallback_name:
         "variable_references": {},
     });
     if let Some(flow_name) = flow_name {
-        payload["flow_name"] = Value::String(flow_name);
+        payload["flow_name"] = JsonValue::String(flow_name);
     }
     payload
 }
@@ -541,7 +546,7 @@ fn status_function_description(code: &str) -> String {
     String::new()
 }
 
-fn status_function_parameters(code: &str, function_name: &str) -> Vec<Value> {
+fn status_function_parameters(code: &str, function_name: &str) -> Vec<JsonValue> {
     let decorator_descriptions = python_decorator_args(code, "func_parameter")
         .into_iter()
         .filter_map(|args| {
@@ -630,7 +635,7 @@ pub fn status_function_step_payload(
     logical_path: &str,
     content: &str,
     fallback_name: &str,
-) -> Value {
+) -> JsonValue {
     let name = path_stem(logical_path).unwrap_or(fallback_name).to_string();
     let flow_name = flow_folder_name(logical_path).unwrap_or_default();
     serde_json::json!({
@@ -652,7 +657,7 @@ pub fn status_flow_config_payload(
     logical_path: &str,
     content: &str,
     flow_step_name_to_id: &BTreeMap<(String, String), String>,
-) -> Value {
+) -> JsonValue {
     let mut payload =
         status_yaml_payload(logical_path, content).unwrap_or_else(|| serde_json::json!({}));
     let Some(object) = payload.as_object_mut() else {
@@ -661,30 +666,34 @@ pub fn status_flow_config_payload(
     let Some(folder) = flow_folder_name(logical_path) else {
         return payload;
     };
-    let Some(start_step) = object.get("start_step").and_then(Value::as_str) else {
+    let Some(start_step) = object.get("start_step").and_then(JsonValue::as_str) else {
         return payload;
     };
     if let Some(id) = flow_step_name_to_id.get(&(folder, start_step.to_string())) {
         let flow_name = object
             .get("name")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .unwrap_or_default();
         let normalized_id = id
             .strip_prefix(&format!("{flow_name}_"))
             .unwrap_or(id)
             .to_string();
-        object.insert("start_step".to_string(), Value::String(normalized_id));
+        object.insert("start_step".to_string(), JsonValue::String(normalized_id));
     }
     payload
 }
 
-pub fn status_flow_step_payload(logical_path: &str, content: &str, fallback_name: &str) -> Value {
+pub fn status_flow_step_payload(
+    logical_path: &str,
+    content: &str,
+    fallback_name: &str,
+) -> JsonValue {
     let mut payload =
         status_yaml_payload(logical_path, content).unwrap_or_else(|| serde_json::json!({}));
     let flow_name = flow_folder_name(logical_path).unwrap_or_default();
     let name = payload
         .get("name")
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
         .unwrap_or(fallback_name)
         .to_string();
     let Some(object) = payload.as_object_mut() else {
@@ -699,22 +708,22 @@ pub fn status_flow_step_payload(logical_path: &str, content: &str, fallback_name
     };
     object
         .entry("name".to_string())
-        .or_insert_with(|| Value::String(name));
+        .or_insert_with(|| JsonValue::String(name));
     object
         .entry("step_id".to_string())
-        .or_insert_with(|| Value::String(String::new()));
+        .or_insert_with(|| JsonValue::String(String::new()));
     object
         .entry("flow_id".to_string())
-        .or_insert_with(|| Value::String(String::new()));
+        .or_insert_with(|| JsonValue::String(String::new()));
     object
         .entry("flow_name".to_string())
-        .or_insert_with(|| Value::String(flow_name));
+        .or_insert_with(|| JsonValue::String(flow_name));
     object
         .entry("step_type".to_string())
-        .or_insert_with(|| Value::String("advanced_step".to_string()));
+        .or_insert_with(|| JsonValue::String("advanced_step".to_string()));
     object
         .entry("prompt".to_string())
-        .or_insert_with(|| Value::String(String::new()));
+        .or_insert_with(|| JsonValue::String(String::new()));
     payload
 }
 
@@ -723,7 +732,7 @@ pub fn status_variant_attribute_payload(
     content: &str,
     fallback_name: &str,
     variant_name_to_id: &BTreeMap<String, String>,
-) -> Value {
+) -> JsonValue {
     let mut payload =
         status_yaml_payload(logical_path, content).unwrap_or_else(|| serde_json::json!({}));
     let Some(object) = payload.as_object_mut() else {
@@ -743,9 +752,9 @@ pub fn status_variant_attribute_payload(
 }
 
 fn status_variant_attribute_values_to_ids(
-    value: Value,
+    value: JsonValue,
     variant_name_to_id: &BTreeMap<String, String>,
-) -> Value {
+) -> JsonValue {
     let Some(values) = value.as_object() else {
         return value;
     };
@@ -754,14 +763,14 @@ fn status_variant_attribute_values_to_ids(
         let key = variant_name_to_id.get(key).unwrap_or(key).clone();
         mapped.insert(key, value.clone());
     }
-    Value::Object(mapped)
+    JsonValue::Object(mapped)
 }
 
 pub fn status_pronunciation_payload(
     logical_path: &str,
     content: &str,
     fallback_name: &str,
-) -> Value {
+) -> JsonValue {
     let mut payload =
         status_yaml_payload(logical_path, content).unwrap_or_else(|| serde_json::json!({}));
     let position = logical_path
@@ -777,14 +786,14 @@ pub fn status_pronunciation_payload(
     };
     object
         .entry("name".to_string())
-        .or_insert_with(|| Value::String(String::new()));
-    object.insert("position".to_string(), Value::Number(position.into()));
+        .or_insert_with(|| JsonValue::String(String::new()));
+    object.insert("position".to_string(), JsonValue::Number(position.into()));
     if object
         .get("name")
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
         .is_some_and(|name| name == fallback_name)
     {
-        object.insert("name".to_string(), Value::String(String::new()));
+        object.insert("name".to_string(), JsonValue::String(String::new()));
     }
     payload
 }
@@ -793,13 +802,15 @@ pub fn status_safety_filters_payload(
     logical_path: &str,
     content: &str,
     include_enabled: bool,
-) -> Value {
+) -> JsonValue {
     let yaml = status_yaml_payload(logical_path, content).unwrap_or_else(|| serde_json::json!({}));
     let mut payload = serde_json::Map::new();
     if include_enabled {
         payload.insert(
             "enabled".to_string(),
-            yaml.get("enabled").cloned().unwrap_or(Value::Bool(true)),
+            yaml.get("enabled")
+                .cloned()
+                .unwrap_or(JsonValue::Bool(true)),
         );
     }
     let mut categories = serde_json::Map::new();
@@ -811,17 +822,17 @@ pub fn status_safety_filters_payload(
             .unwrap_or_else(|| serde_json::json!({}));
         categories.insert(key.to_string(), status_safety_filter_category(category));
     }
-    payload.insert("categories".to_string(), Value::Object(categories));
-    Value::Object(payload)
+    payload.insert("categories".to_string(), JsonValue::Object(categories));
+    JsonValue::Object(payload)
 }
 
-fn status_safety_filter_category(category: Value) -> Value {
+fn status_safety_filter_category(category: JsonValue) -> JsonValue {
     serde_json::json!({
-        "enabled": category.get("enabled").cloned().unwrap_or(Value::Null),
+        "enabled": category.get("enabled").cloned().unwrap_or(JsonValue::Null),
         "precision": safety_filter_level_to_precision(
             category
                 .get("level")
-                .and_then(Value::as_str)
+                .and_then(JsonValue::as_str)
                 .unwrap_or_default(),
         ),
     })
@@ -836,7 +847,7 @@ fn safety_filter_level_to_precision(level: &str) -> String {
     }
 }
 
-pub fn status_pronunciation_hash_payload(payload: &Value) -> Value {
+pub fn status_pronunciation_hash_payload(payload: &JsonValue) -> JsonValue {
     let mut object = serde_json::Map::new();
     for key in [
         "regex",
@@ -853,13 +864,13 @@ pub fn status_pronunciation_hash_payload(payload: &Value) -> Value {
         }
         object.insert(key.to_string(), value.clone());
     }
-    Value::Object(object)
+    JsonValue::Object(object)
 }
 
 pub fn status_variant_attribute_hash_payload(
-    payload: &Value,
+    payload: &JsonValue,
     variant_name_to_id: &BTreeMap<String, String>,
-) -> Value {
+) -> JsonValue {
     let mut object = serde_json::Map::new();
     if let Some(name) = payload.get("name") {
         object.insert("name".to_string(), name.clone());
@@ -867,22 +878,22 @@ pub fn status_variant_attribute_hash_payload(
     let values = payload
         .get("values")
         .or_else(|| payload.get("mappings"))
-        .and_then(Value::as_object)
+        .and_then(JsonValue::as_object)
         .map(|values| {
             let mut mapped = serde_json::Map::new();
             for (key, value) in values {
                 let key = variant_name_to_id.get(key).unwrap_or(key).clone();
                 mapped.insert(key, value.clone());
             }
-            Value::Object(mapped)
+            JsonValue::Object(mapped)
         })
         .unwrap_or_else(|| serde_json::json!({}));
     object.insert("values".to_string(), values);
-    Value::Object(object)
+    JsonValue::Object(object)
 }
 
-pub fn status_yaml_payload(logical_path: &str, content: &str) -> Option<Value> {
-    let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+pub fn status_yaml_payload(logical_path: &str, content: &str) -> Option<JsonValue> {
+    let yaml = from_str::<YamlValue>(content).ok()?;
     let value = if let (_, Some(suffix)) = parse_multi_resource_path(logical_path) {
         let mut segments = suffix.split('/');
         let top_level_name = segments.next()?;
@@ -899,7 +910,7 @@ pub fn status_yaml_payload(logical_path: &str, content: &str) -> Option<Value> {
                     .iter()
                     .find(|item| {
                         item.get("name")
-                            .and_then(serde_yaml::Value::as_str)
+                            .and_then(YamlValue::as_str)
                             .is_some_and(|name| clean_name(name, false) == resource_name)
                     })
                     .cloned()?
@@ -915,20 +926,20 @@ pub fn status_yaml_payload(logical_path: &str, content: &str) -> Option<Value> {
     serde_json::to_value(value).ok()
 }
 
-pub fn python_json_dumps_sorted(value: &Value) -> String {
+pub fn python_json_dumps_sorted(value: &JsonValue) -> String {
     match value {
-        Value::Null => "null".to_string(),
-        Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
-        Value::String(value) => serde_json::to_string(value).unwrap_or_default(),
-        Value::Array(items) => {
+        JsonValue::Null => "null".to_string(),
+        JsonValue::Bool(value) => value.to_string(),
+        JsonValue::Number(value) => value.to_string(),
+        JsonValue::String(value) => serde_json::to_string(value).unwrap_or_default(),
+        JsonValue::Array(items) => {
             let items = items
                 .iter()
                 .map(python_json_dumps_sorted)
                 .collect::<Vec<_>>();
             format!("[{}]", items.join(", "))
         }
-        Value::Object(object) => {
+        JsonValue::Object(object) => {
             let mut entries = object.iter().collect::<Vec<_>>();
             entries.sort_by_key(|(key, _)| *key);
             let entries = entries
@@ -946,15 +957,15 @@ pub fn python_json_dumps_sorted(value: &Value) -> String {
     }
 }
 
-pub fn python_json_dumps_pretty_sorted(value: &Value) -> String {
+pub fn python_json_dumps_pretty_sorted(value: &JsonValue) -> String {
     let sorted = sort_json_value(value);
     serde_json::to_string_pretty(&sorted).unwrap_or_default()
 }
 
-fn sort_json_value(value: &Value) -> Value {
+fn sort_json_value(value: &JsonValue) -> JsonValue {
     match value {
-        Value::Array(items) => Value::Array(items.iter().map(sort_json_value).collect()),
-        Value::Object(object) => {
+        JsonValue::Array(items) => JsonValue::Array(items.iter().map(sort_json_value).collect()),
+        JsonValue::Object(object) => {
             let mut sorted = serde_json::Map::new();
             let mut keys = object.keys().collect::<Vec<_>>();
             keys.sort();
@@ -963,19 +974,23 @@ fn sort_json_value(value: &Value) -> Value {
                     sorted.insert(key.clone(), sort_json_value(value));
                 }
             }
-            Value::Object(sorted)
+            JsonValue::Object(sorted)
         }
         value => value.clone(),
     }
 }
 
-pub fn snake_case_json_keys(value: &mut Value) {
+pub fn snake_case_json_keys(value: &mut JsonValue) {
     snake_case_json_keys_inner(value, None, false);
 }
 
-fn snake_case_json_keys_inner(value: &mut Value, parent_key: Option<&str>, preserve_tree: bool) {
+fn snake_case_json_keys_inner(
+    value: &mut JsonValue,
+    parent_key: Option<&str>,
+    preserve_tree: bool,
+) {
     match value {
-        Value::Object(object) => {
+        JsonValue::Object(object) => {
             let preserve_keys = preserve_tree
                 || matches!(
                     parent_key,
@@ -1019,7 +1034,7 @@ fn snake_case_json_keys_inner(value: &mut Value, parent_key: Option<&str>, prese
                 object.insert(key, value);
             }
         }
-        Value::Array(items) => {
+        JsonValue::Array(items) => {
             for item in items {
                 snake_case_json_keys_inner(item, parent_key, preserve_tree);
             }
@@ -1097,7 +1112,7 @@ pub fn current_status_hash_for_expected(
         return compute_hash(&format!("vrbl:{name}"));
     }
     if path == "agent_settings/experimental_config.json"
-        && let Ok(value) = serde_json::from_str::<Value>(content)
+        && let Ok(value) = serde_json::from_str::<JsonValue>(content)
     {
         return compute_hash(&python_json_dumps_pretty_sorted(&value));
     }
@@ -1112,9 +1127,9 @@ pub fn current_status_hash_for_expected(
                         &variant_name_to_id_from_snapshot_hashes(snapshot_hashes),
                     )
                 })
-                .unwrap_or(Value::Null)
+                .unwrap_or(JsonValue::Null)
         } else {
-            status_yaml_payload(path, content).unwrap_or(Value::Null)
+            status_yaml_payload(path, content).unwrap_or(JsonValue::Null)
         };
         if !value.is_null() {
             return compute_hash(&python_json_dumps_sorted(&value));

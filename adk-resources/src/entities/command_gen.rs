@@ -3,12 +3,14 @@
 //! Entities are stored together in `config/entities.yaml`, but their command
 //! generation semantics are specific to the entity resource family.
 
+use serde_json::{self, Value as JsonValue};
+use serde_yaml_ng::{Value as YamlValue, from_str, to_value};
+
 use crate::push_commands::CommandGroups;
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityUpdate};
 use adk_types::ResourceMap;
-use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 use crate::ids::stable_resource_id;
@@ -17,7 +19,7 @@ use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command, 
 
 pub(crate) fn entity_command_groups(
     resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> CommandGroups {
     let remote_entities = entity_entries(projection)
@@ -25,7 +27,7 @@ pub(crate) fn entity_command_groups(
         .map(|(id, entity)| {
             let name = entity
                 .get("name")
-                .and_then(Value::as_str)
+                .and_then(JsonValue::as_str)
                 .unwrap_or(id.as_str())
                 .to_string();
             (name, (id, entity))
@@ -38,19 +40,17 @@ pub(crate) fn entity_command_groups(
         let content = resource
             .payload
             .get("content")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .unwrap_or_default();
 
         if path == ENTITIES_FILE.file_path
-            && let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
-            && let Some(items) = yaml
-                .get("entities")
-                .and_then(serde_yaml::Value::as_sequence)
+            && let Ok(yaml) = from_str::<YamlValue>(content)
+            && let Some(items) = yaml.get("entities").and_then(YamlValue::as_sequence)
         {
             for item in items {
                 let name = item
                     .get("name")
-                    .and_then(serde_yaml::Value::as_str)
+                    .and_then(YamlValue::as_str)
                     .unwrap_or_default()
                     .to_string();
                 if name.is_empty() {
@@ -69,11 +69,11 @@ pub(crate) fn entity_command_groups(
                     });
                 let entity_type = item
                     .get("entity_type")
-                    .and_then(serde_yaml::Value::as_str)
+                    .and_then(YamlValue::as_str)
                     .unwrap_or("free_text");
                 let description = item
                     .get("description")
-                    .and_then(serde_yaml::Value::as_str)
+                    .and_then(YamlValue::as_str)
                     .unwrap_or("")
                     .to_string();
                 let config = item.get("config");
@@ -127,18 +127,18 @@ pub(crate) fn entity_command_groups(
     groups
 }
 
-fn entity_entries(projection: &Value) -> HashMap<String, Value> {
+fn entity_entries(projection: &JsonValue) -> HashMap<String, JsonValue> {
     extract_entities_map(projection, &["entities", "entities", "entities"])
 }
 
-fn entity_item_matches_remote(item: &serde_yaml::Value, remote: &Value) -> bool {
+fn entity_item_matches_remote(item: &YamlValue, remote: &JsonValue) -> bool {
     let local_name = item
         .get("name")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(YamlValue::as_str)
         .unwrap_or_default();
     let remote_name = remote
         .get("name")
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
         .unwrap_or_default();
     if local_name != remote_name {
         return false;
@@ -146,11 +146,11 @@ fn entity_item_matches_remote(item: &serde_yaml::Value, remote: &Value) -> bool 
 
     let local_description = item
         .get("description")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(YamlValue::as_str)
         .unwrap_or_default();
     let remote_description = remote
         .get("description")
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
         .unwrap_or_default();
     if local_description != remote_description {
         return false;
@@ -158,11 +158,11 @@ fn entity_item_matches_remote(item: &serde_yaml::Value, remote: &Value) -> bool 
 
     let local_type = normalize_entity_type(
         item.get("entity_type")
-            .and_then(serde_yaml::Value::as_str)
+            .and_then(YamlValue::as_str)
             .unwrap_or("free_text"),
     );
     let remote_type =
-        normalize_entity_type(remote.get("type").and_then(Value::as_str).unwrap_or(""));
+        normalize_entity_type(remote.get("type").and_then(JsonValue::as_str).unwrap_or(""));
     if local_type != remote_type {
         return false;
     }
@@ -174,13 +174,13 @@ fn entity_item_matches_remote(item: &serde_yaml::Value, remote: &Value) -> bool 
         == entity_update_config_json(remote_config.as_ref())
 }
 
-fn remote_entity_config_yaml(remote: &Value) -> serde_yaml::Value {
+fn remote_entity_config_yaml(remote: &JsonValue) -> YamlValue {
     let config = remote
         .pointer("/config/value")
         .or_else(|| remote.get("config"))
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
-    serde_yaml::to_value(config).unwrap_or(serde_yaml::Value::Mapping(Default::default()))
+    to_value(config).unwrap_or(YamlValue::Mapping(Default::default()))
 }
 
 fn normalize_entity_type(value: &str) -> String {
@@ -200,7 +200,7 @@ fn normalize_entity_type(value: &str) -> String {
     out
 }
 
-pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
+pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {
     match payload {
         CommandPayload::EntityDelete(delete) => Some((
             "entity_delete",
@@ -210,35 +210,35 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
         )),
         CommandPayload::EntityCreate(create) => {
             let mut value = serde_json::Map::new();
-            value.insert("id".to_string(), Value::String(create.id.clone()));
-            value.insert("name".to_string(), Value::String(create.name.clone()));
-            value.insert("type".to_string(), Value::String(create.r#type.clone()));
+            value.insert("id".to_string(), JsonValue::String(create.id.clone()));
+            value.insert("name".to_string(), JsonValue::String(create.name.clone()));
+            value.insert("type".to_string(), JsonValue::String(create.r#type.clone()));
             value.insert(
                 "description".to_string(),
-                Value::String(create.description.clone()),
+                JsonValue::String(create.description.clone()),
             );
             value.insert(
                 "references".to_string(),
-                Value::Object(serde_json::Map::new()),
+                JsonValue::Object(serde_json::Map::new()),
             );
             if let Some((key, config)) = entity_create_config_json(create.config.as_ref()) {
                 value.insert(key.to_string(), config);
             }
-            Some(("entity_create", Value::Object(value)))
+            Some(("entity_create", JsonValue::Object(value)))
         }
         CommandPayload::EntityUpdate(update) => {
             let mut value = serde_json::Map::new();
-            value.insert("id".to_string(), Value::String(update.id.clone()));
-            value.insert("name".to_string(), Value::String(update.name.clone()));
-            value.insert("type".to_string(), Value::String(update.r#type.clone()));
+            value.insert("id".to_string(), JsonValue::String(update.id.clone()));
+            value.insert("name".to_string(), JsonValue::String(update.name.clone()));
+            value.insert("type".to_string(), JsonValue::String(update.r#type.clone()));
             value.insert(
                 "description".to_string(),
-                Value::String(update.description.clone()),
+                JsonValue::String(update.description.clone()),
             );
             if let Some((key, config)) = entity_update_config_json(update.config.as_ref()) {
                 value.insert(key.to_string(), config);
             }
-            Some(("entity_update", Value::Object(value)))
+            Some(("entity_update", JsonValue::Object(value)))
         }
         _ => None,
     }
@@ -246,7 +246,7 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
 
 fn build_entity_create_config(
     entity_type: &str,
-    config: Option<&serde_yaml::Value>,
+    config: Option<&YamlValue>,
 ) -> Option<entities::entity_create::Config> {
     match entity_type {
         "numeric" => Some(entities::entity_create::Config::Numeric(
@@ -302,7 +302,7 @@ fn build_entity_create_config(
 
 fn build_entity_update_config(
     entity_type: &str,
-    config: Option<&serde_yaml::Value>,
+    config: Option<&YamlValue>,
 ) -> Option<entities::entity_update::Config> {
     match entity_type {
         "numeric" => Some(entities::entity_update::Config::Numeric(
@@ -356,45 +356,45 @@ fn build_entity_update_config(
     }
 }
 
-fn yaml_get<'a>(config: Option<&'a serde_yaml::Value>, key: &str) -> Option<&'a serde_yaml::Value> {
+fn yaml_get<'a>(config: Option<&'a YamlValue>, key: &str) -> Option<&'a YamlValue> {
     config.and_then(|c| c.get(key))
 }
 
-fn yaml_bool(config: Option<&serde_yaml::Value>, key: &str, default: bool) -> bool {
+fn yaml_bool(config: Option<&YamlValue>, key: &str, default: bool) -> bool {
     yaml_get(config, key)
-        .and_then(serde_yaml::Value::as_bool)
+        .and_then(YamlValue::as_bool)
         .unwrap_or(default)
 }
 
-fn yaml_string(config: Option<&serde_yaml::Value>, key: &str) -> String {
+fn yaml_string(config: Option<&YamlValue>, key: &str) -> String {
     yaml_get(config, key)
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(YamlValue::as_str)
         .unwrap_or_default()
         .to_string()
 }
 
-fn yaml_string_list(config: Option<&serde_yaml::Value>, key: &str) -> Vec<String> {
+fn yaml_string_list(config: Option<&YamlValue>, key: &str) -> Vec<String> {
     yaml_get(config, key)
-        .and_then(serde_yaml::Value::as_sequence)
+        .and_then(YamlValue::as_sequence)
         .map(|seq| {
             seq.iter()
-                .filter_map(serde_yaml::Value::as_str)
+                .filter_map(YamlValue::as_str)
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default()
 }
 
-fn yaml_f32_opt(config: Option<&serde_yaml::Value>, key: &str) -> Option<f32> {
+fn yaml_f32_opt(config: Option<&YamlValue>, key: &str) -> Option<f32> {
     yaml_get(config, key).and_then(|v| match v {
-        serde_yaml::Value::Number(n) => n.as_f64().map(|x| x as f32),
+        YamlValue::Number(n) => n.as_f64().map(|x| x as f32),
         _ => None,
     })
 }
 
 fn entity_create_config_json(
     config: Option<&entities::entity_create::Config>,
-) -> Option<(&'static str, Value)> {
+) -> Option<(&'static str, JsonValue)> {
     match config? {
         entities::entity_create::Config::Numeric(config) => {
             Some(("numeric", number_config_json(config)))
@@ -439,7 +439,7 @@ fn entity_create_config_json(
 
 fn entity_update_config_json(
     config: Option<&entities::entity_update::Config>,
-) -> Option<(&'static str, Value)> {
+) -> Option<(&'static str, JsonValue)> {
     match config? {
         entities::entity_update::Config::Numeric(config) => {
             Some(("numeric", number_config_json(config)))
@@ -482,13 +482,13 @@ fn entity_update_config_json(
     }
 }
 
-fn number_config_json(config: &entities::NumberConfig) -> Value {
+fn number_config_json(config: &entities::NumberConfig) -> JsonValue {
     let mut value = serde_json::Map::new();
     if config.has_decimal {
-        value.insert("has_decimal".to_string(), Value::Bool(true));
+        value.insert("has_decimal".to_string(), JsonValue::Bool(true));
     }
     if config.has_range {
-        value.insert("has_range".to_string(), Value::Bool(true));
+        value.insert("has_range".to_string(), JsonValue::Bool(true));
     }
     if let Some(min) = config.min {
         value.insert("min".to_string(), serde_json::json!(min));
@@ -496,5 +496,5 @@ fn number_config_json(config: &entities::NumberConfig) -> Value {
     if let Some(max) = config.max {
         value.insert("max".to_string(), serde_json::json!(max));
     }
-    Value::Object(value)
+    JsonValue::Object(value)
 }

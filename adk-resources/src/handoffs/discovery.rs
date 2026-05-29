@@ -1,7 +1,7 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_file, read_yaml_mapping, validate_named_sequence};
 use crate::resource_utils::{clean_name, rel_under_root};
-use serde_yaml::Value;
+use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/handoff.py
@@ -41,12 +41,12 @@ impl DiscoverResources for Handoff {
         out
     }
 
-    fn validate_local_yaml(_path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
         validate_local_yaml(yaml, errors);
     }
 }
 
-pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     validate_named_sequence(
         Handoff::LOCAL_PATH.primary_path().expect("local file path"),
         yaml,

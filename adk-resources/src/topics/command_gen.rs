@@ -1,5 +1,8 @@
 //! Push commands for knowledge-base topic resources.
 
+use serde_json::Value as JsonValue;
+use serde_yaml_ng::{Value as YamlValue, from_str};
+
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
 use crate::{
@@ -12,7 +15,6 @@ use adk_protobuf::knowledge_base::{
     ExampleQueries, KnowledgeBaseCreateTopic, KnowledgeBaseDeleteTopic, KnowledgeBaseUpdateTopic,
 };
 use adk_types::ResourceMap;
-use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
@@ -31,7 +33,7 @@ mod command_gen_tests;
 /// lifecycle changes compose predictably with the other command generators.
 pub(crate) fn topic_resource_command_groups(
     resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> CommandGroups {
     let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
@@ -41,7 +43,7 @@ pub(crate) fn topic_resource_command_groups(
             (
                 topic
                     .get("name")
-                    .and_then(Value::as_str)
+                    .and_then(JsonValue::as_str)
                     .unwrap_or(id.as_str())
                     .to_string(),
                 (id, topic),
@@ -59,14 +61,14 @@ pub(crate) fn topic_resource_command_groups(
         let content = resource
             .payload
             .get("content")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) else {
+        let Ok(yaml) = from_str::<YamlValue>(content) else {
             continue;
         };
         let name = yaml
             .get("name")
-            .and_then(serde_yaml::Value::as_str)
+            .and_then(YamlValue::as_str)
             .unwrap_or(&resource.name)
             .to_string();
         local_topic_names.insert(name.clone());
@@ -80,24 +82,24 @@ pub(crate) fn topic_resource_command_groups(
             .unwrap_or_else(|| stable_resource_id("TOPICS", &name, path));
         let actions = yaml
             .get("actions")
-            .and_then(serde_yaml::Value::as_str)
+            .and_then(YamlValue::as_str)
             .map(|value| replace_resource_names_with_ids(value, &prompt_reference_maps, None))
             .unwrap_or_default();
         let text = yaml
             .get("content")
-            .and_then(serde_yaml::Value::as_str)
+            .and_then(YamlValue::as_str)
             .map(|value| replace_resource_names_with_ids(value, &prompt_reference_maps, None))
             .unwrap_or_default();
         let enabled = yaml
             .get("enabled")
-            .and_then(serde_yaml::Value::as_bool)
+            .and_then(YamlValue::as_bool)
             .unwrap_or(true);
         let example_queries = yaml
             .get("example_queries")
-            .and_then(serde_yaml::Value::as_sequence)
+            .and_then(YamlValue::as_sequence)
             .map(|seq| {
                 seq.iter()
-                    .filter_map(serde_yaml::Value::as_str)
+                    .filter_map(YamlValue::as_str)
                     .map(ToString::to_string)
                     .collect::<Vec<String>>()
             })
@@ -164,7 +166,7 @@ pub(crate) fn topic_resource_command_groups(
     groups
 }
 
-pub(crate) fn topic_entries(projection: &Value) -> HashMap<String, Value> {
+pub(crate) fn topic_entries(projection: &JsonValue) -> HashMap<String, JsonValue> {
     extract_entities_map(projection, &["knowledgeBase", "topics", "entities"])
 }
 
@@ -174,23 +176,32 @@ fn topic_yaml_matches_projection(
     actions: &str,
     content: &str,
     example_queries: &[String],
-    topic: &Value,
+    topic: &JsonValue,
 ) -> bool {
-    let remote_name = topic.get("name").and_then(Value::as_str).unwrap_or(name);
+    let remote_name = topic
+        .get("name")
+        .and_then(JsonValue::as_str)
+        .unwrap_or(name);
     let remote_enabled = topic
         .get("isActive")
-        .and_then(Value::as_bool)
+        .and_then(JsonValue::as_bool)
         .unwrap_or(true);
-    let remote_actions = topic.get("actions").and_then(Value::as_str).unwrap_or("");
-    let remote_content = topic.get("content").and_then(Value::as_str).unwrap_or("");
+    let remote_actions = topic
+        .get("actions")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("");
+    let remote_content = topic
+        .get("content")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("");
     let remote_queries = topic
         .get("exampleQueries")
-        .and_then(Value::as_array)
+        .and_then(JsonValue::as_array)
         .map(|arr| {
             arr.iter()
                 .filter_map(|item| {
                     item.get("query")
-                        .and_then(Value::as_str)
+                        .and_then(JsonValue::as_str)
                         .map(ToString::to_string)
                 })
                 .collect::<Vec<_>>()

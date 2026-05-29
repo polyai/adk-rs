@@ -14,7 +14,8 @@ use crate::{
 use adk_protobuf::flows::{StepAsrConfig, StepDtmfConfig, StepPosition};
 use adk_protobuf::functions::FunctionCreateLatencyControl;
 use adk_types::{Resource, ResourceMap};
-use serde_json::Value;
+use serde_json::Value as JsonValue;
+use serde_yaml_ng::{Value as YamlValue, from_str};
 use std::collections::HashMap;
 
 pub(super) fn local_flows(
@@ -151,26 +152,26 @@ pub(super) fn ordered_transition_functions(flow: &LocalFlow) -> Vec<&LocalTransi
 
 pub(super) fn function_step_latency_control(
     step: &LocalFunctionStep,
-    known_function: Option<&Value>,
+    known_function: Option<&JsonValue>,
 ) -> FunctionCreateLatencyControl {
     let local = local_latency_control_from_code(&step.content, known_function);
     function_create_latency_control(&local).unwrap_or_default()
 }
 
-pub(super) fn remote_flows_by_name(projection: &Value) -> HashMap<String, RemoteFlow> {
+pub(super) fn remote_flows_by_name(projection: &JsonValue) -> HashMap<String, RemoteFlow> {
     let mut flows = HashMap::new();
     let Some(entities) = projection
         .get("flows")
         .and_then(|flows| flows.get("flows"))
         .and_then(|flows| flows.get("entities"))
-        .and_then(Value::as_object)
+        .and_then(JsonValue::as_object)
     else {
         return flows;
     };
     for (id, flow) in entities {
         let name = flow
             .get("name")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .unwrap_or(id.as_str())
             .to_string();
         let remote = RemoteFlow {
@@ -187,12 +188,12 @@ pub(super) fn remote_flows_by_name(projection: &Value) -> HashMap<String, Remote
     flows
 }
 
-fn remote_flow_steps_by_name(flow: &Value) -> HashMap<String, RemoteFlowStep> {
+fn remote_flow_steps_by_name(flow: &JsonValue) -> HashMap<String, RemoteFlowStep> {
     let mut steps = HashMap::new();
     let Some(entities) = flow
         .get("steps")
         .and_then(|steps| steps.get("entities"))
-        .and_then(Value::as_object)
+        .and_then(JsonValue::as_object)
     else {
         return steps;
     };
@@ -231,12 +232,12 @@ fn remote_flow_steps_by_name(flow: &Value) -> HashMap<String, RemoteFlowStep> {
     steps
 }
 
-fn remote_function_steps_by_name(flow: &Value) -> HashMap<String, RemoteFunctionStep> {
+fn remote_function_steps_by_name(flow: &JsonValue) -> HashMap<String, RemoteFunctionStep> {
     let mut steps = HashMap::new();
     let Some(entities) = flow
         .get("steps")
         .and_then(|steps| steps.get("entities"))
-        .and_then(Value::as_object)
+        .and_then(JsonValue::as_object)
     else {
         return steps;
     };
@@ -256,10 +257,10 @@ fn remote_function_steps_by_name(flow: &Value) -> HashMap<String, RemoteFunction
                 code: step
                     .get("function")
                     .and_then(|function| function.get("code"))
-                    .and_then(Value::as_str)
+                    .and_then(JsonValue::as_str)
                     .unwrap_or_default()
                     .to_string(),
-                function: step.get("function").cloned().unwrap_or(Value::Null),
+                function: step.get("function").cloned().unwrap_or(JsonValue::Null),
                 position: json_step_position(step.get("position")),
             },
         );
@@ -267,20 +268,22 @@ fn remote_function_steps_by_name(flow: &Value) -> HashMap<String, RemoteFunction
     steps
 }
 
-fn remote_transition_functions_by_name(flow: &Value) -> HashMap<String, RemoteTransitionFunction> {
+fn remote_transition_functions_by_name(
+    flow: &JsonValue,
+) -> HashMap<String, RemoteTransitionFunction> {
     let mut functions = HashMap::new();
     let Some(entities) = flow
         .get("transitionFunctions")
         .or_else(|| flow.get("transition_functions"))
         .and_then(|functions| functions.get("entities"))
-        .and_then(Value::as_object)
+        .and_then(JsonValue::as_object)
     else {
         return functions;
     };
     for (id, function) in entities {
         if function
             .get("archived")
-            .and_then(Value::as_bool)
+            .and_then(JsonValue::as_bool)
             .unwrap_or(false)
         {
             continue;
@@ -303,9 +306,9 @@ fn remote_transition_functions_by_name(flow: &Value) -> HashMap<String, RemoteTr
     functions
 }
 
-fn remote_conditions_by_name(step: &Value) -> HashMap<String, RemoteCondition> {
+fn remote_conditions_by_name(step: &JsonValue) -> HashMap<String, RemoteCondition> {
     let mut conditions = HashMap::new();
-    let Some(items) = step.get("conditions").and_then(Value::as_array) else {
+    let Some(items) = step.get("conditions").and_then(JsonValue::as_array) else {
         return conditions;
     };
     for item in items {
@@ -313,11 +316,11 @@ fn remote_conditions_by_name(step: &Value) -> HashMap<String, RemoteCondition> {
         let Some(config) = item.get("config") else {
             continue;
         };
-        if config.get("$case").and_then(Value::as_str) != Some("exitFlowCondition") {
+        if config.get("$case").and_then(JsonValue::as_str) != Some("exitFlowCondition") {
             continue;
         }
         let value = config.get("value").unwrap_or(config);
-        let details = value.get("details").unwrap_or(&Value::Null);
+        let details = value.get("details").unwrap_or(&JsonValue::Null);
         let name = json_string(details, &["label"]);
         if name.is_empty() {
             continue;
@@ -348,47 +351,47 @@ fn flow_step_type_from_str(value: &str) -> FlowStepType {
     }
 }
 
-fn json_string(value: &Value, keys: &[&str]) -> String {
+fn json_string(value: &JsonValue, keys: &[&str]) -> String {
     keys.iter()
-        .find_map(|key| value.get(*key).and_then(Value::as_str))
+        .find_map(|key| value.get(*key).and_then(JsonValue::as_str))
         .unwrap_or_default()
         .to_string()
 }
 
-fn json_bool(value: Option<&Value>, keys: &[&str], default: bool) -> bool {
+fn json_bool(value: Option<&JsonValue>, keys: &[&str], default: bool) -> bool {
     keys.iter()
         .find_map(|key| {
             value
                 .and_then(|value| value.get(*key))
-                .and_then(Value::as_bool)
+                .and_then(JsonValue::as_bool)
         })
         .unwrap_or(default)
 }
 
-fn json_i32(value: Option<&Value>, keys: &[&str], default: i32) -> i32 {
+fn json_i32(value: Option<&JsonValue>, keys: &[&str], default: i32) -> i32 {
     keys.iter()
         .find_map(|key| {
             value
                 .and_then(|value| value.get(*key))
-                .and_then(Value::as_i64)
+                .and_then(JsonValue::as_i64)
         })
         .and_then(|value| i32::try_from(value).ok())
         .unwrap_or(default)
 }
 
-fn json_string_list(value: Option<&Value>) -> Vec<String> {
+fn json_string_list(value: Option<&JsonValue>) -> Vec<String> {
     value
-        .and_then(Value::as_array)
+        .and_then(JsonValue::as_array)
         .into_iter()
         .flatten()
-        .filter_map(Value::as_str)
+        .filter_map(JsonValue::as_str)
         .map(ToString::to_string)
         .collect()
 }
 
-fn json_object_true_keys(value: Option<&Value>) -> Vec<String> {
+fn json_object_true_keys(value: Option<&JsonValue>) -> Vec<String> {
     let mut keys = value
-        .and_then(Value::as_object)
+        .and_then(JsonValue::as_object)
         .map(|object| {
             object
                 .iter()
@@ -401,7 +404,7 @@ fn json_object_true_keys(value: Option<&Value>) -> Vec<String> {
     keys
 }
 
-fn json_step_asr_config(config: Option<&Value>) -> StepAsrConfig {
+fn json_step_asr_config(config: Option<&JsonValue>) -> StepAsrConfig {
     StepAsrConfig {
         alphanumeric: json_bool(config, &["alphanumeric"], false),
         name_spelling: json_bool(config, &["nameSpelling", "name_spelling"], false),
@@ -422,7 +425,7 @@ fn json_step_asr_config(config: Option<&Value>) -> StepAsrConfig {
     }
 }
 
-fn json_step_dtmf_config(config: Option<&Value>) -> StepDtmfConfig {
+fn json_step_dtmf_config(config: Option<&JsonValue>) -> StepDtmfConfig {
     StepDtmfConfig {
         is_enabled: json_bool(config, &["isEnabled", "is_enabled"], false),
         inter_digit_timeout: json_i32(config, &["interDigitTimeout", "inter_digit_timeout"], 0),
@@ -430,7 +433,7 @@ fn json_step_dtmf_config(config: Option<&Value>) -> StepDtmfConfig {
         end_key: non_empty(
             config
                 .and_then(|config| config.get("endKey").or_else(|| config.get("end_key")))
-                .and_then(Value::as_str)
+                .and_then(JsonValue::as_str)
                 .unwrap_or_default()
                 .to_string(),
             "#",
@@ -444,23 +447,29 @@ fn json_step_dtmf_config(config: Option<&Value>) -> StepDtmfConfig {
     }
 }
 
-fn json_step_position(value: Option<&Value>) -> Option<StepPosition> {
+fn json_step_position(value: Option<&JsonValue>) -> Option<StepPosition> {
     let value = value?;
     Some(StepPosition {
-        x: value.get("x").and_then(Value::as_f64).unwrap_or_default() as f32,
-        y: value.get("y").and_then(Value::as_f64).unwrap_or_default() as f32,
+        x: value
+            .get("x")
+            .and_then(JsonValue::as_f64)
+            .unwrap_or_default() as f32,
+        y: value
+            .get("y")
+            .and_then(JsonValue::as_f64)
+            .unwrap_or_default() as f32,
     })
 }
 
-fn resource_yaml(resource: &Resource) -> Option<serde_yaml::Value> {
-    serde_yaml::from_str(resource_content(resource)).ok()
+fn resource_yaml(resource: &Resource) -> Option<YamlValue> {
+    from_str(resource_content(resource)).ok()
 }
 
 fn resource_content(resource: &Resource) -> &str {
     resource
         .payload
         .get("content")
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
         .unwrap_or_default()
 }
 
@@ -477,10 +486,10 @@ fn function_name_from_path(path: &str) -> String {
         .to_string()
 }
 
-fn flow_step_type(yaml: &serde_yaml::Value) -> FlowStepType {
+fn flow_step_type(yaml: &YamlValue) -> FlowStepType {
     match yaml
         .get("step_type")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(YamlValue::as_str)
         .unwrap_or("advanced_step")
     {
         "default_step" => FlowStepType::Default,
@@ -488,9 +497,9 @@ fn flow_step_type(yaml: &serde_yaml::Value) -> FlowStepType {
     }
 }
 
-fn local_conditions(yaml: &serde_yaml::Value) -> Vec<LocalCondition> {
+fn local_conditions(yaml: &YamlValue) -> Vec<LocalCondition> {
     yaml.get("conditions")
-        .and_then(serde_yaml::Value::as_sequence)
+        .and_then(YamlValue::as_sequence)
         .into_iter()
         .flatten()
         .map(|condition| LocalCondition {
@@ -502,7 +511,7 @@ fn local_conditions(yaml: &serde_yaml::Value) -> Vec<LocalCondition> {
                 condition
                     .get("ingress")
                     .or_else(|| condition.get("ingress_position"))
-                    .and_then(serde_yaml::Value::as_str)
+                    .and_then(YamlValue::as_str)
                     .unwrap_or_default()
                     .to_string(),
                 "top",
@@ -513,7 +522,7 @@ fn local_conditions(yaml: &serde_yaml::Value) -> Vec<LocalCondition> {
         .collect()
 }
 
-fn step_asr_config(config: Option<&serde_yaml::Value>) -> StepAsrConfig {
+fn step_asr_config(config: Option<&YamlValue>) -> StepAsrConfig {
     StepAsrConfig {
         alphanumeric: yaml_bool(config, "alphanumeric", false),
         name_spelling: yaml_bool(config, "name_spelling", false),
@@ -530,7 +539,7 @@ fn step_asr_config(config: Option<&serde_yaml::Value>) -> StepAsrConfig {
     }
 }
 
-fn step_dtmf_config(config: Option<&serde_yaml::Value>) -> StepDtmfConfig {
+fn step_dtmf_config(config: Option<&YamlValue>) -> StepDtmfConfig {
     StepDtmfConfig {
         is_enabled: yaml_bool(config, "is_enabled", false),
         inter_digit_timeout: yaml_i32(config, "inter_digit_timeout", 0),
@@ -545,16 +554,16 @@ pub(super) fn default_dtmf_config() -> StepDtmfConfig {
     step_dtmf_config(None)
 }
 
-fn step_position(value: Option<&serde_yaml::Value>) -> Option<StepPosition> {
+fn step_position(value: Option<&YamlValue>) -> Option<StepPosition> {
     let value = value?;
     Some(StepPosition {
         x: value
             .get("x")
-            .and_then(serde_yaml::Value::as_f64)
+            .and_then(YamlValue::as_f64)
             .unwrap_or_default() as f32,
         y: value
             .get("y")
-            .and_then(serde_yaml::Value::as_f64)
+            .and_then(YamlValue::as_f64)
             .unwrap_or_default() as f32,
     })
 }
@@ -566,36 +575,36 @@ pub(super) fn default_step_position(index: usize) -> StepPosition {
     }
 }
 
-fn yaml_bool(config: Option<&serde_yaml::Value>, key: &str, default: bool) -> bool {
+fn yaml_bool(config: Option<&YamlValue>, key: &str, default: bool) -> bool {
     config
         .and_then(|config| config.get(key))
-        .and_then(serde_yaml::Value::as_bool)
+        .and_then(YamlValue::as_bool)
         .unwrap_or(default)
 }
 
-fn yaml_i32(config: Option<&serde_yaml::Value>, key: &str, default: i32) -> i32 {
+fn yaml_i32(config: Option<&YamlValue>, key: &str, default: i32) -> i32 {
     config
         .and_then(|config| config.get(key))
-        .and_then(serde_yaml::Value::as_i64)
+        .and_then(YamlValue::as_i64)
         .and_then(|value| i32::try_from(value).ok())
         .unwrap_or(default)
 }
 
-fn yaml_string(config: Option<&serde_yaml::Value>, key: &str) -> String {
+fn yaml_string(config: Option<&YamlValue>, key: &str) -> String {
     config
         .and_then(|config| config.get(key))
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(YamlValue::as_str)
         .unwrap_or_default()
         .to_string()
 }
 
-fn yaml_string_list(value: Option<&serde_yaml::Value>) -> Vec<String> {
+fn yaml_string_list(value: Option<&YamlValue>) -> Vec<String> {
     value
-        .and_then(serde_yaml::Value::as_sequence)
+        .and_then(YamlValue::as_sequence)
         .map(|items| {
             items
                 .iter()
-                .filter_map(serde_yaml::Value::as_str)
+                .filter_map(YamlValue::as_str)
                 .map(ToString::to_string)
                 .collect()
         })

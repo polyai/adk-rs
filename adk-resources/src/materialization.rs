@@ -11,6 +11,7 @@ use crate::CommandGenError;
 use adk_types::{Resource, ResourceMap};
 use serde::Serialize;
 use serde_json::Value;
+use serde_yaml_ng::{Error, to_string};
 
 // Define mapping from projection to resources in file system.
 pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, CommandGenError> {
@@ -52,8 +53,8 @@ pub(crate) fn insert_yaml_resource(
     insert_content_resource(map, file_path, resource_id, name, content)
 }
 
-pub(crate) fn to_yaml_string<T: Serialize>(value: &T) -> Result<String, serde_yaml::Error> {
-    serde_yaml::to_string(value)
+pub(crate) fn to_yaml_string<T: Serialize>(value: &T) -> Result<String, Error> {
+    to_string(value)
 }
 
 pub(crate) fn insert_content_resource(

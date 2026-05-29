@@ -1,6 +1,7 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_dir, sorted_read_dir};
 use crate::resource_utils::rel_under_root;
+use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/topic.py
@@ -26,15 +27,15 @@ impl DiscoverResources for Topic {
         out
     }
 
-    fn validate_local_yaml(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
         validate_local_yaml(path, yaml, errors);
     }
 }
 
-pub(crate) fn validate_local_yaml(path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+pub(crate) fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
     if yaml
         .get("name")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(Value::as_str)
         .is_none_or(str::is_empty)
     {
         errors.push(format!(

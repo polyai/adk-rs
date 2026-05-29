@@ -9,7 +9,8 @@ use adk_protobuf::keyphrase_boosting::{
     KeyphraseBoostingUpdateKeyphrase,
 };
 use adk_types::ResourceMap;
-use serde_json::Value;
+use serde_json::Value as JsonValue;
+use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,7 +22,7 @@ struct KeyphraseItem {
 
 pub(crate) fn keyphrase_lifecycle_commands(
     resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
     let Some(yaml) = resource_yaml(resources, KEYPHRASE_BOOSTING.file.file_path) else {
@@ -86,7 +87,7 @@ pub(crate) fn keyphrase_lifecycle_commands(
     commands
 }
 
-fn local_keyphrase_items(yaml: &serde_yaml::Value) -> Vec<KeyphraseItem> {
+fn local_keyphrase_items(yaml: &YamlValue) -> Vec<KeyphraseItem> {
     yaml_sequence(yaml, KEYPHRASE_BOOSTING.yaml_key)
         .into_iter()
         .filter_map(|item| {
@@ -103,7 +104,7 @@ fn local_keyphrase_items(yaml: &serde_yaml::Value) -> Vec<KeyphraseItem> {
         .collect()
 }
 
-fn remote_keyphrase_items(projection: &Value) -> Vec<KeyphraseItem> {
+fn remote_keyphrase_items(projection: &JsonValue) -> Vec<KeyphraseItem> {
     KEYPHRASE_BOOSTING
         .entries(projection)
         .into_iter()

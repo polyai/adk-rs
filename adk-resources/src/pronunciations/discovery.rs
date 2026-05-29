@@ -1,7 +1,7 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
-use serde_yaml::Value;
+use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/pronunciation.py

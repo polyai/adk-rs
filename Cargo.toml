@@ -30,18 +30,14 @@ adk-protobuf = { package = "poly-adk-protobuf", version = "0.0.5", path = "adk-p
 adk-types = { package = "poly-adk-types", version = "0.0.5", path = "adk-types" }
 # 3rd-party
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
-clap_complete = "4"
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order"] }
-serde_yaml = "0.9"
+serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
+serde_json = { version = "1", default-features = false, features = ["alloc", "preserve_order"] }
+serde_yaml_ng = "0.10.0"
 base64 = "0.22"
 prost = "0.14"
 prost-types = "0.14"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 indexmap = { version = "2", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 walkdir = "2"
@@ -51,10 +47,8 @@ globset = "0.4"
 regex = "1"
 fancy-regex = "0.14"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
-axoupdater = { version = "0.10.0", features = ["blocking"] }
 url = "2"
 rich_rust = { version = "0.2.1", features = ["backtrace"] }
-httpmock = { version = "0.8.3", features = ["record"] }
 ruff_python_ast = { package = "littrs-ruff-python-ast", version = "0.6.2" }
 ruff_python_parser = { package = "littrs-ruff-python-parser", version = "0.6.2" }
 ruff_text_size = { package = "littrs-ruff-text-size", version = "0.6.2" }

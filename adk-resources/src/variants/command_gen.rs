@@ -12,7 +12,8 @@ use adk_protobuf::variant::{
     VariantValues,
 };
 use adk_types::ResourceMap;
-use serde_json::{Value, json};
+use serde_json::{self, Value as JsonValue, json};
+use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -41,7 +42,7 @@ struct VariantAttributeItem {
 
 pub(crate) fn variant_lifecycle_commands(
     resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> VariantLifecycleCommands {
     let Some(yaml) = resource_yaml(resources, VARIANTS.file.file_path) else {
@@ -189,7 +190,7 @@ pub(crate) fn variant_lifecycle_commands(
     commands
 }
 
-fn local_variant_items(yaml: &serde_yaml::Value) -> Vec<VariantItem> {
+fn local_variant_items(yaml: &YamlValue) -> Vec<VariantItem> {
     yaml_sequence(yaml, VARIANTS.yaml_key)
         .into_iter()
         .filter_map(|item| {
@@ -206,7 +207,7 @@ fn local_variant_items(yaml: &serde_yaml::Value) -> Vec<VariantItem> {
         .collect()
 }
 
-fn remote_variant_items(projection: &Value) -> Vec<VariantItem> {
+fn remote_variant_items(projection: &JsonValue) -> Vec<VariantItem> {
     VARIANTS
         .entries(projection)
         .into_iter()
@@ -224,7 +225,7 @@ fn remote_variant_items(projection: &Value) -> Vec<VariantItem> {
         .collect()
 }
 
-fn local_variant_attribute_items(yaml: &serde_yaml::Value) -> Vec<VariantAttributeItem> {
+fn local_variant_attribute_items(yaml: &YamlValue) -> Vec<VariantAttributeItem> {
     yaml_sequence(yaml, VARIANT_ATTRIBUTES.yaml_key)
         .into_iter()
         .filter_map(|item| {
@@ -241,7 +242,7 @@ fn local_variant_attribute_items(yaml: &serde_yaml::Value) -> Vec<VariantAttribu
         .collect()
 }
 
-fn remote_variant_attribute_items(projection: &Value) -> Vec<VariantAttributeItem> {
+fn remote_variant_attribute_items(projection: &JsonValue) -> Vec<VariantAttributeItem> {
     let variants_by_id = remote_variant_items(projection)
         .into_iter()
         .map(|item| (item.id, item.name))
@@ -274,7 +275,7 @@ fn remote_variant_attribute_items(projection: &Value) -> Vec<VariantAttributeIte
         if !variants_by_id.contains_key(&variant_id) {
             continue;
         }
-        let Some(values) = value.get("values").and_then(Value::as_object) else {
+        let Some(values) = value.get("values").and_then(JsonValue::as_object) else {
             continue;
         };
         for (attribute_id, attribute_value) in values {
@@ -313,7 +314,7 @@ fn empty_attribute_references() -> AttributeReferences {
     }
 }
 
-pub(crate) fn attribute_values_json(values: Option<&AttributeValues>) -> Value {
+pub(crate) fn attribute_values_json(values: Option<&AttributeValues>) -> JsonValue {
     let Some(values) = values else {
         return json!({});
     };
@@ -324,7 +325,7 @@ pub(crate) fn attribute_values_json(values: Option<&AttributeValues>) -> Value {
     }
 }
 
-pub(crate) fn attribute_references_json(references: Option<&AttributeReferences>) -> Value {
+pub(crate) fn attribute_references_json(references: Option<&AttributeReferences>) -> JsonValue {
     let Some(references) = references else {
         return json!({});
     };
@@ -338,5 +339,5 @@ pub(crate) fn attribute_references_json(references: Option<&AttributeReferences>
     if !references.no_code_steps.is_empty() {
         value.insert("no_code_steps".to_string(), json!(references.no_code_steps));
     }
-    Value::Object(value)
+    JsonValue::Object(value)
 }

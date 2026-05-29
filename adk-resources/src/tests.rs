@@ -1,5 +1,6 @@
 use super::*;
 use adk_types::{Resource, ResourceMap};
+use serde_json::Value;
 
 #[test]
 fn projection_materializes_named_prompt_references_like_python() {

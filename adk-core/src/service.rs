@@ -12,7 +12,8 @@ use adk_types::{
     BranchDescriptor, BranchMergeResult, DeploymentList, DiffMap, DomainError, ProjectConfig,
     PushResult, Resource, ResourceMap, StatusSummary,
 };
-use serde_json::Value;
+use serde_json::{self, Value as JsonValue};
+use serde_yaml_ng::{Value as YamlValue, from_str, to_string};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::env;
 use std::path::{Path, PathBuf};
@@ -152,7 +153,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                         .get("version_hash")
                         .or_else(|| version.get("versionHash"))
                         .or_else(|| version.get("hash"))
-                        .and_then(Value::as_str)
+                        .and_then(JsonValue::as_str)
                         .map(|v| {
                             v.chars().take(9).collect::<String>().to_lowercase() == after_prefix
                         })
@@ -174,7 +175,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                     .get("version_hash")
                     .or_else(|| previous.get("versionHash"))
                     .or_else(|| previous.get("hash"))
-                    .and_then(Value::as_str)
+                    .and_then(JsonValue::as_str)
                     .unwrap_or_default()
                     .chars()
                     .take(9)
@@ -312,7 +313,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         force: bool,
         skip_validation: bool,
         dry_run: bool,
-        projection: Option<&Value>,
+        projection: Option<&JsonValue>,
         actor: Option<&str>,
     ) -> Result<PushResult, CoreError> {
         if !force {
@@ -413,7 +414,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         persistent_local: &ResourceMap,
-        projection: Option<&Value>,
+        projection: Option<&JsonValue>,
     ) -> Result<Option<PushChangeSet>, CoreError> {
         if projection.is_some() {
             return Ok(None);
@@ -515,7 +516,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     fn add_variable_resources_for_changed_resources(&self, local: &mut ResourceMap) {
         let variable_names = local
             .values()
-            .filter_map(|resource| resource.payload.get("content").and_then(Value::as_str))
+            .filter_map(|resource| resource.payload.get("content").and_then(JsonValue::as_str))
             .flat_map(extract_variable_names_from_code)
             .collect::<BTreeSet<_>>();
         for name in variable_names {
@@ -646,11 +647,11 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         })
     }
 
-    pub fn pull_projection_json(&self) -> Result<Value, CoreError> {
+    pub fn pull_projection_json(&self) -> Result<JsonValue, CoreError> {
         Ok(self.client.pull_projection_json()?)
     }
 
-    pub fn pull_projection_json_by_name(&self, name: &str) -> Result<Value, CoreError> {
+    pub fn pull_projection_json_by_name(&self, name: &str) -> Result<JsonValue, CoreError> {
         Ok(self.client.pull_projection_json_by_name(name)?)
     }
 
@@ -767,7 +768,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     }
 
     fn yaml_status_resource_paths(path: &str, content: &str) -> Option<BTreeSet<String>> {
-        let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+        let yaml = from_str::<YamlValue>(content).ok()?;
         let mapping = yaml.as_mapping()?;
         let mut paths = BTreeSet::new();
         for (key, value) in mapping {
@@ -780,7 +781,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                         paths.insert(format!("{path}/{top_level_name}/{index}"));
                         continue;
                     }
-                    if let Some(name) = item.get("name").and_then(serde_yaml::Value::as_str) {
+                    if let Some(name) = item.get("name").and_then(YamlValue::as_str) {
                         let name = clean_name(name, false);
                         paths.insert(format!("{path}/{top_level_name}/{name}"));
                     }
@@ -885,7 +886,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                             self.workspace.fs.read_to_string(&root.join(path))?;
                         payload.insert(
                             "content".to_string(),
-                            Value::String(local_resource_content(path, &formatted_content)),
+                            JsonValue::String(local_resource_content(path, &formatted_content)),
                         );
                     }
                 }
@@ -942,7 +943,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         deployment_id: &str,
         target_env: &str,
         message: &str,
-    ) -> Result<serde_json::Value, CoreError> {
+    ) -> Result<JsonValue, CoreError> {
         Ok(self
             .client
             .promote_deployment(deployment_id, target_env, message)?)
@@ -952,28 +953,19 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         deployment_id: &str,
         message: &str,
-    ) -> Result<serde_json::Value, CoreError> {
+    ) -> Result<JsonValue, CoreError> {
         Ok(self.client.rollback_deployment(deployment_id, message)?)
     }
 
-    pub fn create_chat_session(
-        &self,
-        payload: serde_json::Value,
-    ) -> Result<serde_json::Value, CoreError> {
+    pub fn create_chat_session(&self, payload: JsonValue) -> Result<JsonValue, CoreError> {
         Ok(self.client.create_chat_session(payload)?)
     }
 
-    pub fn send_chat_message(
-        &self,
-        payload: serde_json::Value,
-    ) -> Result<serde_json::Value, CoreError> {
+    pub fn send_chat_message(&self, payload: JsonValue) -> Result<JsonValue, CoreError> {
         Ok(self.client.send_chat_message(payload)?)
     }
 
-    pub fn end_chat_session(
-        &self,
-        payload: serde_json::Value,
-    ) -> Result<serde_json::Value, CoreError> {
+    pub fn end_chat_session(&self, payload: JsonValue) -> Result<JsonValue, CoreError> {
         Ok(self.client.end_chat_session(payload)?)
     }
 
@@ -1119,7 +1111,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         message: &str,
-        conflict_resolutions: Option<Vec<serde_json::Value>>,
+        conflict_resolutions: Option<Vec<JsonValue>>,
     ) -> Result<BranchMergeResult, CoreError> {
         let result = self.client.merge_branch(message, conflict_resolutions)?;
         if result.success {
@@ -1165,15 +1157,15 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             let (content, formatted, write_pretty_resource) = if path.ends_with(".yaml")
                 || path.ends_with(".yml")
             {
-                let formatted = match serde_yaml::from_str::<serde_yaml::Value>(resource_content) {
-                    Ok(serde_yaml::Value::Null) | Err(_) => resource_content.to_string(),
-                    Ok(parsed) => serde_yaml::to_string(&parsed).map_err(|e| {
+                let formatted = match from_str::<YamlValue>(resource_content) {
+                    Ok(YamlValue::Null) | Err(_) => resource_content.to_string(),
+                    Ok(parsed) => to_string(&parsed).map_err(|e| {
                         DomainError::InvalidData(format!("{path}: yaml error: {e}"))
                     })?,
                 };
                 (resource_content.to_string(), formatted, true)
             } else if path.ends_with(".json") && !files.is_empty() {
-                let formatted = match serde_json::from_str::<serde_json::Value>(resource_content) {
+                let formatted = match serde_json::from_str::<JsonValue>(resource_content) {
                     Ok(mut parsed) => {
                         sort_json_value_keys(&mut parsed);
                         let mut formatted = serde_json::to_string_pretty(&parsed).map_err(|e| {
@@ -1421,7 +1413,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 });
                 let status_resource_name = payload
                     .get("name")
-                    .and_then(Value::as_str)
+                    .and_then(JsonValue::as_str)
                     .unwrap_or(&fallback_resource_name)
                     .to_string();
                 let status_hash = resource_status_file_hash(
@@ -1514,16 +1506,16 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             .fs
             .read_to_string(&root.join("config/variant_attributes.yaml"))
             .unwrap_or_default();
-        let yaml = serde_yaml::from_str::<serde_yaml::Value>(&content).ok();
+        let yaml = from_str::<YamlValue>(&content).ok();
         let variants = yaml
             .as_ref()
             .and_then(|yaml| yaml.get("variants"))
-            .and_then(serde_yaml::Value::as_sequence)
+            .and_then(YamlValue::as_sequence)
             .into_iter()
             .flatten();
         let mut map = BTreeMap::new();
         for variant in variants {
-            let Some(name) = variant.get("name").and_then(serde_yaml::Value::as_str) else {
+            let Some(name) = variant.get("name").and_then(YamlValue::as_str) else {
                 continue;
             };
             let logical_path = format!(
@@ -1559,11 +1551,11 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 .fs
                 .read_to_string(&root.join(file_path))
                 .unwrap_or_default();
-            let yaml = serde_yaml::from_str::<serde_yaml::Value>(&content).ok();
+            let yaml = from_str::<YamlValue>(&content).ok();
             let Some(name) = yaml
                 .as_ref()
                 .and_then(|yaml| yaml.get("name"))
-                .and_then(serde_yaml::Value::as_str)
+                .and_then(YamlValue::as_str)
             else {
                 continue;
             };

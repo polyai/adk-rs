@@ -7,7 +7,7 @@
 
 mod support;
 
-use serde_yaml::Value;
+use serde_yaml_ng::{Value, from_str};
 use std::fs;
 use std::path::Path;
 use support::python_recordings::{SCENARIOS, fixture_dir};
@@ -33,7 +33,7 @@ fn saved_python_adk_recording_fixtures_are_complete_and_portable() {
             .unwrap_or_else(|error| panic!("read {}: {error}", commands_path.display()));
         assert_portable_fixture_text(&commands_path, &manifest_text);
 
-        let manifest: Value = serde_yaml::from_str(&manifest_text)
+        let manifest: Value = from_str(&manifest_text)
             .unwrap_or_else(|error| panic!("parse {}: {error}", commands_path.display()));
         let expected_httpmock = format!("{scenario}.httpmock.yaml");
         assert_eq!(

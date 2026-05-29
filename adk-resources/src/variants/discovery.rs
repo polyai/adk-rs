@@ -1,7 +1,7 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_file, read_yaml_mapping, validate_duplicate_names};
 use crate::resource_utils::{clean_name, rel_under_root};
-use serde_yaml::Value;
+use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/variant_attributes.py
@@ -41,17 +41,14 @@ impl DiscoverResources for Variant {
         out
     }
 
-    fn validate_local_yaml(_path: &str, yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
         validate_local_yaml(yaml, errors);
     }
 }
 
-pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<String>) {
+pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     let path = Variant::LOCAL_PATH.primary_path().expect("local file path");
-    let Some(variants) = yaml
-        .get("variants")
-        .and_then(serde_yaml::Value::as_sequence)
-    else {
+    let Some(variants) = yaml.get("variants").and_then(Value::as_sequence) else {
         return;
     };
     validate_duplicate_names(path, "variants", "variant", variants, errors);
@@ -60,10 +57,10 @@ pub(crate) fn validate_local_yaml(yaml: &serde_yaml::Value, errors: &mut Vec<Str
         .filter(|variant| {
             variant
                 .get("is_default")
-                .and_then(serde_yaml::Value::as_bool)
+                .and_then(Value::as_bool)
                 .unwrap_or(false)
         })
-        .filter_map(|variant| variant.get("name").and_then(serde_yaml::Value::as_str))
+        .filter_map(|variant| variant.get("name").and_then(Value::as_str))
         .collect::<Vec<_>>();
     if default_names.len() != 1 {
         let names = default_names

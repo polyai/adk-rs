@@ -12,7 +12,7 @@
 //! in this crate.
 
 use adk_io::FileSystem;
-use serde_yaml::Value;
+use serde_yaml_ng::{Mapping, Value, from_str};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -44,12 +44,9 @@ pub(crate) use crate::transcript_corrections::TranscriptCorrection;
 pub(crate) use crate::variables::Variable;
 pub(crate) use crate::variants::{Variant, VariantAttribute};
 
-pub(crate) fn read_yaml_mapping<Fs: FileSystem>(
-    fs: &Fs,
-    path: &Path,
-) -> Option<serde_yaml::Mapping> {
+pub(crate) fn read_yaml_mapping<Fs: FileSystem>(fs: &Fs, path: &Path) -> Option<Mapping> {
     let raw = fs.read_to_string(path).ok()?;
-    let v: Value = serde_yaml::from_str(&raw).ok()?;
+    let v: Value = from_str(&raw).ok()?;
     match v {
         Value::Mapping(m) => Some(m),
         _ => None,
@@ -70,18 +67,18 @@ pub(crate) fn is_dir<Fs: FileSystem>(fs: &Fs, path: impl AsRef<Path>) -> bool {
 
 pub(crate) fn validate_named_sequence(
     path: &str,
-    yaml: &serde_yaml::Value,
+    yaml: &Value,
     key: &str,
     label: &str,
     errors: &mut Vec<String>,
 ) {
-    let Some(items) = yaml.get(key).and_then(serde_yaml::Value::as_sequence) else {
+    let Some(items) = yaml.get(key).and_then(Value::as_sequence) else {
         return;
     };
     for (idx, item) in items.iter().enumerate() {
         if item
             .get("name")
-            .and_then(serde_yaml::Value::as_str)
+            .and_then(Value::as_str)
             .is_none_or(str::is_empty)
         {
             errors.push(format!(
@@ -96,13 +93,13 @@ pub(crate) fn validate_duplicate_names(
     path: &str,
     key: &str,
     label: &str,
-    items: &[serde_yaml::Value],
+    items: &[Value],
     errors: &mut Vec<String>,
 ) {
     let mut seen = BTreeSet::new();
     let mut duplicates = BTreeSet::new();
     for item in items {
-        let Some(name) = item.get("name").and_then(serde_yaml::Value::as_str) else {
+        let Some(name) = item.get("name").and_then(Value::as_str) else {
             continue;
         };
         if !seen.insert(name.to_string()) {

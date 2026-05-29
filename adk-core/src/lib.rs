@@ -1,4 +1,6 @@
 use adk_types::{DiffMap, DomainError, ProjectConfig, ResourceMap};
+use serde_json::{self, Value as JsonValue};
+use serde_yaml_ng::{Mapping, Value as YamlValue, from_str, to_string};
 
 mod service;
 mod validation;
@@ -12,7 +14,6 @@ pub use adk_resources::{
 };
 use anyhow::Result;
 use globset::{Glob, GlobSetBuilder};
-use serde_json::Value;
 pub use service::{AdkService, PullOutcome};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Write;
@@ -45,36 +46,35 @@ pub enum CoreError {
 }
 
 fn project_config_yaml(cfg: &ProjectConfig) -> Result<String, CoreError> {
-    let mut map = serde_yaml::Mapping::new();
+    let mut map = Mapping::new();
     map.insert(
-        serde_yaml::Value::String("project_id".to_string()),
-        serde_yaml::Value::String(cfg.project_id.clone()),
+        YamlValue::String("project_id".to_string()),
+        YamlValue::String(cfg.project_id.clone()),
     );
     map.insert(
-        serde_yaml::Value::String("account_id".to_string()),
-        serde_yaml::Value::String(cfg.account_id.clone()),
+        YamlValue::String("account_id".to_string()),
+        YamlValue::String(cfg.account_id.clone()),
     );
     map.insert(
-        serde_yaml::Value::String("region".to_string()),
-        serde_yaml::Value::String(cfg.region.clone()),
+        YamlValue::String("region".to_string()),
+        YamlValue::String(cfg.region.clone()),
     );
     if let Some(project_name) = &cfg.project_name
         && !project_name.is_empty()
     {
         map.insert(
-            serde_yaml::Value::String("project_name".to_string()),
-            serde_yaml::Value::String(project_name.clone()),
+            YamlValue::String("project_name".to_string()),
+            YamlValue::String(project_name.clone()),
         );
     }
-    serde_yaml::to_string(&serde_yaml::Value::Mapping(map))
-        .map_err(|e| DomainError::InvalidData(e.to_string()).into())
+    to_string(&YamlValue::Mapping(map)).map_err(|e| DomainError::InvalidData(e.to_string()).into())
 }
 
 fn project_config_contains_branch_id(raw: &str) -> bool {
-    serde_yaml::from_str::<serde_yaml::Value>(raw)
+    from_str::<YamlValue>(raw)
         .ok()
         .and_then(|value| match value {
-            serde_yaml::Value::Mapping(mapping) => Some(mapping),
+            YamlValue::Mapping(mapping) => Some(mapping),
             _ => None,
         })
         .is_some_and(|mapping| mapping.contains_key("branch_id"))
@@ -97,16 +97,14 @@ fn find_project_root_with_fs<Fs: FileSystem>(fs: &Fs, start: &Path) -> Option<Pa
     }
 }
 
-fn migration_flags_from_status(
-    status: &serde_json::Map<String, serde_json::Value>,
-) -> BTreeSet<String> {
+fn migration_flags_from_status(status: &serde_json::Map<String, JsonValue>) -> BTreeSet<String> {
     status
         .get("migration_flags")
-        .and_then(serde_json::Value::as_array)
+        .and_then(JsonValue::as_array)
         .map(|flags| {
             flags
                 .iter()
-                .filter_map(serde_json::Value::as_str)
+                .filter_map(JsonValue::as_str)
                 .filter(|flag| {
                     matches!(
                         *flag,
@@ -128,7 +126,7 @@ fn migrate_legacy_topic_files<Fs: FileSystem>(
         return Ok(false);
     }
 
-    let mut migrated_topics: std::collections::BTreeMap<PathBuf, serde_yaml::Value> =
+    let mut migrated_topics: std::collections::BTreeMap<PathBuf, YamlValue> =
         std::collections::BTreeMap::new();
     let mut old_files = Vec::new();
     let mut old_dirs = BTreeSet::new();
@@ -138,10 +136,10 @@ fn migrate_legacy_topic_files<Fs: FileSystem>(
             continue;
         }
         let raw = fs.read_to_string(&topic_path)?;
-        let Ok(parsed) = serde_yaml::from_str::<serde_yaml::Value>(&raw) else {
+        let Ok(parsed) = from_str::<YamlValue>(&raw) else {
             continue;
         };
-        let serde_yaml::Value::Mapping(existing) = parsed else {
+        let YamlValue::Mapping(existing) = parsed else {
             continue;
         };
         if yaml_mapping_contains_key(&existing, "name") {
@@ -162,15 +160,15 @@ fn migrate_legacy_topic_files<Fs: FileSystem>(
             .into());
         }
 
-        let mut updated = serde_yaml::Mapping::new();
+        let mut updated = Mapping::new();
         updated.insert(
-            serde_yaml::Value::String("name".to_string()),
-            serde_yaml::Value::String(topic_name),
+            YamlValue::String("name".to_string()),
+            YamlValue::String(topic_name),
         );
         for (key, value) in existing {
             updated.insert(key, value);
         }
-        migrated_topics.insert(clean_file_path, serde_yaml::Value::Mapping(updated));
+        migrated_topics.insert(clean_file_path, YamlValue::Mapping(updated));
         old_files.push(topic_path.to_path_buf());
         if topic_path.parent() != Some(topics_dir.as_path())
             && let Some(parent) = topic_path.parent()
@@ -180,8 +178,7 @@ fn migrate_legacy_topic_files<Fs: FileSystem>(
     }
 
     for (path, content) in &migrated_topics {
-        let serialized =
-            serde_yaml::to_string(content).map_err(|e| DomainError::InvalidData(e.to_string()))?;
+        let serialized = to_string(content).map_err(|e| DomainError::InvalidData(e.to_string()))?;
         fs.write_string(path, &serialized)?;
     }
     for old_file in old_files {
@@ -248,15 +245,15 @@ fn recursive_file_paths<Fs: FileSystem>(fs: &Fs, root: &Path) -> Result<Vec<Path
     Ok(files)
 }
 
-fn yaml_mapping_contains_key(mapping: &serde_yaml::Mapping, key: &str) -> bool {
+fn yaml_mapping_contains_key(mapping: &Mapping, key: &str) -> bool {
     mapping
         .keys()
         .any(|candidate| candidate.as_str() == Some(key))
 }
 
-fn sort_json_value_keys(value: &mut Value) {
+fn sort_json_value_keys(value: &mut JsonValue) {
     match value {
-        Value::Object(object) => {
+        JsonValue::Object(object) => {
             let old = std::mem::take(object);
             let mut items = old.into_iter().collect::<Vec<_>>();
             items.sort_by(|(left, _), (right, _)| left.cmp(right));
@@ -265,7 +262,7 @@ fn sort_json_value_keys(value: &mut Value) {
                 object.insert(key, value);
             }
         }
-        Value::Array(items) => {
+        JsonValue::Array(items) => {
             for item in items {
                 sort_json_value_keys(item);
             }
@@ -476,7 +473,7 @@ fn normalize_flow_resources_for_diff(resources: &mut ResourceMap, reference: Opt
         let Some(content) = resource
             .payload
             .get("content")
-            .and_then(serde_json::Value::as_str)
+            .and_then(JsonValue::as_str)
             .map(ToString::to_string)
         else {
             continue;
@@ -510,7 +507,7 @@ fn flow_step_ids_by_folder_and_name(resources: &ResourceMap) -> HashMap<(String,
             }
             let folder = path.split('/').nth(1)?.to_string();
             let content = resource.payload.get("content")?.as_str()?;
-            let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+            let yaml = from_str::<YamlValue>(content).ok()?;
             let name = yaml.get("name")?.as_str()?.to_string();
             Some(((folder, name), resource.resource_id.clone()))
         })
@@ -522,7 +519,7 @@ fn canonical_flow_config_for_diff(
     content: &str,
     step_ids: &HashMap<(String, String), String>,
 ) -> Option<String> {
-    let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+    let yaml = from_str::<YamlValue>(content).ok()?;
     let name = yaml
         .get("name")
         .and_then(|value| value.as_str())
@@ -548,7 +545,7 @@ fn canonical_flow_config_for_diff(
 }
 
 fn canonical_flow_step_for_diff(content: &str) -> Option<String> {
-    let yaml = serde_yaml::from_str::<serde_yaml::Value>(content).ok()?;
+    let yaml = from_str::<YamlValue>(content).ok()?;
     let step_type = yaml
         .get("step_type")
         .and_then(|value| value.as_str())
@@ -560,7 +557,7 @@ fn canonical_flow_step_for_diff(content: &str) -> Option<String> {
     }
 }
 
-fn canonical_advanced_step_for_diff(yaml: &serde_yaml::Value) -> String {
+fn canonical_advanced_step_for_diff(yaml: &YamlValue) -> String {
     let name = yaml_string_value(yaml, "name");
     let prompt = yaml_string_value(yaml, "prompt");
     let asr = yaml.get("asr_biasing").or_else(|| yaml.get("asrBiasing"));
@@ -651,7 +648,7 @@ fn canonical_advanced_step_for_diff(yaml: &serde_yaml::Value) -> String {
     out
 }
 
-fn canonical_default_step_for_diff(yaml: &serde_yaml::Value) -> String {
+fn canonical_default_step_for_diff(yaml: &YamlValue) -> String {
     let name = yaml_string_value(yaml, "name");
     let prompt = yaml_string_value(yaml, "prompt");
     let mut out = String::new();
@@ -709,14 +706,14 @@ fn strip_generated_flow_function_imports(content: &str) -> String {
         .to_string()
 }
 
-fn yaml_string_value(yaml: &serde_yaml::Value, key: &str) -> String {
+fn yaml_string_value(yaml: &YamlValue, key: &str) -> String {
     yaml.get(key)
         .and_then(|value| value.as_str())
         .unwrap_or_default()
         .to_string()
 }
 
-fn yaml_string_value_from(yaml: Option<&serde_yaml::Value>, keys: &[&str]) -> String {
+fn yaml_string_value_from(yaml: Option<&YamlValue>, keys: &[&str]) -> String {
     keys.iter()
         .find_map(|key| {
             yaml.and_then(|value| value.get(*key))
@@ -726,7 +723,7 @@ fn yaml_string_value_from(yaml: Option<&serde_yaml::Value>, keys: &[&str]) -> St
         .to_string()
 }
 
-fn yaml_bool_value(yaml: Option<&serde_yaml::Value>, keys: &[&str], default: bool) -> bool {
+fn yaml_bool_value(yaml: Option<&YamlValue>, keys: &[&str], default: bool) -> bool {
     keys.iter()
         .find_map(|key| {
             yaml.and_then(|value| value.get(*key))
@@ -735,7 +732,7 @@ fn yaml_bool_value(yaml: Option<&serde_yaml::Value>, keys: &[&str], default: boo
         .unwrap_or(default)
 }
 
-fn yaml_i64_value(yaml: Option<&serde_yaml::Value>, keys: &[&str], default: i64) -> i64 {
+fn yaml_i64_value(yaml: Option<&YamlValue>, keys: &[&str], default: i64) -> i64 {
     keys.iter()
         .find_map(|key| {
             yaml.and_then(|value| value.get(*key))
@@ -744,7 +741,7 @@ fn yaml_i64_value(yaml: Option<&serde_yaml::Value>, keys: &[&str], default: i64)
         .unwrap_or(default)
 }
 
-fn yaml_string_sequence(yaml: Option<&serde_yaml::Value>) -> Vec<String> {
+fn yaml_string_sequence(yaml: Option<&YamlValue>) -> Vec<String> {
     yaml.and_then(|value| value.as_sequence())
         .into_iter()
         .flatten()
@@ -780,7 +777,7 @@ fn normalize_function_references_in_rules(resources: &mut ResourceMap) {
     let Some(content) = rules
         .payload
         .get("content")
-        .and_then(serde_json::Value::as_str)
+        .and_then(JsonValue::as_str)
         .map(ToString::to_string)
     else {
         return;
@@ -789,7 +786,7 @@ fn normalize_function_references_in_rules(resources: &mut ResourceMap) {
     for (id, name) in replacements {
         normalized = normalized.replace(&format!("{{{{fn:{id}}}}}"), &format!("{{{{fn:{name}}}}}"));
     }
-    rules.payload["content"] = serde_json::Value::String(normalized);
+    rules.payload["content"] = JsonValue::String(normalized);
 }
 
 #[derive(Debug, Clone)]
@@ -810,14 +807,14 @@ fn apply_reference_name_replacements(
         let Some(content) = resource
             .payload
             .get("content")
-            .and_then(serde_json::Value::as_str)
+            .and_then(JsonValue::as_str)
             .map(ToString::to_string)
         else {
             continue;
         };
         let normalized = replace_reference_ids_with_names(&content, replacements);
         if normalized != content {
-            resource.payload["content"] = serde_json::Value::String(normalized);
+            resource.payload["content"] = JsonValue::String(normalized);
         }
     }
 }

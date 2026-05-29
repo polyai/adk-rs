@@ -8,12 +8,13 @@ use adk_protobuf::handoff::{
 };
 use adk_protobuf::{Command, Metadata};
 use adk_types::ResourceMap;
-use serde_json::Value;
+use serde_json::{self, Value as JsonValue};
+use serde_yaml_ng::{Value as YamlValue, from_str};
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn handoff_command_groups(
     resources: &ResourceMap,
-    projection: &Value,
+    projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> CommandGroups {
     let remote = remote_handoffs(projection);
@@ -38,14 +39,12 @@ pub(crate) fn handoff_command_groups(
             let content = resource
                 .payload
                 .get("content")
-                .and_then(Value::as_str)
+                .and_then(JsonValue::as_str)
                 .unwrap_or_default();
 
             if path == "config/handoffs.yaml" {
-                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
-                    && let Some(items) = yaml
-                        .get("handoffs")
-                        .and_then(serde_yaml::Value::as_sequence)
+                if let Ok(yaml) = from_str::<YamlValue>(content)
+                    && let Some(items) = yaml.get("handoffs").and_then(YamlValue::as_sequence)
                 {
                     for item in items {
                         if let Some(name) = queue.queue(item, "local") {
@@ -57,7 +56,7 @@ pub(crate) fn handoff_command_groups(
             }
 
             if path.starts_with("config/handoffs.yaml/handoffs/") {
-                let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) else {
+                let Ok(yaml) = from_str::<YamlValue>(content) else {
                     continue;
                 };
                 if let Some(name) = queue.queue(&yaml, &resource.resource_id) {
@@ -84,14 +83,12 @@ pub(crate) fn handoff_command_groups(
         let content = resource
             .payload
             .get("content")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .unwrap_or_default();
 
         if path == "config/handoffs.yaml" {
-            if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content)
-                && let Some(items) = yaml
-                    .get("handoffs")
-                    .and_then(serde_yaml::Value::as_sequence)
+            if let Ok(yaml) = from_str::<YamlValue>(content)
+                && let Some(items) = yaml.get("handoffs").and_then(YamlValue::as_sequence)
             {
                 for item in items {
                     queue_handoff_default_item(
@@ -109,7 +106,7 @@ pub(crate) fn handoff_command_groups(
         }
 
         if path.starts_with("config/handoffs.yaml/handoffs/") {
-            let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(content) else {
+            let Ok(yaml) = from_str::<YamlValue>(content) else {
                 continue;
             };
             queue_handoff_default_item(
@@ -132,16 +129,20 @@ pub(crate) fn handoff_command_groups(
     }
 }
 
-fn remote_handoffs(projection: &Value) -> HashMap<String, String> {
+fn remote_handoffs(projection: &JsonValue) -> HashMap<String, String> {
     let entities = extract_entities_map(projection, &["handoff", "handoffs", "entities"]);
     let mut handoffs = HashMap::new();
     for (id, value) in entities {
-        if !value.get("active").and_then(Value::as_bool).unwrap_or(true) {
+        if !value
+            .get("active")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(true)
+        {
             continue;
         }
         let name = value
             .get("name")
-            .and_then(Value::as_str)
+            .and_then(JsonValue::as_str)
             .unwrap_or(&id)
             .to_string();
         handoffs.insert(name, id);
@@ -149,22 +150,22 @@ fn remote_handoffs(projection: &Value) -> HashMap<String, String> {
     handoffs
 }
 
-fn yaml_str(yaml: &serde_yaml::Value, key: &str) -> String {
+fn yaml_str(yaml: &YamlValue, key: &str) -> String {
     yaml.get(key)
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(YamlValue::as_str)
         .unwrap_or("")
         .to_string()
 }
 
-fn json_str(value: &Value, key: &str) -> String {
+fn json_str(value: &JsonValue, key: &str) -> String {
     value
         .get(key)
-        .and_then(Value::as_str)
+        .and_then(JsonValue::as_str)
         .unwrap_or("")
         .to_string()
 }
 
-fn handoff_sip_config(yaml: &serde_yaml::Value) -> SipConfig {
+fn handoff_sip_config(yaml: &YamlValue) -> SipConfig {
     let config = match yaml.get("sip_config").or_else(|| yaml.get("sipConfig")) {
         Some(value) => value,
         None => {
@@ -175,7 +176,7 @@ fn handoff_sip_config(yaml: &serde_yaml::Value) -> SipConfig {
     };
     let method = config
         .get("method")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(YamlValue::as_str)
         .unwrap_or("bye");
     let config = match method {
         "invite" => sip_config::Config::Invite(SipInviteHandoffConfig {
@@ -193,7 +194,7 @@ fn handoff_sip_config(yaml: &serde_yaml::Value) -> SipConfig {
     }
 }
 
-fn sip_headers_from_yaml(yaml: &serde_yaml::Value) -> Option<SipHeaders> {
+fn sip_headers_from_yaml(yaml: &YamlValue) -> Option<SipHeaders> {
     let headers = yaml
         .get("sip_headers")
         .or_else(|| yaml.get("sipHeaders"))?
@@ -211,7 +212,7 @@ fn sip_headers_from_yaml(yaml: &serde_yaml::Value) -> Option<SipHeaders> {
 }
 
 struct HandoffItemQueue<'a> {
-    projection: &'a Value,
+    projection: &'a JsonValue,
     remote: &'a HashMap<String, String>,
     metadata: &'a Option<Metadata>,
     local_names: &'a mut HashSet<String>,
@@ -220,7 +221,7 @@ struct HandoffItemQueue<'a> {
 }
 
 impl HandoffItemQueue<'_> {
-    fn queue(&mut self, yaml: &serde_yaml::Value, resource_id: &str) -> Option<String> {
+    fn queue(&mut self, yaml: &YamlValue, resource_id: &str) -> Option<String> {
         let name = yaml_str(yaml, "name");
         if name.is_empty() {
             return None;
@@ -282,9 +283,9 @@ impl HandoffItemQueue<'_> {
 }
 
 fn queue_handoff_default_item(
-    yaml: &serde_yaml::Value,
+    yaml: &YamlValue,
     resource_id: &str,
-    projection: &Value,
+    projection: &JsonValue,
     remote_handoffs: &HashMap<String, String>,
     changed_names: &HashSet<String>,
     metadata: &Option<Metadata>,
@@ -293,7 +294,7 @@ fn queue_handoff_default_item(
     let is_default = yaml
         .get("is_default")
         .or_else(|| yaml.get("isDefault"))
-        .and_then(serde_yaml::Value::as_bool)
+        .and_then(YamlValue::as_bool)
         .unwrap_or(false);
     if !is_default {
         return;
@@ -309,7 +310,7 @@ fn queue_handoff_default_item(
         && remote
             .get("isDefault")
             .or_else(|| remote.get("is_default"))
-            .and_then(Value::as_bool)
+            .and_then(JsonValue::as_bool)
             .unwrap_or(false)
         && !changed_names.contains(&name)
     {
@@ -330,18 +331,18 @@ fn queue_handoff_default_item(
     );
 }
 
-fn handoff_matches_remote(local: &serde_yaml::Value, remote: &Value) -> bool {
-    yaml_str(local, "name") == remote.get("name").and_then(Value::as_str).unwrap_or("")
+fn handoff_matches_remote(local: &YamlValue, remote: &JsonValue) -> bool {
+    yaml_str(local, "name") == remote.get("name").and_then(JsonValue::as_str).unwrap_or("")
         && yaml_str(local, "description")
             == remote
                 .get("description")
-                .and_then(Value::as_str)
+                .and_then(JsonValue::as_str)
                 .unwrap_or("")
         && handoff_sip_config(local) == handoff_sip_config_from_remote(remote)
         && sip_headers_from_yaml(local) == sip_headers_from_remote(remote)
 }
 
-fn handoff_sip_config_from_remote(remote: &Value) -> SipConfig {
+fn handoff_sip_config_from_remote(remote: &JsonValue) -> SipConfig {
     let Some(config) = remote
         .get("sipConfig")
         .and_then(|value| value.get("config").or(Some(value)))
@@ -350,8 +351,8 @@ fn handoff_sip_config_from_remote(remote: &Value) -> SipConfig {
             config: Some(sip_config::Config::Bye(SipByeHandoffConfig {})),
         };
     };
-    if let Some(case) = config.get("$case").and_then(Value::as_str) {
-        let value = config.get("value").unwrap_or(&Value::Null);
+    if let Some(case) = config.get("$case").and_then(JsonValue::as_str) {
+        let value = config.get("value").unwrap_or(&JsonValue::Null);
         let config = match case {
             "invite" => sip_config::Config::Invite(SipInviteHandoffConfig {
                 phone_number: json_str(value, "phoneNumber"),
@@ -388,11 +389,11 @@ fn handoff_sip_config_from_remote(remote: &Value) -> SipConfig {
     }
 }
 
-fn sip_headers_from_remote(remote: &Value) -> Option<SipHeaders> {
+fn sip_headers_from_remote(remote: &JsonValue) -> Option<SipHeaders> {
     let headers = remote
         .get("sipHeaders")
         .and_then(|value| value.get("headers").or(Some(value)))
-        .and_then(Value::as_array)?;
+        .and_then(JsonValue::as_array)?;
     let headers = headers
         .iter()
         .filter_map(|header| {
@@ -405,7 +406,7 @@ fn sip_headers_from_remote(remote: &Value) -> Option<SipHeaders> {
     (!headers.is_empty()).then_some(SipHeaders { headers })
 }
 
-pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, Value)> {
+pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {
     match payload {
         CommandPayload::HandoffDelete(delete) => Some((
             "handoff_delete",
@@ -445,7 +446,7 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
     }
 }
 
-fn sip_config_json(config: Option<&SipConfig>) -> Value {
+fn sip_config_json(config: Option<&SipConfig>) -> JsonValue {
     match config.and_then(|config| config.config.as_ref()) {
         Some(sip_config::Config::Invite(invite)) => serde_json::json!({
             "invite": {
@@ -463,7 +464,7 @@ fn sip_config_json(config: Option<&SipConfig>) -> Value {
     }
 }
 
-fn sip_headers_json(headers: Option<&SipHeaders>) -> Value {
+fn sip_headers_json(headers: Option<&SipHeaders>) -> JsonValue {
     let Some(headers) = headers else {
         return serde_json::json!({});
     };
