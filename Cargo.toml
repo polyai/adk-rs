@@ -52,6 +52,8 @@ rich_rust = { version = "0.2.1", features = ["backtrace"] }
 ruff_python_ast = { package = "littrs-ruff-python-ast", version = "0.6.2" }
 ruff_python_parser = { package = "littrs-ruff-python-parser", version = "0.6.2" }
 ruff_text_size = { package = "littrs-ruff-text-size", version = "0.6.2" }
+# dev dependencies only
+httpmock = { version = "0.8.3", features = ["record"] }
 
 # The profile that 'dist' will build with
 [profile.dist]
