@@ -40,9 +40,7 @@ pub(crate) fn cmd_login(args: LoginArgs) -> ExitCode {
 
 pub(crate) fn sign_in_and_save_key(region: &str) -> Result<String, String> {
     let jwt_access_token = sign_in(region)?;
-    let api_key = authenticate_and_save_key(region, &jwt_access_token)?;
-    wait_for_api_key_active(region, &api_key)?;
-    Ok(api_key)
+    authenticate_and_save_key(region, &jwt_access_token)
 }
 
 pub(crate) fn sign_in(region: &str) -> Result<String, String> {
@@ -151,7 +149,10 @@ pub(crate) fn wait_for_api_key_active(region: &str, api_key: &str) -> Result<(),
         }
         thread::sleep(Duration::from_secs(1));
     }
-    Err("Timed out waiting for the API key to become active.".to_string())
+    Err(
+        "API key was created but is not active yet. Please wait a moment and try 'poly project create'."
+            .to_string(),
+    )
 }
 
 fn resolve_login_region(region: Option<String>) -> Result<Option<String>, String> {

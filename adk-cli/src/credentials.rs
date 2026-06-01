@@ -1,7 +1,33 @@
-use serde_json::{Map, Value};
+use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+struct CredentialsFile {
+    #[serde(flatten)]
+    api_keys: IndexMap<String, String>,
+}
+
+impl CredentialsFile {
+    fn api_key(&self, region: &str) -> Option<String> {
+        self.api_keys
+            .get(region)
+            .filter(|key| !key.trim().is_empty())
+            .cloned()
+    }
+
+    fn any_api_keys(&self) -> bool {
+        self.api_keys.values().any(|key| !key.trim().is_empty())
+    }
+
+    fn insert_api_key(&mut self, region: &str, api_key: &str) {
+        self.api_keys
+            .insert(region.to_string(), api_key.to_string());
+    }
+}
 
 pub(crate) fn api_key_for_region(region: &str) -> Result<String, String> {
     api_key_for_region_from(
@@ -21,11 +47,7 @@ pub(crate) fn any_credentials_exist() -> bool {
     credentials_file_path()
         .ok()
         .and_then(|path| read_credentials_file(&path).ok())
-        .is_some_and(|credentials| {
-            credentials
-                .values()
-                .any(|value| value.as_str().is_some_and(|key| !key.trim().is_empty()))
-        })
+        .is_some_and(|credentials| credentials.any_api_keys())
 }
 
 pub(crate) fn save_api_key_credential_file(
@@ -71,11 +93,7 @@ fn api_key_for_region_from(
 
 fn read_api_key_from_credential_file_at(path: &Path, region: &str) -> Option<String> {
     let credentials = read_credentials_file(path).ok()?;
-    credentials
-        .get(region)
-        .and_then(Value::as_str)
-        .filter(|key| !key.trim().is_empty())
-        .map(ToString::to_string)
+    credentials.api_key(region)
 }
 
 fn save_api_key_credential_file_at(
@@ -83,8 +101,8 @@ fn save_api_key_credential_file_at(
     api_key: &str,
     region: &str,
 ) -> Result<(), String> {
-    let mut credentials = read_credentials_file(path).unwrap_or_default();
-    credentials.insert(region.to_string(), Value::String(api_key.to_string()));
+    let mut credentials = read_credentials_file_for_update(path)?;
+    credentials.insert_api_key(region, api_key);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
@@ -105,18 +123,27 @@ fn save_api_key_credential_file_at(
     Ok(())
 }
 
-fn read_credentials_file(path: &Path) -> Result<Map<String, Value>, String> {
+fn read_credentials_file(path: &Path) -> Result<CredentialsFile, String> {
     let contents = fs::read_to_string(path)
         .map_err(|error| format!("Failed to read credentials file {}: {error}", path.display()))?;
-    let value: Value = serde_json::from_str(&contents).map_err(|error| {
+    parse_credentials_file(path, &contents)
+}
+
+fn read_credentials_file_for_update(path: &Path) -> Result<CredentialsFile, String> {
+    match fs::read_to_string(path) {
+        Ok(contents) => parse_credentials_file(path, &contents),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(CredentialsFile::default()),
+        Err(error) => Err(format!(
+            "Failed to read credentials file {}: {error}",
+            path.display()
+        )),
+    }
+}
+
+fn parse_credentials_file(path: &Path, contents: &str) -> Result<CredentialsFile, String> {
+    serde_json::from_str(contents).map_err(|error| {
         format!(
             "Failed to parse credentials file {}: {error}",
-            path.display()
-        )
-    })?;
-    value.as_object().cloned().ok_or_else(|| {
-        format!(
-            "Credentials file {} must contain a JSON object.",
             path.display()
         )
     })
@@ -195,14 +222,8 @@ mod tests {
 
         let credentials = read_credentials_file(&path).expect("credentials");
 
-        assert_eq!(
-            credentials.get("studio").and_then(Value::as_str),
-            Some("studio-key")
-        );
-        assert_eq!(
-            credentials.get("us-1").and_then(Value::as_str),
-            Some("us-key")
-        );
+        assert_eq!(credentials.api_key("studio").as_deref(), Some("studio-key"));
+        assert_eq!(credentials.api_key("us-1").as_deref(), Some("us-key"));
 
         #[cfg(unix)]
         {
@@ -211,6 +232,42 @@ mod tests {
             let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
             assert_eq!(mode, 0o600);
         }
+
+        let _ = fs::remove_dir_all(path.parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn save_api_key_refuses_to_overwrite_malformed_credentials() {
+        let path = temp_credentials_file();
+        fs::create_dir_all(path.parent().unwrap()).expect("credentials dir");
+        fs::write(&path, "{not-json").expect("write malformed credentials");
+
+        let error = save_api_key_credential_file_at(&path, "studio-key", "studio")
+            .expect_err("malformed credentials should not be overwritten");
+
+        assert!(error.contains("Failed to parse credentials file"));
+        assert_eq!(
+            fs::read_to_string(&path).expect("credentials still exist"),
+            "{not-json"
+        );
+
+        let _ = fs::remove_dir_all(path.parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn save_api_key_rejects_non_string_credential_values() {
+        let path = temp_credentials_file();
+        fs::create_dir_all(path.parent().unwrap()).expect("credentials dir");
+        fs::write(&path, r#"{"us-1":123}"#).expect("write typed-invalid credentials");
+
+        let error = save_api_key_credential_file_at(&path, "studio-key", "studio")
+            .expect_err("non-string credentials should not be overwritten");
+
+        assert!(error.contains("Failed to parse credentials file"));
+        assert_eq!(
+            fs::read_to_string(&path).expect("credentials still exist"),
+            r#"{"us-1":123}"#
+        );
 
         let _ = fs::remove_dir_all(path.parent().unwrap().parent().unwrap());
     }

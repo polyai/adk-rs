@@ -180,7 +180,7 @@ fn resolve_project_create_selection(
     let Some(project_name) = resolve_project_create_name(project_name)? else {
         return Ok(None);
     };
-    let project_id = resolve_project_create_project_id(project_id, &project_name)?;
+    let project_id = resolve_project_create_project_id(&region, project_id, &project_name)?;
 
     Ok(Some(ProjectCreateSelection {
         region,
@@ -287,11 +287,13 @@ fn resolve_project_create_name(project_name: Option<String>) -> Result<Option<St
 }
 
 fn resolve_project_create_project_id(
+    region: &str,
     project_id: Option<String>,
     project_name: &str,
 ) -> Result<Option<String>, String> {
     match project_id {
         Some(project_id) => Ok(Some(project_id)),
+        None if region == "studio" => Ok(None),
         None => {
             let default_id = default_project_id_for_name(project_name);
             let Some(project_id) = prompt_text(
@@ -456,6 +458,29 @@ mod tests {
                 account_id: "acct-1".to_string(),
                 project_name: "Test Project".to_string(),
                 project_id: Some("Project_ID_From_Arg".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn studio_project_create_selection_leaves_project_id_for_platform_generation() {
+        let selection = resolve_project_create_selection(
+            Some("studio".to_string()),
+            Some("acct-1".to_string()),
+            Some(" Test Project ".to_string()),
+            None,
+            false,
+        )
+        .expect("selection")
+        .expect("selection");
+
+        assert_eq!(
+            selection,
+            ProjectCreateSelection {
+                region: "studio".to_string(),
+                account_id: "acct-1".to_string(),
+                project_name: "Test Project".to_string(),
+                project_id: None,
             }
         );
     }

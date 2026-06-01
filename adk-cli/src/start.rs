@@ -1,6 +1,6 @@
 use crate::{
     ProjectCreateArgs, ProjectWorkspace, StartArgs, console, credentials,
-    login::sign_in_and_save_key,
+    login::{sign_in_and_save_key, wait_for_api_key_active},
     project::cmd_project_create,
     prompt_confirm_default, wait_for_enter,
 };
@@ -33,7 +33,14 @@ pub(crate) fn cmd_start(workspace: &ProjectWorkspace, args: StartArgs) -> ExitCo
         }
     }
 
-    if let Err(error) = sign_in_and_save_key(START_REGION) {
+    let api_key = match sign_in_and_save_key(START_REGION) {
+        Ok(api_key) => api_key,
+        Err(error) => {
+            crate::emit_error(false, &error);
+            return ExitCode::from(1);
+        }
+    };
+    if let Err(error) = wait_for_api_key_active(START_REGION, &api_key) {
         crate::emit_error(false, &error);
         return ExitCode::from(1);
     }
