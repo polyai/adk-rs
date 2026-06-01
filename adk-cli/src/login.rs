@@ -1,5 +1,7 @@
 use crate::{LoginArgs, console, credentials, init::INIT_REGIONS, prompt_select};
-use adk_api_client::{Auth0Client, Auth0TokenPoll, HttpPlatformClient, JupiterClient};
+use adk_api_client::{
+    Auth0Client, Auth0DeviceCode, Auth0TokenPoll, HttpPlatformClient, JupiterClient,
+};
 use std::process::{Command, ExitCode};
 use std::thread;
 use std::time::Duration;
@@ -39,9 +41,32 @@ pub(crate) fn sign_in_and_save_key(region: &str) -> Result<String, String> {
 
 pub(crate) fn sign_in(region: &str) -> Result<String, String> {
     let auth0 = Auth0Client::new(region).map_err(|error| error.to_string())?;
-    let device_code = auth0
-        .request_device_code()
-        .map_err(|error| format!("Failed to request device code: {error}"))?;
+    sign_in_with_client(&auth0, open_browser, thread::sleep)
+}
+
+trait DeviceAuthClient {
+    fn request_device_code(&self) -> Result<Auth0DeviceCode, String>;
+    fn poll_device_token(&self, device_code: &str) -> Result<Auth0TokenPoll, String>;
+}
+
+impl DeviceAuthClient for Auth0Client {
+    fn request_device_code(&self) -> Result<Auth0DeviceCode, String> {
+        Auth0Client::request_device_code(self)
+            .map_err(|error| format!("Failed to request device code: {error}"))
+    }
+
+    fn poll_device_token(&self, device_code: &str) -> Result<Auth0TokenPoll, String> {
+        Auth0Client::poll_device_token(self, device_code)
+            .map_err(|error| format!("Failed to poll for authorization: {error}"))
+    }
+}
+
+fn sign_in_with_client(
+    auth0: &impl DeviceAuthClient,
+    mut open_browser: impl FnMut(&str),
+    mut sleep: impl FnMut(Duration),
+) -> Result<String, String> {
+    let device_code = auth0.request_device_code()?;
 
     console::info(format!(
         "Open the following URL in your browser and enter code {}:",
@@ -52,11 +77,8 @@ pub(crate) fn sign_in(region: &str) -> Result<String, String> {
 
     let mut interval = device_code.interval_seconds.max(1);
     loop {
-        thread::sleep(Duration::from_secs(interval));
-        match auth0
-            .poll_device_token(&device_code.device_code)
-            .map_err(|error| format!("Failed to poll for authorization: {error}"))?
-        {
+        sleep(Duration::from_secs(interval));
+        match auth0.poll_device_token(&device_code.device_code)? {
             Auth0TokenPoll::Authorized { access_token } => return Ok(access_token),
             Auth0TokenPoll::AuthorizationPending => {}
             Auth0TokenPoll::SlowDown => interval += 5,
@@ -157,4 +179,165 @@ fn try_open_browser(url: &str) -> std::io::Result<()> {
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 fn try_open_browser(url: &str) -> std::io::Result<()> {
     Command::new("xdg-open").arg(url).spawn().map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use httpmock::Method::POST;
+    use httpmock::MockServer;
+    use serde_json::json;
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+
+    struct FakeDeviceAuthClient {
+        device_code: Result<Auth0DeviceCode, String>,
+        polls: RefCell<VecDeque<Result<Auth0TokenPoll, String>>>,
+    }
+
+    impl FakeDeviceAuthClient {
+        fn new(polls: Vec<Result<Auth0TokenPoll, String>>) -> Self {
+            Self {
+                device_code: Ok(Auth0DeviceCode {
+                    device_code: "device-code".to_string(),
+                    user_code: "ABCD-EFGH".to_string(),
+                    verification_uri_complete: "https://example.test/device".to_string(),
+                    interval_seconds: 2,
+                }),
+                polls: RefCell::new(VecDeque::from(polls)),
+            }
+        }
+
+        fn with_device_code_error(error: &str) -> Self {
+            Self {
+                device_code: Err(error.to_string()),
+                polls: RefCell::new(VecDeque::new()),
+            }
+        }
+    }
+
+    impl DeviceAuthClient for FakeDeviceAuthClient {
+        fn request_device_code(&self) -> Result<Auth0DeviceCode, String> {
+            self.device_code.clone()
+        }
+
+        fn poll_device_token(&self, _device_code: &str) -> Result<Auth0TokenPoll, String> {
+            self.polls
+                .borrow_mut()
+                .pop_front()
+                .expect("test provided enough poll responses")
+        }
+    }
+
+    #[test]
+    fn sign_in_with_auth0_client_uses_httpmock_device_flow() {
+        let server = MockServer::start();
+        let auth0 = Auth0Client::with_base_url(server.base_url(), "client-id");
+        let device_code = server.mock(|when, then| {
+            when.method(POST)
+                .path("/oauth/device/code")
+                .json_body(json!({
+                    "client_id": "client-id",
+                    "scope": "openid profile email",
+                    "audience": "https://platform.polyai.app/api",
+                }));
+            then.status(200).json_body(json!({
+                "device_code": "device-code",
+                "user_code": "ABCD-EFGH",
+                "verification_uri_complete": "https://example.test/device",
+                "interval": 0,
+            }));
+        });
+        let token = server.mock(|when, then| {
+            when.method(POST)
+                .path("/oauth/token")
+                .json_body(json!({
+                    "client_id": "client-id",
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    "device_code": "device-code",
+                }));
+            then.status(200)
+                .json_body(json!({ "access_token": "jwt-token" }));
+        });
+        let mut opened_url = None;
+        let mut sleeps = Vec::new();
+
+        let access_token = sign_in_with_client(
+            &auth0,
+            |url| opened_url = Some(url.to_string()),
+            |duration| sleeps.push(duration),
+        )
+        .expect("successful sign in");
+
+        assert_eq!(access_token, "jwt-token");
+        assert_eq!(
+            opened_url.as_deref(),
+            Some("https://example.test/device")
+        );
+        assert_eq!(sleeps, vec![Duration::from_secs(1)]);
+        device_code.assert_calls(1);
+        token.assert_calls(1);
+    }
+
+    #[test]
+    fn sign_in_with_client_polls_until_authorized_and_honors_slow_down() {
+        let auth0 = FakeDeviceAuthClient::new(vec![
+            Ok(Auth0TokenPoll::AuthorizationPending),
+            Ok(Auth0TokenPoll::SlowDown),
+            Ok(Auth0TokenPoll::Authorized {
+                access_token: "jwt-token".to_string(),
+            }),
+        ]);
+        let mut opened_url = None;
+        let mut sleeps = Vec::new();
+
+        let token = sign_in_with_client(
+            &auth0,
+            |url| opened_url = Some(url.to_string()),
+            |duration| sleeps.push(duration),
+        )
+        .expect("successful sign in");
+
+        assert_eq!(token, "jwt-token");
+        assert_eq!(
+            opened_url.as_deref(),
+            Some("https://example.test/device")
+        );
+        assert_eq!(
+            sleeps,
+            vec![
+                Duration::from_secs(2),
+                Duration::from_secs(2),
+                Duration::from_secs(7)
+            ]
+        );
+    }
+
+    #[test]
+    fn sign_in_with_client_reports_expired_token() {
+        let auth0 = FakeDeviceAuthClient::new(vec![Ok(Auth0TokenPoll::Expired)]);
+
+        let error = sign_in_with_client(&auth0, |_| {}, |_| {}).expect_err("expired login");
+
+        assert_eq!(
+            error,
+            "Login request expired. Please run the command again."
+        );
+    }
+
+    #[test]
+    fn sign_in_with_client_reports_device_code_errors() {
+        let auth0 = FakeDeviceAuthClient::with_device_code_error("device-code failed");
+
+        let error = sign_in_with_client(&auth0, |_| {}, |_| {}).expect_err("device-code error");
+
+        assert_eq!(error, "device-code failed");
+    }
+
+    #[test]
+    fn sign_in_reports_unknown_region_before_polling() {
+        let error = sign_in("moon-1").expect_err("unknown region");
+
+        assert!(error.contains("Unknown region: moon-1"));
+    }
 }
