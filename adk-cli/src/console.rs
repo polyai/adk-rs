@@ -58,6 +58,15 @@ pub(crate) fn prompt(message: impl AsRef<str>) -> io::Result<()> {
     print_stdout_with_end(message.as_ref(), "")
 }
 
+pub(crate) fn print_welcome_message() {
+    plain("");
+    plain(format!("[label]{POLY_LOGO}[/label]"));
+    plain("[label]Welcome to the PolyAI Agent Development Kit (ADK)![/label]");
+    plain("Build and edit Agent Studio projects locally with the PolyAI ADK");
+    plain("Documentation: https://polyai.github.io/adk/");
+    plain("");
+}
+
 pub(crate) fn exception(message: impl AsRef<str>) {
     let message = message.as_ref();
     if verbose() {
@@ -68,6 +77,14 @@ pub(crate) fn exception(message: impl AsRef<str>) {
         print_stderr("[muted]Run with --verbose for the full traceback.[/muted]");
     }
 }
+
+const POLY_LOGO: &str = r#"        ●
+    ●   ●   ●      ██████   ██████  ██   ██    ██   █████  ██
+      ●   ●        ██   ██ ██    ██ ██    ██  ██   ██   ██ ██
+    ●   ●   ●      ██████  ██    ██ ██     ████    ███████ ██
+      ●   ●        ██      ██    ██ ██      ██     ██   ██ ██
+    ●   ●   ●      ██       ██████  ██████  ██     ██   ██ ██
+        ●"#;
 
 fn print_stdout(message: &str) {
     let _ = print_stdout_with_end(message, "\n");

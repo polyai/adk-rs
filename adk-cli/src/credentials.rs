@@ -3,8 +3,6 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub(crate) const CREDENTIALS_FILE_DISPLAY: &str = "~/.poly/credentials.json";
-
 pub(crate) fn api_key_for_region(region: &str) -> Result<String, String> {
     api_key_for_region_from(
         region,
@@ -42,9 +40,9 @@ pub(crate) fn save_api_key_credential_file(
 pub(crate) fn mask_api_key(api_key: &str) -> String {
     let api_key = api_key.trim();
     if api_key.len() <= 8 {
-        return "********".to_string();
+        return "****".to_string();
     }
-    format!("{}********{}", &api_key[..4], &api_key[api_key.len() - 4..])
+    format!("{}****{}", &api_key[..4], &api_key[api_key.len() - 4..])
 }
 
 fn api_key_for_region_from(
@@ -252,8 +250,8 @@ mod tests {
 
     #[test]
     fn mask_api_key_keeps_a_small_identifier_without_leaking_the_secret() {
-        assert_eq!(mask_api_key("short"), "********");
-        assert_eq!(mask_api_key("abcd1234wxyz"), "abcd********wxyz");
+        assert_eq!(mask_api_key("short"), "****");
+        assert_eq!(mask_api_key("abcd1234wxyz"), "abcd****wxyz");
     }
 
     #[test]

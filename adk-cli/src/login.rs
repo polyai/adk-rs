@@ -9,6 +9,15 @@ use std::time::Duration;
 const LOGIN_REGIONS: &[&str] = INIT_REGIONS;
 
 pub(crate) fn cmd_login(args: LoginArgs) -> ExitCode {
+    console::print_welcome_message();
+    console::plain(
+        "This will guide you through logging in to your Agent Studio account and setting up your API key for use with the ADK.",
+    );
+    if let Err(error) = crate::wait_for_enter("Press any key to continue...") {
+        crate::emit_error(false, &error);
+        return ExitCode::from(1);
+    }
+
     let region = match resolve_login_region(args.region) {
         Ok(Some(region)) => region,
         Ok(None) => return ExitCode::SUCCESS,
@@ -17,9 +26,11 @@ pub(crate) fn cmd_login(args: LoginArgs) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    print_welcome_message();
     match sign_in_and_save_key(&region) {
-        Ok(_) => ExitCode::SUCCESS,
+        Ok(_) => {
+            console::success("Logged in successfully!");
+            ExitCode::SUCCESS
+        }
         Err(error) => {
             crate::emit_error(false, &error);
             ExitCode::from(1)
@@ -27,15 +38,10 @@ pub(crate) fn cmd_login(args: LoginArgs) -> ExitCode {
     }
 }
 
-pub(crate) fn print_welcome_message() {
-    console::plain("[label]Welcome to the PolyAI ADK![/label]");
-}
-
 pub(crate) fn sign_in_and_save_key(region: &str) -> Result<String, String> {
     let jwt_access_token = sign_in(region)?;
     let api_key = authenticate_and_save_key(region, &jwt_access_token)?;
     wait_for_api_key_active(region, &api_key)?;
-    console::success("Authentication complete.");
     Ok(api_key)
 }
 
@@ -69,21 +75,23 @@ fn sign_in_with_client(
     let device_code = auth0.request_device_code()?;
 
     console::info(format!(
-        "Open the following URL in your browser and enter code {}:",
-        device_code.user_code
+        "To sign in or create an account, open the following link in your browser\nand enter the code when prompted.\n\n  URL:  {}\n  Code: [label]{}[/label]",
+        device_code.verification_uri_complete, device_code.user_code
     ));
-    console::plain(format!("[label]{}[/label]", device_code.verification_uri_complete));
     open_browser(&device_code.verification_uri_complete);
 
     let mut interval = device_code.interval_seconds.max(1);
     loop {
         sleep(Duration::from_secs(interval));
         match auth0.poll_device_token(&device_code.device_code)? {
-            Auth0TokenPoll::Authorized { access_token } => return Ok(access_token),
+            Auth0TokenPoll::Authorized { access_token } => {
+                console::success("Authenticated successfully!");
+                return Ok(access_token);
+            }
             Auth0TokenPoll::AuthorizationPending => {}
             Auth0TokenPoll::SlowDown => interval += 5,
             Auth0TokenPoll::Expired => {
-                return Err("Login request expired. Please run the command again.".to_string());
+                return Err("Authorization timed out. Please try again.".to_string());
             }
         }
     }
@@ -94,10 +102,12 @@ pub(crate) fn authenticate_and_save_key(
     jwt_access_token: &str,
 ) -> Result<String, String> {
     let jupiter = JupiterClient::new(region).map_err(|error| error.to_string())?;
+    console::info("Setting up your account...");
     jupiter
         .authorise(jwt_access_token)
         .map_err(|error| format!("Failed to authorize account: {error}"))?;
 
+    console::info("Fetching API key...");
     let api_key = match jupiter
         .list_personal_access_tokens(jwt_access_token)
         .map_err(|error| format!("Failed to list API keys: {error}"))?
@@ -105,18 +115,20 @@ pub(crate) fn authenticate_and_save_key(
         .next()
     {
         Some(token) => {
-            console::info(format!(
-                "Using existing API key {}.",
+            console::success(format!(
+                "Found existing API Token: {}",
                 credentials::mask_api_key(&token.key)
             ));
             token.key
         }
         None => {
+            console::info("No existing API key found in your account.");
+            console::info("Creating a new API key...");
             let key = jupiter
                 .create_personal_access_token(jwt_access_token, "adk-key")
                 .map_err(|error| format!("Failed to create API key: {error}"))?;
-            console::info(format!(
-                "Created API key {}.",
+            console::success(format!(
+                "Created a new API Key: {}",
                 credentials::mask_api_key(&key)
             ));
             key
@@ -124,7 +136,9 @@ pub(crate) fn authenticate_and_save_key(
     };
 
     let path = credentials::save_api_key_credential_file(&api_key, region)?;
-    console::success(format!("Saved API key to {}.", path.display()));
+    console::plain("API key has been saved to your credential file for future use.");
+    console::info(format!("Credential file path: {}", path.display()));
+    console::plain("");
     Ok(api_key)
 }
 
@@ -144,17 +158,27 @@ fn resolve_login_region(region: Option<String>) -> Result<Option<String>, String
     match region {
         Some(region) => Ok(Some(region)),
         None => {
-            let choices = LOGIN_REGIONS
-                .iter()
-                .map(|region| ((*region).to_string(), (*region).to_string()))
-                .collect::<Vec<_>>();
-            let selected = prompt_select("Select Region", &choices)?;
+            let selected = prompt_select("Select your region:", &login_region_choices())?;
             if selected.is_none() {
                 console::warning("No region selected. Exiting.");
             }
             Ok(selected)
         }
     }
+}
+
+fn login_region_choices() -> Vec<(String, String)> {
+    let labels = [
+        ("studio", "Studio"),
+        ("us-1", "US (us-1) — Enterprise"),
+        ("uk-1", "UK (uk-1) — Enterprise"),
+        ("euw-1", "EU West (euw-1) — Enterprise"),
+    ];
+    labels
+        .into_iter()
+        .filter(|(region, _)| LOGIN_REGIONS.contains(region))
+        .map(|(region, label)| (region.to_string(), label.to_string()))
+        .collect()
 }
 
 fn open_browser(url: &str) {
@@ -321,7 +345,7 @@ mod tests {
 
         assert_eq!(
             error,
-            "Login request expired. Please run the command again."
+            "Authorization timed out. Please try again."
         );
     }
 

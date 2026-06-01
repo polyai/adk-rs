@@ -415,6 +415,19 @@ fn prompt_text_value_from_input(
     Some(value.to_string())
 }
 
+fn wait_for_enter(message: &str) -> Result<(), String> {
+    console::prompt(format!("{message} "))
+        .map_err(|error| format!("Failed to write prompt: {error}"))?;
+    io::stdout()
+        .flush()
+        .map_err(|error| format!("Failed to write prompt: {error}"))?;
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .map_err(|error| format!("Failed to read input: {error}"))?;
+    Ok(())
+}
+
 fn prompt_multi_select(
     label: &str,
     choices: &[(String, String)],
