@@ -4,7 +4,11 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+## 0.0.7 - 2026-06-01
+
 - Added `poly start` and `poly login` onboarding with Auth0 sign-in, credential-file API key storage, and guided project creation.
+- Added Studio project creation parity so `poly start` lets Agent Studio generate project IDs.
+- Improved release-facing documentation for Rust ADK setup and current command coverage.
 
 ## 0.0.6 - 2026-05-29
 
