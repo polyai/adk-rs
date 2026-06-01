@@ -1,6 +1,7 @@
 use crate::{
     HttpPlatformClient, InitArgs, ProjectArgs, ProjectCommands, ProjectCreateArgs,
-    ProjectWorkspace, account_choice, console, emit_error, init::cmd_init, init::INIT_REGIONS,
+    ProjectWorkspace, account_choice, console, credentials, emit_error, init::INIT_REGIONS,
+    init::accessible_regions_with_credentials, init::cmd_init, init::list_accounts_for_region,
     prompt_select, prompt_text,
 };
 use std::process::ExitCode;
@@ -31,7 +32,65 @@ struct ProjectCreateSelection {
     project_id: Option<String>,
 }
 
-fn cmd_project_create(workspace: &ProjectWorkspace, args: ProjectCreateArgs) -> ExitCode {
+pub(crate) fn cmd_project_create(workspace: &ProjectWorkspace, args: ProjectCreateArgs) -> ExitCode {
+    cmd_project_create_with_backend(args, &RealProjectCreateBackend { workspace })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProjectCreateRequest {
+    region: String,
+    account_id: String,
+    project_name: String,
+    project_id: Option<String>,
+    greeting: String,
+    voice_id: Option<String>,
+}
+
+trait ProjectCreateBackend {
+    fn api_key_for_region(&self, region: &str) -> Result<String, String>;
+    fn create_project(
+        &self,
+        request: &ProjectCreateRequest,
+        api_key: &str,
+    ) -> Result<adk_api_client::ProjectSummary, String>;
+    fn init_project(&self, args: InitArgs) -> ExitCode;
+}
+
+struct RealProjectCreateBackend<'a> {
+    workspace: &'a ProjectWorkspace,
+}
+
+impl ProjectCreateBackend for RealProjectCreateBackend<'_> {
+    fn api_key_for_region(&self, region: &str) -> Result<String, String> {
+        credentials::api_key_for_region(region)
+    }
+
+    fn create_project(
+        &self,
+        request: &ProjectCreateRequest,
+        api_key: &str,
+    ) -> Result<adk_api_client::ProjectSummary, String> {
+        HttpPlatformClient::create_project_with_api_key(
+            &request.region,
+            &request.account_id,
+            &request.project_name,
+            request.project_id.as_deref(),
+            &request.greeting,
+            request.voice_id.as_deref(),
+            api_key,
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    fn init_project(&self, args: InitArgs) -> ExitCode {
+        cmd_init(self.workspace, args)
+    }
+}
+
+fn cmd_project_create_with_backend(
+    args: ProjectCreateArgs,
+    backend: &impl ProjectCreateBackend,
+) -> ExitCode {
     let selection = match resolve_project_create_selection(
         args.region.clone(),
         args.account_id.clone(),
@@ -53,14 +112,22 @@ fn cmd_project_create(workspace: &ProjectWorkspace, args: ProjectCreateArgs) -> 
             selection.project_name, selection.account_id
         ));
     }
-    let created = match HttpPlatformClient::create_project(
-        &selection.region,
-        &selection.account_id,
-        &selection.project_name,
-        selection.project_id.as_deref(),
-        &args.greeting,
-        args.voice_id.as_deref(),
-    ) {
+    let api_key = match backend.api_key_for_region(&selection.region) {
+        Ok(api_key) => api_key,
+        Err(error) => {
+            emit_error(args.json, &error);
+            return ExitCode::from(1);
+        }
+    };
+    let request = ProjectCreateRequest {
+        region: selection.region,
+        account_id: selection.account_id,
+        project_name: selection.project_name,
+        project_id: selection.project_id,
+        greeting: args.greeting.clone(),
+        voice_id: args.voice_id.clone(),
+    };
+    let created = match backend.create_project(&request, &api_key) {
         Ok(project) => project,
         Err(error) => {
             emit_error(args.json, &format!("Failed to create project: {error}"));
@@ -74,25 +141,22 @@ fn cmd_project_create(workspace: &ProjectWorkspace, args: ProjectCreateArgs) -> 
     if !args.json {
         console::success(format!(
             "Created project {} ({})",
-            selection.project_name, created.id
+            request.project_name, created.id
         ));
     }
 
-    cmd_init(
-        workspace,
-        InitArgs {
-            base_path: args.base_path,
-            region: Some(selection.region),
-            account_id: Some(selection.account_id),
-            project_id: Some(created.id),
-            format: false,
-            from_projection: None,
-            output_json_projection: false,
-            json: args.json,
-            debug: args.debug,
-            verbose: args.verbose,
-        },
-    )
+    backend.init_project(InitArgs {
+        base_path: args.base_path,
+        region: Some(request.region),
+        account_id: Some(request.account_id),
+        project_id: Some(created.id),
+        format: false,
+        from_projection: None,
+        output_json_projection: false,
+        json: args.json,
+        debug: args.debug,
+        verbose: args.verbose,
+    })
 }
 
 fn resolve_project_create_selection(
@@ -116,7 +180,7 @@ fn resolve_project_create_selection(
     let Some(project_name) = resolve_project_create_name(project_name)? else {
         return Ok(None);
     };
-    let project_id = resolve_project_create_project_id(project_id, &project_name)?;
+    let project_id = resolve_project_create_project_id(&region, project_id, &project_name)?;
 
     Ok(Some(ProjectCreateSelection {
         region,
@@ -149,7 +213,7 @@ fn resolve_project_create_region(region: Option<String>) -> Result<Option<String
         Some(region) => region,
         None => {
             console::info("Fetching available regions...");
-            let regions = HttpPlatformClient::accessible_regions(INIT_REGIONS);
+            let regions = accessible_regions_with_credentials(INIT_REGIONS);
             if regions.is_empty() {
                 return Err("No accessible regions found for your API key.".to_string());
             }
@@ -180,8 +244,7 @@ fn resolve_project_create_account_id(
     let account_id = match account_id {
         Some(account_id) => account_id,
         None => {
-            let accounts =
-                HttpPlatformClient::list_accounts(region).map_err(|error| error.to_string())?;
+            let accounts = list_accounts_for_region(region)?;
             if accounts.is_empty() {
                 return Err("No accounts found in the selected region.".to_string());
             }
@@ -224,11 +287,13 @@ fn resolve_project_create_name(project_name: Option<String>) -> Result<Option<St
 }
 
 fn resolve_project_create_project_id(
+    region: &str,
     project_id: Option<String>,
     project_name: &str,
 ) -> Result<Option<String>, String> {
     match project_id {
         Some(project_id) => Ok(Some(project_id)),
+        None if region == "studio" => Ok(None),
         None => {
             let default_id = default_project_id_for_name(project_name);
             let Some(project_id) = prompt_text(
@@ -271,6 +336,68 @@ fn default_project_id_for_name(project_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adk_api_client::ProjectSummary;
+    use std::cell::RefCell;
+
+    struct FakeProjectCreateBackend {
+        api_key: Result<String, String>,
+        created: Result<ProjectSummary, String>,
+        init_code: ExitCode,
+        requests: RefCell<Vec<(ProjectCreateRequest, String)>>,
+        init_args: RefCell<Vec<InitArgs>>,
+    }
+
+    impl FakeProjectCreateBackend {
+        fn success() -> Self {
+            Self {
+                api_key: Ok("test-key".to_string()),
+                created: Ok(ProjectSummary {
+                    id: "created-project".to_string(),
+                    name: "Created Project".to_string(),
+                }),
+                init_code: ExitCode::SUCCESS,
+                requests: RefCell::new(Vec::new()),
+                init_args: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl ProjectCreateBackend for FakeProjectCreateBackend {
+        fn api_key_for_region(&self, _region: &str) -> Result<String, String> {
+            self.api_key.clone()
+        }
+
+        fn create_project(
+            &self,
+            request: &ProjectCreateRequest,
+            api_key: &str,
+        ) -> Result<ProjectSummary, String> {
+            self.requests
+                .borrow_mut()
+                .push((request.clone(), api_key.to_string()));
+            self.created.clone()
+        }
+
+        fn init_project(&self, args: InitArgs) -> ExitCode {
+            self.init_args.borrow_mut().push(args);
+            self.init_code
+        }
+    }
+
+    fn project_create_args() -> ProjectCreateArgs {
+        ProjectCreateArgs {
+            base_path: "/tmp/adk-rs-project-create-test".to_string(),
+            region: Some("studio".to_string()),
+            account_id: Some("acct-1".to_string()),
+            project_name: Some(" Test Project ".to_string()),
+            project_id: Some("project-id".to_string()),
+            greeting: "Hello from tests".to_string(),
+            voice_id: Some("VOICE-test".to_string()),
+            json: true,
+            debug: true,
+            verbose: true,
+        }
+    }
 
     #[test]
     fn json_project_create_selection_requires_region_account_and_name() {
@@ -336,6 +463,29 @@ mod tests {
     }
 
     #[test]
+    fn studio_project_create_selection_leaves_project_id_for_platform_generation() {
+        let selection = resolve_project_create_selection(
+            Some("studio".to_string()),
+            Some("acct-1".to_string()),
+            Some(" Test Project ".to_string()),
+            None,
+            false,
+        )
+        .expect("selection")
+        .expect("selection");
+
+        assert_eq!(
+            selection,
+            ProjectCreateSelection {
+                region: "studio".to_string(),
+                account_id: "acct-1".to_string(),
+                project_name: "Test Project".to_string(),
+                project_id: None,
+            }
+        );
+    }
+
+    #[test]
     fn project_id_prompt_input_accepts_blank_or_slug_values() {
         assert_eq!(project_id_from_prompt_input("   ").unwrap(), None);
         assert_eq!(
@@ -361,5 +511,68 @@ mod tests {
             default_project_id_for_name("  My Fancy Project!  "),
             "my-fancy-project"
         );
+    }
+
+    #[test]
+    fn project_create_command_creates_remote_project_then_initializes_it() {
+        let backend = FakeProjectCreateBackend::success();
+
+        let code = cmd_project_create_with_backend(project_create_args(), &backend);
+
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert_eq!(
+            backend.requests.borrow().as_slice(),
+            &[(
+                ProjectCreateRequest {
+                    region: "studio".to_string(),
+                    account_id: "acct-1".to_string(),
+                    project_name: " Test Project ".to_string(),
+                    project_id: Some("project-id".to_string()),
+                    greeting: "Hello from tests".to_string(),
+                    voice_id: Some("VOICE-test".to_string()),
+                },
+                "test-key".to_string(),
+            )]
+        );
+        let init_args = backend.init_args.borrow();
+        assert_eq!(init_args.len(), 1);
+        assert_eq!(init_args[0].base_path, "/tmp/adk-rs-project-create-test");
+        assert_eq!(init_args[0].region.as_deref(), Some("studio"));
+        assert_eq!(init_args[0].account_id.as_deref(), Some("acct-1"));
+        assert_eq!(init_args[0].project_id.as_deref(), Some("created-project"));
+        assert!(init_args[0].json);
+        assert!(init_args[0].debug);
+        assert!(init_args[0].verbose);
+    }
+
+    #[test]
+    fn project_create_command_stops_before_network_when_api_key_is_missing() {
+        let backend = FakeProjectCreateBackend {
+            api_key: Err("missing key".to_string()),
+            ..FakeProjectCreateBackend::success()
+        };
+
+        let code = cmd_project_create_with_backend(project_create_args(), &backend);
+
+        assert_eq!(code, ExitCode::from(1));
+        assert!(backend.requests.borrow().is_empty());
+        assert!(backend.init_args.borrow().is_empty());
+    }
+
+    #[test]
+    fn project_create_command_stops_when_platform_returns_no_project_id() {
+        let backend = FakeProjectCreateBackend {
+            created: Ok(ProjectSummary {
+                id: String::new(),
+                name: "Created Project".to_string(),
+            }),
+            ..FakeProjectCreateBackend::success()
+        };
+
+        let code = cmd_project_create_with_backend(project_create_args(), &backend);
+
+        assert_eq!(code, ExitCode::from(1));
+        assert_eq!(backend.requests.borrow().len(), 1);
+        assert!(backend.init_args.borrow().is_empty());
     }
 }

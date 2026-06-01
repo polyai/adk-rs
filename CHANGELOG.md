@@ -4,6 +4,8 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+- Added `poly start` and `poly login` onboarding with Auth0 sign-in, credential-file API key storage, and guided project creation.
+
 ## 0.0.6 - 2026-05-29
 
 - Improved Python function parsing robustness with AST-backed decorator and signature handling.

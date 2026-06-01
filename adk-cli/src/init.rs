@@ -1,9 +1,9 @@
 use crate::{
     AdkService, HttpPlatformClient, InitArgs, ProjectWorkspace, account_choice, console,
-    emit_error, parse_optional_json_arg, prompt_select, pull_projection_into_path,
+    credentials, emit_error, parse_optional_json_arg, prompt_select, pull_projection_into_path,
     resolve_base_path,
 };
-use adk_api_client::ProjectSummary;
+use adk_api_client::{AccountSummary, ProjectSummary};
 use serde_json::json;
 use std::process::ExitCode;
 
@@ -45,11 +45,13 @@ pub(crate) fn cmd_init(workspace: &ProjectWorkspace, args: InitArgs) -> ExitCode
                 emit_error(args.json, &error);
                 return ExitCode::from(1);
             } else if projection_json.is_none()
-                && let Ok(http_client) = HttpPlatformClient::new(
+                && let Ok(api_key) = credentials::api_key_for_region(&selection.region)
+                && let Ok(http_client) = HttpPlatformClient::new_with_api_key(
                     &selection.region,
                     &selection.account_id,
                     &selection.project_id,
                     Some("main"),
+                    api_key,
                 )
             {
                 let remote_service = AdkService::new(http_client);
@@ -118,7 +120,7 @@ fn resolve_init_selection(
         Some(region) => region,
         None => {
             console::info("Fetching available regions...");
-            let regions = HttpPlatformClient::accessible_regions(INIT_REGIONS);
+            let regions = accessible_regions_with_credentials(INIT_REGIONS);
             if regions.is_empty() {
                 return Err("No accessible regions found for your API key.".to_string());
             }
@@ -143,8 +145,7 @@ fn resolve_init_selection(
     let (account_id, _account_name) = match account_id {
         Some(account_id) => (account_id, None),
         None => {
-            let accounts =
-                HttpPlatformClient::list_accounts(&region).map_err(|error| error.to_string())?;
+            let accounts = list_accounts_for_region(&region)?;
             if accounts.is_empty() {
                 return Err("No accounts found in the selected region.".to_string());
             }
@@ -167,8 +168,7 @@ fn resolve_init_selection(
         }
     };
 
-    let projects =
-        HttpPlatformClient::list_projects(&region, &account_id).map_err(|error| error.to_string())?;
+    let projects = list_projects_for_account(&region, &account_id)?;
     let (project_id, project_name) = match project_id {
         Some(project_id) => {
             let project_name = projects
@@ -208,4 +208,32 @@ pub(crate) fn project_choice(project: &ProjectSummary) -> (String, String) {
         project.id.clone(),
         format!("{} ({})", project.name, project.id),
     )
+}
+
+pub(crate) fn accessible_regions_with_credentials(regions: &[&str]) -> Vec<String> {
+    regions
+        .iter()
+        .filter_map(|region| {
+            let api_key = credentials::api_key_for_region(region).ok()?;
+            HttpPlatformClient::list_accounts_with_api_key(region, &api_key)
+                .ok()
+                .filter(|accounts| !accounts.is_empty())
+                .map(|_| (*region).to_string())
+        })
+        .collect()
+}
+
+pub(crate) fn list_accounts_for_region(region: &str) -> Result<Vec<AccountSummary>, String> {
+    let api_key = credentials::api_key_for_region(region)?;
+    HttpPlatformClient::list_accounts_with_api_key(region, &api_key)
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn list_projects_for_account(
+    region: &str,
+    account_id: &str,
+) -> Result<Vec<ProjectSummary>, String> {
+    let api_key = credentials::api_key_for_region(region)?;
+    HttpPlatformClient::list_projects_with_api_key(region, account_id, &api_key)
+        .map_err(|error| error.to_string())
 }

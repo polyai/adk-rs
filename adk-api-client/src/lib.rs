@@ -24,8 +24,10 @@ pub enum ApiError {
     MissingConfig(String),
 }
 
+mod auth;
 mod in_memory;
 
+pub use auth::{Auth0Client, Auth0DeviceCode, Auth0TokenPoll, JupiterClient, PersonalAccessToken};
 pub use in_memory::InMemoryPlatformClient;
 
 impl From<CommandGenError> for ApiError {
@@ -165,11 +167,21 @@ impl HttpPlatformClient {
         branch_id: Option<&str>,
     ) -> Result<Self, ApiError> {
         let api_key = api_key_for_region(region)?;
+        Self::new_with_api_key(region, account_id, project_id, branch_id, api_key)
+    }
+
+    pub fn new_with_api_key(
+        region: &str,
+        account_id: &str,
+        project_id: &str,
+        branch_id: Option<&str>,
+        api_key: impl Into<String>,
+    ) -> Result<Self, ApiError> {
         let base_url = base_url_for_region(region)?;
         Ok(Self {
             client: reqwest::blocking::Client::new(),
             base_url,
-            api_key,
+            api_key: api_key.into(),
             account_id: account_id.to_string(),
             project_id: project_id.to_string(),
             branch_id: branch_id.unwrap_or("main").to_string(),
@@ -189,7 +201,15 @@ impl HttpPlatformClient {
     }
 
     pub fn list_accounts(region: &str) -> Result<Vec<AccountSummary>, ApiError> {
-        let value = Self::request_region_json(region, "/accounts")?;
+        let api_key = api_key_for_region(region)?;
+        Self::list_accounts_with_api_key(region, &api_key)
+    }
+
+    pub fn list_accounts_with_api_key(
+        region: &str,
+        api_key: &str,
+    ) -> Result<Vec<AccountSummary>, ApiError> {
+        let value = Self::request_region_json_with_api_key(region, "/accounts", api_key)?;
         let accounts = value
             .as_array()
             .ok_or_else(|| ApiError::Http("Expected a list of accounts".to_string()))?;
@@ -211,8 +231,17 @@ impl HttpPlatformClient {
     }
 
     pub fn list_projects(region: &str, account_id: &str) -> Result<Vec<ProjectSummary>, ApiError> {
+        let api_key = api_key_for_region(region)?;
+        Self::list_projects_with_api_key(region, account_id, &api_key)
+    }
+
+    pub fn list_projects_with_api_key(
+        region: &str,
+        account_id: &str,
+        api_key: &str,
+    ) -> Result<Vec<ProjectSummary>, ApiError> {
         let endpoint = format!("/accounts/{account_id}/projects");
-        let value = Self::request_region_json(region, &endpoint)?;
+        let value = Self::request_region_json_with_api_key(region, &endpoint, api_key)?;
         let projects = value
             .get("projects")
             .and_then(Value::as_array)
@@ -241,6 +270,27 @@ impl HttpPlatformClient {
         greeting: &str,
         voice_id: Option<&str>,
     ) -> Result<ProjectSummary, ApiError> {
+        let api_key = api_key_for_region(region)?;
+        Self::create_project_with_api_key(
+            region,
+            account_id,
+            project_name,
+            project_id,
+            greeting,
+            voice_id,
+            &api_key,
+        )
+    }
+
+    pub fn create_project_with_api_key(
+        region: &str,
+        account_id: &str,
+        project_name: &str,
+        project_id: Option<&str>,
+        greeting: &str,
+        voice_id: Option<&str>,
+        api_key: &str,
+    ) -> Result<ProjectSummary, ApiError> {
         let endpoint = format!("/v1/accounts/{account_id}/agents");
         let mut body = serde_json::json!({
             "name": project_name,
@@ -255,8 +305,13 @@ impl HttpPlatformClient {
             body["agentId"] = Value::String(project_id.to_string());
         }
 
-        let value =
-            Self::request_region_platform_json(region, reqwest::Method::POST, &endpoint, body)?;
+        let value = Self::request_region_platform_json_with_api_key(
+            region,
+            reqwest::Method::POST,
+            &endpoint,
+            body,
+            api_key,
+        )?;
         Ok(ProjectSummary {
             id: value
                 .get("agentId")
@@ -271,8 +326,11 @@ impl HttpPlatformClient {
         })
     }
 
-    fn request_region_json(region: &str, endpoint: &str) -> Result<Value, ApiError> {
-        let api_key = api_key_for_region(region)?;
+    fn request_region_json_with_api_key(
+        region: &str,
+        endpoint: &str,
+        api_key: &str,
+    ) -> Result<Value, ApiError> {
         let base_url = base_url_for_region(region)?;
         let url = format!("{base_url}{endpoint}");
         let response = reqwest::blocking::Client::new()
@@ -289,13 +347,13 @@ impl HttpPlatformClient {
         response.json().map_err(|e| ApiError::Http(e.to_string()))
     }
 
-    fn request_region_platform_json(
+    fn request_region_platform_json_with_api_key(
         region: &str,
         method: reqwest::Method,
         endpoint: &str,
         body: Value,
+        api_key: &str,
     ) -> Result<Value, ApiError> {
-        let api_key = api_key_for_region(region)?;
         let base_url = base_url_for_region(region)?;
         let url = format!("{}{}", platform_root_url(&base_url), endpoint);
         let response = reqwest::blocking::Client::new()
@@ -1239,12 +1297,13 @@ fn default_voice_id(region: &str) -> &'static str {
         "us-1" => "VOICE-6fad73f6",
         "euw-1" => "VOICE-8b814724",
         "uk-1" => "VOICE-37966683",
+        "studio" => "VOICE-071db756",
         "dev" | "staging" => "VOICE-e2b01d55",
         _ => "VOICE-afe2b8e8",
     }
 }
 
-fn http_status_error(status: reqwest::StatusCode, url: &str) -> ApiError {
+pub(crate) fn http_status_error(status: reqwest::StatusCode, url: &str) -> ApiError {
     ApiError::HttpStatus {
         status_code: status.as_u16(),
         reason: status

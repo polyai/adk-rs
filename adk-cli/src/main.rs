@@ -12,11 +12,13 @@ mod branch;
 mod chat;
 mod completion;
 mod console;
+mod credentials;
 mod deployments;
 mod diff;
 mod docs;
 mod format;
 mod init;
+mod login;
 mod output;
 mod project;
 mod pull;
@@ -24,6 +26,7 @@ mod push;
 mod revert;
 mod review;
 mod self_update;
+mod start;
 mod status;
 mod validate;
 
@@ -36,6 +39,7 @@ use diff::cmd_diff;
 use docs::cmd_docs;
 use format::cmd_format;
 use init::cmd_init;
+use login::cmd_login;
 pub(crate) use output::{clean_error_message, emit_error, print_payload};
 use project::{cmd_project, project_debug, project_verbose};
 use pull::cmd_pull;
@@ -43,6 +47,7 @@ use push::cmd_push;
 use revert::cmd_revert;
 use review::cmd_review;
 use self_update::cmd_self_update;
+use start::cmd_start;
 use status::cmd_status;
 use validate::cmd_validate;
 
@@ -84,6 +89,8 @@ fn run() -> Result<ExitCode> {
             ExitCode::SUCCESS
         }
         Commands::Docs(args) => cmd_docs(args),
+        Commands::Login(args) => cmd_login(args),
+        Commands::Start(args) => cmd_start(&workspace, args),
         Commands::Init(args) => cmd_init(&workspace, args),
         Commands::Project(args) => cmd_project(&workspace, args),
         Commands::Pull(args) => {
@@ -162,14 +169,19 @@ fn print_top_level_help() {
     let mut output = String::from(
         concat!(
             "usage: poly [-h] [-v]\n",
-            "            {help,docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments} ...\n\n",
+            "            {help,docs,login,start,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments} ...\n\n",
             "positional arguments:\n",
-            "  {help,docs,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments}\n",
+            "  {help,docs,login,start,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments}\n",
         ),
     );
     for (name, description) in [
         ("help", "Show this help message and exit."),
         ("docs", "Outputs documentation for a given topic."),
+        ("login", "Sign in and save an Agent Studio API key."),
+        (
+            "start",
+            "Start using the ADK with guided account and project setup.",
+        ),
         ("init", "Initialize a new Agent Studio project."),
         ("project", "Manage Agent Studio projects."),
         (
@@ -240,6 +252,8 @@ fn command_verbose(command: &Commands) -> bool {
     match command {
         Commands::Help => false,
         Commands::Docs(args) => args.verbose,
+        Commands::Login(args) => args.verbose,
+        Commands::Start(args) => args.verbose,
         Commands::Init(args) => args.verbose,
         Commands::Project(args) => project_verbose(args),
         Commands::Pull(args) => args.verbose,
@@ -266,6 +280,8 @@ fn command_verbose(command: &Commands) -> bool {
 
 fn command_debug(command: &Commands) -> bool {
     match command {
+        Commands::Login(args) => args.debug,
+        Commands::Start(args) => args.debug,
         Commands::Init(args) => args.debug,
         Commands::Project(args) => project_debug(args),
         Commands::Pull(args) => args.debug,
@@ -399,6 +415,19 @@ fn prompt_text_value_from_input(
     Some(value.to_string())
 }
 
+fn wait_for_enter(message: &str) -> Result<(), String> {
+    console::prompt(format!("{message} "))
+        .map_err(|error| format!("Failed to write prompt: {error}"))?;
+    io::stdout()
+        .flush()
+        .map_err(|error| format!("Failed to write prompt: {error}"))?;
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .map_err(|error| format!("Failed to read input: {error}"))?;
+    Ok(())
+}
+
 fn prompt_multi_select(
     label: &str,
     choices: &[(String, String)],
@@ -456,7 +485,12 @@ fn prompt_multi_select(
 }
 
 fn prompt_confirm(message: &str) -> Result<bool, String> {
-    console::prompt(format!("{message} [y/N] "))
+    prompt_confirm_default(message, false)
+}
+
+fn prompt_confirm_default(message: &str, default: bool) -> Result<bool, String> {
+    let suffix = if default { "[Y/n]" } else { "[y/N]" };
+    console::prompt(format!("{message} {suffix} "))
         .map_err(|error| format!("Failed to write prompt: {error}"))?;
     io::stdout()
         .flush()
@@ -466,12 +500,13 @@ fn prompt_confirm(message: &str) -> Result<bool, String> {
         .read_line(&mut input)
         .map_err(|error| format!("Failed to read confirmation: {error}"))?;
     if bytes == 0 {
-        return Ok(false);
+        return Ok(default);
     }
-    Ok(matches!(
-        input.trim().to_ascii_lowercase().as_str(),
-        "y" | "yes"
-    ))
+    let value = input.trim().to_ascii_lowercase();
+    if value.is_empty() {
+        return Ok(default);
+    }
+    Ok(matches!(value.as_str(), "y" | "yes"))
 }
 
 fn prompt_branch_switch<C: PlatformClient>(
@@ -628,11 +663,14 @@ fn http_service_for_path(
         .map_err(|_| {
             "No project configuration found. Run poly init to initialize a project.".to_string()
         })?;
-    HttpPlatformClient::new(
+    let api_key = credentials::api_key_for_region(&cfg.region)
+        .map_err(|error| format!("remote platform client unavailable: {error}"))?;
+    HttpPlatformClient::new_with_api_key(
         &cfg.region,
         &cfg.account_id,
         &cfg.project_id,
         Some(&cfg.branch_id),
+        api_key,
     )
     .map(AdkService::new)
     .map_err(|error| format!("remote platform client unavailable: {error}"))

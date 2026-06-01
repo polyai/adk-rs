@@ -28,6 +28,7 @@ dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }
 ctrlc = "3.5.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+webbrowser = "1.2.1"
 
 [dev-dependencies]
 httpmock.workspace = true

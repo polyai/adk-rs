@@ -35,23 +35,34 @@ credentials required to use the ADK.
 ## Rust Port Status
 
 This Rust CLI is intended to match the Python ADK command surface and on-disk
-project layout. Most core local workflows are implemented, including init, pull,
-push, status, diff, branch, format, validate, chat, deployments, and project
-creation.
+project layout. Most core local workflows are implemented, including start,
+login, init, pull, push, status, diff, branch, format, validate, chat,
+deployments, and project creation.
 
-Some newer Python ADK features are still being ported, including `poly start`,
-`poly login`, credential-file based authentication, and conversations commands.
-The `poly review` command group is present but still incomplete in this Rust
-port.
+Some newer Python ADK features are still being ported, including conversations
+commands. The `poly review` command group is present but still incomplete in
+this Rust port.
 
 ## Prerequisites
 
 Before using the ADK you must have:
 
 - access to a PolyAI Agent Studio workspace
-- an ADK API key from the PolyAI team
 
-Store your API key as an environment variable named `POLY_ADK_KEY`:
+Run the guided setup to sign in, save an API key to
+`~/.poly/credentials.json`, and optionally create a project:
+
+```bash
+poly start
+```
+
+You can also sign in without creating a project:
+
+```bash
+poly login
+```
+
+For automation, you can still provide an API key as an environment variable:
 
 ```bash
 export POLY_ADK_KEY=<your-key>
@@ -84,6 +95,8 @@ The release installer installs the `poly` binary and provides `adk` as an alias.
 Once installed, use the `poly` command to manage Agent Studio projects:
 
 ```bash
+poly start           # Sign in and optionally create a project
+poly login           # Sign in and save an API key
 poly init            # Initialize a local Agent Studio project
 poly project create  # Create a new Agent Studio project
 poly pull            # Pull latest configuration

@@ -20,6 +20,10 @@ pub(crate) enum Commands {
     Help,
     #[command(about = "Outputs documentation for a given topic.")]
     Docs(DocsArgs),
+    #[command(about = "Sign in and save an Agent Studio API key.")]
+    Login(LoginArgs),
+    #[command(about = "Start using the ADK with guided account and project setup.")]
+    Start(StartArgs),
     #[command(about = "Initialize a new Agent Studio project.")]
     Init(InitArgs),
     #[command(about = "Manage Agent Studio projects.")]
@@ -62,6 +66,26 @@ pub(crate) struct DocsArgs {
     pub(crate) verbose: bool,
     #[arg(value_parser = clap::builder::PossibleValuesParser::new(crate::docs::DOC_CHOICES))]
     pub(crate) documents: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct LoginArgs {
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(crate::init::INIT_REGIONS))]
+    pub(crate) region: Option<String>,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) debug: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) verbose: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct StartArgs {
+    #[arg(long = "base-path", default_value = ".")]
+    pub(crate) base_path: String,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) debug: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) verbose: bool,
 }
 
 #[derive(Debug, clap::Args)]
