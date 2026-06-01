@@ -1,6 +1,6 @@
 use rich_rust::console::PrintOptions;
-use rich_rust::renderables::Traceback;
-use rich_rust::{Console, Theme};
+use rich_rust::renderables::{Panel, Traceback};
+use rich_rust::{Console, Style, Theme};
 use std::io;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,7 +60,11 @@ pub(crate) fn prompt(message: impl AsRef<str>) -> io::Result<()> {
 
 pub(crate) fn print_welcome_message() {
     plain("");
-    plain(format!("[label]{POLY_LOGO}[/label]"));
+    let panel = Panel::from_text(POLY_LOGO)
+        .style(poly_logo_style())
+        .border_style(poly_logo_border_style())
+        .padding((1, 6));
+    stdout_console().print_renderable(&panel);
     plain("[label]Welcome to the PolyAI Agent Development Kit (ADK)![/label]");
     plain("Build and edit Agent Studio projects locally with the PolyAI ADK");
     plain("Documentation: https://polyai.github.io/adk/");
@@ -123,6 +127,14 @@ fn err_console() -> &'static Console {
 
 fn options(end: &str) -> PrintOptions {
     PrintOptions::new().with_markup(true).with_end(end)
+}
+
+fn poly_logo_style() -> Style {
+    Style::parse("bold #D9EE50 on black").expect("valid PolyAI logo style")
+}
+
+fn poly_logo_border_style() -> Style {
+    Style::parse("#D9EE50").expect("valid PolyAI logo border style")
 }
 
 fn theme() -> Theme {
