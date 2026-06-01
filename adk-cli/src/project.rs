@@ -1,6 +1,7 @@
 use crate::{
     HttpPlatformClient, InitArgs, ProjectArgs, ProjectCommands, ProjectCreateArgs,
-    ProjectWorkspace, account_choice, console, emit_error, init::cmd_init, init::INIT_REGIONS,
+    ProjectWorkspace, account_choice, console, credentials, emit_error, init::INIT_REGIONS,
+    init::accessible_regions_with_credentials, init::cmd_init, init::list_accounts_for_region,
     prompt_select, prompt_text,
 };
 use std::process::ExitCode;
@@ -31,7 +32,7 @@ struct ProjectCreateSelection {
     project_id: Option<String>,
 }
 
-fn cmd_project_create(workspace: &ProjectWorkspace, args: ProjectCreateArgs) -> ExitCode {
+pub(crate) fn cmd_project_create(workspace: &ProjectWorkspace, args: ProjectCreateArgs) -> ExitCode {
     let selection = match resolve_project_create_selection(
         args.region.clone(),
         args.account_id.clone(),
@@ -53,13 +54,21 @@ fn cmd_project_create(workspace: &ProjectWorkspace, args: ProjectCreateArgs) -> 
             selection.project_name, selection.account_id
         ));
     }
-    let created = match HttpPlatformClient::create_project(
+    let api_key = match credentials::api_key_for_region(&selection.region) {
+        Ok(api_key) => api_key,
+        Err(error) => {
+            emit_error(args.json, &error);
+            return ExitCode::from(1);
+        }
+    };
+    let created = match HttpPlatformClient::create_project_with_api_key(
         &selection.region,
         &selection.account_id,
         &selection.project_name,
         selection.project_id.as_deref(),
         &args.greeting,
         args.voice_id.as_deref(),
+        &api_key,
     ) {
         Ok(project) => project,
         Err(error) => {
@@ -149,7 +158,7 @@ fn resolve_project_create_region(region: Option<String>) -> Result<Option<String
         Some(region) => region,
         None => {
             console::info("Fetching available regions...");
-            let regions = HttpPlatformClient::accessible_regions(INIT_REGIONS);
+            let regions = accessible_regions_with_credentials(INIT_REGIONS);
             if regions.is_empty() {
                 return Err("No accessible regions found for your API key.".to_string());
             }
@@ -180,8 +189,7 @@ fn resolve_project_create_account_id(
     let account_id = match account_id {
         Some(account_id) => account_id,
         None => {
-            let accounts =
-                HttpPlatformClient::list_accounts(region).map_err(|error| error.to_string())?;
+            let accounts = list_accounts_for_region(region)?;
             if accounts.is_empty() {
                 return Err("No accounts found in the selected region.".to_string());
             }

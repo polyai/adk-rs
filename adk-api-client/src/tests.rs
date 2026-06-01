@@ -129,7 +129,7 @@ fn default_voice_ids_match_python_region_defaults() {
     assert_eq!(default_voice_id("uk-1"), "VOICE-37966683");
     assert_eq!(default_voice_id("dev"), "VOICE-e2b01d55");
     assert_eq!(default_voice_id("staging"), "VOICE-e2b01d55");
-    assert_eq!(default_voice_id("studio"), "VOICE-afe2b8e8");
+    assert_eq!(default_voice_id("studio"), "VOICE-071db756");
 }
 
 #[test]
@@ -823,7 +823,7 @@ fn default_voice_id_matches_region_defaults_and_fallback() {
     assert_eq!(default_voice_id("uk-1"), "VOICE-37966683");
     assert_eq!(default_voice_id("dev"), "VOICE-e2b01d55");
     assert_eq!(default_voice_id("staging"), "VOICE-e2b01d55");
-    assert_eq!(default_voice_id("studio"), "VOICE-afe2b8e8");
+    assert_eq!(default_voice_id("studio"), "VOICE-071db756");
 }
 
 fn function_resource(path: &str, name: &str, code: &str) -> Resource {
