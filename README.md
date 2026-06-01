@@ -1,12 +1,12 @@
 ![PolyAI](logo.png)
 
-# adk-rs (WIP Rust ADK)
+# adk-rs (Rust Rewrite of ADK)
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Minimum rustc version](https://img.shields.io/badge/rustc-1.95.0%2B-lightgray.svg)](Cargo.toml)
 [![GitHub release](https://img.shields.io/github/v/release/polyai/adk-rs?sort=semver&label=release)](https://github.com/polyai/adk-rs/releases)
 [![Lint/Test](https://github.com/polyai/adk-rs/actions/workflows/lint-and-test.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/lint-and-test.yml)
-[![Untested slop risk](https://github.com/polyai/adk-rs/actions/workflows/compute-coverage.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/compute-coverage.yml)
+[![Coverage](https://github.com/polyai/adk-rs/actions/workflows/compute-coverage.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/compute-coverage.yml)
 [![Release workflow](https://github.com/polyai/adk-rs/actions/workflows/release.yml/badge.svg)](https://github.com/polyai/adk-rs/actions/workflows/release.yml)
 
 A Rust implementation of the PolyAI Agent Development Kit CLI for managing
@@ -21,17 +21,6 @@ your filesystem and Agent Studio.
 > [Python ADK](https://github.com/polyai/adk). New users should install the
 > Python ADK unless they are explicitly testing the Rust port.
 
-## Early Access
-
-The PolyAI ADK is currently in Early Access. Changes may land frequently while
-the platform evolves. If you encounter an issue, first make sure you are running
-the latest available version.
-
-[Request access to the PolyAI ADK](https://fehky.share-eu1.hsforms.com/2oSGLpUctRvyqXcb6K44DAQ)
-
-Once approved, the PolyAI team will provide the Agent Studio access and API
-credentials required to use the ADK.
-
 ## Rust Port Status
 
 This Rust CLI is intended to match the Python ADK command surface and on-disk
@@ -42,6 +31,12 @@ deployments, and project creation.
 Some newer Python ADK features are still being ported, including conversations
 commands. The `poly review` command group is present but still incomplete in
 this Rust port.
+
+## Early Access
+
+The PolyAI ADK is currently in Early Access. Changes may land frequently while
+the platform evolves. If you encounter an issue, first make sure you are running
+the latest available version (try `poly self-update`).
 
 ## Prerequisites
 
@@ -75,13 +70,7 @@ Some commands also shell out to Python tooling:
 
 ## Installation
 
-For day-to-day ADK use, install the Python ADK:
-
-```bash
-pip install polyai-adk
-```
-
-To try the Rust CLI from the latest GitHub release:
+To try the Rust ADK from the latest GitHub release:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
@@ -95,7 +84,7 @@ The release installer installs the `poly` binary and provides `adk` as an alias.
 Once installed, use the `poly` command to manage Agent Studio projects:
 
 ```bash
-poly start           # Sign in and optionally create a project
+poly start           # Sign in for the first time and optionally create a project
 poly login           # Sign in and save an API key
 poly init            # Initialize a local Agent Studio project
 poly project create  # Create a new Agent Studio project
