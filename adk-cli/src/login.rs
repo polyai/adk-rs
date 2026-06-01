@@ -2,7 +2,7 @@ use crate::{LoginArgs, console, credentials, init::INIT_REGIONS, prompt_select};
 use adk_api_client::{
     Auth0Client, Auth0DeviceCode, Auth0TokenPoll, HttpPlatformClient, JupiterClient,
 };
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use std::thread;
 use std::time::Duration;
 
@@ -182,27 +182,9 @@ fn login_region_choices() -> Vec<(String, String)> {
 }
 
 fn open_browser(url: &str) {
-    if try_open_browser(url).is_err() {
+    if webbrowser::open(url).is_err() {
         console::warning("Unable to open a browser automatically. Please open the URL manually.");
     }
-}
-
-#[cfg(target_os = "macos")]
-fn try_open_browser(url: &str) -> std::io::Result<()> {
-    Command::new("open").arg(url).spawn().map(|_| ())
-}
-
-#[cfg(target_os = "windows")]
-fn try_open_browser(url: &str) -> std::io::Result<()> {
-    Command::new("cmd")
-        .args(["/C", "start", "", url])
-        .spawn()
-        .map(|_| ())
-}
-
-#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-fn try_open_browser(url: &str) -> std::io::Result<()> {
-    Command::new("xdg-open").arg(url).spawn().map(|_| ())
 }
 
 #[cfg(test)]
