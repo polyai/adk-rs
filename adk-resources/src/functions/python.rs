@@ -557,7 +557,7 @@ fn pretty_function_content(content: &str) -> String {
         let before_docstring = &content[..docstring_end];
         let after_docstring = content[docstring_end..].trim_start_matches('\n');
         if after_docstring.starts_with("from ") || after_docstring.starts_with("import ") {
-            format!("{before_docstring}\n{FUNCTION_HEADER}{after_docstring}")
+            format!("{before_docstring}\n\n{FUNCTION_HEADER}{after_docstring}")
         } else {
             format!("{before_docstring}\n{FUNCTION_HEADER}\n{after_docstring}")
         }
@@ -597,11 +597,11 @@ mod tests {
     #[test]
     fn function_header_is_inserted_after_module_docstring() {
         let raw =
-            "\"\"\"Helpers.\"\"\"\nimport json\n\ndef lookup(conv):\n    return json.dumps({})\n";
+            "\"\"\"Helpers.\"\"\"\n\nimport json\n\ndef lookup(conv):\n    return json.dumps({})\n";
         let pretty = resource_file_content("functions/lookup.py", raw);
 
         assert!(pretty.starts_with(
-            "\"\"\"Helpers.\"\"\"\nfrom _gen import *  # <AUTO GENERATED>\nimport json\n"
+            "\"\"\"Helpers.\"\"\"\n\nfrom _gen import *  # <AUTO GENERATED>\nimport json\n"
         ));
         assert_eq!(local_resource_content("functions/lookup.py", &pretty), raw);
     }

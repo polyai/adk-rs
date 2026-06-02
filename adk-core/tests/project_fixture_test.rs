@@ -16,6 +16,7 @@
 use adk_api_client::{InMemoryPlatformClient, PlatformClient};
 use adk_core::AdkService;
 use adk_io::{compute_hash, parse_multi_resource_path};
+use adk_resources::projection_to_resource_map;
 use adk_types::{DeploymentList, ORDERED_TYPE_NAMES, Resource, ResourceMap};
 use base64::Engine;
 use std::fs;
@@ -1923,6 +1924,75 @@ fn pull_force_deletes_local_only_resources_and_empty_flow_folders() {
     assert!(root.join("topics/remote_topic.yaml").exists());
     assert!(!root.join("topics/local_only.yaml").exists());
     assert!(!root.join("flows/old_flow").exists());
+}
+
+#[test]
+fn pull_force_materializes_python_formatting_without_phantom_status_diffs() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-lookup": {
+                        "id": "fn-lookup",
+                        "name": "lookup",
+                        "description": "Looks up data.",
+                        "code": "\"\"\"Helpers.\"\"\"\n\nimport json\n\ndef lookup(conv):\n    return json.dumps({})\n",
+                        "archived": false
+                    }
+                }
+            }
+        },
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "name": "Collect Rating",
+                                    "type": "default_step",
+                                    "prompt": "\nRate the call\n",
+                                    "references": {"extractedEntities": {}}
+                                }
+                            }
+                        },
+                        "transitionFunctions": {"entities": {}}
+                    }
+                }
+            }
+        }
+    });
+    let remote = projection_to_resource_map(&projection).expect("remote resources");
+    let service = AdkService::new(InMemoryPlatformClient::with_resources(remote));
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+
+    let conflicts = service.pull(root.as_path(), true).expect("pull force");
+
+    assert!(conflicts.is_empty(), "{conflicts:#?}");
+    let function_content =
+        fs::read_to_string(root.join("functions/lookup.py")).expect("function content");
+    assert!(function_content.starts_with(
+        "\"\"\"Helpers.\"\"\"\n\nfrom _gen import *  # <AUTO GENERATED>\nimport json\n"
+    ));
+    let step_content =
+        fs::read_to_string(root.join("flows/support_flow/steps/collect_rating.yaml"))
+            .expect("flow step content");
+    assert!(step_content.contains("prompt: Rate the call\n"));
+    assert!(!step_content.contains("prompt: |"));
+
+    let summary = service.status(root.as_path()).expect("status");
+    assert!(summary.modified_files.is_empty(), "{summary:#?}");
+    assert!(summary.new_files.is_empty(), "{summary:#?}");
+    assert!(summary.deleted_files.is_empty(), "{summary:#?}");
 }
 
 #[test]

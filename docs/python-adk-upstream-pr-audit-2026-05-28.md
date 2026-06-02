@@ -13,9 +13,9 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 
 ## Action Summary
 
-- Port or fix in Rust: #161, #156, #148, #138, #129, #64.
-- Verify with a focused parity test or fixture: #159, #136, #135.
-- Already covered in Rust: #163, #158, #154, #147, #144, #142, #137, #130, #125, #91.
+- Port or fix in Rust: #161, #156, #148, #129, #64.
+- Verify with a focused parity test or fixture: #159, #136.
+- Already covered in Rust: #163, #158, #154, #147, #144, #142, #138, #137, #135, #130, #125, #91.
 - No Rust action expected: #155, #153, #149, #146, #145, #141, #140,
   #139, #134, #133, #132, #131.
 
@@ -27,7 +27,6 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 | [#156](https://github.com/polyai/adk/pull/156) | 2026-05-27 | Replaces threaded push email parameters with `ADK_COMMAND_USER_OVERRIDE`, used for request headers and command metadata. | **Port.** Rust still exposes `push --email` and threads an actor through push command generation. Align with Python by reading `ADK_COMMAND_USER_OVERRIDE`, setting `X-PolyAI-Email` on relevant requests, using it for `metadata.created_by`, and removing or deprecating `--email`. |
 | [#129](https://github.com/polyai/adk/pull/129) | 2026-05-15 | Fixes interactive branch merge handling for non-string conflict values. | **Port.** Rust currently stringifies JSON conflict values for display and manual edits always return strings. Match Python by preserving bool/int/float/list values in custom resolutions and by avoiding text merge/edit for object values. |
 | [#148](https://github.com/polyai/adk/pull/148) | 2026-05-15 | Removes default project-id slugging and skips the project-id prompt for `--region studio`. | **Partially ported.** Rust now lets Studio generate project IDs unless explicitly supplied. Rust still offers a default slug in the non-Studio project-ID prompt; verify whether that remaining difference should be removed for full Python parity. |
-| [#138](https://github.com/polyai/adk/pull/138) | 2026-05-14 | Eliminates phantom diffs after `poly pull --force` by changing function header spacing and stripping flow step prompts. | **Port.** Rust still inserts only one newline between a module docstring and the generated function header when imports follow, and it does not trim materialized flow step prompts. Add focused tests because this affects clean Git diffs. |
 | [#64](https://github.com/polyai/adk/pull/64) | 2026-05-12 | Adds Python `poly create project`, backed by the Agents API. | **Partially ported.** Rust has the Agents API call and `poly project create`, but Python's CLI shape is `poly create project`. Add the top-level `create project` command or alias, then align its prompts with #148. |
 
 ## Verify With Focused Tests
@@ -36,7 +35,6 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 | --- | --- | --- | --- |
 | [#159](https://github.com/polyai/adk/pull/159) | 2026-05-21 | Adds dynamic tab completion for `branch switch` and makes the Python `review` parser require a subcommand. | **Verify/low priority.** Rust has static shell completion via clap, but not dynamic remote branch-name completion. Rust `review` already returns a non-zero not-implemented message when no subcommand is supplied, so only exact help/UX parity is outstanding. |
 | [#136](https://github.com/polyai/adk/pull/136) | 2026-05-12 | Deep-copies `FlowConfig` before Python's temporary dummy start-step swap. | **Verify.** The exact Python mutation bug does not directly map to Rust, but Rust flow creation should be checked for flows whose `start_step` is a function step. Add a parity fixture if missing. |
-| [#135](https://github.com/polyai/adk/pull/135) | 2026-05-12 | Normalizes local resources through the project wrapper during pull merge, fixing Function kwargs handling. | **Verify.** Python's missing-kwargs failure is not a Rust class hierarchy issue, but the underlying risk is relevant: pull merge must compare normalized local Function/FlowStep/FunctionStep content. Keep or add focused pull-merge coverage. |
 
 ## Already Covered In Rust
 
@@ -48,7 +46,9 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 | [#147](https://github.com/polyai/adk/pull/147) | 2026-05-15 | Updates Python ADK docs to lead with `poly start` and credential files. | **Covered.** Rust README setup guidance now leads with `poly start`, `poly login`, and `~/.poly/credentials.json`. |
 | [#144](https://github.com/polyai/adk/pull/144) | 2026-05-15 | Sends an empty `ParametersUpdate` for global and transition functions so parameters can be deleted. | **Covered.** Rust now emits explicit empty parameter updates for function types that accept parameters, allowing remote parameters to be deleted. |
 | [#142](https://github.com/polyai/adk/pull/142) | 2026-05-15 | Saves API keys to `~/.poly/credentials.json`, masks key display, and checks credential availability. | **Covered.** Rust resolves credential-file keys before environment variables for Python parity, saves with user-only permissions, masks displayed keys, and checks for existing credentials during onboarding. |
+| [#138](https://github.com/polyai/adk/pull/138) | 2026-05-14 | Eliminates phantom diffs after `poly pull --force` by changing function header spacing and stripping flow step prompts. | **Covered.** Rust now preserves the Python blank line between module docstrings and imports, strips flow step prompts during materialization and comparison, and has a force-pull clean-status regression test. |
 | [#137](https://github.com/polyai/adk/pull/137) | 2026-05-15 | Adds `poly start` onboarding: Auth0 signup/auth, API key creation, optional project creation, and initial local setup. | **Covered.** Rust has `poly start` onboarding with the welcome output, Auth0 sign-in, PAT creation/listing, credential saving, API-key activation wait for project creation, and optional project initialization. |
+| [#135](https://github.com/polyai/adk/pull/135) | 2026-05-12 | Normalizes local resources through the project wrapper during pull merge, fixing Function kwargs handling. | **Covered.** The exact Python kwargs bug does not map to Rust, but Rust now has focused coverage for clean pull/status behavior and FunctionStep round-tripping through normalized local content. |
 | [#130](https://github.com/polyai/adk/pull/130) | 2026-05-11 | Documents per-region API keys via `POLY_ADK_KEY_{REGION}`. | **Covered.** Rust already resolves `POLY_ADK_KEY_US`, `POLY_ADK_KEY_EUW`, `POLY_ADK_KEY_UK`, plus studio/staging/dev variants before `POLY_ADK_KEY`. |
 | [#125](https://github.com/polyai/adk/pull/125) | 2026-05-08 | Adds `deployments show`. | **Covered.** Rust has `deployments show`, prefix lookup, included deployment resolution, JSON output, and human output. Keep replay coverage fresh. |
 | [#91](https://github.com/polyai/adk/pull/91) | 2026-05-08 | Adds deployment promote and rollback commands. | **Covered.** Rust has promote/rollback command handling, dry-run payloads, confirmation, active environment aliases, and platform-root `/v1/agents/...` mutation endpoints. |

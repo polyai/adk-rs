@@ -168,9 +168,162 @@ fn projection_materializes_flow_step_yaml_with_python_key_casing() {
     assert!(content.contains("dtmf_config:"));
     assert!(content.contains("inter_digit_timeout: 3"));
     assert!(content.contains("is_pii: false"));
+    assert!(content.contains("prompt: Rate the call\n"));
     assert!(!content.contains("customKeywords"));
     assert!(!content.contains("dtmfConfig"));
     assert!(!content.contains("position:"));
+}
+
+#[test]
+fn projection_materializes_flow_step_prompts_stripped_like_python() {
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "name": "Collect Rating",
+                                    "type": "default_step",
+                                    "prompt": "\nRate the call\n",
+                                    "references": {"extractedEntities": {}}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let content = resources
+        .get("flows/support_flow/steps/collect_rating.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("flow step YAML");
+
+    assert!(content.contains("prompt: Rate the call\n"));
+    assert!(!content.contains("prompt: |"));
+}
+
+#[test]
+fn flow_step_prompt_edge_whitespace_round_trips_without_push_commands() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/flow_config.yaml",
+            "Support Flow",
+            "name: Support Flow\ndescription: ''\nstart_step: Collect Rating\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/steps/collect_rating.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/steps/collect_rating.yaml",
+            "Collect Rating",
+            "step_type: default_step\nname: Collect Rating\nconditions: []\nextracted_entities: []\nprompt: Rate the call\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "name": "Collect Rating",
+                                    "type": "default_step",
+                                    "prompt": "\nRate the call\n",
+                                    "references": {"extractedEntities": {}}
+                                }
+                            }
+                        },
+                        "transitionFunctions": {"entities": {}}
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+
+    assert!(
+        commands.is_empty(),
+        "expected no commands, got types: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn function_step_round_trips_without_push_commands() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/flow_config.yaml",
+            "Support Flow",
+            "name: Support Flow\ndescription: ''\nstart_step: step-1\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/function_steps/do_work.py".to_string(),
+        local_resource(
+            "flows/support_flow/function_steps/do_work.py",
+            "do_work",
+            "from _gen import *  # <AUTO GENERATED>\n\ndef do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "name": "do_work",
+                                    "type": "function_step",
+                                    "function": {
+                                        "code": "def do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+                                        "latencyControl": {"enabled": false}
+                                    }
+                                }
+                            }
+                        },
+                        "transitionFunctions": {"entities": {}}
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+
+    assert!(
+        commands.is_empty(),
+        "expected no commands, got types: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
