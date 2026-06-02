@@ -8,13 +8,13 @@ pub(crate) fn insert_experimental_config_resource(
     map: &mut ResourceMap,
     projection: &Value,
 ) -> Result<(), CommandGenError> {
-    if let Some(features) = experimental_features(projection) {
+    if let Some((id, features)) = experimental_config_entry(projection) {
         let content = serde_json::to_string_pretty(&features)
             .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
         insert_content_resource(
             map,
             EXPERIMENTAL_CONFIG_FILE.file_path,
-            EXPERIMENTAL_CONFIG_FILE.resource_id,
+            &id,
             EXPERIMENTAL_CONFIG_FILE.name,
             content,
         )?;
@@ -23,14 +23,16 @@ pub(crate) fn insert_experimental_config_resource(
     Ok(())
 }
 
+pub(crate) fn experimental_config_entry(projection: &Value) -> Option<(String, Value)> {
+    let entities = projection
+        .get("experimentalConfig")?
+        .get("experimentalConfigs")?
+        .get("entities")?
+        .as_object()?;
+    let (id, config) = entities.iter().next()?;
+    Some((id.clone(), config.get("features")?.clone()))
+}
+
 pub(crate) fn experimental_features(projection: &Value) -> Option<Value> {
-    Some(
-        projection
-            .get("experimentalConfig")?
-            .get("experimentalConfigs")?
-            .get("entities")?
-            .get("default")?
-            .get("features")?
-            .clone(),
-    )
+    experimental_config_entry(projection).map(|(_, features)| features)
 }

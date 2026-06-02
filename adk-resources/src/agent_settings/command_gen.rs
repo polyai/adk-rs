@@ -1,3 +1,4 @@
+use crate::agent_settings::discovery::allowed_personality_adjective;
 use crate::push_command_inputs::{resource_changed, resource_yaml};
 use crate::specs::{
     AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_RULES_FILE, AGENT_SAFETY_FILTERS_FILE,
@@ -19,6 +20,10 @@ use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue, json};
 use serde_yaml_ng::{Mapping, Value as YamlValue};
 use std::collections::HashMap;
+
+#[cfg(test)]
+#[path = "command_gen_tests.rs"]
+mod command_gen_tests;
 
 pub(crate) fn append_agent_settings_updates(
     commands: &mut Vec<adk_protobuf::Command>,
@@ -86,7 +91,11 @@ fn append_personality_update(
             .map(|items| {
                 items
                     .iter()
-                    .filter_map(|(key, value)| Some((key.as_str()?.to_string(), value.as_bool()?)))
+                    .filter_map(|(key, value)| {
+                        let key = key.as_str()?;
+                        let enabled = value.as_bool()?;
+                        allowed_personality_adjective(key).then(|| (key.to_string(), enabled))
+                    })
                     .collect::<HashMap<_, _>>()
             })
             .unwrap_or_default();

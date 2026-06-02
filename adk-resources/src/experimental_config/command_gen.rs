@@ -1,6 +1,6 @@
 use crate::push_commands::default_metadata_created_by;
 use crate::specs::EXPERIMENTAL_CONFIG_FILE;
-use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
+use crate::{is_synthetic_local_resource_id, push_command};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::experimental_config::ExperimentalConfigUpdateConfig;
@@ -34,11 +34,13 @@ pub(crate) fn append_experimental_config_update(
     if crate::experimental_config::experimental_features(projection).as_ref() == Some(&local_json) {
         return;
     }
-    let id = if !is_synthetic_local_resource_id(&resource.resource_id) {
-        resource.resource_id.clone()
-    } else {
-        remote_experimental_config_id(projection).unwrap_or_else(|| "default".to_string())
-    };
+    let id = remote_experimental_config_id(projection).unwrap_or_else(|| {
+        if !is_synthetic_local_resource_id(&resource.resource_id) {
+            resource.resource_id.clone()
+        } else {
+            "default".to_string()
+        }
+    });
     push_command(
         commands,
         metadata,
@@ -53,13 +55,7 @@ pub(crate) fn append_experimental_config_update(
 }
 
 fn remote_experimental_config_id(projection: &Value) -> Option<String> {
-    extract_entities_map(
-        projection,
-        &["experimentalConfig", "experimentalConfigs", "entities"],
-    )
-    .keys()
-    .next()
-    .cloned()
+    crate::experimental_config::experimental_config_entry(projection).map(|(id, _)| id)
 }
 
 fn sdk_user(metadata: &Option<Metadata>) -> String {
