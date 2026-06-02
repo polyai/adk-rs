@@ -8,48 +8,20 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 mod args;
-mod branch;
-mod chat;
-mod completion;
+mod commands;
 mod console;
 mod credentials;
-mod deployments;
-mod diff;
-mod docs;
-mod format;
-mod init;
-mod login;
+mod install_helpers;
 mod output;
-mod project;
-mod pull;
-mod push;
-mod revert;
-mod review;
-mod self_update;
-mod start;
-mod status;
-mod validate;
 
 pub(crate) use args::*;
-use branch::cmd_branch;
-use chat::cmd_chat;
-use completion::cmd_completion;
-use deployments::cmd_deployments;
-use diff::cmd_diff;
-use docs::cmd_docs;
-use format::cmd_format;
-use init::cmd_init;
-use login::cmd_login;
+use commands::{
+    cmd_branch, cmd_chat, cmd_completion, cmd_deployments, cmd_diff, cmd_docs, cmd_format,
+    cmd_init, cmd_login, cmd_project, cmd_pull, cmd_push, cmd_revert, cmd_review, cmd_self_update,
+    cmd_start, cmd_status, cmd_uninstall, cmd_validate, project_debug, project_verbose,
+    validate_diff_args, validate_inline_projection_arg,
+};
 pub(crate) use output::{clean_error_message, emit_error, print_payload};
-use project::{cmd_project, project_debug, project_verbose};
-use pull::cmd_pull;
-use push::cmd_push;
-use revert::cmd_revert;
-use review::cmd_review;
-use self_update::cmd_self_update;
-use start::cmd_start;
-use status::cmd_status;
-use validate::cmd_validate;
 
 fn main() -> ExitCode {
     match run() {
@@ -103,7 +75,7 @@ fn run() -> Result<ExitCode> {
             }
         }
         Commands::Push(args) => {
-            if let Some(error) = push::validate_inline_projection_arg(&args) {
+            if let Some(error) = validate_inline_projection_arg(&args) {
                 emit_error(args.json || args.output_json_commands, &error);
                 ExitCode::from(1)
             } else if args.dry_run && args.from_projection.is_some() {
@@ -121,7 +93,7 @@ fn run() -> Result<ExitCode> {
             Err(code) => code,
         },
         Commands::Diff(args) => {
-            if let Some(message) = diff::validate_diff_args(&args) {
+            if let Some(message) = validate_diff_args(&args) {
                 console::error(message);
                 ExitCode::SUCCESS
             } else {
@@ -137,6 +109,7 @@ fn run() -> Result<ExitCode> {
         Commands::Validate(args) => cmd_validate(args),
         Commands::Chat(args) => cmd_chat(args),
         Commands::SelfUpdate(args) => cmd_self_update(args),
+        Commands::Uninstall(args) => cmd_uninstall(args),
         Commands::Completion(args) => cmd_completion(args),
         Commands::Deployments(args) => {
             let path = deployments_path(&args);
@@ -169,9 +142,9 @@ fn print_top_level_help() {
     let mut output = String::from(
         concat!(
             "usage: poly [-h] [-v]\n",
-            "            {help,docs,login,start,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments} ...\n\n",
+            "            {help,docs,login,start,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,uninstall,completion,deployments} ...\n\n",
             "positional arguments:\n",
-            "  {help,docs,login,start,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,completion,deployments}\n",
+            "  {help,docs,login,start,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,uninstall,completion,deployments}\n",
         ),
     );
     for (name, description) in [
@@ -203,6 +176,10 @@ fn print_top_level_help() {
         (
             "self-update",
             "Update the ADK CLI installed by the release shell installer.",
+        ),
+        (
+            "uninstall",
+            "EXPERIMENTAL: Uninstall shell-installed ADK using installation receipt file.",
         ),
         ("completion", "Generate shell completion scripts"),
         ("deployments", "Manage deployments for the project."),
@@ -273,6 +250,7 @@ fn command_verbose(command: &Commands) -> bool {
         Commands::Validate(args) => args.verbose,
         Commands::Chat(args) => args.verbose,
         Commands::SelfUpdate(args) => args.verbose,
+        Commands::Uninstall(args) => args.verbose,
         Commands::Completion(_) => false,
         Commands::Deployments(args) => deployments_verbose(args),
     }

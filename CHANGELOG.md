@@ -4,6 +4,8 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+- Added `poly uninstall` for shell-installed ADK releases.
+
 ## 0.0.7 - 2026-06-01
 
 - Added `poly start` and `poly login` onboarding with Auth0 sign-in, credential-file API key storage, and guided project creation.

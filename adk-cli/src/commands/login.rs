@@ -1,4 +1,4 @@
-use crate::{LoginArgs, console, credentials, init::INIT_REGIONS, prompt_select};
+use crate::{LoginArgs, commands::init::INIT_REGIONS, console, credentials, prompt_select};
 use adk_api_client::{
     Auth0Client, Auth0DeviceCode, Auth0TokenPoll, HttpPlatformClient, JupiterClient,
 };

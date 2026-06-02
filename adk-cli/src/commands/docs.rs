@@ -2,7 +2,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-pub(super) const DOC_CHOICES: &[&str] = &[
+use crate::{DocsArgs, console};
+
+pub(crate) const DOC_CHOICES: &[&str] = &[
     "agent_settings",
     "api_integrations",
     "chat_settings",
@@ -21,7 +23,7 @@ pub(super) const DOC_CHOICES: &[&str] = &[
     "voice_settings",
 ];
 
-pub(super) fn cmd_docs(args: super::DocsArgs) -> ExitCode {
+pub(crate) fn cmd_docs(args: DocsArgs) -> ExitCode {
     let mut doc_names: Vec<&str> = Vec::new();
     if args.documents.is_empty() && !args.all {
         doc_names.push("docs");
@@ -37,7 +39,7 @@ pub(super) fn cmd_docs(args: super::DocsArgs) -> ExitCode {
         match load_docs(doc_name) {
             Ok(content) => parts.push(content),
             Err(error) => {
-                super::console::error(error);
+                console::error(error);
                 return ExitCode::from(1);
             }
         }
@@ -55,14 +57,14 @@ pub(super) fn cmd_docs(args: super::DocsArgs) -> ExitCode {
         if let Some(parent) = output_path.parent()
             && let Err(error) = fs::create_dir_all(parent)
         {
-            super::console::error(error.to_string());
+            console::error(error.to_string());
             return ExitCode::from(1);
         }
         if let Err(error) = fs::write(&output_path, content) {
-            super::console::error(error.to_string());
+            console::error(error.to_string());
             return ExitCode::from(1);
         }
-        super::console::success(format!(
+        console::success(format!(
             "Documentation written to {}",
             output_path.to_string_lossy()
         ));

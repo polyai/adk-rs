@@ -1,9 +1,9 @@
 use crate::{
-    ProjectCreateArgs, ProjectWorkspace, StartArgs, console, credentials,
-    login::{sign_in_and_save_key, wait_for_api_key_active},
-    project::cmd_project_create,
-    prompt_confirm_default, wait_for_enter,
+    ProjectCreateArgs, ProjectWorkspace, StartArgs, console, credentials, prompt_confirm_default,
+    wait_for_enter,
 };
+use super::login::{sign_in_and_save_key, wait_for_api_key_active};
+use super::project::cmd_project_create;
 use std::process::ExitCode;
 
 const START_REGION: &str = "studio";

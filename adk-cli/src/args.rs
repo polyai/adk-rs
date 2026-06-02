@@ -50,6 +50,10 @@ pub(crate) enum Commands {
     Chat(ChatArgs),
     #[command(about = "Update the ADK CLI installed by the release shell installer.")]
     SelfUpdate(SelfUpdateArgs),
+    #[command(
+        about = "EXPERIMENTAL: Uninstall shell-installed ADK using installation receipt file."
+    )]
+    Uninstall(UninstallArgs),
     #[command(about = "Generate shell completion scripts")]
     Completion(CompletionArgs),
     #[command(about = "Manage deployments for the project.")]
@@ -64,13 +68,13 @@ pub(crate) struct DocsArgs {
     pub(crate) output: Option<String>,
     #[arg(long, action = ArgAction::SetTrue)]
     pub(crate) verbose: bool,
-    #[arg(value_parser = clap::builder::PossibleValuesParser::new(crate::docs::DOC_CHOICES))]
+    #[arg(value_parser = clap::builder::PossibleValuesParser::new(crate::commands::docs::DOC_CHOICES))]
     pub(crate) documents: Vec<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct LoginArgs {
-    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(crate::init::INIT_REGIONS))]
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(crate::commands::init::INIT_REGIONS))]
     pub(crate) region: Option<String>,
     #[arg(long, action = ArgAction::SetTrue)]
     pub(crate) debug: bool,
@@ -128,7 +132,7 @@ pub(crate) enum ProjectCommands {
 pub(crate) struct ProjectCreateArgs {
     #[arg(long = "base-path", default_value = ".")]
     pub(crate) base_path: String,
-    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(crate::init::INIT_REGIONS))]
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(crate::commands::init::INIT_REGIONS))]
     pub(crate) region: Option<String>,
     #[arg(long = "account_id")]
     pub(crate) account_id: Option<String>,
@@ -470,6 +474,14 @@ pub(crate) struct CompletionArgs {
 #[derive(Debug, clap::Args)]
 pub(crate) struct SelfUpdateArgs {
     #[arg(long, action = ArgAction::SetTrue, help = "show detailed update errors")]
+    pub(crate) verbose: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct UninstallArgs {
+    #[arg(long, action = ArgAction::SetTrue, help = "uninstall without prompting for confirmation")]
+    pub(crate) yes: bool,
+    #[arg(long, action = ArgAction::SetTrue, help = "show detailed uninstall errors")]
     pub(crate) verbose: bool,
 }
 
