@@ -125,8 +125,6 @@ workflows:
     - --json
     - --force
     - --skip-validation
-    - --email
-    - adk-recorder@example.com
     - --path
     - ${TMP}/remote/ben-ws/PROJECT-JTQKOKLM
     exit_code: 0

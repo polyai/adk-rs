@@ -1,7 +1,7 @@
-use crate::{ApiError, PlatformClient};
+use crate::{ApiError, PlatformClient, command_user_override_from_env};
 use adk_resources::{
     command_to_json_summary, try_build_push_commands_for_changed_resources,
-    try_build_push_commands_with_actor,
+    try_build_push_commands_with_created_by,
 };
 use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
 use serde_json::Value;
@@ -14,6 +14,7 @@ pub struct InMemoryPlatformClient {
     branches: Arc<Mutex<indexmap::IndexMap<String, String>>>,
     named_resources: Arc<Mutex<indexmap::IndexMap<String, ResourceMap>>>,
     deployments: Arc<Mutex<DeploymentList>>,
+    command_user_override: Option<String>,
 }
 
 impl Default for InMemoryPlatformClient {
@@ -26,6 +27,7 @@ impl Default for InMemoryPlatformClient {
                 versions: vec![],
                 active_deployment_hashes: Default::default(),
             })),
+            command_user_override: command_user_override_from_env(),
         }
     }
 }
@@ -42,6 +44,7 @@ impl InMemoryPlatformClient {
                 versions: vec![],
                 active_deployment_hashes: Default::default(),
             })),
+            command_user_override: command_user_override_from_env(),
         }
     }
 
@@ -55,6 +58,7 @@ impl InMemoryPlatformClient {
             branches: Arc::new(Mutex::new(default_branches())),
             named_resources: Arc::new(Mutex::new(named_resources)),
             deployments: Arc::new(Mutex::new(deployments)),
+            command_user_override: command_user_override_from_env(),
         }
     }
 
@@ -80,17 +84,20 @@ impl PlatformClient for InMemoryPlatformClient {
     }
 
     fn preview_push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
-        self.preview_push_resources_with_options(resources, None, None)
+        self.preview_push_resources_with_options(resources, None)
     }
 
     fn preview_push_resources_with_options(
         &self,
         resources: &ResourceMap,
         projection: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
         let projection = self.preview_projection(projection)?;
-        let commands = try_build_push_commands_with_actor(resources, &projection, actor)?;
+        let commands = try_build_push_commands_with_created_by(
+            resources,
+            &projection,
+            self.command_user_override.as_deref(),
+        )?;
         let summaries = commands.iter().map(command_to_json_summary).collect();
         Ok(PushResult {
             success: true,
@@ -103,11 +110,13 @@ impl PlatformClient for InMemoryPlatformClient {
         &self,
         resources: &ResourceMap,
         projection: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
         let projection = self.preview_projection(projection)?;
-        let commands =
-            try_build_push_commands_for_changed_resources(resources, &projection, actor)?;
+        let commands = try_build_push_commands_for_changed_resources(
+            resources,
+            &projection,
+            self.command_user_override.as_deref(),
+        )?;
         let summaries = commands.iter().map(command_to_json_summary).collect();
         Ok(PushResult {
             success: true,

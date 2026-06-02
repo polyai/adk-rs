@@ -104,8 +104,6 @@ workflows:
     - --output-json-commands
     - --dry-run
     - --skip-validation
-    - --email
-    - adk-recorder@example.com
     - --path
     - ${TMP}/ben-ws/PROJECT-JTQKOKLM
     exit_code: 0
@@ -199,8 +197,6 @@ workflows:
     - --json
     - --force
     - --skip-validation
-    - --email
-    - adk-recorder@example.com
     - --path
     - ${TMP}/ben-ws/PROJECT-JTQKOKLM
     exit_code: 0
@@ -851,8 +847,6 @@ workflows:
     - --output-json-commands
     - --dry-run
     - --skip-validation
-    - --email
-    - adk-recorder@example.com
     - --path
     - ${TMP}/ben-ws/PROJECT-JTQKOKLM
     exit_code: 0
@@ -898,8 +892,6 @@ workflows:
     - --output-json-commands
     - --dry-run
     - --skip-validation
-    - --email
-    - adk-recorder@example.com
     - --path
     - ${TMP}/ben-ws/PROJECT-JTQKOKLM
     exit_code: 0

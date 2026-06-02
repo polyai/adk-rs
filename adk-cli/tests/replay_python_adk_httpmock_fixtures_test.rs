@@ -660,6 +660,7 @@ fn run_python_adk(
         .env("POLY_ADK_BASE_URL", &base_url)
         .env("POLY_ADK_BASE_URL_US", &base_url)
         .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .env("ADK_COMMAND_USER_OVERRIDE", "adk-recorder@example.com")
         .env_remove("GITHUB_ACCESS_TOKEN")
         .args(args);
     let Some(stdin) = stdin else {
@@ -693,6 +694,7 @@ fn run_rust_poly(
         .env("POLY_ADK_BASE_URL", &base_url)
         .env("POLY_ADK_BASE_URL_US", &base_url)
         .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .env("ADK_COMMAND_USER_OVERRIDE", "adk-recorder@example.com")
         .env_remove("GITHUB_ACCESS_TOKEN");
     if let Some(name) = maybe_lookup_substitution("${GENERATED_ADK_BRANCH_NAME}", substitutions) {
         command.env("POLY_ADK_GENERATED_BRANCH_NAME", name);

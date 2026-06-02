@@ -3,6 +3,45 @@ use adk_types::Resource;
 use httpmock::Method::GET;
 use httpmock::{Mock, MockServer};
 use serde_json::json;
+use std::ffi::OsString;
+use std::sync::{Mutex, MutexGuard};
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+struct EnvVarGuard {
+    _lock: MutexGuard<'static, ()>,
+    saved: Vec<(&'static str, Option<OsString>)>,
+}
+
+impl EnvVarGuard {
+    fn new(vars: &[&'static str]) -> Self {
+        let lock = ENV_LOCK.lock().expect("env lock");
+        let saved = vars
+            .iter()
+            .map(|&name| (name, std::env::var_os(name)))
+            .collect();
+        Self { _lock: lock, saved }
+    }
+
+    fn set(&self, name: &'static str, value: &str) {
+        unsafe {
+            std::env::set_var(name, value);
+        }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        for (name, value) in &self.saved {
+            unsafe {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+}
 
 fn adk_v1_test_client(server: &MockServer) -> HttpPlatformClient {
     HttpPlatformClient {
@@ -12,6 +51,7 @@ fn adk_v1_test_client(server: &MockServer) -> HttpPlatformClient {
         account_id: "test-account".to_string(),
         project_id: "test-project".to_string(),
         branch_id: "main".to_string(),
+        command_user_override: None,
     }
 }
 
@@ -84,6 +124,45 @@ fn api_key_env_names_match_python_resolution_order() {
         api_key_env_names("uk-1"),
         vec!["POLY_ADK_KEY_UK", "POLY_ADK_KEY"]
     );
+}
+
+#[test]
+fn command_user_override_env_is_captured_when_client_is_created() {
+    let guard = EnvVarGuard::new(&["ADK_COMMAND_USER_OVERRIDE"]);
+    guard.set("ADK_COMMAND_USER_OVERRIDE", "env-user@example.com");
+
+    let client = HttpPlatformClient::new_with_api_key(
+        "us-1",
+        "test-account",
+        "test-project",
+        Some("main"),
+        "test-key",
+    )
+    .expect("client");
+
+    guard.set("ADK_COMMAND_USER_OVERRIDE", "later-user@example.com");
+
+    assert_eq!(
+        client.command_user_override.as_deref(),
+        Some("env-user@example.com")
+    );
+}
+
+#[test]
+fn empty_command_user_override_env_is_ignored() {
+    let guard = EnvVarGuard::new(&["ADK_COMMAND_USER_OVERRIDE"]);
+    guard.set("ADK_COMMAND_USER_OVERRIDE", "");
+
+    let client = HttpPlatformClient::new_with_api_key(
+        "us-1",
+        "test-account",
+        "test-project",
+        Some("main"),
+        "test-key",
+    )
+    .expect("client");
+
+    assert_eq!(client.command_user_override, None);
 }
 
 #[test]
@@ -443,12 +522,13 @@ fn push_no_changes_uses_python_failure_contract() {
         account_id: "test-account".to_string(),
         project_id: "test-project".to_string(),
         branch_id: "main".to_string(),
+        command_user_override: None,
     };
     let resources = ResourceMap::new();
     let projection = serde_json::json!({});
 
     let result = client
-        .push_resources_with_options(&resources, Some(&projection), None)
+        .push_resources_with_options(&resources, Some(&projection))
         .expect("push result");
 
     assert!(!result.success);
@@ -465,6 +545,7 @@ fn changed_resource_preview_does_not_delete_unmentioned_remote_resources() {
         account_id: "test-account".to_string(),
         project_id: "test-project".to_string(),
         branch_id: "main".to_string(),
+        command_user_override: None,
     };
     let mut resources = ResourceMap::new();
     resources.insert(
@@ -506,7 +587,7 @@ fn changed_resource_preview_does_not_delete_unmentioned_remote_resources() {
     });
 
     let result = client
-        .preview_push_changed_resources_with_options(&resources, Some(&projection), None)
+        .preview_push_changed_resources_with_options(&resources, Some(&projection))
         .expect("preview changed resources");
     let command_types = result
         .commands
@@ -546,7 +627,14 @@ fn test_client(base_url: String) -> HttpPlatformClient {
         account_id: "test-account".to_string(),
         project_id: "test-project".to_string(),
         branch_id: "main".to_string(),
+        command_user_override: None,
     }
+}
+
+fn test_client_with_command_user_override(base_url: String, email: &str) -> HttpPlatformClient {
+    let mut client = test_client(base_url);
+    client.command_user_override = Some(email.to_string());
+    client
 }
 
 fn projection_with_function(name: &str) -> Value {
@@ -564,6 +652,78 @@ fn projection_with_function(name: &str) -> Value {
             }
         }
     })
+}
+
+#[test]
+fn preview_push_uses_command_user_override_for_metadata_created_by() {
+    let client = test_client_with_command_user_override(
+        "http://localhost".to_string(),
+        "env-user@example.com",
+    );
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "functions/override_author.py".to_string(),
+        function_resource(
+            "functions/override_author.py",
+            "override_author",
+            "def override_author(conv):\n    return 'ok'\n",
+        ),
+    );
+
+    let result = client
+        .preview_push_resources_with_options(&resources, Some(&serde_json::json!({})))
+        .expect("preview push");
+
+    assert_eq!(
+        result.commands[0]
+            .get("metadata")
+            .and_then(|metadata| metadata.get("created_by"))
+            .and_then(Value::as_str),
+        Some("env-user@example.com")
+    );
+}
+
+#[test]
+fn push_resources_sends_command_user_override_header_on_json_and_command_batch_requests() {
+    use httpmock::Method::{GET, POST};
+    use httpmock::MockServer;
+
+    let server = MockServer::start();
+    let projection = server.mock(|when, then| {
+        when.method(GET)
+            .path("/accounts/test-account/projects/test-project/branches/main/projection")
+            .header("X-PolyAI-Email", "env-user@example.com");
+        then.status(200).json_body(serde_json::json!({
+            "lastKnownSequence": "12",
+            "projection": {}
+        }));
+    });
+    let push = server.mock(|when, then| {
+        when.method(POST)
+            .path("/accounts/test-account/projects/test-project/branches/main/command-batch")
+            .header("X-PolyAI-Email", "env-user@example.com");
+        then.status(200).json_body(serde_json::json!({
+            "message": "pushed",
+            "commands": [{"type": "create_function"}]
+        }));
+    });
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "functions/header_author.py".to_string(),
+        function_resource(
+            "functions/header_author.py",
+            "header_author",
+            "def header_author(conv):\n    return 'ok'\n",
+        ),
+    );
+
+    let result = test_client_with_command_user_override(server.base_url(), "env-user@example.com")
+        .push_resources_with_options(&resources, None)
+        .expect("push resources");
+
+    assert!(result.success);
+    projection.assert();
+    push.assert();
 }
 
 #[test]
@@ -876,7 +1036,7 @@ fn push_main_resources_to_new_branch_pushes_generated_commands() {
     );
 
     let (branch_id, result) = test_client(server.base_url())
-        .push_main_resources_to_new_branch("feature-push", &resources, Some("tester@example.com"))
+        .push_main_resources_to_new_branch("feature-push", &resources)
         .expect("push main resources to new branch");
 
     assert_eq!(branch_id, "br-new");
@@ -919,7 +1079,7 @@ fn push_main_resources_to_new_branch_reports_no_changes_without_command_batch() 
     });
 
     let (branch_id, result) = test_client(server.base_url())
-        .push_main_resources_to_new_branch("empty-branch", &ResourceMap::new(), None)
+        .push_main_resources_to_new_branch("empty-branch", &ResourceMap::new())
         .expect("push no-op resources to new branch");
 
     assert_eq!(branch_id, "br-empty");

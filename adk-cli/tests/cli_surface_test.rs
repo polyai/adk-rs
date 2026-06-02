@@ -219,6 +219,14 @@ fn invalid_subcommand_returns_parser_error() {
 }
 
 #[test]
+fn push_email_flag_is_removed_from_python_cli_surface() {
+    let output = run_poly(&["push", "--email", "author@example.com"]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--email"), "stderr={stderr}");
+}
+
+#[test]
 fn help_subcommand_prints_top_level_help() {
     let output = run_poly(&["help"]);
     assert_eq!(output.status.code(), Some(0));

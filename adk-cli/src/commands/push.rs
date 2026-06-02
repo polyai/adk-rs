@@ -48,7 +48,6 @@ pub(crate) fn cmd_push<C: PlatformClient>(service: &AdkService<C>, args: PushArg
             &branch_name,
             args.force,
             args.skip_validation,
-            args.email.as_deref(),
         ) {
             Ok((cfg, push_result)) => {
                 if args.json || args.output_json_commands {
@@ -88,7 +87,6 @@ pub(crate) fn cmd_push<C: PlatformClient>(service: &AdkService<C>, args: PushArg
         args.skip_validation,
         args.dry_run,
         projection_json.as_ref(),
-        args.email.as_deref(),
     ) {
         Ok(push_result) => {
             if args.json || args.output_json_commands {

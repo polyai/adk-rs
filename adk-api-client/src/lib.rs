@@ -1,7 +1,7 @@
 use adk_protobuf::{Command, CommandBatch};
 use adk_resources::{
     CommandGenError, command_to_json_summary, projection_to_resource_map,
-    try_build_push_commands_for_changed_resources, try_build_push_commands_with_actor,
+    try_build_push_commands_for_changed_resources, try_build_push_commands_with_created_by,
 };
 use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
 use prost::Message;
@@ -75,45 +75,40 @@ pub trait PlatformClient: Send + Sync {
         &self,
         resources: &ResourceMap,
         projection: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
-        let _ = (projection, actor);
+        let _ = projection;
         self.preview_push_resources(resources)
     }
     fn preview_push_changed_resources_with_options(
         &self,
         resources: &ResourceMap,
         projection: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
-        self.preview_push_resources_with_options(resources, projection, actor)
+        self.preview_push_resources_with_options(resources, projection)
     }
     fn push_resources(&self, _resources: &ResourceMap) -> Result<PushResult, ApiError>;
     fn push_resources_with_options(
         &self,
         resources: &ResourceMap,
         projection: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
-        let _ = (projection, actor);
+        let _ = projection;
         self.push_resources(resources)
     }
     fn push_changed_resources_with_options(
         &self,
         resources: &ResourceMap,
         projection: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
-        self.push_resources_with_options(resources, projection, actor)
+        self.push_resources_with_options(resources, projection)
     }
     fn push_main_resources_to_new_branch(
         &self,
         branch_name: &str,
         resources: &ResourceMap,
-        actor: Option<&str>,
     ) -> Result<(String, PushResult), ApiError> {
         let branch_id = self.create_branch(branch_name)?;
-        let push = self.push_resources_with_options(resources, None, actor)?;
+        let push = self.push_resources_with_options(resources, None)?;
         Ok((branch_id, push))
     }
     fn list_deployments(&self, _environment: &str) -> Result<DeploymentList, ApiError>;
@@ -145,6 +140,7 @@ pub struct HttpPlatformClient {
     account_id: String,
     project_id: String,
     branch_id: String,
+    command_user_override: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,6 +181,7 @@ impl HttpPlatformClient {
             account_id: account_id.to_string(),
             project_id: project_id.to_string(),
             branch_id: branch_id.unwrap_or("main").to_string(),
+            command_user_override: command_user_override_from_env(),
         })
     }
 
@@ -384,6 +381,7 @@ impl HttpPlatformClient {
             .request(method, &url)
             .header("X-API-KEY", &self.api_key)
             .header("Content-Type", "application/json");
+        request = self.with_command_user_override_header(request);
         if let Some(q) = query {
             request = request.query(q);
         }
@@ -411,6 +409,7 @@ impl HttpPlatformClient {
             .header("X-API-KEY", &self.api_key)
             .header("X-PolyAI-Correlation-Id", format!("adk-{}", Uuid::new_v4()))
             .header("Content-Type", "application/json");
+        request = self.with_command_user_override_header(request);
         if let Some(payload) = payload {
             request = request.json(&payload);
         }
@@ -425,12 +424,14 @@ impl HttpPlatformClient {
     fn request_binary_json(&self, endpoint: &str, payload: &[u8]) -> Result<Value, ApiError> {
         let url = format!("{}{}", self.base_url, endpoint);
         let correlation_id = format!("adk-{}", Uuid::new_v4());
-        let response = self
+        let request = self
             .client
             .post(&url)
             .header("X-API-KEY", &self.api_key)
             .header("X-PolyAI-Correlation-Id", correlation_id)
-            .header("Content-Type", "application/octet-stream")
+            .header("Content-Type", "application/octet-stream");
+        let response = self
+            .with_command_user_override_header(request)
             .body(payload.to_vec())
             .send()
             .map_err(|e| ApiError::Http(e.to_string()))?;
@@ -439,6 +440,17 @@ impl HttpPlatformClient {
             return Err(http_status_error(status, &url));
         }
         response.json().map_err(|e| ApiError::Http(e.to_string()))
+    }
+
+    fn with_command_user_override_header(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+    ) -> reqwest::blocking::RequestBuilder {
+        if let Some(email) = &self.command_user_override {
+            request.header("X-PolyAI-Email", email)
+        } else {
+            request
+        }
     }
 
     fn fetch_projection_response(&self) -> Result<Value, ApiError> {
@@ -662,17 +674,16 @@ impl PlatformClient for HttpPlatformClient {
     }
 
     fn push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
-        self.push_resources_with_options(resources, None, None)
+        self.push_resources_with_options(resources, None)
     }
 
     fn push_resources_with_options(
         &self,
         resources: &ResourceMap,
         projection: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
         let (commands, last_known_sequence) =
-            self.build_push_commands_with_options(resources, projection, actor)?;
+            self.build_push_commands_with_options(resources, projection)?;
         if commands.is_empty() {
             return Ok(PushResult {
                 success: false,
@@ -688,10 +699,9 @@ impl PlatformClient for HttpPlatformClient {
         &self,
         resources: &ResourceMap,
         projection: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
         let (commands, last_known_sequence) =
-            self.build_changed_push_commands_with_options(resources, projection, actor)?;
+            self.build_changed_push_commands_with_options(resources, projection)?;
         if commands.is_empty() {
             return Ok(PushResult {
                 success: false,
@@ -707,7 +717,6 @@ impl PlatformClient for HttpPlatformClient {
         &self,
         branch_name: &str,
         resources: &ResourceMap,
-        actor: Option<&str>,
     ) -> Result<(String, PushResult), ApiError> {
         let main_projection_response = self.fetch_projection_response_for_branch("main")?;
         let expected_main_last_known_sequence =
@@ -732,7 +741,11 @@ impl PlatformClient for HttpPlatformClient {
             .get("projection")
             .cloned()
             .unwrap_or_else(|| main_projection_response.clone());
-        let commands = try_build_push_commands_with_actor(resources, &projection, actor)?;
+        let commands = try_build_push_commands_with_created_by(
+            resources,
+            &projection,
+            self.command_user_override.as_deref(),
+        )?;
         let push = if commands.is_empty() {
             PushResult {
                 success: false,
@@ -746,17 +759,16 @@ impl PlatformClient for HttpPlatformClient {
     }
 
     fn preview_push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
-        self.preview_push_resources_with_options(resources, None, None)
+        self.preview_push_resources_with_options(resources, None)
     }
 
     fn preview_push_resources_with_options(
         &self,
         resources: &ResourceMap,
         projection: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
         let (commands, _, _) =
-            self.build_push_commands_and_projection_with_options(resources, projection, actor)?;
+            self.build_push_commands_and_projection_with_options(resources, projection)?;
         let summaries: Vec<_> = commands.iter().map(command_to_json_summary).collect();
         if summaries.is_empty() {
             return Ok(PushResult {
@@ -776,11 +788,9 @@ impl PlatformClient for HttpPlatformClient {
         &self,
         resources: &ResourceMap,
         projection: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<PushResult, ApiError> {
-        let (commands, _, _) = self.build_changed_push_commands_and_projection_with_options(
-            resources, projection, actor,
-        )?;
+        let (commands, _, _) =
+            self.build_changed_push_commands_and_projection_with_options(resources, projection)?;
         let summaries: Vec<_> = commands.iter().map(command_to_json_summary).collect();
         if summaries.is_empty() {
             return Ok(PushResult {
@@ -1154,14 +1164,9 @@ impl HttpPlatformClient {
         &self,
         resources: &ResourceMap,
         projection_override: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<(Vec<Command>, u64), ApiError> {
-        let (commands, last_known_sequence, _) = self
-            .build_push_commands_and_projection_with_options(
-                resources,
-                projection_override,
-                actor,
-            )?;
+        let (commands, last_known_sequence, _) =
+            self.build_push_commands_and_projection_with_options(resources, projection_override)?;
         Ok((commands, last_known_sequence))
     }
 
@@ -1169,13 +1174,11 @@ impl HttpPlatformClient {
         &self,
         resources: &ResourceMap,
         projection_override: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<(Vec<Command>, u64), ApiError> {
         let (commands, last_known_sequence, _) = self
             .build_changed_push_commands_and_projection_with_options(
                 resources,
                 projection_override,
-                actor,
             )?;
         Ok((commands, last_known_sequence))
     }
@@ -1184,7 +1187,6 @@ impl HttpPlatformClient {
         &self,
         resources: &ResourceMap,
         projection_override: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<(Vec<Command>, u64, Value), ApiError> {
         let (projection, last_known_sequence) = if let Some(projection) = projection_override {
             (projection.clone(), 0)
@@ -1204,7 +1206,11 @@ impl HttpPlatformClient {
                 .unwrap_or(0);
             (projection, last_known_sequence)
         };
-        let commands = try_build_push_commands_with_actor(resources, &projection, actor)?;
+        let commands = try_build_push_commands_with_created_by(
+            resources,
+            &projection,
+            self.command_user_override.as_deref(),
+        )?;
         Ok((commands, last_known_sequence, projection))
     }
 
@@ -1212,7 +1218,6 @@ impl HttpPlatformClient {
         &self,
         resources: &ResourceMap,
         projection_override: Option<&Value>,
-        actor: Option<&str>,
     ) -> Result<(Vec<Command>, u64, Value), ApiError> {
         let (projection, last_known_sequence) = if let Some(projection) = projection_override {
             (projection.clone(), 0)
@@ -1232,10 +1237,19 @@ impl HttpPlatformClient {
                 .unwrap_or(0);
             (projection, last_known_sequence)
         };
-        let commands =
-            try_build_push_commands_for_changed_resources(resources, &projection, actor)?;
+        let commands = try_build_push_commands_for_changed_resources(
+            resources,
+            &projection,
+            self.command_user_override.as_deref(),
+        )?;
         Ok((commands, last_known_sequence, projection))
     }
+}
+
+fn command_user_override_from_env() -> Option<String> {
+    env::var("ADK_COMMAND_USER_OVERRIDE")
+        .ok()
+        .filter(|value| !value.is_empty())
 }
 
 fn api_key_for_region(region: &str) -> Result<String, ApiError> {
