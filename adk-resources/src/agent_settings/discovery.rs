@@ -81,6 +81,21 @@ impl DiscoverResources for SettingsRole {
     }
 }
 
+pub(crate) struct SettingsRules;
+impl DiscoverResources for SettingsRules {
+    const LOCAL_PATH: LocalResourcePath =
+        LocalResourcePath::File(crate::specs::AGENT_RULES_FILE.file_path);
+
+    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
+        let p = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
+        if is_file(fs, &p) {
+            vec![rel_under_root(base_path, &p)]
+        } else {
+            vec![]
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,20 +126,5 @@ mod tests {
 
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("Enabled adjectives must be from the allowed set"));
-    }
-}
-
-pub(crate) struct SettingsRules;
-impl DiscoverResources for SettingsRules {
-    const LOCAL_PATH: LocalResourcePath =
-        LocalResourcePath::File(crate::specs::AGENT_RULES_FILE.file_path);
-
-    fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
-        let p = base_path.join(Self::LOCAL_PATH.primary_path().expect("local file path"));
-        if is_file(fs, &p) {
-            vec![rel_under_root(base_path, &p)]
-        } else {
-            vec![]
-        }
     }
 }
