@@ -13,9 +13,9 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 
 ## Action Summary
 
-- Port or fix in Rust: #163, #161, #156, #154, #148, #144, #138, #129, #64.
+- Port or fix in Rust: #161, #156, #148, #138, #129, #64.
 - Verify with a focused parity test or fixture: #159, #136, #135.
-- Already covered in Rust: #158, #147, #142, #137, #130, #125, #91.
+- Already covered in Rust: #163, #158, #154, #147, #144, #142, #137, #130, #125, #91.
 - No Rust action expected: #155, #153, #149, #146, #145, #141, #140,
   #139, #134, #133, #132, #131.
 
@@ -23,12 +23,9 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 
 | PR | Merged | Upstream change | Rust action |
 | --- | --- | --- | --- |
-| [#163](https://github.com/polyai/adk/pull/163) | 2026-05-27 | Allows disabled unknown personality adjectives, but filters unknown adjectives out of the update proto. | **Port.** Rust currently forwards all `agent_settings/personality.yaml` adjective keys and has no allowed-adjective filtering. Match Python by only rejecting enabled unknown adjectives and by excluding unknown keys from `update_personality`. |
 | [#161](https://github.com/polyai/adk/pull/161) | 2026-05-27 | Adds `poly conversations list`, `poly conversations get`, and `poly conversations get-audio`. | **Port.** Rust has chat conversation URLs, but no conversations command group, public Conversations API client methods, JSON output, or WAV download path. |
 | [#156](https://github.com/polyai/adk/pull/156) | 2026-05-27 | Replaces threaded push email parameters with `ADK_COMMAND_USER_OVERRIDE`, used for request headers and command metadata. | **Port.** Rust still exposes `push --email` and threads an actor through push command generation. Align with Python by reading `ADK_COMMAND_USER_OVERRIDE`, setting `X-PolyAI-Email` on relevant requests, using it for `metadata.created_by`, and removing or deprecating `--email`. |
-| [#154](https://github.com/polyai/adk/pull/154) | 2026-05-19 | Reads the first experimental config entity instead of hardcoding `default`. | **Port.** Rust still hardcodes `experimentalConfig.experimentalConfigs.entities.default` when materializing and comparing experimental features, even though command update IDs can use the first key. Use the actual first config ID consistently. |
 | [#129](https://github.com/polyai/adk/pull/129) | 2026-05-15 | Fixes interactive branch merge handling for non-string conflict values. | **Port.** Rust currently stringifies JSON conflict values for display and manual edits always return strings. Match Python by preserving bool/int/float/list values in custom resolutions and by avoiding text merge/edit for object values. |
-| [#144](https://github.com/polyai/adk/pull/144) | 2026-05-15 | Sends an empty `ParametersUpdate` for global and transition functions so parameters can be deleted. | **Port.** Rust only emits function parameter updates when it has non-empty parameters, and existing-function updates can preserve remote parameters. Add explicit empty parameter updates for function types that accept parameters. |
 | [#148](https://github.com/polyai/adk/pull/148) | 2026-05-15 | Removes default project-id slugging and skips the project-id prompt for `--region studio`. | **Partially ported.** Rust now lets Studio generate project IDs unless explicitly supplied. Rust still offers a default slug in the non-Studio project-ID prompt; verify whether that remaining difference should be removed for full Python parity. |
 | [#138](https://github.com/polyai/adk/pull/138) | 2026-05-14 | Eliminates phantom diffs after `poly pull --force` by changing function header spacing and stripping flow step prompts. | **Port.** Rust still inserts only one newline between a module docstring and the generated function header when imports follow, and it does not trim materialized flow step prompts. Add focused tests because this affects clean Git diffs. |
 | [#64](https://github.com/polyai/adk/pull/64) | 2026-05-12 | Adds Python `poly create project`, backed by the Agents API. | **Partially ported.** Rust has the Agents API call and `poly project create`, but Python's CLI shape is `poly create project`. Add the top-level `create project` command or alias, then align its prompts with #148. |
@@ -45,8 +42,11 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 
 | PR | Merged | Upstream change | Rust action |
 | --- | --- | --- | --- |
+| [#163](https://github.com/polyai/adk/pull/163) | 2026-05-27 | Allows disabled unknown personality adjectives, but filters unknown adjectives out of the update proto. | **Covered.** Rust now matches Python validation by allowing disabled unknown adjectives, rejecting enabled unknown adjectives, and excluding unknown keys from `update_personality`. |
 | [#158](https://github.com/polyai/adk/pull/158) | 2026-05-21 | Adds `poly login` for multi-region enterprise Auth0 authentication. | **Covered.** Rust has `poly login`, Auth0 device/browser flow, region auth mapping, PAT setup, and credential-file saving. |
+| [#154](https://github.com/polyai/adk/pull/154) | 2026-05-19 | Reads the first experimental config entity instead of hardcoding `default`. | **Covered.** Rust now uses the actual first experimental config entity ID for materialization, comparison, and update command generation. |
 | [#147](https://github.com/polyai/adk/pull/147) | 2026-05-15 | Updates Python ADK docs to lead with `poly start` and credential files. | **Covered.** Rust README setup guidance now leads with `poly start`, `poly login`, and `~/.poly/credentials.json`. |
+| [#144](https://github.com/polyai/adk/pull/144) | 2026-05-15 | Sends an empty `ParametersUpdate` for global and transition functions so parameters can be deleted. | **Covered.** Rust now emits explicit empty parameter updates for function types that accept parameters, allowing remote parameters to be deleted. |
 | [#142](https://github.com/polyai/adk/pull/142) | 2026-05-15 | Saves API keys to `~/.poly/credentials.json`, masks key display, and checks credential availability. | **Covered.** Rust resolves credential-file keys before environment variables for Python parity, saves with user-only permissions, masks displayed keys, and checks for existing credentials during onboarding. |
 | [#137](https://github.com/polyai/adk/pull/137) | 2026-05-15 | Adds `poly start` onboarding: Auth0 signup/auth, API key creation, optional project creation, and initial local setup. | **Covered.** Rust has `poly start` onboarding with the welcome output, Auth0 sign-in, PAT creation/listing, credential saving, API-key activation wait for project creation, and optional project initialization. |
 | [#130](https://github.com/polyai/adk/pull/130) | 2026-05-11 | Documents per-region API keys via `POLY_ADK_KEY_{REGION}`. | **Covered.** Rust already resolves `POLY_ADK_KEY_US`, `POLY_ADK_KEY_EUW`, `POLY_ADK_KEY_UK`, plus studio/staging/dev variants before `POLY_ADK_KEY`. |
