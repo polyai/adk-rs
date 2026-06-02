@@ -1151,7 +1151,12 @@ fn validate_text_reports_semantic_errors_on_stderr() {
 #[test]
 fn cli_output_paths_do_not_use_debug_formatting() {
     let src_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
-    for file_name in ["main.rs", "console.rs", "docs.rs", "review.rs"] {
+    for file_name in [
+        "main.rs",
+        "console.rs",
+        "commands/docs.rs",
+        "commands/review.rs",
+    ] {
         let path = src_dir.join(file_name);
         let source = fs::read_to_string(&path).expect("read CLI source");
         assert!(
