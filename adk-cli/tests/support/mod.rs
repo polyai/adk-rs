@@ -24,6 +24,7 @@ pub mod cli {
         command.env_remove("POLY_ADK_BASE_URL");
         command.env_remove("POLY_ADK_BASE_URL_US");
         command.env_remove("POLY_ADK_BASE_URL_US_1");
+        command.env_remove("ADK_COMMAND_USER_OVERRIDE");
         command.env_remove("GITHUB_ACCESS_TOKEN");
         command
     }

@@ -184,8 +184,6 @@ pub(crate) struct PushArgs {
     pub(crate) dry_run: bool,
     #[arg(long, action = ArgAction::SetTrue)]
     pub(crate) format: bool,
-    #[arg(long)]
-    pub(crate) email: Option<String>,
     #[arg(long = "from-projection", hide = true)]
     pub(crate) from_projection: Option<String>,
     #[arg(long = "output-json-commands", hide = true, action = ArgAction::SetTrue)]

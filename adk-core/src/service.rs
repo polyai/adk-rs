@@ -291,7 +291,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         skip_validation: bool,
         dry_run: bool,
     ) -> Result<PushResult, CoreError> {
-        self.push_with_options(root, force, skip_validation, dry_run, None, None)
+        self.push_with_options(root, force, skip_validation, dry_run, None)
     }
 
     /// Pushes local project changes to Agent Studio with explicit CLI options.
@@ -303,10 +303,10 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     /// batch through preview endpoints instead of mutating remote state.
     ///
     /// `projection` lets tests and offline workflows provide the remote Agent
-    /// Studio state directly; otherwise the platform client supplies it. `actor`
-    /// overrides generated command metadata. On a successful real push, the
-    /// method persists replay/status baselines so later `status`, `diff`, and
-    /// conflict checks compare against the state that was just accepted remotely.
+    /// Studio state directly; otherwise the platform client supplies it. On a
+    /// successful real push, the method persists replay/status baselines so later
+    /// `status`, `diff`, and conflict checks compare against the state that was
+    /// just accepted remotely.
     pub fn push_with_options(
         &self,
         root: &Path,
@@ -314,7 +314,6 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         skip_validation: bool,
         dry_run: bool,
         projection: Option<&JsonValue>,
-        actor: Option<&str>,
     ) -> Result<PushResult, CoreError> {
         if !force {
             let conflicted = self.detect_conflict_files(root)?;
@@ -357,17 +356,13 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             if changes.has_deletions {
                 self.add_discovered_variable_resources(root, &mut changes.resources);
                 if dry_run {
-                    return Ok(self.client.preview_push_resources_with_options(
-                        &changes.resources,
-                        projection,
-                        actor,
-                    )?);
+                    return Ok(self
+                        .client
+                        .preview_push_resources_with_options(&changes.resources, projection)?);
                 }
-                let result = self.client.push_resources_with_options(
-                    &changes.resources,
-                    projection,
-                    actor,
-                )?;
+                let result = self
+                    .client
+                    .push_resources_with_options(&changes.resources, projection)?;
                 if result.success {
                     self.save_replay_state_resources(root, &persistent_local)?;
                     self.write_status_snapshot_from_resources(root, &persistent_local)?;
@@ -379,14 +374,11 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 return Ok(self.client.preview_push_changed_resources_with_options(
                     &changes.resources,
                     projection,
-                    actor,
                 )?);
             }
-            let result = self.client.push_changed_resources_with_options(
-                &changes.resources,
-                projection,
-                actor,
-            )?;
+            let result = self
+                .client
+                .push_changed_resources_with_options(&changes.resources, projection)?;
             if result.success {
                 self.save_replay_state_resources(root, &persistent_local)?;
                 self.write_status_snapshot_from_resources(root, &persistent_local)?;
@@ -398,11 +390,11 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         if dry_run {
             return Ok(self
                 .client
-                .preview_push_resources_with_options(&local, projection, actor)?);
+                .preview_push_resources_with_options(&local, projection)?);
         }
         let result = self
             .client
-            .push_resources_with_options(&local, projection, actor)?;
+            .push_resources_with_options(&local, projection)?;
         if result.success {
             self.save_replay_state_resources(root, &persistent_local)?;
             self.write_status_snapshot_from_resources(root, &persistent_local)?;
@@ -542,7 +534,6 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         branch_name: &str,
         force: bool,
         skip_validation: bool,
-        actor: Option<&str>,
     ) -> Result<(ProjectConfig, PushResult), CoreError> {
         if !force {
             let conflicted = self.detect_conflict_files(root)?;
@@ -584,9 +575,9 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             .map(|changes| changes.resources)
             .unwrap_or_else(|| persistent_local.clone());
         self.add_discovered_variable_resources(root, &mut local);
-        let (branch_id, push_result) =
-            self.client
-                .push_main_resources_to_new_branch(branch_name, &local, actor)?;
+        let (branch_id, push_result) = self
+            .client
+            .push_main_resources_to_new_branch(branch_name, &local)?;
         let mut cfg = self.load_project_config(root)?;
         if push_result.success {
             cfg.branch_id = branch_id;

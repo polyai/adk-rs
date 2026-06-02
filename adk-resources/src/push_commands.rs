@@ -25,57 +25,57 @@ impl CommandGroups {
 }
 
 pub fn build_push_commands(resources: &ResourceMap, projection: &Value) -> Vec<Command> {
-    build_push_commands_with_actor(resources, projection, None)
+    build_push_commands_with_created_by(resources, projection, None)
 }
 
 pub fn try_build_push_commands(
     resources: &ResourceMap,
     projection: &Value,
 ) -> Result<Vec<Command>, CommandGenError> {
-    try_build_push_commands_with_actor(resources, projection, None)
+    try_build_push_commands_with_created_by(resources, projection, None)
 }
 
-pub fn build_push_commands_with_actor(
+pub fn build_push_commands_with_created_by(
     resources: &ResourceMap,
     projection: &Value,
-    actor: Option<&str>,
+    created_by_override: Option<&str>,
 ) -> Vec<Command> {
-    try_build_push_commands_with_actor(resources, projection, actor)
+    try_build_push_commands_with_created_by(resources, projection, created_by_override)
         .expect("valid local resources for command generation")
 }
 
-pub fn try_build_push_commands_with_actor(
+pub fn try_build_push_commands_with_created_by(
     resources: &ResourceMap,
     projection: &Value,
-    actor: Option<&str>,
+    created_by_override: Option<&str>,
 ) -> Result<Vec<Command>, CommandGenError> {
-    build_push_commands_inner(resources, projection, actor, true)
+    build_push_commands_inner(resources, projection, created_by_override, true)
 }
 
 pub fn build_push_commands_for_changed_resources(
     resources: &ResourceMap,
     projection: &Value,
-    actor: Option<&str>,
+    created_by_override: Option<&str>,
 ) -> Vec<Command> {
-    try_build_push_commands_for_changed_resources(resources, projection, actor)
+    try_build_push_commands_for_changed_resources(resources, projection, created_by_override)
         .expect("valid local resources for command generation")
 }
 
 pub fn try_build_push_commands_for_changed_resources(
     resources: &ResourceMap,
     projection: &Value,
-    actor: Option<&str>,
+    created_by_override: Option<&str>,
 ) -> Result<Vec<Command>, CommandGenError> {
-    build_push_commands_inner(resources, projection, actor, false)
+    build_push_commands_inner(resources, projection, created_by_override, false)
 }
 
 fn build_push_commands_inner(
     resources: &ResourceMap,
     projection: &Value,
-    actor: Option<&str>,
+    created_by_override: Option<&str>,
     include_deletes: bool,
 ) -> Result<Vec<Command>, CommandGenError> {
-    let metadata = command_metadata_with_actor(actor);
+    let metadata = command_metadata_with_created_by(created_by_override);
 
     let groups =
         crate::push_command_queue::resource_command_groups(resources, projection, &metadata)?;
@@ -156,11 +156,11 @@ fn order_commands_with_priority(commands: &mut [Command], priority: &[&str]) {
     });
 }
 
-fn command_metadata_with_actor(actor: Option<&str>) -> Option<Metadata> {
+fn command_metadata_with_created_by(created_by_override: Option<&str>) -> Option<Metadata> {
     let dur = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    let created_by = actor
+    let created_by = created_by_override
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)

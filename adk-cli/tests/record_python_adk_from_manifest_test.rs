@@ -153,6 +153,7 @@ fn run_python_command(
         .env("POLY_ADK_BASE_URL", &base_url)
         .env("POLY_ADK_BASE_URL_US", &base_url)
         .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .env("ADK_COMMAND_USER_OVERRIDE", "adk-recorder@example.com")
         .args(&args);
 
     let output = if let Some(stdin) = expected.stdin.as_deref() {

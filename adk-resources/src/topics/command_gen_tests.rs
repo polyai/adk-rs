@@ -1,4 +1,4 @@
-use crate::{build_push_commands, build_push_commands_with_actor, projection_to_resource_map};
+use crate::{build_push_commands, build_push_commands_with_created_by, projection_to_resource_map};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::{Resource, ResourceMap};
 
@@ -54,7 +54,7 @@ fn create_topic_uses_local_resource_id_before_synthetic_fallback() {
 }
 
 #[test]
-fn push_commands_can_use_supplied_projection_and_actor() {
+fn push_commands_can_use_supplied_projection_and_created_by() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "topics/sample.yaml".to_string(),
@@ -84,7 +84,7 @@ fn push_commands_can_use_supplied_projection_and_actor() {
     });
 
     let commands =
-        build_push_commands_with_actor(&resources, &projection, Some("reviewer@example.com"));
+        build_push_commands_with_created_by(&resources, &projection, Some("reviewer@example.com"));
 
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].r#type, "update_topic");

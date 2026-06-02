@@ -80,8 +80,6 @@ workflows:
     - --json
     - --force
     - --skip-validation
-    - --email
-    - adk-recorder@example.com
     - --path
     - ${TMP}/base/ben-ws/PROJECT-JTQKOKLM
     exit_code: 0
@@ -197,8 +195,6 @@ workflows:
     - --json
     - --force
     - --skip-validation
-    - --email
-    - adk-recorder@example.com
     - --path
     - ${TMP}/branch/ben-ws/PROJECT-JTQKOKLM
     exit_code: 0
@@ -225,8 +221,6 @@ workflows:
     - --json
     - --force
     - --skip-validation
-    - --email
-    - adk-recorder@example.com
     - --path
     - ${TMP}/main/ben-ws/PROJECT-JTQKOKLM
     exit_code: 0
