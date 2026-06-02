@@ -1,8 +1,9 @@
 use crate::{
     HttpPlatformClient, InitArgs, ProjectArgs, ProjectCommands, ProjectCreateArgs,
-    ProjectWorkspace, account_choice, console, credentials, emit_error, init::INIT_REGIONS,
-    init::accessible_regions_with_credentials, init::cmd_init, init::list_accounts_for_region,
-    prompt_select, prompt_text,
+    ProjectWorkspace, account_choice, console, credentials, emit_error, prompt_select, prompt_text,
+};
+use super::init::{
+    INIT_REGIONS, accessible_regions_with_credentials, cmd_init, list_accounts_for_region,
 };
 use std::process::ExitCode;
 

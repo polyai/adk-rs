@@ -279,6 +279,15 @@ Update a release-installer managed Rust ADK binary:
 poly self-update
 ```
 
+### EXPERIMENTAL: `poly uninstall`
+
+Uninstall a shell-installed Rust ADK binary. This command reads
+cargo-dist's install receipt, whose format is not a stable public API:
+
+```bash
+poly uninstall
+```
+
 ## Repository Layout
 
 - `adk-cli`: `poly` binary, CLI parsing, output, and integration tests

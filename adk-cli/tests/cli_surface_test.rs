@@ -268,6 +268,10 @@ fn top_level_help_matches_python_command_surface() {
             "self-update",
             "Update the ADK CLI installed by the release shell installer.",
         ),
+        (
+            "uninstall",
+            "EXPERIMENTAL: Uninstall shell-installed ADK using installation receipt file.",
+        ),
         ("completion", "Generate shell completion scripts"),
         ("deployments", "Manage deployments for the project."),
     ] {
@@ -300,6 +304,32 @@ fn self_update_without_release_installer_receipt_exits_before_network() {
     assert!(
         stderr.contains(
             "Self-update is only supported for ADK installs that were installed via shell; no shell install receipt was found."
+        ),
+        "expected concise shell-install guidance\nstderr={stderr}"
+    );
+    assert!(
+        !stderr.contains("poly-adk"),
+        "expected no receipt details by default\nstderr={stderr}"
+    );
+}
+
+#[test]
+fn uninstall_without_release_installer_receipt_exits_before_deleting() {
+    let config_dir = temp_dir("adk-rs-uninstall-no-receipt");
+    fs::create_dir_all(&config_dir).expect("mkdir uninstall test config dir");
+
+    let output = poly_offline_command()
+        .arg("uninstall")
+        .arg("--yes")
+        .env("AXOUPDATER_CONFIG_PATH", &config_dir)
+        .output()
+        .expect("failed to execute poly uninstall");
+    assert_eq!(output.status.code(), Some(1));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "Uninstall is only supported for ADK installs that were installed via shell; no shell install receipt was found."
         ),
         "expected concise shell-install guidance\nstderr={stderr}"
     );
