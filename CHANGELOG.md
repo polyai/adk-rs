@@ -4,7 +4,11 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+## 0.0.8 - 2026-06-02
+
 - Added `poly uninstall` for shell-installed ADK releases.
+- Aligned push authorship override behavior with Python ADK by using `ADK_COMMAND_USER_OVERRIDE` for request headers and command metadata.
+- Fixed resource update parity for personality adjectives, experimental config IDs, and empty function parameter updates.
 
 ## 0.0.7 - 2026-06-01
 
