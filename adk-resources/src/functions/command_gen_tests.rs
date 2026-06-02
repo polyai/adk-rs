@@ -5,7 +5,7 @@ use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::{Resource, ResourceMap};
 
 #[test]
-fn update_function_uses_remote_metadata_when_available() {
+fn update_function_preserves_remote_non_parameter_metadata_when_available() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "functions/test.py".to_string(),
@@ -44,10 +44,57 @@ fn update_function_uses_remote_metadata_when_available() {
             assert!(
                 msg.parameters
                     .as_ref()
-                    .is_some_and(|p| !p.parameters.is_empty())
+                    .is_some_and(|p| p.parameters.is_empty())
             );
             assert!(msg.errors.as_ref().is_some_and(|e| !e.errors.is_empty()));
             assert_eq!(msg.archived, Some(true));
+        }
+        _ => panic!("unexpected payload variant for update function command"),
+    }
+}
+
+#[test]
+fn update_function_sends_empty_parameters_to_delete_remote_parameters() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "functions/test.py".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "test".to_string(),
+            file_path: "functions/test.py".to_string(),
+            payload: serde_json::json!({
+                "content": "def test(conv):\n    return 'new'\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "name": "test",
+                        "description": "",
+                        "code": "def test(conv, customer_id: str):\n    return customer_id\n",
+                        "parameters": [{"id": "p1", "name": "customer_id", "description": "Customer id", "type": "string"}],
+                        "archived": false
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+    let update = commands
+        .iter()
+        .find(|c| c.r#type == "update_function")
+        .expect("update function command");
+    match &update.payload {
+        Some(CommandPayload::UpdateFunction(msg)) => {
+            assert!(
+                msg.parameters
+                    .as_ref()
+                    .is_some_and(|p| p.parameters.is_empty())
+            );
         }
         _ => panic!("unexpected payload variant for update function command"),
     }

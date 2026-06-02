@@ -367,7 +367,6 @@ workflows:
         update_personality:
           adjectives:
             values:
-              Curious: true
               Polite: true
           custom: Recording parity custom personality.
       - command_id: ${COMMAND_ID}

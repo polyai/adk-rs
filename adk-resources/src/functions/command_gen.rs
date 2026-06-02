@@ -244,13 +244,9 @@ pub(crate) fn function_resource_command_groups(
                                 .then_some(inferred_description.clone())
                         })
                 };
-                let parameters = remote_function
-                    .and_then(|(_, function)| function_parameters_update_from_projection(function))
-                    .or_else(|| {
-                        (!inferred_parameters.is_empty()).then_some(ParametersUpdate {
-                            parameters: inferred_parameters.clone(),
-                        })
-                    });
+                let parameters = Some(ParametersUpdate {
+                    parameters: inferred_parameters.clone(),
+                });
                 let errors = remote_function
                     .and_then(|(_, function)| function_errors_update_from_projection(function));
                 push_command(
@@ -577,7 +573,7 @@ pub(crate) fn function_parameters_update_from_projection(
                 .to_string(),
         })
         .collect();
-    (!updates.is_empty()).then_some(ParametersUpdate {
+    Some(ParametersUpdate {
         parameters: updates,
     })
 }

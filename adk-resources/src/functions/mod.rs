@@ -14,11 +14,10 @@ mod validation;
 
 pub(crate) use command_gen::{
     SpecialFunctionKind, function_entries, function_errors_update_from_projection,
-    function_parameters_update_from_projection, function_raw_content,
-    function_resource_command_groups, function_update_latency_control, infer_function_description,
-    infer_function_parameters, latency_control_from_projection, local_function_name,
-    local_latency_control_from_code, python_function_symbol, special_function_entry,
-    special_function_name, variable_reference_ids_from_code,
+    function_raw_content, function_resource_command_groups, function_update_latency_control,
+    infer_function_description, infer_function_parameters, latency_control_from_projection,
+    local_function_name, local_latency_control_from_code, python_function_symbol,
+    special_function_entry, special_function_name, variable_reference_ids_from_code,
 };
 pub(crate) use discovery::Function;
 pub(crate) use materialization::insert_function_resources;

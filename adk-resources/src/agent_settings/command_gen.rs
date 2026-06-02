@@ -1,3 +1,4 @@
+use crate::agent_settings::discovery::allowed_personality_adjective;
 use crate::push_command_inputs::{resource_changed, resource_yaml};
 use crate::specs::{
     AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_RULES_FILE, AGENT_SAFETY_FILTERS_FILE,
@@ -86,7 +87,11 @@ fn append_personality_update(
             .map(|items| {
                 items
                     .iter()
-                    .filter_map(|(key, value)| Some((key.as_str()?.to_string(), value.as_bool()?)))
+                    .filter_map(|(key, value)| {
+                        let key = key.as_str()?;
+                        let enabled = value.as_bool()?;
+                        allowed_personality_adjective(key).then(|| (key.to_string(), enabled))
+                    })
                     .collect::<HashMap<_, _>>()
             })
             .unwrap_or_default();
@@ -267,4 +272,43 @@ fn content_filter_category_json(category: &AzureContentFilterCategory) -> JsonVa
         JsonValue::String(category.precision.clone()),
     );
     JsonValue::Object(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_protobuf::command::Payload as CommandPayload;
+    use adk_types::Resource;
+
+    #[test]
+    fn personality_update_filters_unknown_disabled_adjectives() {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            AGENT_PERSONALITY_FILE.file_path.to_string(),
+            Resource {
+                resource_id: AGENT_PERSONALITY_FILE.resource_id.to_string(),
+                name: AGENT_PERSONALITY_FILE.name.to_string(),
+                file_path: AGENT_PERSONALITY_FILE.file_path.to_string(),
+                payload: json!({
+                    "content": "adjectives:\n  Polite: true\n  RetiredAdjective: false\n  Calm: true\ncustom: ''\n"
+                }),
+            },
+        );
+        let mut commands = Vec::new();
+        append_personality_update(&mut commands, &resources, &ResourceMap::new(), &None);
+
+        let command = commands
+            .iter()
+            .find(|command| command.r#type == "update_personality")
+            .expect("update_personality command");
+        match &command.payload {
+            Some(CommandPayload::UpdatePersonality(payload)) => {
+                let adjectives = payload.adjectives.as_ref().expect("adjectives");
+                assert_eq!(adjectives.values.get("Polite"), Some(&true));
+                assert_eq!(adjectives.values.get("Calm"), Some(&true));
+                assert!(!adjectives.values.contains_key("RetiredAdjective"));
+            }
+            _ => panic!("unexpected update_personality payload"),
+        }
+    }
 }

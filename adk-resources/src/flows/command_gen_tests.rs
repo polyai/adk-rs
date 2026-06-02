@@ -1,4 +1,5 @@
 use super::payload_json_summary;
+use crate::test_support::local_resource;
 use crate::{build_push_commands, projection_to_resource_map};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
@@ -7,8 +8,80 @@ use adk_protobuf::flows::{
     TransitionFunctionUpdateTransitionFunction, UpdateNoCodeCondition, update_no_code_condition,
 };
 use adk_protobuf::functions::{ErrorsUpdate, ParametersUpdate};
+use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;
+
+#[test]
+fn update_transition_function_sends_empty_parameters_to_delete_remote_parameters() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support/flow_config.yaml",
+            "support",
+            "name: support\ndescription: Support flow\nstart_step: collect\n",
+        ),
+    );
+    resources.insert(
+        "flows/support/functions/route.py".to_string(),
+        local_resource(
+            "flows/support/functions/route.py",
+            "route",
+            "def route(conv: Conversation, flow: Flow):\n    return 'new'\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "support",
+                        "description": "Support flow",
+                        "startStepId": "collect",
+                        "steps": {"entities": {}, "ids": []},
+                        "transitionFunctions": {
+                            "entities": {
+                                "tf-1": {
+                                    "id": "tf-1",
+                                    "name": "route",
+                                    "description": "",
+                                    "code": "def route(conv: Conversation, flow: Flow, customer_id: str):\n    return customer_id\n",
+                                    "parameters": [
+                                        {"id": "param-1", "name": "customer_id", "description": "Customer id", "type": "string"}
+                                    ]
+                                }
+                            },
+                            "ids": ["tf-1"]
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+    let update = commands
+        .iter()
+        .find(|c| c.r#type == "update_flow_transition_function")
+        .expect("update transition function command");
+    match &update.payload {
+        Some(CommandPayload::UpdateFlowTransitionFunction(msg)) => {
+            let transition = msg
+                .transition_function
+                .as_ref()
+                .expect("transition function update");
+            assert!(
+                transition
+                    .parameters
+                    .as_ref()
+                    .is_some_and(|p| p.parameters.is_empty())
+            );
+        }
+        _ => panic!("unexpected payload variant for transition function update"),
+    }
+}
 
 #[test]
 fn projection_to_resource_map_rejects_duplicate_cleaned_flow_step_paths() {

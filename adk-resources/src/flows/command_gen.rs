@@ -19,9 +19,9 @@ use self::parsing::{
     ordered_flow_steps, ordered_function_steps, ordered_transition_functions, remote_flows_by_name,
 };
 use crate::functions::{
-    function_errors_update_from_projection, function_parameters_update_from_projection,
-    function_update_latency_control, infer_function_parameters, latency_control_from_projection,
-    local_latency_control_from_code, python_function_symbol, variable_reference_ids_from_code,
+    function_errors_update_from_projection, function_update_latency_control,
+    infer_function_parameters, latency_control_from_projection, local_latency_control_from_code,
+    python_function_symbol, variable_reference_ids_from_code,
 };
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
@@ -561,15 +561,10 @@ fn update_flow_commands(
     for function in ordered_transition_functions(flow) {
         if let Some(remote_function) = remote.transition_functions_by_name.get(&function.name) {
             if transition_function_changed(function, remote_function) {
-                let parameters = function_parameters_update_from_projection(&remote_function.raw)
-                    .or_else(|| {
-                        let function_symbol =
-                            python_function_symbol(&function.content, &function.name);
-                        let params = infer_function_parameters(&function.code, &function_symbol);
-                        (!params.is_empty()).then_some(adk_protobuf::functions::ParametersUpdate {
-                            parameters: params,
-                        })
-                    });
+                let function_symbol = python_function_symbol(&function.content, &function.name);
+                let parameters = Some(adk_protobuf::functions::ParametersUpdate {
+                    parameters: infer_function_parameters(&function.code, &function_symbol),
+                });
                 push_command(
                     &mut groups.updates,
                     metadata,
