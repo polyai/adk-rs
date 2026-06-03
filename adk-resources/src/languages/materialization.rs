@@ -24,9 +24,9 @@ pub(crate) fn insert_language_resources(
     let additional_languages = ADDITIONAL_LANGUAGES
         .entries(projection)
         .into_iter()
-        .filter_map(|(id, language)| {
+        .map(|(id, language)| {
             let code = json_str(language, &["code"]);
-            Some(if code.is_empty() { id } else { code })
+            if code.is_empty() { id } else { code }
         })
         .collect::<Vec<_>>();
 
