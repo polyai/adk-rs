@@ -122,6 +122,138 @@ pub struct ResourceStatusPayloadInput<'a> {
     pub flow_step_name_to_id: &'a BTreeMap<(String, String), String>,
 }
 
+#[derive(Clone, Copy)]
+enum StatusPathNameStyle {
+    Raw,
+    CleanOriginal,
+    CleanLower,
+}
+
+struct StatusPathTemplate {
+    resource_name: &'static str,
+    prefix: &'static str,
+    suffix: &'static str,
+    name_style: StatusPathNameStyle,
+}
+
+fn legacy_constant_status_resource_path(resource_name: &str) -> Option<&'static str> {
+    const CONSTANT_PATHS: &[(&str, &str)] = &[
+        ("personality", "agent_settings/personality.yaml"),
+        ("role", "agent_settings/role.yaml"),
+        ("rules", "agent_settings/rules.txt"),
+        (
+            "experimental_config",
+            "agent_settings/experimental_config.json",
+        ),
+        ("safety_filters", "agent_settings/safety_filters.yaml"),
+        ("voice_greeting", "voice/configuration.yaml/greeting"),
+        ("voice_safety_filters", "voice/safety_filters.yaml"),
+        (
+            "voice_style_prompt",
+            "voice/configuration.yaml/style_prompt",
+        ),
+        (
+            "voice_disclaimer",
+            "voice/configuration.yaml/disclaimer_messages",
+        ),
+        ("chat_greeting", "chat/configuration.yaml/greeting"),
+        ("chat_safety_filters", "chat/safety_filters.yaml"),
+        ("chat_style_prompt", "chat/configuration.yaml/style_prompt"),
+        ("asr_settings", "voice/speech_recognition/asr_settings.yaml"),
+        (
+            "default_language",
+            "agent_settings/languages.yaml/default_language",
+        ),
+    ];
+
+    CONSTANT_PATHS
+        .iter()
+        .find_map(|(name, path)| (*name == resource_name).then_some(*path))
+}
+
+fn legacy_template_status_resource_path(resource_name: &str, name: &str) -> Option<String> {
+    const TEMPLATES: &[StatusPathTemplate] = &[
+        StatusPathTemplate {
+            resource_name: "api_integration",
+            prefix: "config/api_integrations.yaml/api_integrations/",
+            suffix: "",
+            name_style: StatusPathNameStyle::CleanOriginal,
+        },
+        StatusPathTemplate {
+            resource_name: "topics",
+            prefix: "topics/",
+            suffix: ".yaml",
+            name_style: StatusPathNameStyle::CleanLower,
+        },
+        StatusPathTemplate {
+            resource_name: "flow_config",
+            prefix: "flows/",
+            suffix: "/flow_config.yaml",
+            name_style: StatusPathNameStyle::CleanLower,
+        },
+        StatusPathTemplate {
+            resource_name: "entities",
+            prefix: "config/entities.yaml/entities/",
+            suffix: "",
+            name_style: StatusPathNameStyle::CleanOriginal,
+        },
+        StatusPathTemplate {
+            resource_name: "sms_templates",
+            prefix: "config/sms_templates.yaml/sms_templates/",
+            suffix: "",
+            name_style: StatusPathNameStyle::CleanOriginal,
+        },
+        StatusPathTemplate {
+            resource_name: "handoffs",
+            prefix: "config/handoffs.yaml/handoffs/",
+            suffix: "",
+            name_style: StatusPathNameStyle::CleanOriginal,
+        },
+        StatusPathTemplate {
+            resource_name: "variants",
+            prefix: "config/variant_attributes.yaml/variants/",
+            suffix: "",
+            name_style: StatusPathNameStyle::CleanOriginal,
+        },
+        StatusPathTemplate {
+            resource_name: "variant_attributes",
+            prefix: "config/variant_attributes.yaml/attributes/",
+            suffix: "",
+            name_style: StatusPathNameStyle::CleanOriginal,
+        },
+        StatusPathTemplate {
+            resource_name: "variables",
+            prefix: "variables/",
+            suffix: "",
+            name_style: StatusPathNameStyle::Raw,
+        },
+        StatusPathTemplate {
+            resource_name: "transcript_corrections",
+            prefix: "voice/speech_recognition/transcript_corrections.yaml/corrections/",
+            suffix: "",
+            name_style: StatusPathNameStyle::CleanOriginal,
+        },
+        StatusPathTemplate {
+            resource_name: "phrase_filtering",
+            prefix: "voice/response_control/phrase_filtering.yaml/phrase_filtering/",
+            suffix: "",
+            name_style: StatusPathNameStyle::CleanOriginal,
+        },
+    ];
+
+    TEMPLATES
+        .iter()
+        .find(|template| template.resource_name == resource_name)
+        .map(|template| {
+            let segment = match template.name_style {
+                StatusPathNameStyle::Raw => name.to_string(),
+                StatusPathNameStyle::CleanOriginal => clean_name(name, false),
+                StatusPathNameStyle::CleanLower => clean_name(name, true),
+            };
+            format!("{}{}{}", template.prefix, segment, template.suffix)
+        })
+}
+
 pub fn legacy_python_status_resource_path(
     resource_name: &str,
     payload: &JsonValue,
@@ -131,7 +263,12 @@ pub fn legacy_python_status_resource_path(
         .get("name")
         .and_then(JsonValue::as_str)
         .unwrap_or_default();
-    let clean_status_name = |lowercase| clean_name(name, lowercase);
+    if let Some(path) = legacy_constant_status_resource_path(resource_name) {
+        return Some(path.to_string());
+    }
+    if let Some(path) = legacy_template_status_resource_path(resource_name, name) {
+        return Some(path);
+    }
     let flow_folder = || {
         payload
             .get("flow_name")
@@ -139,10 +276,6 @@ pub fn legacy_python_status_resource_path(
             .map(|flow_name| clean_name(flow_name, true))
     };
     match resource_name {
-        "api_integration" => Some(format!(
-            "config/api_integrations.yaml/api_integrations/{}",
-            clean_status_name(false)
-        )),
         "functions" => {
             if let Some(flow_folder) = flow_folder() {
                 Some(format!("flows/{flow_folder}/functions/{name}.py"))
@@ -150,50 +283,12 @@ pub fn legacy_python_status_resource_path(
                 Some(format!("functions/{name}.py"))
             }
         }
-        "topics" => Some(format!("topics/{}.yaml", clean_status_name(true))),
-        "personality" => Some("agent_settings/personality.yaml".to_string()),
-        "role" => Some("agent_settings/role.yaml".to_string()),
-        "rules" => Some("agent_settings/rules.txt".to_string()),
         "flow_steps" => flow_folder().map(|flow_folder| {
-            format!("flows/{flow_folder}/steps/{}.yaml", clean_status_name(true))
+            format!("flows/{flow_folder}/steps/{}.yaml", clean_name(name, true))
         }),
         "function_steps" => {
             flow_folder().map(|flow_folder| format!("flows/{flow_folder}/function_steps/{name}.py"))
         }
-        "flow_config" => Some(format!(
-            "flows/{}/flow_config.yaml",
-            clean_status_name(true)
-        )),
-        "entities" => Some(format!(
-            "config/entities.yaml/entities/{}",
-            clean_status_name(false)
-        )),
-        "experimental_config" => Some("agent_settings/experimental_config.json".to_string()),
-        "safety_filters" => Some("agent_settings/safety_filters.yaml".to_string()),
-        "sms_templates" => Some(format!(
-            "config/sms_templates.yaml/sms_templates/{}",
-            clean_status_name(false)
-        )),
-        "handoffs" => Some(format!(
-            "config/handoffs.yaml/handoffs/{}",
-            clean_status_name(false)
-        )),
-        "variants" => Some(format!(
-            "config/variant_attributes.yaml/variants/{}",
-            clean_status_name(false)
-        )),
-        "variant_attributes" => Some(format!(
-            "config/variant_attributes.yaml/attributes/{}",
-            clean_status_name(false)
-        )),
-        "variables" => Some(format!("variables/{name}")),
-        "voice_greeting" => Some("voice/configuration.yaml/greeting".to_string()),
-        "voice_safety_filters" => Some("voice/safety_filters.yaml".to_string()),
-        "voice_style_prompt" => Some("voice/configuration.yaml/style_prompt".to_string()),
-        "voice_disclaimer" => Some("voice/configuration.yaml/disclaimer_messages".to_string()),
-        "chat_greeting" => Some("chat/configuration.yaml/greeting".to_string()),
-        "chat_safety_filters" => Some("chat/safety_filters.yaml".to_string()),
-        "chat_style_prompt" => Some("chat/configuration.yaml/style_prompt".to_string()),
         "keyphrase_boosting" => {
             let keyphrase = payload
                 .get("keyphrase")
@@ -204,15 +299,6 @@ pub fn legacy_python_status_resource_path(
                 clean_name(keyphrase, false)
             ))
         }
-        "transcript_corrections" => Some(format!(
-            "voice/speech_recognition/transcript_corrections.yaml/corrections/{}",
-            clean_status_name(false)
-        )),
-        "asr_settings" => Some("voice/speech_recognition/asr_settings.yaml".to_string()),
-        "phrase_filtering" => Some(format!(
-            "voice/response_control/phrase_filtering.yaml/phrase_filtering/{}",
-            clean_status_name(false)
-        )),
         "pronunciations" => {
             let position = payload
                 .get("position")
@@ -235,7 +321,6 @@ pub fn legacy_python_status_resource_path(
                 clean_name(translation_key, false)
             ))
         }
-        "default_language" => Some("agent_settings/languages.yaml/default_language".to_string()),
         "additional_languages" => {
             let code = payload
                 .get("language_code")
@@ -1232,6 +1317,46 @@ mod tests {
         assert_eq!(
             stable_status_resource_id("PREFIX", "Name", "path/file.py"),
             "PREFIX-a563c77770234e1b"
+        );
+    }
+
+    #[test]
+    fn legacy_status_resource_path_maps_static_templates_and_languages() {
+        assert_eq!(
+            legacy_python_status_resource_path("personality", &serde_json::json!({}), 0).as_deref(),
+            Some("agent_settings/personality.yaml")
+        );
+        assert_eq!(
+            legacy_python_status_resource_path(
+                "topics",
+                &serde_json::json!({ "name": "Support Topic!" }),
+                0
+            )
+            .as_deref(),
+            Some("topics/support_topic.yaml")
+        );
+        assert_eq!(
+            legacy_python_status_resource_path(
+                "translations",
+                &serde_json::json!({ "name": "Fallback", "translationKey": "Greeting Text" }),
+                0
+            )
+            .as_deref(),
+            Some("config/translations.yaml/translations/Greeting_Text")
+        );
+        assert_eq!(
+            legacy_python_status_resource_path("default_language", &serde_json::json!({}), 0)
+                .as_deref(),
+            Some("agent_settings/languages.yaml/default_language")
+        );
+        assert_eq!(
+            legacy_python_status_resource_path(
+                "additional_languages",
+                &serde_json::json!({ "name": "fallback", "language_code": "fr-FR" }),
+                0
+            )
+            .as_deref(),
+            Some("agent_settings/languages.yaml/additional_languages/fr-FR")
         );
     }
 
