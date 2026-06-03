@@ -628,6 +628,84 @@ fn branch_merge_interactive_accepts_auto_merge_and_retries() {
 }
 
 #[test]
+fn branch_merge_interactive_custom_resolution_preserves_numeric_type() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET)
+            .path("/adk/v1/accounts/test/projects/proj/branches");
+        then.status(200).json_body(json!({
+            "branches": [{"branchId": "BRANCH-A", "name": "feature-a"}]
+        }));
+    });
+    server.mock(|when, then| {
+        when.method(GET)
+            .path("/adk/v1/accounts/test/projects/proj/branches/BRANCH-A/sequence");
+        then.status(200)
+            .json_body(json!({"lastKnownSequence": "7"}));
+    });
+    let resolved_merge = server.mock(|when, then| {
+        when.method(POST)
+            .path("/adk/v1/accounts/test/projects/proj/branches/BRANCH-A/merge")
+            .body_includes("conflictResolutions")
+            .body_includes("\"value\":42")
+            .body_excludes("\"value\":\"42\"");
+        then.status(200).json_body(json!({"sequence": "8"}));
+    });
+    let blocked_merge = server.mock(|when, then| {
+        when.method(POST)
+            .path("/adk/v1/accounts/test/projects/proj/branches/BRANCH-A/merge")
+            .body_excludes("conflictResolutions");
+        then.status(400).json_body(json!({
+            "hasConflicts": true,
+            "conflicts": [
+                {
+                    "path": ["flows", "support", "priority"],
+                    "baseValue": 1,
+                    "oursValue": 2,
+                    "theirsValue": 3,
+                    "type": "modify"
+                }
+            ],
+            "errors": []
+        }));
+    });
+
+    let project_dir = temp_dir("adk-rs-branch-merge-typed-custom");
+    fs::create_dir_all(&project_dir).expect("create project dir");
+    fs::write(
+        project_dir.join("project.yaml"),
+        "region: us-1\naccount_id: test\nproject_id: proj\nbranch_id: BRANCH-A\n",
+    )
+    .expect("write config");
+    let base_url = format!("{}/adk/v1", server.base_url());
+    let mut command = poly_offline_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env("POLY_ADK_BASE_URL_US", &base_url)
+        .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .args(["branch", "merge", "--interactive", "--path"])
+        .arg(project_dir.to_string_lossy().as_ref())
+        .arg("Merge feature branch")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command.spawn().expect("spawn poly branch merge");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin")
+        .write_all(b"4\n42\n")
+        .expect("write custom resolution");
+    let output = child.wait_with_output().expect("wait poly branch merge");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(stdout(&output).contains("Custom resolution (integer):"));
+    blocked_merge.assert();
+    resolved_merge.assert();
+}
+
+#[test]
 fn chat_text_echoes_scripted_turns_and_ends_session() {
     let server = MockServer::start();
     let create = server.mock(|when, then| {
