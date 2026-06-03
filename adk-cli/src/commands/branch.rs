@@ -1232,6 +1232,9 @@ fn merge_conflict_manual_editable(conflict: &serde_json::Value) -> bool {
 fn merge_conflict_edit_original(conflict: &serde_json::Value) -> Option<&serde_json::Value> {
     conflict
         .get("theirsValue")
+        .filter(|value| !value.is_null())
+        .or_else(|| conflict.get("oursValue").filter(|value| !value.is_null()))
+        .or_else(|| conflict.get("theirsValue"))
         .or_else(|| conflict.get("oursValue"))
 }
 
@@ -1476,6 +1479,14 @@ mod tests {
             .expect("list"),
             json!(["typed", "list"])
         );
+        assert_eq!(
+            parse_custom_merge_value(
+                &json!({"theirsValue": null, "oursValue": ["kept"]}),
+                r#"["typed","list"]"#,
+            )
+            .expect("delete/modify list"),
+            json!(["typed", "list"])
+        );
     }
 
     #[test]
@@ -1493,8 +1504,14 @@ mod tests {
             "theirsValue": {"tone": "branch"},
             "oursValue": {"tone": "main"},
         });
+        let delete_modify_conflict = json!({
+            "theirsValue": null,
+            "oursValue": {"tone": "main"},
+        });
 
         assert!(!merge_conflict_manual_editable(&conflict));
         assert!(parse_custom_merge_value(&conflict, r#"{"tone":"custom"}"#).is_err());
+        assert!(!merge_conflict_manual_editable(&delete_modify_conflict));
+        assert!(parse_custom_merge_value(&delete_modify_conflict, r#"{"tone":"custom"}"#).is_err());
     }
 }
