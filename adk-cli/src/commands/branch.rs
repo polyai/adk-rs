@@ -729,27 +729,20 @@ fn enrich_branch_merge_conflicts(conflicts: &[serde_json::Value]) -> Vec<serde_j
             if branch_merge_timestamp_path(&path) {
                 return conflict.clone();
             }
-            let base = conflict
-                .get("baseValue")
-                .map(merge_value_to_string)
-                .unwrap_or_default();
-            let theirs = conflict
-                .get("theirsValue")
-                .map(merge_value_to_string)
-                .unwrap_or_default();
-            let ours = conflict
-                .get("oursValue")
-                .map(merge_value_to_string)
-                .unwrap_or_default();
-            let merged = merge_strings_simple(&base, &theirs, &ours);
             let file_key = branch_merge_conflict_file_key(&path);
             let mut row = conflict.as_object().cloned().unwrap_or_default();
             row.insert("visual_path".to_string(), json!(path.join("/")));
-            row.insert("merged_value".to_string(), json!(merged));
-            row.insert(
-                "can_auto_merge".to_string(),
-                json!(!contains_merge_conflict(&merged)),
-            );
+            if let Some((base, theirs, ours)) = merge_conflict_string_operands(conflict) {
+                let merged = merge_strings_simple(&base, &theirs, &ours);
+                row.insert("merged_value".to_string(), json!(merged));
+                row.insert(
+                    "can_auto_merge".to_string(),
+                    json!(!contains_merge_conflict(&merged)),
+                );
+            } else {
+                row.insert("merged_value".to_string(), serde_json::Value::Null);
+                row.insert("can_auto_merge".to_string(), json!(false));
+            }
             row.insert("file_key".to_string(), json!(file_key));
             row.insert(
                 "conflicts_in_resource".to_string(),
@@ -835,24 +828,13 @@ fn prompt_branch_merge_resolutions(
             .get("conflicts_in_resource")
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(1);
-        let merged = conflict
-            .get("merged_value")
+        let merged_value = conflict.get("merged_value").filter(|value| !value.is_null());
+        let merged = merged_value
             .map(merge_value_to_string)
             .unwrap_or_else(|| {
-                merge_strings_simple(
-                    &conflict
-                        .get("baseValue")
-                        .map(merge_value_to_string)
-                        .unwrap_or_default(),
-                    &conflict
-                        .get("theirsValue")
-                        .map(merge_value_to_string)
-                        .unwrap_or_default(),
-                    &conflict
-                        .get("oursValue")
-                        .map(merge_value_to_string)
-                        .unwrap_or_default(),
-                )
+                merge_conflict_string_operands(conflict)
+                    .map(|(base, theirs, ours)| merge_strings_simple(&base, &theirs, &ours))
+                    .unwrap_or_default()
             });
         let auto_mergeable = conflict
             .get("can_auto_merge")
@@ -884,8 +866,10 @@ fn prompt_branch_merge_resolutions(
                 format!("Use branch - {branch_name}"),
             ),
             ("base".to_string(), "Use original (base)".to_string()),
-            ("edit".to_string(), "Edit".to_string()),
         ]);
+        if merge_conflict_manual_editable(conflict) {
+            choices.push(("edit".to_string(), "Edit".to_string()));
+        }
 
         loop {
             let answer = match prompt_select("Select resolution", &choices) {
@@ -904,10 +888,14 @@ fn prompt_branch_merge_resolutions(
                     }
                 }
                 "merged" => {
-                    resolutions.push(json!({"path": path, "value": merged, "strategy": "theirs"}));
-                    break;
+                    if let Some(value) = merged_value {
+                        resolutions.push(json!({"path": path, "value": value, "strategy": "theirs"}));
+                        break;
+                    }
+                    console::warning("No auto-merge value is available for this conflict.");
+                    continue;
                 }
-                "edit" => {
+                "edit" if merge_conflict_manual_editable(conflict) => {
                     let edited = match prompt_or_edit_merge_value(conflict, &merged, &file_key) {
                         Ok(Some(edited)) => edited,
                         Ok(None) => return None,
@@ -916,7 +904,7 @@ fn prompt_branch_merge_resolutions(
                             continue;
                         }
                     };
-                    if contains_merge_conflict(&edited) {
+                    if edited.as_str().is_some_and(contains_merge_conflict) {
                         console::warning(
                             "Edited version still contains merge conflict markers. Resolve them before continuing.",
                         );
@@ -924,6 +912,10 @@ fn prompt_branch_merge_resolutions(
                     }
                     resolutions.push(json!({"path": path, "value": edited, "strategy": "theirs"}));
                     break;
+                }
+                "edit" => {
+                    console::warning("Object conflicts must be resolved by choosing a side.");
+                    continue;
                 }
                 strategy => {
                     resolutions.push(json!({"path": path, "strategy": strategy}));
@@ -1004,7 +996,13 @@ fn print_merge_conflict_prompt_header(header: MergeConflictPromptHeader<'_>) {
                 .unwrap_or_default()
         ));
     } else {
-        console::plain("[muted]Multiline or long values - choose a side, accept auto-merge, or use Edit to open your editor.[/muted]");
+        if merge_conflict_manual_editable(conflict) {
+            console::plain("[muted]Multiline or long values - choose a side, accept auto-merge, or use Edit to open your editor.[/muted]");
+        } else {
+            console::plain(
+                "[muted]Structured values - choose main, branch, or original.[/muted]",
+            );
+        }
     }
 }
 
@@ -1012,9 +1010,10 @@ fn prompt_or_edit_merge_value(
     conflict: &serde_json::Value,
     merged: &str,
     file_key: &str,
-) -> Result<Option<String>, String> {
-    if merge_conflict_heavy(conflict) {
-        return edit_in_editor(
+) -> Result<Option<serde_json::Value>, String> {
+    let raw = if merge_conflict_heavy(conflict) && merge_conflict_string_operands(conflict).is_some()
+    {
+        edit_in_editor(
             merged,
             if merge_conflict_path(conflict)
                 .and_then(|path| path.last().cloned())
@@ -1027,21 +1026,95 @@ fn prompt_or_edit_merge_value(
             },
             file_key,
         )
-        .map(Some);
-    }
-    console::prompt("Custom resolution: ")
-        .map_err(|error| format!("Failed to write prompt: {error}"))?;
-    io::stdout()
-        .flush()
-        .map_err(|error| format!("Failed to write prompt: {error}"))?;
-    let mut input = String::new();
-    let bytes = io::stdin()
-        .read_line(&mut input)
-        .map_err(|error| format!("Failed to read custom resolution: {error}"))?;
-    if bytes == 0 {
-        Ok(None)
+        .map(Some)?
     } else {
-        Ok(Some(input.trim_end_matches(['\r', '\n']).to_string()))
+        console::prompt(custom_merge_prompt(conflict))
+            .map_err(|error| format!("Failed to write prompt: {error}"))?;
+        io::stdout()
+            .flush()
+            .map_err(|error| format!("Failed to write prompt: {error}"))?;
+        let mut input = String::new();
+        let bytes = io::stdin()
+            .read_line(&mut input)
+            .map_err(|error| format!("Failed to read custom resolution: {error}"))?;
+        if bytes == 0 {
+            None
+        } else {
+            Some(input.trim_end_matches(['\r', '\n']).to_string())
+        }
+    };
+    raw.map(|value| parse_custom_merge_value(conflict, &value))
+        .transpose()
+}
+
+fn custom_merge_prompt(conflict: &serde_json::Value) -> &'static str {
+    let Some(original) = merge_conflict_edit_original(conflict) else {
+        return "Custom resolution: ";
+    };
+    if original.is_boolean() {
+        "Custom resolution (true/false): "
+    } else if original.as_i64().is_some() || original.as_u64().is_some() {
+        "Custom resolution (integer): "
+    } else if original.as_f64().is_some() && original.is_number() {
+        "Custom resolution (number): "
+    } else if original.is_array() {
+        "Custom resolution (JSON list): "
+    } else {
+        "Custom resolution: "
+    }
+}
+
+fn parse_custom_merge_value(
+    conflict: &serde_json::Value,
+    raw: &str,
+) -> Result<serde_json::Value, String> {
+    let Some(original) = merge_conflict_edit_original(conflict) else {
+        return Ok(json!(raw));
+    };
+    if original.is_boolean() {
+        return match raw.trim() {
+            "true" => Ok(json!(true)),
+            "false" => Ok(json!(false)),
+            _ => Err("Please enter true or false.".to_string()),
+        };
+    }
+    if original.as_i64().is_some() {
+        return raw
+            .trim()
+            .parse::<i64>()
+            .map(|value| json!(value))
+            .map_err(|_| "Please enter a valid integer.".to_string());
+    }
+    if original.as_u64().is_some() {
+        return raw
+            .trim()
+            .parse::<u64>()
+            .map(|value| json!(value))
+            .map_err(|_| "Please enter a valid integer.".to_string());
+    }
+    if original.is_number() {
+        return raw
+            .trim()
+            .parse::<f64>()
+            .map_err(|_| "Please enter a valid number.".to_string())
+            .and_then(|value| {
+                serde_json::Number::from_f64(value)
+                    .map(serde_json::Value::Number)
+                    .ok_or_else(|| "Please enter a valid number.".to_string())
+            });
+    }
+    if original.is_array() {
+        let value: serde_json::Value =
+            serde_json::from_str(raw).map_err(|_| "Please enter valid JSON.".to_string())?;
+        if value.is_array() {
+            return Ok(value);
+        }
+        return Err("Please enter a valid JSON list.".to_string());
+    }
+    if original.is_object() {
+        Err("Object conflicts must be resolved by choosing a side.".to_string())
+    } else {
+        Ok(json!(raw))
     }
 }
 
@@ -1134,6 +1207,35 @@ fn merge_conflict_heavy(conflict: &serde_json::Value) -> bool {
             .map(merge_value_to_string)
             .is_some_and(|value| value.contains('\n') || value.len() > 800)
     })
+}
+
+fn merge_conflict_string_operands(conflict: &serde_json::Value) -> Option<(String, String, String)> {
+    Some((
+        merge_conflict_string_operand(conflict, "baseValue")?,
+        merge_conflict_string_operand(conflict, "theirsValue")?,
+        merge_conflict_string_operand(conflict, "oursValue")?,
+    ))
+}
+
+fn merge_conflict_string_operand(conflict: &serde_json::Value, key: &str) -> Option<String> {
+    match conflict.get(key) {
+        Some(serde_json::Value::String(value)) => Some(value.clone()),
+        Some(serde_json::Value::Null) | None => Some(String::new()),
+        _ => None,
+    }
+}
+
+fn merge_conflict_manual_editable(conflict: &serde_json::Value) -> bool {
+    merge_conflict_edit_original(conflict).is_none_or(|value| !value.is_object())
+}
+
+fn merge_conflict_edit_original(conflict: &serde_json::Value) -> Option<&serde_json::Value> {
+    conflict
+        .get("theirsValue")
+        .filter(|value| !value.is_null())
+        .or_else(|| conflict.get("oursValue").filter(|value| !value.is_null()))
+        .or_else(|| conflict.get("theirsValue"))
+        .or_else(|| conflict.get("oursValue"))
 }
 
 fn merge_value_to_string(value: &serde_json::Value) -> String {
@@ -1299,5 +1401,117 @@ mod tests {
                 "new_branch_id": "branch-123",
             })
         );
+    }
+
+    #[test]
+    fn branch_merge_enriches_string_conflicts_only() {
+        let conflicts = vec![
+            json!({
+                "path": ["flows", "support", "prompt"],
+                "baseValue": "old",
+                "theirsValue": "branch",
+                "oursValue": "main",
+            }),
+            json!({
+                "path": ["flows", "support", "metadata"],
+                "baseValue": {"tone": "base"},
+                "theirsValue": {"tone": "branch"},
+                "oursValue": {"tone": "main"},
+            }),
+            json!({
+                "path": ["flows", "support", "tags"],
+                "baseValue": ["base"],
+                "theirsValue": ["branch"],
+                "oursValue": ["main"],
+            }),
+        ];
+
+        let enriched = enrich_branch_merge_conflicts(&conflicts);
+
+        assert!(enriched[0].get("merged_value").is_some());
+        assert_eq!(enriched[0]["can_auto_merge"], json!(false));
+        assert_eq!(enriched[1]["merged_value"], serde_json::Value::Null);
+        assert_eq!(enriched[1]["can_auto_merge"], json!(false));
+        assert_eq!(enriched[2]["merged_value"], serde_json::Value::Null);
+        assert_eq!(enriched[2]["can_auto_merge"], json!(false));
+        assert_eq!(enriched[0]["conflicts_in_resource"], json!(3));
+        assert_eq!(enriched[1]["file_key"], json!("flows/support"));
+    }
+
+    #[test]
+    fn branch_merge_enriches_none_base_string_conflicts() {
+        let enriched = enrich_branch_merge_conflicts(&[json!({
+            "path": ["user", "city"],
+            "baseValue": null,
+            "theirsValue": "NYC",
+            "oursValue": "Boston",
+        })]);
+
+        assert!(enriched[0].get("merged_value").is_some());
+        assert_eq!(enriched[0]["can_auto_merge"], json!(false));
+    }
+
+    #[test]
+    fn branch_merge_custom_values_preserve_json_types() {
+        assert_eq!(
+            parse_custom_merge_value(
+                &json!({"theirsValue": true, "oursValue": false}),
+                "false"
+            )
+            .expect("bool"),
+            json!(false)
+        );
+        assert_eq!(
+            parse_custom_merge_value(&json!({"theirsValue": 7, "oursValue": 8}), "42")
+                .expect("integer"),
+            json!(42)
+        );
+        assert_eq!(
+            parse_custom_merge_value(&json!({"theirsValue": 7.5, "oursValue": 8.5}), "42.25")
+                .expect("float"),
+            json!(42.25)
+        );
+        assert_eq!(
+            parse_custom_merge_value(
+                &json!({"theirsValue": ["old"], "oursValue": ["new"]}),
+                r#"["typed","list"]"#,
+            )
+            .expect("list"),
+            json!(["typed", "list"])
+        );
+        assert_eq!(
+            parse_custom_merge_value(
+                &json!({"theirsValue": null, "oursValue": ["kept"]}),
+                r#"["typed","list"]"#,
+            )
+            .expect("delete/modify list"),
+            json!(["typed", "list"])
+        );
+    }
+
+    #[test]
+    fn branch_merge_custom_string_values_remain_strings() {
+        assert_eq!(
+            parse_custom_merge_value(&json!({"theirsValue": "branch"}), "true")
+                .expect("string"),
+            json!("true")
+        );
+    }
+
+    #[test]
+    fn branch_merge_object_conflicts_are_not_manually_editable() {
+        let conflict = json!({
+            "theirsValue": {"tone": "branch"},
+            "oursValue": {"tone": "main"},
+        });
+        let delete_modify_conflict = json!({
+            "theirsValue": null,
+            "oursValue": {"tone": "main"},
+        });
+
+        assert!(!merge_conflict_manual_editable(&conflict));
+        assert!(parse_custom_merge_value(&conflict, r#"{"tone":"custom"}"#).is_err());
+        assert!(!merge_conflict_manual_editable(&delete_modify_conflict));
+        assert!(parse_custom_merge_value(&delete_modify_conflict, r#"{"tone":"custom"}"#).is_err());
     }
 }
