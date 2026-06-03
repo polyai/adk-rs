@@ -687,9 +687,9 @@ fn push_builder_emits_language_commands() {
     assert_eq!(
         types,
         vec![
-            "languages_delete_language",
             "languages_add_language",
-            "languages_update_default_language"
+            "languages_update_default_language",
+            "languages_delete_language"
         ]
     );
     assert!(commands.iter().any(|command| {
@@ -768,6 +768,65 @@ fn push_builder_emits_translation_lifecycle_commands_by_translation_key() {
                     })
         )
     }));
+}
+
+#[test]
+fn push_builder_orders_language_changes_around_translation_changes() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "agent_settings/languages.yaml".to_string(),
+        Resource {
+            resource_id: "languages".to_string(),
+            name: "languages".to_string(),
+            file_path: "agent_settings/languages.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "default_language: en-GB\nadditional_languages:\n- fr-FR\n"
+            }),
+        },
+    );
+    resources.insert(
+        "config/translations.yaml".to_string(),
+        Resource {
+            resource_id: "translations".to_string(),
+            name: "translations".to_string(),
+            file_path: "config/translations.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "translations:\n- name: greeting\n  translations:\n    en-GB: Hello\n    fr-FR: Bonjour\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "languages": {
+            "defaultLanguageCode": "en-US",
+            "additionalLanguages": {
+                "ids": ["es-ES"],
+                "entities": {
+                    "es-ES": {"code": "es-ES"}
+                }
+            }
+        },
+        "translations": {
+            "translations": {
+                "ids": [],
+                "entities": {}
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+    let types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        types,
+        vec![
+            "languages_add_language",
+            "languages_update_default_language",
+            "create_translation",
+            "languages_delete_language"
+        ]
+    );
 }
 
 #[test]

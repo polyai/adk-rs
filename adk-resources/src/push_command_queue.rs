@@ -69,10 +69,10 @@ fn aggregate_command_groups(
     );
     let pronunciation_lifecycle =
         crate::pronunciations::pronunciation_lifecycle_commands(resources, projection, metadata);
-    let translation_lifecycle =
-        crate::translations::translation_lifecycle_commands(resources, projection, metadata);
     let language_lifecycle =
         crate::languages::additional_language_lifecycle_commands(resources, projection, metadata);
+    let translation_lifecycle =
+        crate::translations::translation_lifecycle_commands(resources, projection, metadata);
 
     groups.deletes.extend(variant_lifecycle.variant_deletes);
     groups.deletes.extend(api_lifecycle.integration_deletes);
@@ -81,7 +81,6 @@ fn aggregate_command_groups(
     groups.deletes.extend(transcript_lifecycle.deletes);
     groups.deletes.extend(pronunciation_lifecycle.deletes);
     groups.deletes.extend(translation_lifecycle.deletes);
-    groups.deletes.extend(language_lifecycle.deletes);
     groups.deletes.extend(api_lifecycle.operation_deletes);
 
     groups.creates.extend(variant_lifecycle.variant_creates);
@@ -90,8 +89,14 @@ fn aggregate_command_groups(
     groups.creates.extend(keyphrase_lifecycle.creates);
     groups.creates.extend(transcript_lifecycle.creates);
     groups.creates.extend(pronunciation_lifecycle.creates);
-    groups.creates.extend(translation_lifecycle.creates);
     groups.creates.extend(language_lifecycle.creates);
+    crate::languages::append_default_language_update(
+        &mut groups.creates,
+        resources,
+        projection,
+        metadata,
+    );
+    groups.creates.extend(translation_lifecycle.creates);
     groups.creates.extend(api_lifecycle.operation_creates);
 
     groups.updates.extend(api_lifecycle.integration_updates);
@@ -104,6 +109,7 @@ fn aggregate_command_groups(
     groups.updates.extend(language_lifecycle.updates);
     groups.updates.extend(api_lifecycle.operation_updates);
     groups.updates.extend(api_lifecycle.config_updates);
+    groups.post_updates.extend(language_lifecycle.deletes);
 
     groups
 }
@@ -139,12 +145,6 @@ fn singleton_command_groups(
         &mut groups.updates,
         resources,
         &remote_resources,
-        metadata,
-    );
-    crate::languages::append_default_language_update(
-        &mut groups.updates,
-        resources,
-        projection,
         metadata,
     );
 
