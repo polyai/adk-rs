@@ -1018,17 +1018,17 @@ fn translation_validation_checks_configured_language_coverage() {
             name: "translations".to_string(),
             file_path: "config/translations.yaml".to_string(),
             payload: serde_json::json!({
-                "content": "translations:\n- name: greeting\n  translations:\n    en-GB: Hello\n    de-DE: Hallo\n"
+                "content": "translations:\n- name: greeting\n  translations:\n    en-GB: Hello\n    fr-FR: null\n    de-DE: Hallo\n"
             }),
         },
     );
 
     let errors = validate_language_translation_resources(&resources);
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.contains("Missing translations for configured languages"))
-    );
+    let missing_error = errors
+        .iter()
+        .find(|error| error.contains("Missing translations for configured languages"))
+        .expect("missing translation error");
+    assert!(missing_error.contains("fr-FR"));
     assert!(
         errors
             .iter()

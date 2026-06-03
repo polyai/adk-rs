@@ -33,8 +33,8 @@ pub fn validate_language_translation_resources(resources: &ResourceMap) -> Vec<S
             .and_then(YamlValue::as_mapping)
             .map(|items| {
                 items
-                    .keys()
-                    .filter_map(YamlValue::as_str)
+                    .iter()
+                    .filter_map(|(key, value)| value.as_str().and_then(|_| key.as_str()))
                     .map(ToString::to_string)
                     .collect::<BTreeSet<_>>()
             })
