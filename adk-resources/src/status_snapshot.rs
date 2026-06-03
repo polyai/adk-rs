@@ -401,18 +401,18 @@ pub fn resource_status_payload(input: ResourceStatusPayloadInput<'_>) -> JsonVal
         }),
         "DefaultLanguage" => status_language_payload(input.logical_path, input.content)
             .unwrap_or_else(|| serde_json::json!({ "name": input.fallback_name })),
-        "AdditionalLanguage" => serde_json::json!({
-            "name": input
-                .logical_path
-                .rsplit('/')
-                .next()
-                .unwrap_or(input.fallback_name),
-            "language_code": input
-                .logical_path
-                .rsplit('/')
-                .next()
-                .unwrap_or(input.fallback_name),
-        }),
+        "AdditionalLanguage" => status_language_payload(input.logical_path, input.content)
+            .unwrap_or_else(|| {
+                let code = input
+                    .logical_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(input.fallback_name);
+                serde_json::json!({
+                    "name": code,
+                    "language_code": code,
+                })
+            }),
         _ => status_yaml_payload(input.logical_path, input.content)
             .unwrap_or_else(|| serde_json::json!({ "name": input.fallback_name })),
     };
@@ -448,13 +448,31 @@ fn status_language_payload(logical_path: &str, content: &str) -> Option<JsonValu
     let yaml = from_str::<YamlValue>(content).ok()?;
     let code = if logical_path.ends_with("/default_language") {
         yaml.get("default_language").and_then(YamlValue::as_str)?
+    } else if logical_path.contains("/additional_languages/") {
+        let code = logical_path.rsplit('/').next()?;
+        let additional = yaml.get("additional_languages")?.as_sequence()?;
+        additional
+            .iter()
+            .any(|value| value.as_str() == Some(code))
+            .then_some(code)?
     } else {
-        logical_path.rsplit('/').next()?
+        return None;
     };
     Some(serde_json::json!({
         "name": code,
         "language_code": code,
     }))
+}
+
+fn status_additional_language_hash_payload(logical_path: &str, content: &str) -> Option<JsonValue> {
+    if !logical_path.contains("/additional_languages/") {
+        return None;
+    }
+    // Python ADK stores additional languages as scalar strings in the same
+    // languages.yaml file as the default language. That is awkward for our
+    // generic named-resource YAML hashing, so isolate the scalar list entry
+    // here until a migration can normalize the on-disk shape.
+    status_language_payload(logical_path, content)
 }
 
 pub fn resource_status_file_hash(
@@ -489,6 +507,9 @@ pub fn resource_status_file_hash(
         "Pronunciation" => compute_hash(&python_json_dumps_sorted(
             &status_pronunciation_hash_payload(payload),
         )),
+        "AdditionalLanguage" => status_additional_language_hash_payload(logical_path, content)
+            .map(|value| compute_hash(&python_json_dumps_sorted(&value)))
+            .unwrap_or_else(|| compute_hash(content)),
         "VariantAttribute" => {
             let value = status_yaml_payload(logical_path, content).unwrap_or(JsonValue::Null);
             compute_hash(&python_json_dumps_sorted(
@@ -1168,6 +1189,8 @@ pub fn current_status_hash_for_expected(
     if path.ends_with(".yaml") || path.contains(".yaml/") {
         let value = if path.contains("/pronunciations/") {
             status_pronunciation_hash_payload(&status_pronunciation_payload(path, content, ""))
+        } else if path.contains("agent_settings/languages.yaml/additional_languages/") {
+            status_additional_language_hash_payload(path, content).unwrap_or(JsonValue::Null)
         } else if path.contains("variant_attributes.yaml/attributes/") {
             status_yaml_payload(path, content)
                 .map(|value| {
@@ -1251,6 +1274,51 @@ mod tests {
         assert_eq!(
             encoded["file_structure_info"]["functions/lookup.py"]["python_only"],
             7
+        );
+    }
+
+    #[test]
+    fn additional_language_hash_ignores_unrelated_language_file_changes() {
+        let path = "agent_settings/languages.yaml/additional_languages/fr-FR";
+        let original = "default_language: en-US\nadditional_languages:\n- fr-FR\n- es-ES\n";
+        let changed_default = "default_language: en-GB\nadditional_languages:\n- fr-FR\n- es-ES\n";
+        let changed_sibling = "default_language: en-US\nadditional_languages:\n- fr-FR\n- de-DE\n";
+        let removed_language = "default_language: en-US\nadditional_languages:\n- es-ES\n";
+        let payload = status_language_payload(path, original).expect("language payload");
+        let expected_hash = resource_status_file_hash(
+            "AdditionalLanguage",
+            path,
+            original,
+            &payload,
+            &BTreeMap::new(),
+        );
+
+        assert_eq!(
+            current_status_hash_for_expected(
+                path,
+                changed_default,
+                &expected_hash,
+                &IndexMap::new()
+            ),
+            expected_hash
+        );
+        assert_eq!(
+            current_status_hash_for_expected(
+                path,
+                changed_sibling,
+                &expected_hash,
+                &IndexMap::new()
+            ),
+            expected_hash
+        );
+        assert_ne!(
+            current_status_hash_for_expected(
+                path,
+                removed_language,
+                &expected_hash,
+                &IndexMap::new()
+            ),
+            expected_hash
         );
     }
 }
