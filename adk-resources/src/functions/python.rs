@@ -173,6 +173,34 @@ pub fn normalize_python_function_metadata_spacing(content: &str) -> String {
     out
 }
 
+/// Returns whether local function code is equivalent to remote raw code.
+///
+/// `pretty_function_content` inserts the generated header after a module
+/// docstring. When the backend raw code has exactly one newline between that
+/// docstring and the first import, stripping the generated header leaves one
+/// extra local spacer. Treat only that generated spacer as equivalent; do not
+/// collapse intentional blank lines already present in the remote code.
+pub(crate) fn python_function_code_equivalent(local: &str, remote: &str) -> bool {
+    local == remote || generated_docstring_import_spacer_code(remote).as_deref() == Some(local)
+}
+
+fn generated_docstring_import_spacer_code(remote: &str) -> Option<String> {
+    let docstring_end = module_docstring_end(remote)?;
+    let after_docstring = remote.get(docstring_end..)?;
+    let after_one_newline = after_docstring.strip_prefix('\n')?;
+    if after_one_newline.starts_with('\n') {
+        return None;
+    }
+    if !(after_one_newline.starts_with("from ") || after_one_newline.starts_with("import ")) {
+        return None;
+    }
+    Some(format!(
+        "{}\n\n{}",
+        &remote[..docstring_end],
+        after_one_newline
+    ))
+}
+
 fn closes_python_triple_quote(line: &str) -> bool {
     line.ends_with("\"\"\"") || line.ends_with("'''")
 }
@@ -557,7 +585,7 @@ fn pretty_function_content(content: &str) -> String {
         let before_docstring = &content[..docstring_end];
         let after_docstring = content[docstring_end..].trim_start_matches('\n');
         if after_docstring.starts_with("from ") || after_docstring.starts_with("import ") {
-            format!("{before_docstring}\n{FUNCTION_HEADER}{after_docstring}")
+            format!("{before_docstring}\n\n{FUNCTION_HEADER}{after_docstring}")
         } else {
             format!("{before_docstring}\n{FUNCTION_HEADER}\n{after_docstring}")
         }
@@ -597,11 +625,11 @@ mod tests {
     #[test]
     fn function_header_is_inserted_after_module_docstring() {
         let raw =
-            "\"\"\"Helpers.\"\"\"\nimport json\n\ndef lookup(conv):\n    return json.dumps({})\n";
+            "\"\"\"Helpers.\"\"\"\n\nimport json\n\ndef lookup(conv):\n    return json.dumps({})\n";
         let pretty = resource_file_content("functions/lookup.py", raw);
 
         assert!(pretty.starts_with(
-            "\"\"\"Helpers.\"\"\"\nfrom _gen import *  # <AUTO GENERATED>\nimport json\n"
+            "\"\"\"Helpers.\"\"\"\n\nfrom _gen import *  # <AUTO GENERATED>\nimport json\n"
         ));
         assert_eq!(local_resource_content("functions/lookup.py", &pretty), raw);
     }
@@ -614,6 +642,26 @@ mod tests {
         assert_eq!(
             normalize_python_function_metadata_spacing(with_python_status_spacing),
             normalize_python_function_metadata_spacing(with_local_pretty_spacing)
+        );
+    }
+
+    #[test]
+    fn command_generation_equivalence_only_accepts_generated_docstring_import_spacer() {
+        let remote_one_spacer = "\"\"\"Module docs.\"\"\"\nfrom helper import value\n";
+        let local_generated_spacer = "\"\"\"Module docs.\"\"\"\n\nfrom helper import value\n";
+        let local_user_spacer = "\"\"\"Module docs.\"\"\"\n\n\nfrom helper import value\n";
+
+        assert!(python_function_code_equivalent(
+            local_generated_spacer,
+            remote_one_spacer
+        ));
+        assert!(python_function_code_equivalent(
+            local_generated_spacer,
+            local_generated_spacer
+        ));
+        assert!(
+            !python_function_code_equivalent(local_user_spacer, local_generated_spacer),
+            "intentional remote/user blank lines should remain significant"
         );
     }
 

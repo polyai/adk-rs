@@ -60,7 +60,7 @@ pub(super) fn local_flows(
                 name: non_empty(yaml_str(&yaml, "name"), &resource.name),
                 step_type: flow_step_type(&yaml),
                 prompt: replace_resource_names_with_ids(
-                    &yaml_str(&yaml, "prompt"),
+                    yaml_str(&yaml, "prompt").trim(),
                     prompt_reference_maps,
                     Some(folder.as_str()),
                 ),
@@ -213,7 +213,7 @@ fn remote_flow_steps_by_name(flow: &JsonValue) -> HashMap<String, RemoteFlowStep
                 id: id.clone(),
                 name,
                 step_type,
-                prompt: json_string(step, &["prompt"]),
+                prompt: json_string(step, &["prompt"]).trim().to_string(),
                 asr_biasing: json_step_asr_config(step.get("asrBiasing")),
                 dtmf_config: json_step_dtmf_config(step.get("dtmfConfig")),
                 conditions_by_name: remote_conditions_by_name(step),

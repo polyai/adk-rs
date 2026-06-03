@@ -216,6 +216,7 @@ fn insert_flow_step_resource(
                 .get("prompt")
                 .and_then(Value::as_str)
                 .unwrap_or("")
+                .trim()
                 .to_string(),
         }
     } else {
@@ -242,6 +243,7 @@ fn insert_flow_step_resource(
                 .get("prompt")
                 .and_then(Value::as_str)
                 .unwrap_or("")
+                .trim()
                 .to_string(),
         }
     };

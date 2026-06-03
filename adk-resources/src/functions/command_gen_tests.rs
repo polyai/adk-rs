@@ -1,6 +1,8 @@
 use super::*;
 use crate::test_support::local_resource;
-use crate::{build_push_commands, projection_to_resource_map, try_build_push_commands};
+use crate::{
+    build_push_commands, projection_to_resource_map, resource_file_content, try_build_push_commands,
+};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::{Resource, ResourceMap};
 
@@ -121,6 +123,104 @@ fn projection_function_with_distinct_display_name_round_trips_without_commands()
     let commands = build_push_commands(&resources, &projection);
 
     assert!(commands.is_empty());
+}
+
+#[test]
+fn projection_function_with_module_docstring_import_round_trips_without_commands() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "lookup_customer",
+                        "description": "",
+                        "code": "\"\"\"Helpers.\"\"\"\nimport json\n\ndef lookup_customer(conv):\n    return json.dumps({})\n",
+                        "archived": false
+                    }
+                }
+            }
+        }
+    });
+    let mut resources = projection_to_resource_map(&projection).expect("projection resources");
+    let path = "functions/lookup_customer.py";
+    let content = resources
+        .get("functions/lookup_customer.py")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("function content")
+        .to_string();
+    resources
+        .get_mut(path)
+        .expect("function resource")
+        .payload
+        .as_object_mut()
+        .expect("function payload")
+        .insert(
+            "content".to_string(),
+            serde_json::Value::String(resource_file_content(path, &content)),
+        );
+
+    let commands = build_push_commands(&resources, &projection);
+
+    assert!(
+        commands.is_empty(),
+        "expected no commands, got types: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn metadata_only_function_update_preserves_remote_docstring_import_spacing() {
+    let remote_code = "\"\"\"Helpers.\"\"\"\nimport json\n\ndef lookup_customer(conv):\n    return json.dumps({})\n";
+    let local_code = "\"\"\"Helpers.\"\"\"\nimport json\n\n@func_description('Looks up a customer.')\ndef lookup_customer(conv):\n    return json.dumps({})\n";
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "lookup_customer",
+                        "description": "",
+                        "code": remote_code,
+                        "archived": false
+                    }
+                }
+            }
+        }
+    });
+    let mut resources = projection_to_resource_map(&projection).expect("projection resources");
+    let path = "functions/lookup_customer.py";
+    resources
+        .get_mut(path)
+        .expect("function resource")
+        .payload
+        .as_object_mut()
+        .expect("function payload")
+        .insert(
+            "content".to_string(),
+            serde_json::Value::String(resource_file_content(path, local_code)),
+        );
+
+    let commands = build_push_commands(&resources, &projection);
+    let update = commands
+        .iter()
+        .find(|command| command.r#type == "update_function")
+        .expect("update function command");
+
+    match &update.payload {
+        Some(CommandPayload::UpdateFunction(function)) => {
+            assert_eq!(
+                function.description.as_deref(),
+                Some("Looks up a customer.")
+            );
+            assert_eq!(function.code.as_deref(), Some(remote_code));
+        }
+        _ => panic!("unexpected payload variant for update function command"),
+    }
 }
 
 #[test]

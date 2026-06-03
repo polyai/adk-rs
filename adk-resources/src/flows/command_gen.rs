@@ -12,7 +12,6 @@ pub(crate) use summary::payload_json_summary;
 
 use self::models::{
     FlowStepType, LocalCondition, LocalFlow, LocalFlowStep, LocalTransitionFunction, RemoteFlow,
-    RemoteTransitionFunction,
 };
 use self::parsing::{
     default_dtmf_config, default_step_position, function_step_latency_control, local_flows,
@@ -21,7 +20,7 @@ use self::parsing::{
 use crate::functions::{
     function_errors_update_from_projection, function_update_latency_control,
     infer_function_parameters, latency_control_from_projection, local_latency_control_from_code,
-    python_function_symbol, variable_reference_ids_from_code,
+    python_function_code_equivalent, python_function_symbol, variable_reference_ids_from_code,
 };
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
@@ -257,15 +256,6 @@ fn transition_function_create_payload(
     }
 }
 
-fn transition_function_changed(
-    local: &LocalTransitionFunction,
-    remote: &RemoteTransitionFunction,
-) -> bool {
-    local.code != remote.code
-        || (!local.description.is_empty() && local.description != remote.description)
-        || local.name != remote.name
-}
-
 fn update_flow_commands(
     groups: &mut CommandGroups,
     flow: &LocalFlow,
@@ -486,7 +476,7 @@ fn update_flow_commands(
     let next_position = next_function_step_position(remote);
     for step in ordered_function_steps(flow) {
         if let Some(remote_step) = remote.function_steps_by_name.get(&step.name) {
-            if step.code != remote_step.code {
+            if !python_function_code_equivalent(&step.code, &remote_step.code) {
                 push_command(
                     &mut groups.updates,
                     metadata,
@@ -560,7 +550,12 @@ fn update_flow_commands(
 
     for function in ordered_transition_functions(flow) {
         if let Some(remote_function) = remote.transition_functions_by_name.get(&function.name) {
-            if transition_function_changed(function, remote_function) {
+            let code_changed =
+                !python_function_code_equivalent(&function.code, &remote_function.code);
+            let metadata_changed = (!function.description.is_empty()
+                && function.description != remote_function.description)
+                || function.name != remote_function.name;
+            if code_changed || metadata_changed {
                 let function_symbol = python_function_symbol(&function.content, &function.name);
                 let parameters = Some(adk_protobuf::functions::ParametersUpdate {
                     parameters: infer_function_parameters(&function.code, &function_symbol),
@@ -576,7 +571,11 @@ fn update_flow_commands(
                             name: Some(function.name.clone()),
                             description: Some(function.description.clone()),
                             parameters,
-                            code: Some(function.code.clone()),
+                            code: Some(if code_changed {
+                                function.code.clone()
+                            } else {
+                                remote_function.code.clone()
+                            }),
                             errors: function_errors_update_from_projection(&remote_function.raw),
                             references: None,
                         }),
