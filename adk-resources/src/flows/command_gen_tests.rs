@@ -143,6 +143,71 @@ fn projection_transition_function_with_module_docstring_import_round_trips_witho
 }
 
 #[test]
+fn metadata_only_transition_function_update_preserves_remote_docstring_import_spacing() {
+    let remote_code = "\"\"\"Helpers.\"\"\"\nimport json\n\ndef route(conv: Conversation, flow: Flow):\n    return json.dumps({})\n";
+    let local_code = "\"\"\"Helpers.\"\"\"\nimport json\n\n@func_description('Routes the caller.')\ndef route(conv: Conversation, flow: Flow):\n    return json.dumps({})\n";
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "",
+                        "startStepId": "",
+                        "steps": {"entities": {}, "ids": []},
+                        "transitionFunctions": {
+                            "entities": {
+                                "tf-1": {
+                                    "id": "tf-1",
+                                    "name": "route",
+                                    "description": "",
+                                    "code": remote_code
+                                }
+                            },
+                            "ids": ["tf-1"]
+                        }
+                    }
+                }
+            }
+        }
+    });
+    let mut resources = projection_to_resource_map(&projection).expect("projection resources");
+    let path = "flows/support_flow/functions/route.py";
+    resources
+        .get_mut(path)
+        .expect("transition function resource")
+        .payload
+        .as_object_mut()
+        .expect("transition function payload")
+        .insert(
+            "content".to_string(),
+            serde_json::Value::String(resource_file_content(path, local_code)),
+        );
+
+    let commands = build_push_commands(&resources, &projection);
+    let update = commands
+        .iter()
+        .find(|command| command.r#type == "update_flow_transition_function")
+        .expect("update transition function command");
+
+    match &update.payload {
+        Some(CommandPayload::UpdateFlowTransitionFunction(update)) => {
+            let transition = update
+                .transition_function
+                .as_ref()
+                .expect("transition function update");
+            assert_eq!(
+                transition.description.as_deref(),
+                Some("Routes the caller.")
+            );
+            assert_eq!(transition.code.as_deref(), Some(remote_code));
+        }
+        _ => panic!("unexpected payload variant for transition function update"),
+    }
+}
+
+#[test]
 fn projection_to_resource_map_rejects_duplicate_cleaned_flow_step_paths() {
     let projection = serde_json::json!({
         "flows": {

@@ -12,7 +12,6 @@ pub(crate) use summary::payload_json_summary;
 
 use self::models::{
     FlowStepType, LocalCondition, LocalFlow, LocalFlowStep, LocalTransitionFunction, RemoteFlow,
-    RemoteTransitionFunction,
 };
 use self::parsing::{
     default_dtmf_config, default_step_position, function_step_latency_control, local_flows,
@@ -255,15 +254,6 @@ fn transition_function_create_payload(
         }),
         archived: Some(false),
     }
-}
-
-fn transition_function_changed(
-    local: &LocalTransitionFunction,
-    remote: &RemoteTransitionFunction,
-) -> bool {
-    !python_function_code_equivalent(&local.code, &remote.code)
-        || (!local.description.is_empty() && local.description != remote.description)
-        || local.name != remote.name
 }
 
 fn update_flow_commands(
@@ -560,7 +550,12 @@ fn update_flow_commands(
 
     for function in ordered_transition_functions(flow) {
         if let Some(remote_function) = remote.transition_functions_by_name.get(&function.name) {
-            if transition_function_changed(function, remote_function) {
+            let code_changed =
+                !python_function_code_equivalent(&function.code, &remote_function.code);
+            let metadata_changed = (!function.description.is_empty()
+                && function.description != remote_function.description)
+                || function.name != remote_function.name;
+            if code_changed || metadata_changed {
                 let function_symbol = python_function_symbol(&function.content, &function.name);
                 let parameters = Some(adk_protobuf::functions::ParametersUpdate {
                     parameters: infer_function_parameters(&function.code, &function_symbol),
@@ -576,7 +571,11 @@ fn update_flow_commands(
                             name: Some(function.name.clone()),
                             description: Some(function.description.clone()),
                             parameters,
-                            code: Some(function.code.clone()),
+                            code: Some(if code_changed {
+                                function.code.clone()
+                            } else {
+                                remote_function.code.clone()
+                            }),
                             errors: function_errors_update_from_projection(&remote_function.raw),
                             references: None,
                         }),

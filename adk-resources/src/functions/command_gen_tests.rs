@@ -174,6 +174,56 @@ fn projection_function_with_module_docstring_import_round_trips_without_commands
 }
 
 #[test]
+fn metadata_only_function_update_preserves_remote_docstring_import_spacing() {
+    let remote_code = "\"\"\"Helpers.\"\"\"\nimport json\n\ndef lookup_customer(conv):\n    return json.dumps({})\n";
+    let local_code = "\"\"\"Helpers.\"\"\"\nimport json\n\n@func_description('Looks up a customer.')\ndef lookup_customer(conv):\n    return json.dumps({})\n";
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "lookup_customer",
+                        "description": "",
+                        "code": remote_code,
+                        "archived": false
+                    }
+                }
+            }
+        }
+    });
+    let mut resources = projection_to_resource_map(&projection).expect("projection resources");
+    let path = "functions/lookup_customer.py";
+    resources
+        .get_mut(path)
+        .expect("function resource")
+        .payload
+        .as_object_mut()
+        .expect("function payload")
+        .insert(
+            "content".to_string(),
+            serde_json::Value::String(resource_file_content(path, local_code)),
+        );
+
+    let commands = build_push_commands(&resources, &projection);
+    let update = commands
+        .iter()
+        .find(|command| command.r#type == "update_function")
+        .expect("update function command");
+
+    match &update.payload {
+        Some(CommandPayload::UpdateFunction(function)) => {
+            assert_eq!(
+                function.description.as_deref(),
+                Some("Looks up a customer.")
+            );
+            assert_eq!(function.code.as_deref(), Some(remote_code));
+        }
+        _ => panic!("unexpected payload variant for update function command"),
+    }
+}
+
+#[test]
 fn archived_remote_function_absent_from_disk_is_not_deleted() {
     let projection = serde_json::json!({
         "functions": {
