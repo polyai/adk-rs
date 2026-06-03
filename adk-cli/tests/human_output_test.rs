@@ -4,9 +4,10 @@ use httpmock::Method::{DELETE, GET, POST};
 use httpmock::MockServer;
 use serde_json::{Value, json};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use support::cli::{make_temp_project_dir, poly_offline_command, run_poly_offline, temp_dir};
@@ -285,8 +286,47 @@ fn init_text_ctrl_c_exits_cleanly_with_message() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let child = command.spawn().expect("spawn poly init");
-    thread::sleep(Duration::from_millis(250));
+    let mut child = command.spawn().expect("spawn poly init");
+    let mut child_stdout = child.stdout.take().expect("poly init stdout");
+    let mut child_stderr = child.stderr.take().expect("poly init stderr");
+    let (prompt_tx, prompt_rx) = mpsc::channel();
+    let stdout_reader = thread::spawn(move || {
+        let mut output = Vec::new();
+        let mut buffer = [0; 256];
+        let mut prompt_seen = false;
+        loop {
+            let bytes = child_stdout.read(&mut buffer).expect("read poly stdout");
+            if bytes == 0 {
+                break;
+            }
+            output.extend_from_slice(&buffer[..bytes]);
+            if !prompt_seen && String::from_utf8_lossy(&output).contains("Enter selection:") {
+                let _ = prompt_tx.send(());
+                prompt_seen = true;
+            }
+        }
+        output
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut output = Vec::new();
+        child_stderr
+            .read_to_end(&mut output)
+            .expect("read poly stderr");
+        output
+    });
+
+    if let Err(error) = prompt_rx.recv_timeout(Duration::from_secs(5)) {
+        let _ = child.kill();
+        let status = child.wait().expect("wait failed poly init");
+        let stdout = stdout_reader.join().expect("join stdout reader");
+        let stderr = stderr_reader.join().expect("join stderr reader");
+        panic!(
+            "timed out waiting for project selection prompt: {error}\nstatus={status:?}\nstdout={}\nstderr={}",
+            String::from_utf8_lossy(&stdout),
+            String::from_utf8_lossy(&stderr)
+        );
+    }
+
     let pid = child.id().to_string();
     let kill_status = Command::new("kill")
         .args(["-INT", pid.as_str()])
@@ -296,7 +336,12 @@ fn init_text_ctrl_c_exits_cleanly_with_message() {
         kill_status.success(),
         "kill command failed: {kill_status:?}"
     );
-    let output = child.wait_with_output().expect("wait poly init");
+    let status = child.wait().expect("wait poly init");
+    let output = Output {
+        status,
+        stdout: stdout_reader.join().expect("join stdout reader"),
+        stderr: stderr_reader.join().expect("join stderr reader"),
+    };
 
     assert_eq!(output.status.code(), Some(130));
     assert!(stdout(&output).contains("Cancelled by user"));
