@@ -11,7 +11,7 @@ use adk_protobuf::translations::{
     LocalizedText, UpdateEntry,
 };
 use adk_types::ResourceMap;
-use serde_json::Value as JsonValue;
+use serde_json::{Value as JsonValue, json};
 use serde_yaml_ng::Value as YamlValue;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -89,6 +89,42 @@ pub(crate) fn translation_lifecycle_commands(
     commands
 }
 
+pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {
+    match payload {
+        CommandPayload::CreateTranslation(msg) => Some((
+            "create_translation",
+            json!({
+                "id": msg.id,
+                "translation_key": msg.translation_key,
+                "translations": msg
+                    .translations
+                    .iter()
+                    .map(localized_text_json)
+                    .collect::<Vec<_>>(),
+            }),
+        )),
+        CommandPayload::UpdateTranslation(msg) => Some((
+            "update_translation",
+            json!({
+                "id": msg.id,
+                "translation_key": msg.translation_key.clone().unwrap_or_default(),
+                "translations": msg
+                    .translations
+                    .iter()
+                    .map(update_entry_json)
+                    .collect::<Vec<_>>(),
+            }),
+        )),
+        CommandPayload::DeleteTranslation(msg) => Some((
+            "delete_translation",
+            json!({
+                "id": msg.id,
+            }),
+        )),
+        _ => None,
+    }
+}
+
 fn local_translation_items(yaml: &YamlValue) -> Vec<TranslationItem> {
     yaml_sequence(yaml, TRANSLATIONS.yaml_key)
         .into_iter()
@@ -162,4 +198,20 @@ fn update_entries(translations: &BTreeMap<String, String>) -> Vec<UpdateEntry> {
             is_auto_translated: Some(false),
         })
         .collect()
+}
+
+fn localized_text_json(text: &LocalizedText) -> JsonValue {
+    json!({
+        "language_code": text.language_code,
+        "text": text.text,
+        "is_auto_translated": text.is_auto_translated,
+    })
+}
+
+fn update_entry_json(entry: &UpdateEntry) -> JsonValue {
+    json!({
+        "language_code": entry.language_code,
+        "text": entry.text.clone().unwrap_or_default(),
+        "is_auto_translated": entry.is_auto_translated.unwrap_or(false),
+    })
 }

@@ -99,8 +99,19 @@ fn build_push_commands_inner(
     out.extend(deletes);
     out.extend(creates);
     out.extend(updates);
-    out.extend(groups.post_updates);
+    // Some deletes are delayed for dependency ordering; changed-resource pushes
+    // still need to suppress them when include_deletes is false.
+    out.extend(
+        groups
+            .post_updates
+            .into_iter()
+            .filter(|command| include_deletes || !is_delete_command(command)),
+    );
     Ok(out)
+}
+
+fn is_delete_command(command: &Command) -> bool {
+    command.r#type.contains("delete")
 }
 
 const DELETE_COMMAND_PRIORITY: &[&str] = &[

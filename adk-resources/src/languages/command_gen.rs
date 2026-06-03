@@ -7,7 +7,7 @@ use adk_protobuf::languages::{
     LanguagesAddLanguage, LanguagesDeleteLanguage, LanguagesUpdateDefaultLanguage,
 };
 use adk_types::ResourceMap;
-use serde_json::Value as JsonValue;
+use serde_json::{Value as JsonValue, json};
 use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
@@ -68,6 +68,30 @@ pub(crate) fn additional_language_lifecycle_commands(
         );
     }
     commands
+}
+
+pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {
+    match payload {
+        CommandPayload::LanguagesUpdateDefaultLanguage(msg) => Some((
+            "languages_update_default_language",
+            json!({
+                "language_code": msg.language_code,
+            }),
+        )),
+        CommandPayload::LanguagesAddLanguage(msg) => Some((
+            "languages_add_language",
+            json!({
+                "code": msg.code,
+            }),
+        )),
+        CommandPayload::LanguagesDeleteLanguage(msg) => Some((
+            "languages_delete_language",
+            json!({
+                "code": msg.code,
+            }),
+        )),
+        _ => None,
+    }
 }
 
 fn local_default_language(resources: &ResourceMap) -> Option<String> {

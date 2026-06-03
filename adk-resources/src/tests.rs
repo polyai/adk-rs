@@ -771,6 +771,126 @@ fn push_builder_emits_translation_lifecycle_commands_by_translation_key() {
 }
 
 #[test]
+fn push_builder_json_summaries_include_language_and_translation_payloads() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "agent_settings/languages.yaml".to_string(),
+        Resource {
+            resource_id: "languages".to_string(),
+            name: "languages".to_string(),
+            file_path: "agent_settings/languages.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "default_language: en-GB\nadditional_languages:\n- fr-FR\n"
+            }),
+        },
+    );
+    resources.insert(
+        "config/translations.yaml".to_string(),
+        Resource {
+            resource_id: "translations".to_string(),
+            name: "translations".to_string(),
+            file_path: "config/translations.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "translations:\n- name: greeting\n  translations:\n    en-GB: Hello\n    fr-FR: Salut\n- name: farewell\n  translations:\n    en-GB: Bye\n    fr-FR: Au revoir\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "languages": {
+            "defaultLanguageCode": "en-US",
+            "additionalLanguages": {
+                "ids": ["es-ES"],
+                "entities": {
+                    "es-ES": {"code": "es-ES"}
+                }
+            }
+        },
+        "translations": {
+            "translations": {
+                "ids": ["tn-greeting", "tn-old"],
+                "entities": {
+                    "tn-greeting": {
+                        "id": "tn-greeting",
+                        "translationKey": "greeting",
+                        "translations": [
+                            {"languageCode": "en-GB", "text": "Hello"},
+                            {"languageCode": "fr-FR", "text": "Bonjour"}
+                        ]
+                    },
+                    "tn-old": {
+                        "id": "tn-old",
+                        "translationKey": "old",
+                        "translations": [
+                            {"languageCode": "en-GB", "text": "Old"}
+                        ]
+                    }
+                }
+            }
+        }
+    });
+
+    let summaries = build_push_commands(&resources, &projection)
+        .iter()
+        .map(command_to_json_summary)
+        .collect::<Vec<_>>();
+    let summary = |type_name: &str| {
+        summaries
+            .iter()
+            .find(|summary| summary.get("type").and_then(Value::as_str) == Some(type_name))
+            .unwrap_or_else(|| panic!("missing summary for {type_name}"))
+    };
+
+    assert_eq!(
+        summary("languages_add_language")["languages_add_language"]["code"].as_str(),
+        Some("fr-FR")
+    );
+    assert_eq!(
+        summary("languages_update_default_language")["languages_update_default_language"]
+            ["language_code"]
+            .as_str(),
+        Some("en-GB")
+    );
+    assert_eq!(
+        summary("languages_delete_language")["languages_delete_language"]["code"].as_str(),
+        Some("es-ES")
+    );
+    assert_eq!(
+        summary("delete_translation")["delete_translation"]["id"].as_str(),
+        Some("tn-old")
+    );
+    assert_eq!(
+        summary("create_translation")["create_translation"]["translation_key"].as_str(),
+        Some("farewell")
+    );
+    assert!(
+        summary("create_translation")["create_translation"]["translations"]
+            .as_array()
+            .expect("create translations")
+            .iter()
+            .any(|translation| {
+                translation["language_code"].as_str() == Some("fr-FR")
+                    && translation["text"].as_str() == Some("Au revoir")
+                    && translation["is_auto_translated"].as_bool() == Some(false)
+            })
+    );
+    assert_eq!(
+        summary("update_translation")["update_translation"]["id"].as_str(),
+        Some("tn-greeting")
+    );
+    assert!(
+        summary("update_translation")["update_translation"]["translations"]
+            .as_array()
+            .expect("update translations")
+            .iter()
+            .any(|translation| {
+                translation["language_code"].as_str() == Some("fr-FR")
+                    && translation["text"].as_str() == Some("Salut")
+                    && translation["is_auto_translated"].as_bool() == Some(false)
+            })
+    );
+}
+
+#[test]
 fn push_builder_orders_language_changes_around_translation_changes() {
     let mut resources = ResourceMap::new();
     resources.insert(
@@ -825,6 +945,54 @@ fn push_builder_orders_language_changes_around_translation_changes() {
             "languages_update_default_language",
             "create_translation",
             "languages_delete_language"
+        ]
+    );
+}
+
+#[test]
+fn changed_resource_push_suppresses_delayed_language_deletes() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "agent_settings/languages.yaml".to_string(),
+        Resource {
+            resource_id: "languages".to_string(),
+            name: "languages".to_string(),
+            file_path: "agent_settings/languages.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "default_language: en-GB\nadditional_languages:\n- fr-FR\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "languages": {
+            "defaultLanguageCode": "en-US",
+            "additionalLanguages": {
+                "ids": ["es-ES"],
+                "entities": {
+                    "es-ES": {"code": "es-ES"}
+                }
+            }
+        }
+    });
+
+    let full_push_commands = build_push_commands(&resources, &projection);
+    let full_push_types = full_push_commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    assert!(full_push_types.contains(&"languages_delete_language"));
+
+    let changed_resource_commands =
+        build_push_commands_for_changed_resources(&resources, &projection, None);
+    let changed_resource_types = changed_resource_commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        changed_resource_types,
+        vec![
+            "languages_add_language",
+            "languages_update_default_language",
         ]
     );
 }

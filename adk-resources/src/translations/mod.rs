@@ -4,7 +4,7 @@ mod command_gen;
 mod discovery;
 mod materialization;
 
-pub(crate) use command_gen::translation_lifecycle_commands;
+pub(crate) use command_gen::{payload_json_summary, translation_lifecycle_commands};
 pub(crate) use discovery::Translation;
 pub(crate) use materialization::insert_translation_resources;
 
