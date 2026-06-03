@@ -13,6 +13,7 @@ pub(crate) struct CommandGroups {
     pub creates: Vec<Command>,
     pub updates: Vec<Command>,
     pub post_updates: Vec<Command>,
+    pub post_deletes: Vec<Command>,
 }
 
 impl CommandGroups {
@@ -21,6 +22,7 @@ impl CommandGroups {
         self.creates.extend(other.creates);
         self.updates.extend(other.updates);
         self.post_updates.extend(other.post_updates);
+        self.post_deletes.extend(other.post_deletes);
     }
 }
 
@@ -99,19 +101,11 @@ fn build_push_commands_inner(
     out.extend(deletes);
     out.extend(creates);
     out.extend(updates);
-    // Some deletes are delayed for dependency ordering; changed-resource pushes
-    // still need to suppress them when include_deletes is false.
-    out.extend(
-        groups
-            .post_updates
-            .into_iter()
-            .filter(|command| include_deletes || !is_delete_command(command)),
-    );
+    out.extend(groups.post_updates);
+    if include_deletes {
+        out.extend(groups.post_deletes);
+    }
     Ok(out)
-}
-
-fn is_delete_command(command: &Command) -> bool {
-    command.r#type.contains("delete")
 }
 
 const DELETE_COMMAND_PRIORITY: &[&str] = &[

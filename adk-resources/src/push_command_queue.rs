@@ -109,7 +109,7 @@ fn aggregate_command_groups(
     groups.updates.extend(language_lifecycle.updates);
     groups.updates.extend(api_lifecycle.operation_updates);
     groups.updates.extend(api_lifecycle.config_updates);
-    groups.post_updates.extend(language_lifecycle.deletes);
+    groups.post_deletes.extend(language_lifecycle.deletes);
 
     groups
 }
@@ -165,6 +165,7 @@ mod tests {
             .chain(groups.creates)
             .chain(groups.updates)
             .chain(groups.post_updates)
+            .chain(groups.post_deletes)
             .collect()
     }
 

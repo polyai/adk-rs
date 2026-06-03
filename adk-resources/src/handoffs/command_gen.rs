@@ -126,6 +126,7 @@ pub(crate) fn handoff_command_groups(
         creates,
         updates,
         post_updates: defaults,
+        post_deletes: Vec::new(),
     }
 }
 
