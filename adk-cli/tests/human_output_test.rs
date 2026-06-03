@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use support::cli::{make_temp_project_dir, poly_offline_command, run_poly_offline, temp_dir};
 
 fn run_poly(args: &[&str]) -> Output {
@@ -287,6 +287,7 @@ fn init_text_ctrl_c_exits_cleanly_with_message() {
         .stderr(Stdio::piped());
 
     let mut child = command.spawn().expect("spawn poly init");
+    let stdin_guard = child.stdin.take().expect("poly init stdin");
     let mut child_stdout = child.stdout.take().expect("poly init stdout");
     let mut child_stderr = child.stderr.take().expect("poly init stderr");
     let (prompt_tx, prompt_rx) = mpsc::channel();
@@ -336,7 +337,26 @@ fn init_text_ctrl_c_exits_cleanly_with_message() {
         kill_status.success(),
         "kill command failed: {kill_status:?}"
     );
-    let status = child.wait().expect("wait poly init");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("poll poly init") {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            drop(stdin_guard);
+            let _ = child.kill();
+            let status = child.wait().expect("wait timed-out poly init");
+            let stdout = stdout_reader.join().expect("join stdout reader");
+            let stderr = stderr_reader.join().expect("join stderr reader");
+            panic!(
+                "poly init did not exit after SIGINT\nstatus={status:?}\nstdout={}\nstderr={}",
+                String::from_utf8_lossy(&stdout),
+                String::from_utf8_lossy(&stderr)
+            );
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    drop(stdin_guard);
     let output = Output {
         status,
         stdout: stdout_reader.join().expect("join stdout reader"),
