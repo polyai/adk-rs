@@ -22,6 +22,7 @@ pub(crate) use command_gen::{
 pub(crate) use discovery::Function;
 pub(crate) use materialization::insert_function_resources;
 pub(crate) use parsing::{function_create_latency_control, try_function_code_from_local_content};
+pub(crate) use python::python_function_code_equivalent;
 pub use python::{
     PYTHON_FLOW_IMPORT_STATUS_KEY_PREFIX, PYTHON_FUNCTION_STATUS_HASH_PREFIX,
     PythonDecoratorCallScan, extract_normalized_python_adk_decorators,

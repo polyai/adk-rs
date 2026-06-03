@@ -21,7 +21,7 @@ use self::parsing::{
 use crate::functions::{
     function_errors_update_from_projection, function_update_latency_control,
     infer_function_parameters, latency_control_from_projection, local_latency_control_from_code,
-    python_function_symbol, variable_reference_ids_from_code,
+    python_function_code_equivalent, python_function_symbol, variable_reference_ids_from_code,
 };
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
@@ -261,7 +261,7 @@ fn transition_function_changed(
     local: &LocalTransitionFunction,
     remote: &RemoteTransitionFunction,
 ) -> bool {
-    local.code != remote.code
+    !python_function_code_equivalent(&local.code, &remote.code)
         || (!local.description.is_empty() && local.description != remote.description)
         || local.name != remote.name
 }
@@ -486,7 +486,7 @@ fn update_flow_commands(
     let next_position = next_function_step_position(remote);
     for step in ordered_function_steps(flow) {
         if let Some(remote_step) = remote.function_steps_by_name.get(&step.name) {
-            if step.code != remote_step.code {
+            if !python_function_code_equivalent(&step.code, &remote_step.code) {
                 push_command(
                     &mut groups.updates,
                     metadata,

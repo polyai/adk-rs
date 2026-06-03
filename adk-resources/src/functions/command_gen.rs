@@ -9,6 +9,7 @@ pub(crate) use super::parsing::{
     local_latency_control_from_code, python_signature_for_function, python_string_literal,
     try_function_code_from_local_content,
 };
+use super::python::python_function_code_equivalent;
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
 use crate::{
@@ -230,7 +231,9 @@ pub(crate) fn function_resource_command_groups(
                 .and_then(|(_, function)| function.get("description").and_then(Value::as_str));
             let description_changed = !inferred_description.is_empty()
                 && remote_description != Some(inferred_description.as_str());
-            if remote_code != Some(function_code.as_str()) || description_changed {
+            let code_changed = !remote_code
+                .is_some_and(|remote| python_function_code_equivalent(&function_code, remote));
+            if code_changed || description_changed {
                 let description = if description_changed {
                     Some(inferred_description.clone())
                 } else {

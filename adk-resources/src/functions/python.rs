@@ -173,23 +173,32 @@ pub fn normalize_python_function_metadata_spacing(content: &str) -> String {
     out
 }
 
-/// Collapses the spacer between a leading module docstring and imports.
+/// Returns whether local function code is equivalent to remote raw code.
 ///
 /// `pretty_function_content` inserts the generated header after a module
-/// docstring, which leaves an extra blank line behind once command generation
-/// strips that header again. This keeps push comparisons aligned with the
-/// backend's raw code without rewriting similar spacing inside function bodies.
-pub(crate) fn normalize_python_module_docstring_import_spacing(content: &str) -> String {
-    let Some(docstring_end) = module_docstring_end(content) else {
-        return content.to_string();
-    };
-    let before_docstring = &content[..docstring_end];
-    let after_docstring = content[docstring_end..].trim_start_matches('\n');
-    if after_docstring.starts_with("from ") || after_docstring.starts_with("import ") {
-        format!("{before_docstring}\n{after_docstring}")
-    } else {
-        content.to_string()
+/// docstring. When the backend raw code has exactly one newline between that
+/// docstring and the first import, stripping the generated header leaves one
+/// extra local spacer. Treat only that generated spacer as equivalent; do not
+/// collapse intentional blank lines already present in the remote code.
+pub(crate) fn python_function_code_equivalent(local: &str, remote: &str) -> bool {
+    local == remote || generated_docstring_import_spacer_code(remote).as_deref() == Some(local)
+}
+
+fn generated_docstring_import_spacer_code(remote: &str) -> Option<String> {
+    let docstring_end = module_docstring_end(remote)?;
+    let after_docstring = remote.get(docstring_end..)?;
+    let after_one_newline = after_docstring.strip_prefix('\n')?;
+    if after_one_newline.starts_with('\n') {
+        return None;
     }
+    if !(after_one_newline.starts_with("from ") || after_one_newline.starts_with("import ")) {
+        return None;
+    }
+    Some(format!(
+        "{}\n\n{}",
+        &remote[..docstring_end],
+        after_one_newline
+    ))
 }
 
 fn closes_python_triple_quote(line: &str) -> bool {
@@ -637,12 +646,22 @@ mod tests {
     }
 
     #[test]
-    fn command_generation_spacing_normalization_only_touches_module_docstring() {
-        let content = "def helper():\n    \"\"\"Helper docs.\"\"\"\n\n    import json\n    return json.dumps({})\n";
+    fn command_generation_equivalence_only_accepts_generated_docstring_import_spacer() {
+        let remote_one_spacer = "\"\"\"Module docs.\"\"\"\nfrom helper import value\n";
+        let local_generated_spacer = "\"\"\"Module docs.\"\"\"\n\nfrom helper import value\n";
+        let local_user_spacer = "\"\"\"Module docs.\"\"\"\n\n\nfrom helper import value\n";
 
-        assert_eq!(
-            normalize_python_module_docstring_import_spacing(content),
-            content
+        assert!(python_function_code_equivalent(
+            local_generated_spacer,
+            remote_one_spacer
+        ));
+        assert!(python_function_code_equivalent(
+            local_generated_spacer,
+            local_generated_spacer
+        ));
+        assert!(
+            !python_function_code_equivalent(local_user_spacer, local_generated_spacer),
+            "intentional remote/user blank lines should remain significant"
         );
     }
 
