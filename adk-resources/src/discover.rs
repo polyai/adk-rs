@@ -3,11 +3,12 @@
 
 use crate::local_resources::DiscoveredResourcePaths;
 use crate::local_resources::{
-    ApiIntegration, AsrSettings, ChatGreeting, ChatSafetyFilters, ChatStylePrompt, Entity,
-    ExperimentalConfig, FlowConfig, FlowStep, Function, FunctionStep, GeneralSafetyFilters,
-    Handoff, KeyphraseBoosting, PhraseFilter, Pronunciation, SMSTemplate, SettingsPersonality,
-    SettingsRole, SettingsRules, Topic, TranscriptCorrection, Variable, Variant, VariantAttribute,
-    VoiceDisclaimerMessage, VoiceGreeting, VoiceSafetyFilters, VoiceStylePrompt,
+    AdditionalLanguage, ApiIntegration, AsrSettings, ChatGreeting, ChatSafetyFilters,
+    ChatStylePrompt, DefaultLanguage, Entity, ExperimentalConfig, FlowConfig, FlowStep, Function,
+    FunctionStep, GeneralSafetyFilters, Handoff, KeyphraseBoosting, PhraseFilter, Pronunciation,
+    SMSTemplate, SettingsPersonality, SettingsRole, SettingsRules, Topic, TranscriptCorrection,
+    Translation, Variable, Variant, VariantAttribute, VoiceDisclaimerMessage, VoiceGreeting,
+    VoiceSafetyFilters, VoiceStylePrompt,
 };
 use adk_io::FileSystem;
 use indexmap::IndexMap;
@@ -136,4 +137,7 @@ discover_resources! {
     ("AsrSettings", AsrSettings),
     ("PhraseFilter", PhraseFilter),
     ("Pronunciation", Pronunciation),
+    ("Translation", Translation),
+    ("DefaultLanguage", DefaultLanguage),
+    ("AdditionalLanguage", AdditionalLanguage),
 }

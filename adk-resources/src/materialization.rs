@@ -32,6 +32,8 @@ pub fn projection_to_resource_map(projection: &Value) -> Result<ResourceMap, Com
     crate::keyphrase_boosting::insert_keyphrase_boosting_resources(&mut map, projection)?;
     crate::transcript_corrections::insert_transcript_correction_resources(&mut map, projection)?;
     crate::pronunciations::insert_pronunciation_resources(&mut map, projection)?;
+    crate::translations::insert_translation_resources(&mut map, projection)?;
+    crate::languages::insert_language_resources(&mut map, projection)?;
     crate::agent_settings::insert_profile_and_safety_resources(&mut map, projection)?;
     crate::asr_settings::insert_asr_settings_resource(&mut map, projection)?;
     crate::channels::insert_channel_resources(&mut map, projection)?;

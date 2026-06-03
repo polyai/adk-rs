@@ -36,6 +36,9 @@ pub(crate) fn validate_local_resources(
     }
     adk_resources::validate_python_function_resources(resources)
         .map_err(|error| function_validation_error(root, error))?;
+    errors.extend(adk_resources::validate_language_translation_resources(
+        resources,
+    ));
     errors.extend(
         adk_resources::validate_flow_resources(resources)
             .map_err(|error| function_validation_error(root, error))?,

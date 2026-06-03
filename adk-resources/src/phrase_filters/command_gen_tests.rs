@@ -18,6 +18,7 @@ fn flatten(groups: CommandGroups) -> Vec<Command> {
         .chain(groups.creates)
         .chain(groups.updates)
         .chain(groups.post_updates)
+        .chain(groups.post_deletes)
         .collect()
 }
 

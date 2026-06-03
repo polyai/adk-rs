@@ -13,6 +13,7 @@ pub(crate) struct CommandGroups {
     pub creates: Vec<Command>,
     pub updates: Vec<Command>,
     pub post_updates: Vec<Command>,
+    pub post_deletes: Vec<Command>,
 }
 
 impl CommandGroups {
@@ -21,6 +22,7 @@ impl CommandGroups {
         self.creates.extend(other.creates);
         self.updates.extend(other.updates);
         self.post_updates.extend(other.post_updates);
+        self.post_deletes.extend(other.post_deletes);
     }
 }
 
@@ -100,6 +102,9 @@ fn build_push_commands_inner(
     out.extend(creates);
     out.extend(updates);
     out.extend(groups.post_updates);
+    if include_deletes {
+        out.extend(groups.post_deletes);
+    }
     Ok(out)
 }
 

@@ -108,6 +108,8 @@ fn resource_family_payload_json_summary(payload: &CommandPayload) -> Option<(&'s
         .or_else(|| crate::sms_templates::payload_json_summary(payload))
         .or_else(|| crate::phrase_filters::payload_json_summary(payload))
         .or_else(|| crate::flows::payload_json_summary(payload))
+        .or_else(|| crate::languages::payload_json_summary(payload))
+        .or_else(|| crate::translations::payload_json_summary(payload))
         .or_else(|| broad_resource_payload_json_summary(payload))
 }
 

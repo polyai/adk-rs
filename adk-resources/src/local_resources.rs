@@ -31,6 +31,7 @@ pub(crate) use crate::flows::{FlowConfig, FlowStep, FunctionStep};
 pub(crate) use crate::functions::Function;
 pub(crate) use crate::handoffs::Handoff;
 pub(crate) use crate::keyphrase_boosting::KeyphraseBoosting;
+pub(crate) use crate::languages::{AdditionalLanguage, DefaultLanguage};
 pub(crate) use crate::phrase_filters::PhraseFilter;
 pub(crate) use crate::pronunciations::Pronunciation;
 pub use crate::resource_lifecycle::{
@@ -41,6 +42,7 @@ pub use crate::resource_lifecycle::{
 pub(crate) use crate::sms_templates::SMSTemplate;
 pub(crate) use crate::topics::Topic;
 pub(crate) use crate::transcript_corrections::TranscriptCorrection;
+pub(crate) use crate::translations::Translation;
 pub(crate) use crate::variables::Variable;
 pub(crate) use crate::variants::{Variant, VariantAttribute};
 
