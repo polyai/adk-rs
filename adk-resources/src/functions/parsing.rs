@@ -1,3 +1,4 @@
+use super::python::normalize_python_module_docstring_import_spacing;
 use crate::CommandGenError;
 use crate::ids::stable_resource_id;
 use adk_protobuf::functions::{
@@ -137,9 +138,10 @@ pub(crate) fn try_function_code_from_local_content(
     let mut ranges = generated_import_line_ranges(content);
     let module = parse_python_module_for_resource(path, content)?;
     collect_adk_decorator_line_ranges(&module.body, content, &mut ranges);
-    Ok(remove_source_ranges(content, ranges)
+    let raw = remove_source_ranges(content, ranges)
         .trim_start_matches('\n')
-        .to_string())
+        .to_string();
+    Ok(normalize_python_module_docstring_import_spacing(&raw))
 }
 
 pub(crate) fn infer_function_description(code: &str) -> String {

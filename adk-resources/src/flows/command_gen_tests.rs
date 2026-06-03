@@ -1,6 +1,6 @@
 use super::payload_json_summary;
 use crate::test_support::local_resource;
-use crate::{build_push_commands, projection_to_resource_map};
+use crate::{build_push_commands, projection_to_resource_map, resource_file_content};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
     AdvancedStepCondition, ConditionDetails, ExitFlowCondition, FlowUpdateTransitionFunction,
@@ -81,6 +81,65 @@ fn update_transition_function_sends_empty_parameters_to_delete_remote_parameters
         }
         _ => panic!("unexpected payload variant for transition function update"),
     }
+}
+
+#[test]
+fn projection_transition_function_with_module_docstring_import_round_trips_without_commands() {
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "",
+                        "startStepId": "",
+                        "steps": {"entities": {}, "ids": []},
+                        "transitionFunctions": {
+                            "entities": {
+                                "tf-1": {
+                                    "id": "tf-1",
+                                    "name": "route",
+                                    "description": "",
+                                    "code": "\"\"\"Helpers.\"\"\"\nimport json\n\ndef route(conv: Conversation, flow: Flow):\n    return json.dumps({})\n"
+                                }
+                            },
+                            "ids": ["tf-1"]
+                        }
+                    }
+                }
+            }
+        }
+    });
+    let mut resources = projection_to_resource_map(&projection).expect("projection resources");
+    let path = "flows/support_flow/functions/route.py";
+    let content = resources
+        .get("flows/support_flow/functions/route.py")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("transition function content")
+        .to_string();
+    resources
+        .get_mut(path)
+        .expect("transition function resource")
+        .payload
+        .as_object_mut()
+        .expect("transition function payload")
+        .insert(
+            "content".to_string(),
+            serde_json::Value::String(resource_file_content(path, &content)),
+        );
+
+    let commands = build_push_commands(&resources, &projection);
+
+    assert!(
+        commands.is_empty(),
+        "expected no commands, got types: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -306,6 +365,69 @@ fn function_step_round_trips_without_push_commands() {
                                     }
                                 }
                             }
+                        },
+                        "transitionFunctions": {"entities": {}}
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+
+    assert!(
+        commands.is_empty(),
+        "expected no commands, got types: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn projection_function_step_with_module_docstring_import_round_trips_without_commands() {
+    let function_path = "flows/support_flow/function_steps/do_work.py";
+    let raw_function = "\"\"\"Helpers.\"\"\"\nimport json\n\ndef do_work(conv: Conversation, flow: Flow):\n    return json.dumps({})\n";
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/flow_config.yaml",
+            "Support Flow",
+            "name: Support Flow\ndescription: ''\nstart_step: step-1\n",
+        ),
+    );
+    resources.insert(
+        function_path.to_string(),
+        local_resource(
+            function_path,
+            "do_work",
+            &resource_file_content(function_path, raw_function),
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "id": "step-1",
+                                    "name": "do_work",
+                                    "type": "function_step",
+                                    "function": {
+                                        "code": raw_function,
+                                        "latencyControl": {"enabled": false}
+                                    }
+                                }
+                            },
+                            "ids": ["step-1"]
                         },
                         "transitionFunctions": {"entities": {}}
                     }

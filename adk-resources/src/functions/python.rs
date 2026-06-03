@@ -173,6 +173,25 @@ pub fn normalize_python_function_metadata_spacing(content: &str) -> String {
     out
 }
 
+/// Collapses the spacer between a leading module docstring and imports.
+///
+/// `pretty_function_content` inserts the generated header after a module
+/// docstring, which leaves an extra blank line behind once command generation
+/// strips that header again. This keeps push comparisons aligned with the
+/// backend's raw code without rewriting similar spacing inside function bodies.
+pub(crate) fn normalize_python_module_docstring_import_spacing(content: &str) -> String {
+    let Some(docstring_end) = module_docstring_end(content) else {
+        return content.to_string();
+    };
+    let before_docstring = &content[..docstring_end];
+    let after_docstring = content[docstring_end..].trim_start_matches('\n');
+    if after_docstring.starts_with("from ") || after_docstring.starts_with("import ") {
+        format!("{before_docstring}\n{after_docstring}")
+    } else {
+        content.to_string()
+    }
+}
+
 fn closes_python_triple_quote(line: &str) -> bool {
     line.ends_with("\"\"\"") || line.ends_with("'''")
 }
@@ -614,6 +633,16 @@ mod tests {
         assert_eq!(
             normalize_python_function_metadata_spacing(with_python_status_spacing),
             normalize_python_function_metadata_spacing(with_local_pretty_spacing)
+        );
+    }
+
+    #[test]
+    fn command_generation_spacing_normalization_only_touches_module_docstring() {
+        let content = "def helper():\n    \"\"\"Helper docs.\"\"\"\n\n    import json\n    return json.dumps({})\n";
+
+        assert_eq!(
+            normalize_python_module_docstring_import_spacing(content),
+            content
         );
     }
 

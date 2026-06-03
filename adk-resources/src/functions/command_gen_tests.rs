@@ -1,6 +1,8 @@
 use super::*;
 use crate::test_support::local_resource;
-use crate::{build_push_commands, projection_to_resource_map, try_build_push_commands};
+use crate::{
+    build_push_commands, projection_to_resource_map, resource_file_content, try_build_push_commands,
+};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::{Resource, ResourceMap};
 
@@ -121,6 +123,54 @@ fn projection_function_with_distinct_display_name_round_trips_without_commands()
     let commands = build_push_commands(&resources, &projection);
 
     assert!(commands.is_empty());
+}
+
+#[test]
+fn projection_function_with_module_docstring_import_round_trips_without_commands() {
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "fn-1": {
+                        "id": "fn-1",
+                        "name": "lookup_customer",
+                        "description": "",
+                        "code": "\"\"\"Helpers.\"\"\"\nimport json\n\ndef lookup_customer(conv):\n    return json.dumps({})\n",
+                        "archived": false
+                    }
+                }
+            }
+        }
+    });
+    let mut resources = projection_to_resource_map(&projection).expect("projection resources");
+    let path = "functions/lookup_customer.py";
+    let content = resources
+        .get("functions/lookup_customer.py")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("function content")
+        .to_string();
+    resources
+        .get_mut(path)
+        .expect("function resource")
+        .payload
+        .as_object_mut()
+        .expect("function payload")
+        .insert(
+            "content".to_string(),
+            serde_json::Value::String(resource_file_content(path, &content)),
+        );
+
+    let commands = build_push_commands(&resources, &projection);
+
+    assert!(
+        commands.is_empty(),
+        "expected no commands, got types: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
