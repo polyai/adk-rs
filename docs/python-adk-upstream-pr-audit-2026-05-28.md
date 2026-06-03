@@ -15,8 +15,7 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 
 - Port or fix in Rust: #161, #148, #64.
 - Verify with a focused parity test or fixture: #159, #136.
-- In progress in Rust PRs: #169, #152.
-- Already covered in Rust: #163, #158, #156, #154, #147, #144, #142, #138, #137, #135, #130, #129, #125, #91.
+- Already covered in Rust: #169, #163, #158, #156, #154, #152, #147, #144, #142, #138, #137, #135, #130, #129, #125, #91.
 - No Rust action expected: #155, #153, #149, #146, #145, #141, #140,
   #139, #134, #133, #132, #131, #170, #168, #167, #166.
 
@@ -27,13 +26,6 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 | [#161](https://github.com/polyai/adk/pull/161) | 2026-05-27 | Adds `poly conversations list`, `poly conversations get`, and `poly conversations get-audio`. | **Port.** Rust has chat conversation URLs, but no conversations command group, public Conversations API client methods, JSON output, or WAV download path. |
 | [#148](https://github.com/polyai/adk/pull/148) | 2026-05-15 | Removes default project-id slugging and skips the project-id prompt for `--region studio`. | **Partially ported.** Rust now lets Studio generate project IDs unless explicitly supplied. Rust still offers a default slug in the non-Studio project-ID prompt; verify whether that remaining difference should be removed for full Python parity. |
 | [#64](https://github.com/polyai/adk/pull/64) | 2026-05-12 | Adds Python `poly create project`, backed by the Agents API. | **Partially ported.** Rust has the Agents API call and `poly project create`, but Python's CLI shape is `poly create project`. Add the top-level `create project` command or alias, then align its prompts with #148. |
-
-## In Progress In Rust PRs
-
-| PR | Merged | Upstream change | Rust action |
-| --- | --- | --- | --- |
-| [#169](https://github.com/polyai/adk/pull/169) | 2026-06-03 | Fixes translation validation when the default language changes locally, and reads `defaultLanguageCode` from projections. | **In progress in [adk-rs#42](https://github.com/polyai/adk-rs/pull/42).** Rust languages/translations read `defaultLanguageCode`, generate default-language updates from local `agent_settings/languages.yaml`, and validate translation coverage against locally configured languages. |
-| [#152](https://github.com/polyai/adk/pull/152) | 2026-05-29 | Adds `Translation`, `DefaultLanguage`, and `AdditionalLanguage` resources plus language/translation validation. | **In progress in [adk-rs#42](https://github.com/polyai/adk-rs/pull/42).** Rust materializes, discovers, statuses, validates, and pushes `agent_settings/languages.yaml` and `config/translations.yaml`, including default-language updates, additional-language create/delete, translation create/update/delete, and non-`name` translation-key matching. |
 
 ## Verify With Focused Tests
 
@@ -46,10 +38,12 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 
 | PR | Merged | Upstream change | Rust action |
 | --- | --- | --- | --- |
+| [#169](https://github.com/polyai/adk/pull/169) | 2026-06-03 | Fixes translation validation when the default language changes locally, and reads `defaultLanguageCode` from projections. | **Covered.** Rust languages/translations read `defaultLanguageCode`, generate default-language updates from local `agent_settings/languages.yaml`, and validate translation coverage against locally configured languages. |
 | [#163](https://github.com/polyai/adk/pull/163) | 2026-05-27 | Allows disabled unknown personality adjectives, but filters unknown adjectives out of the update proto. | **Covered.** Rust now matches Python validation by allowing disabled unknown adjectives, rejecting enabled unknown adjectives, and excluding unknown keys from `update_personality`. |
 | [#158](https://github.com/polyai/adk/pull/158) | 2026-05-21 | Adds `poly login` for multi-region enterprise Auth0 authentication. | **Covered.** Rust has `poly login`, Auth0 device/browser flow, region auth mapping, PAT setup, and credential-file saving. |
 | [#156](https://github.com/polyai/adk/pull/156) | 2026-05-27 | Replaces threaded push email parameters with `ADK_COMMAND_USER_OVERRIDE`, used for request headers and command metadata. | **Covered.** Rust now reads `ADK_COMMAND_USER_OVERRIDE`, uses it for `X-PolyAI-Email` and command metadata authorship, and removed the Python-obsolete `push --email` flag from the CLI surface. |
 | [#154](https://github.com/polyai/adk/pull/154) | 2026-05-19 | Reads the first experimental config entity instead of hardcoding `default`. | **Covered.** Rust now uses the actual first experimental config entity ID for materialization, comparison, and update command generation. |
+| [#152](https://github.com/polyai/adk/pull/152) | 2026-05-29 | Adds `Translation`, `DefaultLanguage`, and `AdditionalLanguage` resources plus language/translation validation. | **Covered.** Rust materializes, discovers, statuses, validates, and pushes `agent_settings/languages.yaml` and `config/translations.yaml`, including default-language updates, additional-language create/delete, translation create/update/delete, and non-`name` translation-key matching. |
 | [#147](https://github.com/polyai/adk/pull/147) | 2026-05-15 | Updates Python ADK docs to lead with `poly start` and credential files. | **Covered.** Rust README setup guidance now leads with `poly start`, `poly login`, and `~/.poly/credentials.json`. |
 | [#144](https://github.com/polyai/adk/pull/144) | 2026-05-15 | Sends an empty `ParametersUpdate` for global and transition functions so parameters can be deleted. | **Covered.** Rust now emits explicit empty parameter updates for function types that accept parameters, allowing remote parameters to be deleted. |
 | [#142](https://github.com/polyai/adk/pull/142) | 2026-05-15 | Saves API keys to `~/.poly/credentials.json`, masks key display, and checks credential availability. | **Covered.** Rust resolves credential-file keys before environment variables for Python parity, saves with user-only permissions, masks displayed keys, and checks for existing credentials during onboarding. |
