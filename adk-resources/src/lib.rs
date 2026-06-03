@@ -30,6 +30,7 @@ pub mod functions;
 mod handoffs;
 pub mod ids;
 mod keyphrase_boosting;
+mod languages;
 mod local_resources;
 mod materialization;
 mod materialization_reference_handling;
@@ -49,6 +50,7 @@ pub mod status_snapshot;
 mod test_support;
 mod topics;
 mod transcript_corrections;
+mod translations;
 mod variables;
 mod variants;
 
@@ -86,6 +88,7 @@ pub use status_snapshot::{
     status_pronunciation_hash_payload, status_pronunciation_payload, status_safety_filters_payload,
     status_variant_attribute_hash_payload, status_variant_attribute_payload, status_yaml_payload,
 };
+pub use translations::validate_language_translation_resources;
 
 pub(crate) use push_commands::push_command;
 

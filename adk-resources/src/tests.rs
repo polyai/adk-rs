@@ -604,6 +604,212 @@ fn projection_to_resource_map_includes_func_latency_control_decorator() {
 }
 
 #[test]
+fn projection_to_resource_map_materializes_languages_and_translations() {
+    let projection = serde_json::json!({
+        "languages": {
+            "defaultLanguageCode": "en-GB",
+            "additionalLanguages": {
+                "ids": ["lang-fr"],
+                "entities": {
+                    "lang-fr": {"code": "fr-FR"}
+                }
+            }
+        },
+        "translations": {
+            "translations": {
+                "ids": ["tn-1"],
+                "entities": {
+                    "tn-1": {
+                        "id": "tn-1",
+                        "translationKey": "greeting",
+                        "translations": [
+                            {"languageCode": "en-GB", "text": "Hello"},
+                            {"languageCode": "fr-FR", "text": "Bonjour"}
+                        ]
+                    }
+                }
+            }
+        }
+    });
+
+    let map = projection_to_resource_map(&projection).expect("projection resources");
+    let languages = map
+        .get("agent_settings/languages.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("languages content");
+    assert!(languages.contains("default_language: en-GB"));
+    assert!(languages.contains("- fr-FR"));
+
+    let translations = map
+        .get("config/translations.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("translations content");
+    assert!(translations.contains("name: greeting"));
+    assert!(translations.contains("en-GB: Hello"));
+    assert!(translations.contains("fr-FR: Bonjour"));
+}
+
+#[test]
+fn push_builder_emits_language_commands() {
+    use adk_protobuf::command::Payload as CommandPayload;
+
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "agent_settings/languages.yaml".to_string(),
+        Resource {
+            resource_id: "languages".to_string(),
+            name: "languages".to_string(),
+            file_path: "agent_settings/languages.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "default_language: en-GB\nadditional_languages:\n- fr-FR\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "languages": {
+            "defaultLanguageCode": "en-US",
+            "additionalLanguages": {
+                "ids": ["es-ES"],
+                "entities": {
+                    "es-ES": {"code": "es-ES"}
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+    let types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        types,
+        vec![
+            "languages_delete_language",
+            "languages_add_language",
+            "languages_update_default_language"
+        ]
+    );
+    assert!(commands.iter().any(|command| {
+        matches!(
+            command.payload.as_ref(),
+            Some(CommandPayload::LanguagesUpdateDefaultLanguage(payload))
+                if payload.language_code == "en-GB"
+        )
+    }));
+}
+
+#[test]
+fn push_builder_emits_translation_lifecycle_commands_by_translation_key() {
+    use adk_protobuf::command::Payload as CommandPayload;
+
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "config/translations.yaml".to_string(),
+        Resource {
+            resource_id: "translations".to_string(),
+            name: "translations".to_string(),
+            file_path: "config/translations.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "translations:\n- name: greeting\n  translations:\n    en-GB: Hello\n    fr-FR: Salut\n- name: farewell\n  translations:\n    en-GB: Bye\n    fr-FR: Au revoir\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "translations": {
+            "translations": {
+                "ids": ["tn-greeting", "tn-old"],
+                "entities": {
+                    "tn-greeting": {
+                        "id": "tn-greeting",
+                        "translationKey": "greeting",
+                        "translations": [
+                            {"languageCode": "en-GB", "text": "Hello"},
+                            {"languageCode": "fr-FR", "text": "Bonjour"}
+                        ]
+                    },
+                    "tn-old": {
+                        "id": "tn-old",
+                        "translationKey": "old",
+                        "translations": [
+                            {"languageCode": "en-GB", "text": "Old"}
+                        ]
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+    let types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        types,
+        vec![
+            "delete_translation",
+            "create_translation",
+            "update_translation"
+        ]
+    );
+    assert!(commands.iter().any(|command| {
+        matches!(
+            command.payload.as_ref(),
+            Some(CommandPayload::UpdateTranslation(payload))
+                if payload.id == "tn-greeting"
+                    && payload.translation_key.as_deref() == Some("greeting")
+                    && payload.translations.iter().any(|entry| {
+                        entry.language_code == "fr-FR"
+                            && entry.text.as_deref() == Some("Salut")
+                            && entry.is_auto_translated == Some(false)
+                    })
+        )
+    }));
+}
+
+#[test]
+fn translation_validation_checks_configured_language_coverage() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "agent_settings/languages.yaml".to_string(),
+        Resource {
+            resource_id: "languages".to_string(),
+            name: "languages".to_string(),
+            file_path: "agent_settings/languages.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "default_language: en-GB\nadditional_languages:\n- fr-FR\n"
+            }),
+        },
+    );
+    resources.insert(
+        "config/translations.yaml".to_string(),
+        Resource {
+            resource_id: "translations".to_string(),
+            name: "translations".to_string(),
+            file_path: "config/translations.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "translations:\n- name: greeting\n  translations:\n    en-GB: Hello\n    de-DE: Hallo\n"
+            }),
+        },
+    );
+
+    let errors = validate_language_translation_resources(&resources);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("Missing translations for configured languages"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("Translation for language not configured"))
+    );
+}
+
+#[test]
 fn push_builder_appends_variable_commands() {
     let mut resources = ResourceMap::new();
     resources.insert(

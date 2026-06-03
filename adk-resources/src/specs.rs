@@ -75,6 +75,18 @@ pub const PRONUNCIATIONS_FILE: FileResourceSpec = FileResourceSpec {
     name: "pronunciations",
 };
 
+pub const TRANSLATIONS_FILE: FileResourceSpec = FileResourceSpec {
+    file_path: "config/translations.yaml",
+    resource_id: "translations",
+    name: "translations",
+};
+
+pub const LANGUAGES_FILE: FileResourceSpec = FileResourceSpec {
+    file_path: "agent_settings/languages.yaml",
+    resource_id: "languages",
+    name: "languages",
+};
+
 pub const AGENT_PERSONALITY_FILE: FileResourceSpec = FileResourceSpec {
     file_path: "agent_settings/personality.yaml",
     resource_id: "personality",
@@ -178,4 +190,18 @@ pub const PRONUNCIATIONS: CollectionResourceSpec = CollectionResourceSpec {
     yaml_key: "pronunciations",
     projection: ProjectionCollection::new(&["pronunciations", "pronunciations"]),
     id_prefix: "PRONUNCIATIONS",
+};
+
+pub const TRANSLATIONS: CollectionResourceSpec = CollectionResourceSpec {
+    file: TRANSLATIONS_FILE,
+    yaml_key: "translations",
+    projection: ProjectionCollection::new(&["translations", "translations"]),
+    id_prefix: "tn",
+};
+
+pub const ADDITIONAL_LANGUAGES: CollectionResourceSpec = CollectionResourceSpec {
+    file: LANGUAGES_FILE,
+    yaml_key: "additional_languages",
+    projection: ProjectionCollection::new(&["languages", "additionalLanguages"]),
+    id_prefix: "LANGUAGE",
 };

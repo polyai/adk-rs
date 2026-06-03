@@ -237,6 +237,21 @@ pub const RESOURCE_TYPE_REGISTRY: &[ResourceTypeDescriptor] = &[
         status_resource_name: "pronunciations",
         id_prefix: None,
     },
+    ResourceTypeDescriptor {
+        type_name: "Translation",
+        status_resource_name: "translations",
+        id_prefix: Some("tn"),
+    },
+    ResourceTypeDescriptor {
+        type_name: "DefaultLanguage",
+        status_resource_name: "default_language",
+        id_prefix: None,
+    },
+    ResourceTypeDescriptor {
+        type_name: "AdditionalLanguage",
+        status_resource_name: "additional_languages",
+        id_prefix: None,
+    },
 ];
 
 const fn ordered_type_names_from_registry() -> [&'static str; RESOURCE_TYPE_REGISTRY.len()] {

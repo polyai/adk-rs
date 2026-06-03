@@ -224,6 +224,28 @@ pub fn legacy_python_status_resource_path(
                 clean_name(&position, false)
             ))
         }
+        "translations" => {
+            let translation_key = payload
+                .get("translation_key")
+                .or_else(|| payload.get("translationKey"))
+                .and_then(JsonValue::as_str)
+                .unwrap_or(name);
+            Some(format!(
+                "config/translations.yaml/translations/{}",
+                clean_name(translation_key, false)
+            ))
+        }
+        "default_language" => Some("agent_settings/languages.yaml/default_language".to_string()),
+        "additional_languages" => {
+            let code = payload
+                .get("language_code")
+                .or_else(|| payload.get("code"))
+                .and_then(JsonValue::as_str)
+                .unwrap_or(name);
+            Some(format!(
+                "agent_settings/languages.yaml/additional_languages/{code}"
+            ))
+        }
         _ => None,
     }
 }
@@ -377,6 +399,20 @@ pub fn resource_status_payload(input: ResourceStatusPayloadInput<'_>) -> JsonVal
                 .unwrap_or(input.fallback_name),
             "references": {},
         }),
+        "DefaultLanguage" => status_language_payload(input.logical_path, input.content)
+            .unwrap_or_else(|| serde_json::json!({ "name": input.fallback_name })),
+        "AdditionalLanguage" => serde_json::json!({
+            "name": input
+                .logical_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(input.fallback_name),
+            "language_code": input
+                .logical_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(input.fallback_name),
+        }),
         _ => status_yaml_payload(input.logical_path, input.content)
             .unwrap_or_else(|| serde_json::json!({ "name": input.fallback_name })),
     };
@@ -406,6 +442,19 @@ pub fn resource_status_payload(input: ResourceStatusPayloadInput<'_>) -> JsonVal
         JsonValue::String(input.logical_path.to_string()),
     );
     payload
+}
+
+fn status_language_payload(logical_path: &str, content: &str) -> Option<JsonValue> {
+    let yaml = from_str::<YamlValue>(content).ok()?;
+    let code = if logical_path.ends_with("/default_language") {
+        yaml.get("default_language").and_then(YamlValue::as_str)?
+    } else {
+        logical_path.rsplit('/').next()?
+    };
+    Some(serde_json::json!({
+        "name": code,
+        "language_code": code,
+    }))
 }
 
 pub fn resource_status_file_hash(
