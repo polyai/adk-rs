@@ -354,6 +354,7 @@ pub fn legacy_python_status_resource_content(
 }
 
 pub fn resource_status_payload(input: ResourceStatusPayloadInput<'_>) -> JsonValue {
+    // TODO: Extract family-specific status helpers if more resource quirks land here.
     let mut payload = match input.type_name {
         "Function" => {
             status_function_payload(input.logical_path, input.content, input.fallback_name)
