@@ -617,6 +617,40 @@ fn extract_response_commands_reads_common_response_shapes() {
 }
 
 #[test]
+fn backend_status_errors_include_correlation_id_and_status_class() {
+    let error = http_status_error(
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+        "https://api.example.test/resource",
+        "adk-test-correlation",
+    )
+    .to_string();
+
+    assert!(error.contains("500 Server Error: Internal Server Error"));
+    assert!(error.contains("correlation ID: adk-test-correlation"));
+}
+
+#[test]
+fn adk_json_status_errors_include_sent_correlation_id() {
+    let server = MockServer::start();
+    let projection = server.mock(|when, then| {
+        when.method(GET)
+            .path("/adk/v1/accounts/test-account/projects/test-project/branches/main/projection")
+            .header_exists("X-PolyAI-Correlation-Id");
+        then.status(500)
+            .json_body(json!({"error": "backend exploded"}));
+    });
+
+    let error = adk_v1_test_client(&server)
+        .pull_projection_json()
+        .expect_err("500 should fail")
+        .to_string();
+
+    assert!(error.contains("500 Server Error: Internal Server Error"));
+    assert!(error.contains("correlation ID: adk-"));
+    projection.assert();
+}
+
+#[test]
 fn conversations_endpoints_use_public_platform_api() {
     let server = MockServer::start();
     let list = server.mock(|when, then| {
@@ -666,6 +700,27 @@ fn conversations_endpoints_use_public_platform_api() {
     list.assert();
     get.assert();
     audio.assert();
+}
+
+#[test]
+fn platform_status_errors_include_sent_correlation_id() {
+    let server = MockServer::start();
+    let get = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/test-project/conversations/KA-500")
+            .header_exists("X-PolyAI-Correlation-Id");
+        then.status(500)
+            .json_body(json!({"error": "backend exploded"}));
+    });
+
+    let error = test_client(server.base_url())
+        .get_conversation("KA-500")
+        .expect_err("500 should fail")
+        .to_string();
+
+    assert!(error.contains("500 Server Error: Internal Server Error"));
+    assert!(error.contains("correlation ID: adk-"));
+    get.assert();
 }
 
 fn test_client(base_url: String) -> HttpPlatformClient {
@@ -1373,7 +1428,8 @@ fn merge_branch_reports_non_conflict_errors() {
     });
     server.mock(|when, then| {
         when.method(POST)
-            .path("/accounts/test-account/projects/test-project/branches/main/merge");
+            .path("/accounts/test-account/projects/test-project/branches/main/merge")
+            .header_exists("X-PolyAI-Correlation-Id");
         then.status(500)
             .json_body(serde_json::json!({"error": "boom"}));
     });
@@ -1385,6 +1441,7 @@ fn merge_branch_reports_non_conflict_errors() {
 
     assert!(error.contains("status=500"));
     assert!(error.contains("boom"));
+    assert!(error.contains("correlation ID: adk-"));
 }
 
 #[test]

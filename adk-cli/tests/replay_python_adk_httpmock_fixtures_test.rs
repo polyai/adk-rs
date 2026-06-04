@@ -565,6 +565,20 @@ fn normalizes_generated_resource_ids_across_references() {
     assert_eq!(normalize_generated_resource_ids(expected, &actual), actual);
 }
 
+#[test]
+fn normalizes_dynamic_rust_correlation_id_suffixes_for_python_replay() {
+    assert_eq!(
+        strip_rust_correlation_id_suffix(
+            "500 Server Error: Internal Server Error for url: http://example.test (correlation ID: adk-1234)"
+        ),
+        "500 Server Error: Internal Server Error for url: http://example.test"
+    );
+    assert_eq!(
+        strip_rust_correlation_id_suffix("plain error without correlation"),
+        "plain error without correlation"
+    );
+}
+
 fn request_path_matches(recorded_path: &str, actual_path: &str) -> bool {
     if recorded_path == actual_path {
         return true;
@@ -884,19 +898,56 @@ fn assert_json_contract(assertion: JsonContractAssertion<'_>) {
         fixture_paths,
     } = assertion;
     let mut expected = substitute_json(expected, substitutions, Some(actual));
+    let mut actual = actual.clone();
     if matches!(subject, ReplaySubject::Rust) {
-        expected = normalize_generated_resource_ids(expected, actual);
+        expected = normalize_generated_resource_ids(expected, &actual);
+        actual = normalize_rust_backend_error_correlation_ids(&actual);
         if let Some(object) = expected.as_object_mut() {
             object.remove("traceback");
         }
     }
-    let actual = actual.clone();
     assert_eq!(
         expected,
         actual,
         "{scenario}/{workflow}/{command_name}: JSON stdout mismatch\n{}\nargv={argv:?}\nexpected={expected}\nactual={actual}\nstdout={actual_stdout}\nstderr={actual_stderr}",
         fixture_paths.diagnostic_lines()
     );
+}
+
+fn normalize_rust_backend_error_correlation_ids(value: &Value) -> Value {
+    match value {
+        Value::String(text) => Value::String(strip_rust_correlation_id_suffix(text)),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(normalize_rust_backend_error_correlation_ids)
+                .collect(),
+        ),
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        key.clone(),
+                        normalize_rust_backend_error_correlation_ids(value),
+                    )
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+fn strip_rust_correlation_id_suffix(text: &str) -> String {
+    let Some(index) = text.find(" (correlation ID: adk-") else {
+        return text.to_string();
+    };
+    let suffix = &text[index..];
+    if suffix.ends_with(')') {
+        text[..index].to_string()
+    } else {
+        text.to_string()
+    }
 }
 
 fn apply_file_edit(
