@@ -16,10 +16,10 @@ mod output;
 
 pub(crate) use args::*;
 use commands::{
-    cmd_branch, cmd_chat, cmd_completion, cmd_deployments, cmd_diff, cmd_docs, cmd_format,
-    cmd_init, cmd_login, cmd_project, cmd_pull, cmd_push, cmd_revert, cmd_review, cmd_self_update,
-    cmd_start, cmd_status, cmd_uninstall, cmd_validate, project_debug, project_verbose,
-    validate_diff_args, validate_inline_projection_arg,
+    cmd_branch, cmd_chat, cmd_completion, cmd_conversations, cmd_deployments, cmd_diff, cmd_docs,
+    cmd_format, cmd_init, cmd_login, cmd_project, cmd_pull, cmd_push, cmd_revert, cmd_review,
+    cmd_self_update, cmd_start, cmd_status, cmd_uninstall, cmd_validate, project_debug,
+    project_verbose, validate_diff_args, validate_inline_projection_arg,
 };
 pub(crate) use output::{clean_error_message, emit_error, print_payload};
 
@@ -108,6 +108,14 @@ fn run() -> Result<ExitCode> {
         Commands::Format(args) => cmd_format(args),
         Commands::Validate(args) => cmd_validate(args),
         Commands::Chat(args) => cmd_chat(args),
+        Commands::Conversations(args) => {
+            let path = conversations_path(&args);
+            let json_mode = conversations_json(&args);
+            match remote_service_for_path(&workspace, path, json_mode) {
+                Ok(service) => cmd_conversations(&service, args),
+                Err(code) => code,
+            }
+        }
         Commands::SelfUpdate(args) => cmd_self_update(args),
         Commands::Uninstall(args) => cmd_uninstall(args),
         Commands::Completion(args) => cmd_completion(args),
@@ -142,9 +150,9 @@ fn print_top_level_help() {
     let mut output = String::from(
         concat!(
             "usage: poly [-h] [-v]\n",
-            "            {help,docs,login,start,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,uninstall,completion,deployments} ...\n\n",
+            "            {help,docs,login,start,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,conversations,self-update,uninstall,completion,deployments} ...\n\n",
             "positional arguments:\n",
-            "  {help,docs,login,start,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,self-update,uninstall,completion,deployments}\n",
+            "  {help,docs,login,start,init,project,pull,push,status,revert,diff,review,branch,format,validate,chat,conversations,self-update,uninstall,completion,deployments}\n",
         ),
     );
     for (name, description) in [
@@ -173,6 +181,7 @@ fn print_top_level_help() {
         ),
         ("validate", "Validate the project configuration locally."),
         ("chat", "Start an interactive chat session with the agent."),
+        ("conversations", "List and inspect conversations."),
         (
             "self-update",
             "Update the ADK CLI installed by the release shell installer.",
@@ -225,6 +234,22 @@ fn deployments_json(args: &DeploymentsArgs) -> bool {
     }
 }
 
+fn conversations_path(args: &ConversationsArgs) -> &str {
+    match &args.command {
+        ConversationsCommands::List(args) => args.path.as_str(),
+        ConversationsCommands::Get(args) => args.path.as_str(),
+        ConversationsCommands::GetAudio(args) => args.path.as_str(),
+    }
+}
+
+fn conversations_json(args: &ConversationsArgs) -> bool {
+    match &args.command {
+        ConversationsCommands::List(args) => args.json,
+        ConversationsCommands::Get(args) => args.json,
+        ConversationsCommands::GetAudio(args) => args.json,
+    }
+}
+
 fn command_verbose(command: &Commands) -> bool {
     match command {
         Commands::Help => false,
@@ -249,11 +274,21 @@ fn command_verbose(command: &Commands) -> bool {
         Commands::Format(args) => args.verbose,
         Commands::Validate(args) => args.verbose,
         Commands::Chat(args) => args.verbose,
+        Commands::Conversations(args) => conversations_verbose(args),
         Commands::SelfUpdate(args) => args.verbose,
         Commands::Uninstall(args) => args.verbose,
         Commands::Completion(_) => false,
         Commands::Deployments(args) => deployments_verbose(args),
     }
+}
+
+fn conversations_verbose(args: &ConversationsArgs) -> bool {
+    args.verbose
+        || match &args.command {
+            ConversationsCommands::List(args) => args.verbose,
+            ConversationsCommands::Get(args) => args.verbose,
+            ConversationsCommands::GetAudio(args) => args.verbose,
+        }
 }
 
 fn command_debug(command: &Commands) -> bool {

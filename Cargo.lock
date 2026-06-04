@@ -2013,6 +2013,7 @@ version = "0.0.8"
 dependencies = [
  "anyhow",
  "axoupdater",
+ "chrono",
  "clap",
  "clap_complete",
  "ctrlc",

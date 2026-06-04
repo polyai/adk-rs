@@ -960,6 +960,25 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         Ok(self.client.end_chat_session(payload)?)
     }
 
+    pub fn list_conversations(&self, limit: usize, offset: usize) -> Result<JsonValue, CoreError> {
+        Ok(self.client.list_conversations(limit, offset)?)
+    }
+
+    pub fn get_conversation(&self, conversation_id: &str) -> Result<JsonValue, CoreError> {
+        Ok(self.client.get_conversation(conversation_id)?)
+    }
+
+    pub fn get_conversation_audio(
+        &self,
+        conversation_id: &str,
+        direction: &str,
+        redacted: bool,
+    ) -> Result<Vec<u8>, CoreError> {
+        Ok(self
+            .client
+            .get_conversation_audio(conversation_id, direction, redacted)?)
+    }
+
     pub fn conversation_url(
         &self,
         root: &Path,

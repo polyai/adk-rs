@@ -856,6 +856,214 @@ fn chat_json_restart_collects_multiple_conversations() {
 }
 
 #[test]
+fn conversations_list_json_passes_pagination_to_platform_api() {
+    let server = MockServer::start();
+    let list = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/proj/conversations")
+            .query_param("limit", "20")
+            .query_param("offset", "5");
+        then.status(200).json_body(json!({
+            "conversations": [
+                {
+                    "conversationId": "KA-123",
+                    "startedAt": "2026-05-26T10:00:00+00:00",
+                    "duration": 90,
+                    "channel": "VOICE-SIP",
+                    "variantId": "Voice",
+                    "handoff": false,
+                    "shortSummary": "{\"heading\":\"Test call\",\"content\":\"Details here\"}"
+                }
+            ],
+            "count": 1,
+            "limit": 20,
+            "offset": 5
+        }));
+    });
+
+    let project_dir = write_us_project("adk-rs-conversations-list-json");
+    let base_url = format!("{}/adk/v1", server.base_url());
+    let mut command = poly_offline_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env("POLY_ADK_BASE_URL_US", &base_url)
+        .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .args([
+            "conversations",
+            "list",
+            "--limit",
+            "20",
+            "--offset",
+            "5",
+            "--json",
+            "--path",
+        ])
+        .arg(project_dir.to_string_lossy().as_ref())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command.output().expect("run conversations list");
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid conversations JSON");
+    assert_eq!(payload["conversations"][0]["conversationId"], "KA-123");
+    assert_eq!(payload["limit"], 20);
+    assert_eq!(payload["offset"], 5);
+    assert!(stderr(&output).trim().is_empty());
+    list.assert();
+}
+
+#[test]
+fn conversations_list_human_prints_summary_and_hides_empty_variant_column() {
+    let server = MockServer::start();
+    let list = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/proj/conversations")
+            .query_param("limit", "50")
+            .query_param("offset", "0");
+        then.status(200).json_body(json!({
+            "conversations": [
+                {
+                    "conversationId": "KA-123",
+                    "startedAt": "2026-05-26T10:00:00+00:00",
+                    "duration": 90,
+                    "fromNumber": "+15551234567",
+                    "channel": "VOICE-SIP",
+                    "handoff": false,
+                    "shortSummary": "{\"heading\":\"Test call\",\"content\":\"Details here\"}"
+                }
+            ],
+            "count": 1,
+            "limit": 50,
+            "offset": 0
+        }));
+    });
+
+    let project_dir = write_us_project("adk-rs-conversations-list-human");
+    let base_url = format!("{}/adk/v1", server.base_url());
+    let mut command = poly_offline_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env("POLY_ADK_BASE_URL_US", &base_url)
+        .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .args(["conversations", "list", "--path"])
+        .arg(project_dir.to_string_lossy().as_ref())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command.output().expect("run conversations list");
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("Conversation ID"));
+    assert!(stdout.contains("KA-123"));
+    assert!(stdout.contains("1m30s"));
+    assert!(stdout.contains("Test call"));
+    assert!(!stdout.contains("Variant"));
+    assert!(stderr(&output).trim().is_empty());
+    list.assert();
+}
+
+#[test]
+fn conversations_get_human_prints_details_and_turns() {
+    let server = MockServer::start();
+    let get = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/proj/conversations/KA-123");
+        then.status(200).json_body(json!({
+            "conversationId": "KA-123",
+            "channel": "VOICE-SIP",
+            "direction": "inbound",
+            "startedAt": "2026-05-26T10:00:00+00:00",
+            "duration": 90,
+            "shortSummary": "{\"heading\":\"Test call\",\"content\":\"Details here\"}",
+            "turns": [
+                {"user_input": "", "agent_response": "Hello!"},
+                {"user_input": "Hi", "agent_response": "How can I help?"}
+            ]
+        }));
+    });
+
+    let project_dir = write_us_project("adk-rs-conversations-get-human");
+    let base_url = format!("{}/adk/v1", server.base_url());
+    let mut command = poly_offline_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env("POLY_ADK_BASE_URL_US", &base_url)
+        .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .args(["conversations", "get", "KA-123", "--path"])
+        .arg(project_dir.to_string_lossy().as_ref())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command.output().expect("run conversations get");
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("Conversation KA-123"));
+    assert!(stdout.contains("Studio URL:"));
+    assert!(stdout.contains("Channel: VOICE-SIP"));
+    assert!(stdout.contains("Duration: 1m30s"));
+    assert!(stdout.contains("Summary: Test call"));
+    assert!(stdout.contains("Turns (2):"));
+    assert!(stdout.contains("agent: Hello!"));
+    assert!(stdout.contains("user: Hi"));
+    assert!(stderr(&output).trim().is_empty());
+    get.assert();
+}
+
+#[test]
+fn conversations_get_audio_writes_wav_and_prints_json_metadata() {
+    let server = MockServer::start();
+    let audio = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/proj/conversations/KA-123/audio")
+            .query_param("direction", "user")
+            .query_param("redacted", "true");
+        then.status(200).body("RIFFaudio");
+    });
+
+    let project_dir = write_us_project("adk-rs-conversations-audio-json");
+    let output_dir = temp_dir("adk-rs-conversation-audio");
+    fs::create_dir_all(&output_dir).expect("create audio output dir");
+    let output_path = output_dir.join("recording.wav");
+    let base_url = format!("{}/adk/v1", server.base_url());
+    let mut command = poly_offline_command();
+    command
+        .env("POLY_ADK_KEY", "test-key")
+        .env("POLY_ADK_BASE_URL_US", &base_url)
+        .env("POLY_ADK_BASE_URL_US_1", &base_url)
+        .args([
+            "conversations",
+            "get-audio",
+            "KA-123",
+            "--direction",
+            "user",
+            "--redacted",
+            "--output",
+        ])
+        .arg(output_path.to_string_lossy().as_ref())
+        .args(["--json", "--path"])
+        .arg(project_dir.to_string_lossy().as_ref())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command.output().expect("run conversations get-audio");
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid get-audio JSON");
+    assert_eq!(payload["success"], true);
+    assert_eq!(payload["conversation_id"], "KA-123");
+    assert_eq!(payload["direction"], "user");
+    assert_eq!(payload["redacted"], true);
+    assert_eq!(payload["size_bytes"], 9);
+    assert_eq!(
+        fs::read(&output_path).expect("written wav"),
+        b"RIFFaudio".to_vec()
+    );
+    assert!(stderr(&output).trim().is_empty());
+    audio.assert();
+}
+
+#[test]
 fn deployments_list_text_honors_details_flag() {
     let server = MockServer::start();
     let deployments = server.mock(|when, then| {

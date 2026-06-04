@@ -122,6 +122,14 @@ pub trait PlatformClient: Send + Sync {
     fn create_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
     fn send_chat_message(&self, _payload: Value) -> Result<Value, ApiError>;
     fn end_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
+    fn list_conversations(&self, limit: usize, offset: usize) -> Result<Value, ApiError>;
+    fn get_conversation(&self, conversation_id: &str) -> Result<Value, ApiError>;
+    fn get_conversation_audio(
+        &self,
+        conversation_id: &str,
+        direction: &str,
+        redacted: bool,
+    ) -> Result<Vec<u8>, ApiError>;
     fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError>;
     fn create_branch(&self, branch_name: &str) -> Result<String, ApiError>;
     fn delete_branch(&self, branch_id: &str) -> Result<(), ApiError>;
@@ -402,6 +410,16 @@ impl HttpPlatformClient {
         endpoint: &str,
         payload: Option<Value>,
     ) -> Result<Value, ApiError> {
+        self.request_platform_json_with_query(method, endpoint, None, payload)
+    }
+
+    fn request_platform_json_with_query(
+        &self,
+        method: reqwest::Method,
+        endpoint: &str,
+        query: Option<&[(&str, String)]>,
+        payload: Option<Value>,
+    ) -> Result<Value, ApiError> {
         let url = format!("{}{}", platform_root_url(&self.base_url), endpoint);
         let mut request = self
             .client
@@ -410,6 +428,9 @@ impl HttpPlatformClient {
             .header("X-PolyAI-Correlation-Id", format!("adk-{}", Uuid::new_v4()))
             .header("Content-Type", "application/json");
         request = self.with_command_user_override_header(request);
+        if let Some(query) = query {
+            request = request.query(query);
+        }
         if let Some(payload) = payload {
             request = request.json(&payload);
         }
@@ -419,6 +440,35 @@ impl HttpPlatformClient {
             return Err(http_status_error(status, &url));
         }
         response.json().map_err(|e| ApiError::Http(e.to_string()))
+    }
+
+    fn request_platform_bytes(
+        &self,
+        endpoint: &str,
+        query: Option<&[(&str, String)]>,
+    ) -> Result<Vec<u8>, ApiError> {
+        let url = format!("{}{}", platform_root_url(&self.base_url), endpoint);
+        let client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        let mut request = client
+            .get(&url)
+            .header("X-API-KEY", &self.api_key)
+            .header("X-PolyAI-Correlation-Id", format!("adk-{}", Uuid::new_v4()));
+        request = self.with_command_user_override_header(request);
+        if let Some(query) = query {
+            request = request.query(query);
+        }
+        let response = request.send().map_err(|e| ApiError::Http(e.to_string()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(http_status_error(status, &url));
+        }
+        response
+            .bytes()
+            .map(|bytes| bytes.to_vec())
+            .map_err(|e| ApiError::Http(e.to_string()))
     }
 
     fn request_binary_json(&self, endpoint: &str, payload: &[u8]) -> Result<Value, ApiError> {
@@ -990,6 +1040,37 @@ impl PlatformClient for HttpPlatformClient {
             None,
             Some(serde_json::json!({"client_env": environment})),
         )
+    }
+
+    fn list_conversations(&self, limit: usize, offset: usize) -> Result<Value, ApiError> {
+        let endpoint = format!("/v1/agents/{}/conversations", self.project_id);
+        let limit = limit.to_string();
+        let offset = offset.to_string();
+        let query = [("limit", limit), ("offset", offset)];
+        self.request_platform_json_with_query(reqwest::Method::GET, &endpoint, Some(&query), None)
+    }
+
+    fn get_conversation(&self, conversation_id: &str) -> Result<Value, ApiError> {
+        let endpoint = format!(
+            "/v1/agents/{}/conversations/{conversation_id}",
+            self.project_id
+        );
+        self.request_platform_json(reqwest::Method::GET, &endpoint, None)
+    }
+
+    fn get_conversation_audio(
+        &self,
+        conversation_id: &str,
+        direction: &str,
+        redacted: bool,
+    ) -> Result<Vec<u8>, ApiError> {
+        let endpoint = format!(
+            "/v1/agents/{}/conversations/{conversation_id}/audio",
+            self.project_id
+        );
+        let redacted = redacted.to_string();
+        let query = [("direction", direction.to_string()), ("redacted", redacted)];
+        self.request_platform_bytes(&endpoint, Some(&query))
     }
 
     fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {

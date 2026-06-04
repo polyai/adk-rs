@@ -218,6 +218,31 @@ impl PlatformClient for InMemoryPlatformClient {
         Ok(serde_json::json!({"success": true}))
     }
 
+    fn list_conversations(&self, limit: usize, offset: usize) -> Result<Value, ApiError> {
+        Ok(serde_json::json!({
+            "conversations": [],
+            "count": 0,
+            "limit": limit,
+            "offset": offset,
+        }))
+    }
+
+    fn get_conversation(&self, conversation_id: &str) -> Result<Value, ApiError> {
+        Ok(serde_json::json!({
+            "conversationId": conversation_id,
+            "turns": [],
+        }))
+    }
+
+    fn get_conversation_audio(
+        &self,
+        _conversation_id: &str,
+        _direction: &str,
+        _redacted: bool,
+    ) -> Result<Vec<u8>, ApiError> {
+        Ok(Vec::new())
+    }
+
     fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
         let branches = self
             .branches

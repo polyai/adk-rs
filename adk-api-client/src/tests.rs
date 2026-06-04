@@ -616,6 +616,58 @@ fn extract_response_commands_reads_common_response_shapes() {
     assert_eq!(extract_response_commands(&nested_result).len(), 1);
 }
 
+#[test]
+fn conversations_endpoints_use_public_platform_api() {
+    let server = MockServer::start();
+    let list = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/test-project/conversations")
+            .query_param("limit", "20")
+            .query_param("offset", "5");
+        then.status(200).json_body(json!({
+            "conversations": [{"conversationId": "KA-123"}],
+            "count": 1,
+            "limit": 20,
+            "offset": 5
+        }));
+    });
+    let get = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/test-project/conversations/KA-123");
+        then.status(200).json_body(json!({
+            "conversationId": "KA-123",
+            "turns": []
+        }));
+    });
+    let audio = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/test-project/conversations/KA-123/audio")
+            .query_param("direction", "user")
+            .query_param("redacted", "true");
+        then.status(200).body("RIFFtest");
+    });
+
+    let client = test_client(server.base_url());
+    let conversations = client
+        .list_conversations(20, 5)
+        .expect("list conversations");
+    assert_eq!(
+        conversations["conversations"][0]["conversationId"],
+        "KA-123"
+    );
+
+    let conversation = client.get_conversation("KA-123").expect("get conversation");
+    assert_eq!(conversation["conversationId"], "KA-123");
+
+    let bytes = client
+        .get_conversation_audio("KA-123", "user", true)
+        .expect("get conversation audio");
+    assert_eq!(bytes, b"RIFFtest");
+    list.assert();
+    get.assert();
+    audio.assert();
+}
+
 fn test_client(base_url: String) -> HttpPlatformClient {
     HttpPlatformClient {
         client: reqwest::blocking::Client::builder()
