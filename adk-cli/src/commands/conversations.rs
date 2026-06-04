@@ -252,16 +252,15 @@ fn print_conversation_detail(conversation: &Value, studio_url: Option<&str>) {
     }
     console::plain(format!("\n[label]Turns ({}):[/label]", turns.len()));
     for turn in turns {
-        if let Some(input) = string_field(turn, &["user_input", "userInput", "input"]) {
-            if !input.is_empty() {
-                console::plain(format!("  user: {input}"));
-            }
+        if let Some(input) = string_field(turn, &["user_input", "userInput", "input"])
+            && !input.is_empty()
+        {
+            console::plain(format!("  user: {input}"));
         }
         if let Some(response) = string_field(turn, &["agent_response", "agentResponse", "response"])
+            && !response.is_empty()
         {
-            if !response.is_empty() {
-                console::plain(format!("  agent: {response}"));
-            }
+            console::plain(format!("  agent: {response}"));
         }
     }
 }
@@ -331,10 +330,12 @@ fn conversation_field(conversation: &Value, keys: &[&str]) -> Option<String> {
     if let Some(value) = value.as_bool() {
         return Some(if value { "yes" } else { "no" }.to_string());
     }
-    if keys.iter().any(|key| matches!(*key, "startedAt" | "finishedAt")) {
-        if let Some(text) = value.as_str() {
-            return Some(format_iso_timestamp(text));
-        }
+    if keys
+        .iter()
+        .any(|key| matches!(*key, "startedAt" | "finishedAt"))
+        && let Some(text) = value.as_str()
+    {
+        return Some(format_iso_timestamp(text));
     }
     value
         .as_str()
