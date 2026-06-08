@@ -181,7 +181,7 @@ fn resolve_project_create_selection(
     let Some(project_name) = resolve_project_create_name(project_name)? else {
         return Ok(None);
     };
-    let project_id = resolve_project_create_project_id(&region, project_id, &project_name)?;
+    let project_id = resolve_project_create_project_id(&region, project_id)?;
 
     Ok(Some(ProjectCreateSelection {
         region,
@@ -290,16 +290,14 @@ fn resolve_project_create_name(project_name: Option<String>) -> Result<Option<St
 fn resolve_project_create_project_id(
     region: &str,
     project_id: Option<String>,
-    project_name: &str,
 ) -> Result<Option<String>, String> {
     match project_id {
         Some(project_id) => Ok(Some(project_id)),
         None if region == "studio" => Ok(None),
         None => {
-            let default_id = default_project_id_for_name(project_name);
             let Some(project_id) = prompt_text(
                 "Enter project ID (leave empty to let the platform generate one):",
-                Some(&default_id),
+                None,
             )?
             else {
                 return Ok(None);
@@ -321,17 +319,6 @@ fn project_id_from_prompt_input(project_id: &str) -> Result<Option<String>, Stri
     } else {
         Err("Project ID can only contain alphanumeric characters and dashes.".to_string())
     }
-}
-
-fn default_project_id_for_name(project_name: &str) -> String {
-    project_name
-        .to_lowercase()
-        .replace(' ', "-")
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string()
 }
 
 #[cfg(test)]
@@ -503,14 +490,6 @@ mod tests {
         assert_eq!(
             error,
             "Project ID can only contain alphanumeric characters and dashes."
-        );
-    }
-
-    #[test]
-    fn default_project_id_for_name_matches_existing_slug_rules() {
-        assert_eq!(
-            default_project_id_for_name("  My Fancy Project!  "),
-            "my-fancy-project"
         );
     }
 

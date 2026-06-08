@@ -1,6 +1,6 @@
 mod support;
 
-use std::fs;
+use std::{fs, io::Write, process::Stdio};
 use support::cli::{
     make_temp_invalid_yaml_project_dir as support_temp_invalid_yaml_project_dir,
     make_temp_project_dir as support_temp_project_dir,
@@ -1211,6 +1211,47 @@ fn pull_requires_remote_configuration() {
         serde_json::from_slice(&output.stdout).expect("valid JSON output");
     let error = payload.get("error").and_then(|v| v.as_str()).unwrap_or("");
     assert!(error.contains("remote platform client unavailable"));
+}
+
+#[test]
+fn project_create_non_studio_project_id_prompt_has_no_default_slug() {
+    let isolated_home = temp_dir("adk-rs-project-create-home");
+    fs::create_dir_all(&isolated_home).expect("mkdir isolated home");
+
+    let mut command = poly_offline_command();
+    let mut child = command
+        .env("HOME", &isolated_home)
+        .env("USERPROFILE", &isolated_home)
+        .args([
+            "project",
+            "create",
+            "--region",
+            "us-1",
+            "--account_id",
+            "acct-1",
+            "--name",
+            "My Fancy Project",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn poly project create");
+
+    child
+        .stdin
+        .take()
+        .expect("poly project create stdin")
+        .write_all(b"\n")
+        .expect("write blank project ID");
+
+    let output = child
+        .wait_with_output()
+        .expect("wait for poly project create");
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Enter project ID (leave empty to let the platform generate one):"));
+    assert!(!stdout.contains("[my-fancy-project]"));
 }
 
 #[test]

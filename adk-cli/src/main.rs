@@ -423,7 +423,7 @@ fn prompt_text_value_from_input(
     }
     let value = input.trim();
     if value.is_empty() {
-        return default.map(ToString::to_string);
+        return Some(default.unwrap_or_default().to_string());
     }
     Some(value.to_string())
 }
@@ -730,6 +730,14 @@ mod prompt_tests {
         assert_eq!(
             prompt_text_value_from_input(1, "  \n", Some("default")),
             Some("default".to_string())
+        );
+    }
+
+    #[test]
+    fn prompt_text_value_preserves_blank_input_without_default() {
+        assert_eq!(
+            prompt_text_value_from_input(1, "  \n", None),
+            Some(String::new())
         );
     }
 
