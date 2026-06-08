@@ -34,6 +34,7 @@ pub(crate) fn validate_local_resources(
             errors.push(format!("{path}: invalid json: {e}"));
         }
     }
+    errors.extend(adk_resources::validate_webchat_config_resources(resources));
     adk_resources::validate_python_function_resources(resources)
         .map_err(|error| function_validation_error(root, error))?;
     errors.extend(adk_resources::validate_language_translation_resources(

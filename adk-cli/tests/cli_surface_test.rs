@@ -1167,6 +1167,44 @@ fn validate_json_reports_flow_resource_errors_without_http_recording() {
 }
 
 #[test]
+fn validate_json_reports_incomplete_webchat_config_resources() {
+    let project_dir = make_temp_project_dir();
+    let root = std::path::PathBuf::from(&project_dir);
+    fs::create_dir_all(root.join("chat")).expect("mkdir chat");
+    fs::write(
+        root.join("chat/configuration.yaml"),
+        r#"
+greeting:
+  welcome_message: Hello from chat.
+  language_code: en-US
+style_prompt:
+  prompt: Keep webchat compact.
+"#,
+    )
+    .expect("write chat configuration");
+
+    let output = run_poly(&["validate", "--json", "--path", &project_dir]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid JSON output");
+    assert_eq!(payload.get("valid").and_then(|v| v.as_bool()), Some(false));
+    let errors = payload
+        .get("errors")
+        .and_then(|v| v.as_array())
+        .expect("errors array")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>();
+    assert!(
+        errors.iter().any(|error| error.contains(
+            "Webchat config resources must all be present together. Missing: ChatSafetyFilters."
+        )),
+        "missing webchat sibling validation error: {errors:#?}"
+    );
+}
+
+#[test]
 fn push_json_dry_run_reports_flow_validation_errors_without_http_recording() {
     let project_dir = make_temp_project_dir();
     let root = std::path::PathBuf::from(&project_dir);

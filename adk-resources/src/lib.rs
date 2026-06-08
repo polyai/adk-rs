@@ -54,6 +54,7 @@ mod translations;
 mod variables;
 mod variants;
 
+pub use channels::validate_webchat_config_resources;
 pub use discover::{
     DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources, validate_semantic_resource,
 };

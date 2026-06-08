@@ -155,7 +155,8 @@ fn singleton_command_groups(
 mod tests {
     use super::*;
     use crate::test_support::local_resource;
-    use adk_protobuf::channels::ChannelType;
+    use adk_protobuf::channels::channel_update_status::ChannelStatus as ChannelUpdateStatusKind;
+    use adk_protobuf::channels::{ChannelStatus, ChannelType};
     use adk_protobuf::command::Payload as CommandPayload;
 
     fn flatten(groups: CommandGroups) -> Vec<adk_protobuf::Command> {
@@ -270,6 +271,7 @@ style_prompt:
             "channel_update_greeting",
             "channel_update_style_prompt",
             "channel_update_safety_filters",
+            "channel_update_status",
             "voice_channel_update_disclaimer",
             "voice_channel_update_asr_settings",
         ] {
@@ -339,6 +341,20 @@ style_prompt:
                         if payload.channel_type == ChannelType::WebChat as i32
                 )
         }));
+
+        let webchat_status = commands
+            .iter()
+            .find(|command| command.r#type == "channel_update_status")
+            .expect("webchat channel status update");
+        match &webchat_status.payload {
+            Some(CommandPayload::ChannelUpdateStatus(payload)) => match payload.channel_status {
+                Some(ChannelUpdateStatusKind::Webchat(webchat)) => {
+                    assert_eq!(webchat.status, ChannelStatus::Created as i32);
+                }
+                _ => panic!("unexpected channel status payload"),
+            },
+            _ => panic!("unexpected payload variant for webchat channel status command"),
+        }
     }
 
     #[test]
