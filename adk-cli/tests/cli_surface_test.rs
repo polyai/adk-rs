@@ -1215,8 +1215,13 @@ fn pull_requires_remote_configuration() {
 
 #[test]
 fn project_create_non_studio_project_id_prompt_has_no_default_slug() {
+    let isolated_home = temp_dir("adk-rs-project-create-home");
+    fs::create_dir_all(&isolated_home).expect("mkdir isolated home");
+
     let mut command = poly_offline_command();
     let mut child = command
+        .env("HOME", &isolated_home)
+        .env("USERPROFILE", &isolated_home)
         .args([
             "project",
             "create",
