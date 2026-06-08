@@ -17,6 +17,7 @@ fn flatten(groups: CommandGroups) -> Vec<adk_protobuf::Command> {
         .chain(groups.creates)
         .chain(groups.updates)
         .chain(groups.post_updates)
+        .chain(groups.cleanup_deletes)
         .chain(groups.post_deletes)
         .collect()
 }

@@ -11,7 +11,8 @@ mod command_gen_tests;
 pub(crate) use summary::payload_json_summary;
 
 use self::models::{
-    FlowStepType, LocalCondition, LocalFlow, LocalFlowStep, LocalTransitionFunction, RemoteFlow,
+    FlowStepType, LocalCondition, LocalFlow, LocalFlowStep, LocalFunctionStep,
+    LocalTransitionFunction, RemoteFlow,
 };
 use self::parsing::{
     default_dtmf_config, default_step_position, function_step_latency_control, local_flows,
@@ -28,6 +29,7 @@ use crate::{
     CommandGenError, flow_import_path_maps_from_projection, prompt_reference_maps_from_projection,
     push_command,
 };
+use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
     ConditionDetails, CreateAdvancedStep, CreateFunctionStep, CreateFunctionStepDefinition,
@@ -41,7 +43,6 @@ use adk_protobuf::flows::{
     UpdateFunctionStep, UpdateFunctionStepDefinition, UpdateNoCodeCondition, UpdateNoCodeStep,
     create_no_code_condition, create_step, update_no_code_condition, update_step,
 };
-use adk_protobuf::{Command, Metadata};
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -76,14 +77,14 @@ pub(crate) fn flow_resource_command_groups(
         if let Some(remote) = remote_flows.get(&flow.name) {
             update_flow_commands(&mut groups, &flow, remote, metadata);
         } else {
-            create_flow_commands(&mut groups.creates, &flow, metadata);
+            create_flow_commands(&mut groups, &flow, metadata);
         }
     }
 
     Ok(groups)
 }
 
-fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Option<Metadata>) {
+fn create_flow_commands(groups: &mut CommandGroups, flow: &LocalFlow, metadata: &Option<Metadata>) {
     let flow_id = stable_resource_id("FLOW_CONFIG", &flow.name, &flow.config_path);
     let mut step_ids = HashMap::new();
     let mut advanced_steps = Vec::new();
@@ -92,6 +93,10 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
     let ordered_steps = ordered_flow_steps(flow);
     let function_steps = ordered_function_steps(flow);
     let transition_functions = ordered_transition_functions(flow);
+    let function_start_step = function_steps
+        .iter()
+        .copied()
+        .find(|step| step.name == flow.start_step);
 
     for (index, step) in ordered_steps.iter().enumerate() {
         let step_id = stable_resource_id("FLOW_STEPS", &step.name, &step.path);
@@ -121,15 +126,28 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
         }
     }
 
-    let start_step_id = step_ids
-        .get(&flow.start_step)
-        .cloned()
+    let reset_start_step_id = function_start_step.map(function_step_id);
+    let temporary_start_step_id = function_start_step.map(temporary_function_start_step_id);
+    if let Some(step_id) = &temporary_start_step_id {
+        no_code_steps.push(CreateNoCodeStep {
+            flow_id: flow_id.clone(),
+            step_id: step_id.clone(),
+            name: format!("{}-temp", flow.name),
+            prompt: "temp prompt".to_string(),
+            position: Some(StepPosition { x: 0.0, y: 0.0 }),
+            references: Some(NoCodeStepReferences::default()),
+        });
+    }
+
+    let start_step_id = temporary_start_step_id
+        .clone()
+        .or_else(|| step_ids.get(&flow.start_step).cloned())
         .or_else(|| advanced_steps.first().map(|step| step.id.clone()))
         .or_else(|| no_code_steps.first().map(|step| step.step_id.clone()))
         .unwrap_or_default();
 
     push_command(
-        out,
+        &mut groups.creates,
         metadata,
         "create_flow",
         CommandPayload::CreateFlow(FlowCreateFlow {
@@ -151,7 +169,7 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
         let step_id = stable_resource_id("FUNCTION_STEPS", &step.name, &step.path);
         let function_id = stable_resource_id("FUNCTION", &step.name, &step.path);
         push_command(
-            out,
+            &mut groups.creates,
             metadata,
             "create_step",
             CommandPayload::CreateStep(adk_protobuf::flows::CreateStep {
@@ -198,7 +216,7 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
             }
             let condition_id = stable_resource_id("CONDITION", &condition.name, &step.path);
             push_command(
-                out,
+                &mut groups.creates,
                 metadata,
                 "create_no_code_condition",
                 CommandPayload::CreateNoCodeCondition(CreateNoCodeCondition {
@@ -229,6 +247,44 @@ fn create_flow_commands(out: &mut Vec<Command>, flow: &LocalFlow, metadata: &Opt
             );
         }
     }
+
+    if let Some(start_step_id) = reset_start_step_id {
+        push_command(
+            &mut groups.post_updates,
+            metadata,
+            "update_flow",
+            CommandPayload::UpdateFlow(FlowUpdateFlow {
+                flow_id: flow_id.clone(),
+                name: Some(flow.name.clone()),
+                description: Some(flow.description.clone()),
+                start_step_id: Some(start_step_id),
+                old_flow_name: None,
+            }),
+        );
+    }
+    if let Some(step_id) = temporary_start_step_id {
+        push_command(
+            &mut groups.cleanup_deletes,
+            metadata,
+            "delete_no_code_step",
+            CommandPayload::DeleteNoCodeStep(adk_protobuf::flows::DeleteNoCodeStep {
+                flow_id,
+                step_id,
+            }),
+        );
+    }
+}
+
+fn function_step_id(step: &LocalFunctionStep) -> String {
+    stable_resource_id("FUNCTION_STEPS", &step.name, &step.path)
+}
+
+fn temporary_function_start_step_id(step: &LocalFunctionStep) -> String {
+    stable_resource_id(
+        "FLOW_STEPS",
+        &format!("{}_start_step_temp", step.name),
+        &format!("{}#start_step_temp", step.path),
+    )
 }
 
 fn transition_function_create_payload(
@@ -647,6 +703,18 @@ fn local_start_step_id(flow: &LocalFlow, remote: &RemoteFlow) -> String {
         .steps_by_name
         .get(&flow.start_step)
         .map(|step| step.id.clone())
+        .or_else(|| {
+            remote
+                .function_steps_by_name
+                .get(&flow.start_step)
+                .map(|step| step.id.clone())
+        })
+        .or_else(|| {
+            flow.function_steps
+                .iter()
+                .find(|step| step.name == flow.start_step)
+                .map(function_step_id)
+        })
         .unwrap_or_else(|| flow.start_step.clone())
 }
 

@@ -1,13 +1,20 @@
 use super::payload_json_summary;
 use crate::test_support::local_resource;
-use crate::{build_push_commands, projection_to_resource_map, resource_file_content};
+use crate::{
+    build_push_commands, build_push_commands_for_changed_resources, projection_to_resource_map,
+    resource_file_content,
+};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
-    AdvancedStepCondition, ConditionDetails, ExitFlowCondition, FlowUpdateTransitionFunction,
-    FunctionStepCondition, NoCodeStepCondition, StepPosition, TransitionFunctionReferences,
-    TransitionFunctionUpdateTransitionFunction, UpdateNoCodeCondition, update_no_code_condition,
+    AdvancedStepCondition, ConditionDetails, CreateNoCodeCondition, DeleteNoCodeCondition,
+    DeleteNoCodeStep, DeleteStep, ExitFlowCondition, FlowCreateFlow, FlowCreateTransitionFunction,
+    FlowDeleteFlow, FlowDeleteTransitionFunction, FlowImportFlow, FlowUpdateFlow, FlowUpdateStep,
+    FlowUpdateStepAsrConfig, FlowUpdateStepDtmfConfig, FlowUpdateTransitionFunction,
+    FlowUpdateTransitionFunctionLatencyControl, FunctionStepCondition, NoCodeStepCondition,
+    StepPosition, TransitionFunctionReferences, TransitionFunctionUpdateTransitionFunction,
+    UpdateNoCodeCondition, UpdateNoCodeStep, create_step, update_no_code_condition,
 };
-use adk_protobuf::functions::{ErrorsUpdate, ParametersUpdate};
+use adk_protobuf::functions::{ErrorsUpdate, FunctionUpdateLatencyControl, ParametersUpdate};
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -399,7 +406,7 @@ fn function_step_round_trips_without_push_commands() {
         local_resource(
             "flows/support_flow/flow_config.yaml",
             "Support Flow",
-            "name: Support Flow\ndescription: ''\nstart_step: step-1\n",
+            "name: Support Flow\ndescription: ''\nstart_step: do_work\n",
         ),
     );
     resources.insert(
@@ -451,6 +458,260 @@ fn function_step_round_trips_without_push_commands() {
 }
 
 #[test]
+fn function_step_start_with_prefixed_projection_key_round_trips_without_commands() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/flow_config.yaml",
+            "Support Flow",
+            "name: Support Flow\ndescription: ''\nstart_step: do_work\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/function_steps/do_work.py".to_string(),
+        local_resource(
+            "flows/support_flow/function_steps/do_work.py",
+            "do_work",
+            "from _gen import *  # <AUTO GENERATED>\n\ndef do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "Support Flow_step-1": {
+                                    "id": "step-1",
+                                    "name": "do_work",
+                                    "type": "function_step",
+                                    "function": {
+                                        "code": "def do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+                                        "latencyControl": {"enabled": false}
+                                    }
+                                }
+                            }
+                        },
+                        "transitionFunctions": {"entities": {}}
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+
+    assert!(
+        commands.is_empty(),
+        "expected no commands, got types: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn new_flow_with_function_step_start_uses_temporary_default_step() {
+    let resources = function_step_start_resources();
+
+    let commands = build_push_commands(&resources, &serde_json::json!({}));
+    let command_types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        command_types,
+        vec![
+            "create_flow",
+            "create_step",
+            "update_flow",
+            "delete_no_code_step"
+        ]
+    );
+
+    let create_flow = match &commands[0].payload {
+        Some(CommandPayload::CreateFlow(flow)) => flow,
+        _ => panic!("expected create_flow payload"),
+    };
+    let temporary_step = create_flow
+        .no_code_steps
+        .iter()
+        .find(|step| step.name == "Support Flow-temp")
+        .expect("temporary default step");
+    assert_eq!(temporary_step.prompt, "temp prompt");
+    assert_eq!(
+        temporary_step.position,
+        Some(StepPosition { x: 0.0, y: 0.0 })
+    );
+    assert_eq!(create_flow.start_step_id, temporary_step.step_id);
+
+    let function_step = match &commands[1].payload {
+        Some(CommandPayload::CreateStep(step)) => match &step.payload {
+            Some(adk_protobuf::flows::create_step::Payload::FunctionStep(function_step)) => {
+                function_step
+            }
+            _ => panic!("expected function step create payload"),
+        },
+        _ => panic!("expected create_step payload"),
+    };
+    assert_eq!(function_step.name, "do_work");
+
+    match &commands[2].payload {
+        Some(CommandPayload::UpdateFlow(update)) => {
+            assert_eq!(update.flow_id, create_flow.id);
+            assert_eq!(update.name.as_deref(), Some("Support Flow"));
+            assert_eq!(update.description.as_deref(), Some("Routes immediately."));
+            assert_eq!(
+                update.start_step_id.as_deref(),
+                Some(function_step.id.as_str())
+            );
+        }
+        _ => panic!("expected update_flow payload"),
+    }
+
+    match &commands[3].payload {
+        Some(CommandPayload::DeleteNoCodeStep(delete)) => {
+            assert_eq!(delete.flow_id, create_flow.id);
+            assert_eq!(delete.step_id, temporary_step.step_id);
+        }
+        _ => panic!("expected delete_no_code_step payload"),
+    }
+}
+
+#[test]
+fn changed_resource_push_keeps_function_start_temp_step_cleanup() {
+    let resources = function_step_start_resources();
+
+    let commands =
+        build_push_commands_for_changed_resources(&resources, &serde_json::json!({}), None);
+    let command_types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        command_types,
+        vec![
+            "create_flow",
+            "create_step",
+            "update_flow",
+            "delete_no_code_step"
+        ]
+    );
+}
+
+#[test]
+fn existing_flow_starting_new_function_step_uses_created_step_id() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/flow_config.yaml",
+            "Support Flow",
+            "name: Support Flow\ndescription: Routes immediately.\nstart_step: do_work\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/function_steps/do_work.py".to_string(),
+        local_resource(
+            "flows/support_flow/function_steps/do_work.py",
+            "do_work",
+            "def do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "Routes immediately.",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "id": "step-1",
+                                    "name": "Collect",
+                                    "type": "advanced_step",
+                                    "prompt": "Collect details"
+                                }
+                            },
+                            "ids": ["step-1"]
+                        },
+                        "transitionFunctions": {"entities": {}}
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands_for_changed_resources(&resources, &projection, None);
+    let command_types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(command_types, vec!["create_step", "update_flow"]);
+
+    let function_step = match &commands[0].payload {
+        Some(CommandPayload::CreateStep(step)) => match &step.payload {
+            Some(adk_protobuf::flows::create_step::Payload::FunctionStep(function_step)) => {
+                function_step
+            }
+            _ => panic!("expected function step create payload"),
+        },
+        _ => panic!("expected create_step payload"),
+    };
+    match &commands[1].payload {
+        Some(CommandPayload::UpdateFlow(update)) => {
+            assert_eq!(
+                update.start_step_id.as_deref(),
+                Some(function_step.id.as_str())
+            );
+        }
+        _ => panic!("expected update_flow payload"),
+    }
+}
+
+fn function_step_start_resources() -> ResourceMap {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/flow_config.yaml",
+            "Support Flow",
+            "name: Support Flow\ndescription: Routes immediately.\nstart_step: do_work\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/steps/collect.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/steps/collect.yaml",
+            "Collect",
+            "step_type: advanced_step\nname: Collect\nasr_biasing: {}\ndtmf_config: {}\nprompt: Collect details\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/function_steps/do_work.py".to_string(),
+        local_resource(
+            "flows/support_flow/function_steps/do_work.py",
+            "do_work",
+            "def do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+        ),
+    );
+    resources
+}
+
+#[test]
 fn projection_function_step_with_module_docstring_import_round_trips_without_commands() {
     let function_path = "flows/support_flow/function_steps/do_work.py";
     let raw_function = "\"\"\"Helpers.\"\"\"\nimport json\n\ndef do_work(conv: Conversation, flow: Flow):\n    return json.dumps({})\n";
@@ -460,7 +721,7 @@ fn projection_function_step_with_module_docstring_import_round_trips_without_com
         local_resource(
             "flows/support_flow/flow_config.yaml",
             "Support Flow",
-            "name: Support Flow\ndescription: ''\nstart_step: step-1\n",
+            "name: Support Flow\ndescription: ''\nstart_step: do_work\n",
         ),
     );
     resources.insert(
@@ -758,6 +1019,180 @@ fn projection_to_resource_map_includes_flow_transition_function_decorators() {
 }
 
 #[test]
+fn flow_payload_json_summary_dispatches_supported_payloads() {
+    let cases = vec![
+        (
+            CommandPayload::CreateFlow(FlowCreateFlow {
+                id: "flow-1".into(),
+                name: "Support".into(),
+                description: "Routes callers".into(),
+                start_step_id: "step-1".into(),
+                steps: vec![],
+                transition_functions: vec![],
+                no_code_steps: vec![],
+            }),
+            "create_flow",
+        ),
+        (
+            CommandPayload::CreateStep(adk_protobuf::flows::CreateStep {
+                flow_id: "flow-1".into(),
+                payload: Some(create_step::Payload::FunctionStep(Default::default())),
+            }),
+            "create_step",
+        ),
+        (
+            CommandPayload::CreateFlowTransitionFunction(FlowCreateTransitionFunction {
+                flow_id: "flow-1".into(),
+                transition_function: None,
+            }),
+            "create_flow_transition_function",
+        ),
+        (
+            CommandPayload::CreateNoCodeCondition(CreateNoCodeCondition {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                condition_id: "condition-1".into(),
+                config: None,
+            }),
+            "create_no_code_condition",
+        ),
+        (
+            CommandPayload::DeleteStep(DeleteStep {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+            }),
+            "delete_step",
+        ),
+        (
+            CommandPayload::DeleteFlow(FlowDeleteFlow {
+                flow_id: "flow-1".into(),
+            }),
+            "delete_flow",
+        ),
+        (
+            CommandPayload::DeleteFlowTransitionFunction(FlowDeleteTransitionFunction {
+                flow_id: "flow-1".into(),
+                function_id: "function-1".into(),
+            }),
+            "delete_flow_transition_function",
+        ),
+        (
+            CommandPayload::DeleteNoCodeCondition(DeleteNoCodeCondition {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                condition_id: "condition-1".into(),
+            }),
+            "delete_no_code_condition",
+        ),
+        (
+            CommandPayload::DeleteNoCodeStep(DeleteNoCodeStep {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+            }),
+            "delete_no_code_step",
+        ),
+        (
+            CommandPayload::UpdateFlowStep(FlowUpdateStep {
+                flow_id: "flow-1".into(),
+                step: None,
+            }),
+            "update_flow_step",
+        ),
+        (
+            CommandPayload::UpdateFlowTransitionFunction(FlowUpdateTransitionFunction {
+                flow_id: "flow-1".into(),
+                transition_function: None,
+            }),
+            "update_flow_transition_function",
+        ),
+        (
+            CommandPayload::UpdateFlowTransitionFunctionLatencyControl(
+                FlowUpdateTransitionFunctionLatencyControl {
+                    flow_id: "flow-1".into(),
+                    latency_control: Some(FunctionUpdateLatencyControl {
+                        function_id: "function-1".into(),
+                        enabled: true,
+                        delay_responses: None,
+                        initial_delay: Some(1),
+                        interval: None,
+                    }),
+                },
+            ),
+            "update_flow_transition_function_latency_control",
+        ),
+        (
+            CommandPayload::UpdateNoCodeStep(UpdateNoCodeStep {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                name: Some("Collect".into()),
+                prompt: None,
+                position: None,
+                references: None,
+            }),
+            "update_no_code_step",
+        ),
+        (
+            CommandPayload::UpdateFlow(FlowUpdateFlow {
+                flow_id: "flow-1".into(),
+                name: Some("Support".into()),
+                description: None,
+                start_step_id: None,
+                old_flow_name: None,
+            }),
+            "update_flow",
+        ),
+        (
+            CommandPayload::UpdateFlowStepAsrConfig(FlowUpdateStepAsrConfig {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                asr_biasing: None,
+            }),
+            "update_flow_step_asr_config",
+        ),
+        (
+            CommandPayload::UpdateFlowStepDtmfConfig(FlowUpdateStepDtmfConfig {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                dtmf_config: None,
+            }),
+            "update_flow_step_dtmf_config",
+        ),
+        (
+            CommandPayload::UpdateNoCodeCondition(UpdateNoCodeCondition {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                condition_id: "condition-1".into(),
+                config: None,
+            }),
+            "update_no_code_condition",
+        ),
+    ];
+
+    for (payload, expected_type) in cases {
+        let (actual_type, summary) =
+            payload_json_summary(&payload).expect("supported flow command summary");
+        assert_eq!(actual_type, expected_type);
+        assert!(
+            summary.is_object(),
+            "{expected_type} summary should be an object"
+        );
+    }
+
+    let unsupported_payload = CommandPayload::ImportFlow(FlowImportFlow {
+        flow_id: "flow-1".into(),
+        steps: vec![],
+        transition_functions: vec![],
+        global_functions: vec![],
+        handoffs: vec![],
+        sms: vec![],
+        attributes: vec![],
+        no_code_steps: vec![],
+        entities: vec![],
+    });
+    assert_eq!(payload_json_summary(&unsupported_payload), None);
+}
+
+#[test]
 fn update_transition_function_summary_includes_optional_sections() {
     let mut flow_steps = HashMap::new();
     flow_steps.insert("step-1".to_string(), true);
@@ -797,6 +1232,25 @@ fn update_transition_function_summary_includes_optional_sections() {
                         "variables": {"var-1": false},
                     },
                 },
+            })
+        ))
+    );
+}
+
+#[test]
+fn delete_no_code_step_summary_includes_flow_and_step_ids() {
+    let payload = CommandPayload::DeleteNoCodeStep(adk_protobuf::flows::DeleteNoCodeStep {
+        flow_id: "flow-1".into(),
+        step_id: "step-1".into(),
+    });
+
+    assert_eq!(
+        payload_json_summary(&payload),
+        Some((
+            "delete_no_code_step",
+            serde_json::json!({
+                "flow_id": "flow-1",
+                "step_id": "step-1",
             })
         ))
     );

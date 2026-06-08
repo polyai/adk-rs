@@ -13,6 +13,8 @@ pub(crate) struct CommandGroups {
     pub creates: Vec<Command>,
     pub updates: Vec<Command>,
     pub post_updates: Vec<Command>,
+    /// Delete commands that clean up temporary resources created by this command batch.
+    pub cleanup_deletes: Vec<Command>,
     pub post_deletes: Vec<Command>,
 }
 
@@ -22,6 +24,7 @@ impl CommandGroups {
         self.creates.extend(other.creates);
         self.updates.extend(other.updates);
         self.post_updates.extend(other.post_updates);
+        self.cleanup_deletes.extend(other.cleanup_deletes);
         self.post_deletes.extend(other.post_deletes);
     }
 }
@@ -102,6 +105,7 @@ fn build_push_commands_inner(
     out.extend(creates);
     out.extend(updates);
     out.extend(groups.post_updates);
+    out.extend(groups.cleanup_deletes);
     if include_deletes {
         out.extend(groups.post_deletes);
     }

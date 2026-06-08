@@ -1,11 +1,12 @@
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
     ConditionDetails, CreateAdvancedStep, CreateFunctionStep, CreateFunctionStepDefinition,
-    CreateNoCodeCondition, CreateNoCodeStep, DeleteNoCodeCondition, DeleteStep, ExitFlowCondition,
-    FlowCreateFlow, FlowCreateTransitionFunction, FlowDeleteFlow, FlowDeleteTransitionFunction,
-    FlowUpdateFlow, FlowUpdateStep, FlowUpdateStepAsrConfig, FlowUpdateStepDtmfConfig,
-    FlowUpdateTransitionFunction, FlowUpdateTransitionFunctionLatencyControl, NoCodeStepReferences,
-    StepAsrConfig, StepAsrConfigUpdate, StepDtmfConfig, StepDtmfConfigUpdate, StepPosition,
+    CreateNoCodeCondition, CreateNoCodeStep, DeleteNoCodeCondition, DeleteNoCodeStep, DeleteStep,
+    ExitFlowCondition, FlowCreateFlow, FlowCreateTransitionFunction, FlowDeleteFlow,
+    FlowDeleteTransitionFunction, FlowUpdateFlow, FlowUpdateStep, FlowUpdateStepAsrConfig,
+    FlowUpdateStepDtmfConfig, FlowUpdateTransitionFunction,
+    FlowUpdateTransitionFunctionLatencyControl, NoCodeStepReferences, StepAsrConfig,
+    StepAsrConfigUpdate, StepDtmfConfig, StepDtmfConfigUpdate, StepPosition,
     TransitionFunctionCreateTransitionFunction, TransitionFunctionReferences,
     TransitionFunctionUpdateTransitionFunction, UpdateAdvancedStep, UpdateNoCodeCondition,
     UpdateNoCodeStep, create_no_code_condition, create_step, update_no_code_condition,
@@ -35,6 +36,9 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
             "delete_no_code_condition",
             delete_no_code_condition_to_json(condition),
         )),
+        CommandPayload::DeleteNoCodeStep(step) => {
+            Some(("delete_no_code_step", delete_no_code_step_to_json(step)))
+        }
         CommandPayload::UpdateFlowStep(step) => {
             Some(("update_flow_step", update_flow_step_to_json(step)))
         }
@@ -319,6 +323,13 @@ fn create_no_code_condition_to_json(condition: &CreateNoCodeCondition) -> Value 
 }
 
 fn delete_step_to_json(step: &DeleteStep) -> Value {
+    json!({
+        "flow_id": step.flow_id,
+        "step_id": step.step_id,
+    })
+}
+
+fn delete_no_code_step_to_json(step: &DeleteNoCodeStep) -> Value {
     json!({
         "flow_id": step.flow_id,
         "step_id": step.step_id,

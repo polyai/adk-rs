@@ -76,6 +76,7 @@ pub(crate) fn sms_template_command_groups(
         creates,
         updates,
         post_updates: Vec::new(),
+        cleanup_deletes: Vec::new(),
         post_deletes: Vec::new(),
     }
 }

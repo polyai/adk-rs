@@ -210,7 +210,7 @@ fn remote_flow_steps_by_name(flow: &JsonValue) -> HashMap<String, RemoteFlowStep
         steps.insert(
             name.clone(),
             RemoteFlowStep {
-                id: id.clone(),
+                id: remote_step_id(id, step),
                 name,
                 step_type,
                 prompt: json_string(step, &["prompt"]).trim().to_string(),
@@ -252,7 +252,7 @@ fn remote_function_steps_by_name(flow: &JsonValue) -> HashMap<String, RemoteFunc
         steps.insert(
             name.clone(),
             RemoteFunctionStep {
-                id: id.clone(),
+                id: remote_step_id(id, step),
                 name,
                 code: step
                     .get("function")
@@ -266,6 +266,10 @@ fn remote_function_steps_by_name(flow: &JsonValue) -> HashMap<String, RemoteFunc
         );
     }
     steps
+}
+
+fn remote_step_id(entity_key: &str, step: &JsonValue) -> String {
+    non_empty(json_string(step, &["id"]), entity_key)
 }
 
 fn remote_transition_functions_by_name(
