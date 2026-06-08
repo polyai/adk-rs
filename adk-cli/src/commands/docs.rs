@@ -23,6 +23,44 @@ pub(crate) const DOC_CHOICES: &[&str] = &[
     "voice_settings",
 ];
 
+const EMBEDDED_DOCS: &[(&str, &str)] = &[
+    ("docs", include_str!("../../docs/docs.md")),
+    (
+        "agent_settings",
+        include_str!("../../docs/agent_settings.md"),
+    ),
+    (
+        "api_integrations",
+        include_str!("../../docs/api_integrations.md"),
+    ),
+    ("chat_settings", include_str!("../../docs/chat_settings.md")),
+    ("entities", include_str!("../../docs/entities.md")),
+    (
+        "experimental_config",
+        include_str!("../../docs/experimental_config.md"),
+    ),
+    ("flows", include_str!("../../docs/flows.md")),
+    ("functions", include_str!("../../docs/functions.md")),
+    ("handoffs", include_str!("../../docs/handoffs.md")),
+    (
+        "response_control",
+        include_str!("../../docs/response_control.md"),
+    ),
+    (
+        "safety_filters",
+        include_str!("../../docs/safety_filters.md"),
+    ),
+    ("sms", include_str!("../../docs/sms.md")),
+    (
+        "speech_recognition",
+        include_str!("../../docs/speech_recognition.md"),
+    ),
+    ("topics", include_str!("../../docs/topics.md")),
+    ("variables", include_str!("../../docs/variables.md")),
+    ("variants", include_str!("../../docs/variants.md")),
+    ("voice_settings", include_str!("../../docs/voice_settings.md")),
+];
+
 pub(crate) fn cmd_docs(args: DocsArgs) -> ExitCode {
     let mut doc_names: Vec<&str> = Vec::new();
     if args.documents.is_empty() && !args.all {
@@ -75,12 +113,32 @@ pub(crate) fn cmd_docs(args: DocsArgs) -> ExitCode {
     }
 }
 
-fn load_docs(document_name: &str) -> Result<String, String> {
-    let docs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("docs")
-        .join(format!("{document_name}.md"));
-    if !docs_path.exists() {
-        return Err(format!("Documentation file {document_name}.md not found."));
+fn load_docs(document_name: &str) -> Result<&'static str, String> {
+    for (name, content) in EMBEDDED_DOCS {
+        if *name == document_name {
+            return Ok(content);
+        }
     }
-    fs::read_to_string(&docs_path).map_err(|e| e.to_string())
+    Err(format!("Documentation file {document_name}.md not found."))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedded_docs_cover_root_and_all_choices() {
+        assert!(load_docs("docs").expect("root docs").contains("# Poly ADK"));
+        for choice in DOC_CHOICES {
+            assert!(load_docs(choice).is_ok(), "missing embedded docs for {choice}");
+        }
+    }
+
+    #[test]
+    fn embedded_docs_report_unknown_documents() {
+        assert_eq!(
+            load_docs("not-a-real-doc").expect_err("unknown doc should fail"),
+            "Documentation file not-a-real-doc.md not found."
+        );
+    }
 }

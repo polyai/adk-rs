@@ -1222,6 +1222,24 @@ fn docs_without_arguments_prints_root_docs() {
 }
 
 #[test]
+fn docs_all_works_from_non_repo_working_directory() {
+    let cwd = temp_dir("adk-rs-docs-cwd");
+    fs::create_dir_all(&cwd).expect("mkdir docs cwd");
+
+    let mut command = poly_offline_command();
+    let output = command
+        .current_dir(&cwd)
+        .args(["docs", "--all"])
+        .output()
+        .expect("run poly docs --all");
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("# Poly ADK"));
+    assert!(stdout.contains("Voice Settings"));
+}
+
+#[test]
 fn docs_output_writes_file_and_reports_path() {
     let project_dir = make_temp_project_dir();
     let output_path = std::path::PathBuf::from(&project_dir)
