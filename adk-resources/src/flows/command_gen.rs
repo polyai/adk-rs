@@ -709,6 +709,12 @@ fn local_start_step_id(flow: &LocalFlow, remote: &RemoteFlow) -> String {
                 .get(&flow.start_step)
                 .map(|step| step.id.clone())
         })
+        .or_else(|| {
+            flow.function_steps
+                .iter()
+                .find(|step| step.name == flow.start_step)
+                .map(function_step_id)
+        })
         .unwrap_or_else(|| flow.start_step.clone())
 }
 

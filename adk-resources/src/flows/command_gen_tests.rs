@@ -544,6 +544,80 @@ fn changed_resource_push_keeps_function_start_temp_step_cleanup() {
     );
 }
 
+#[test]
+fn existing_flow_starting_new_function_step_uses_created_step_id() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/flow_config.yaml",
+            "Support Flow",
+            "name: Support Flow\ndescription: Routes immediately.\nstart_step: do_work\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/function_steps/do_work.py".to_string(),
+        local_resource(
+            "flows/support_flow/function_steps/do_work.py",
+            "do_work",
+            "def do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "Routes immediately.",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "id": "step-1",
+                                    "name": "Collect",
+                                    "type": "advanced_step",
+                                    "prompt": "Collect details"
+                                }
+                            },
+                            "ids": ["step-1"]
+                        },
+                        "transitionFunctions": {"entities": {}}
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands_for_changed_resources(&resources, &projection, None);
+    let command_types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(command_types, vec!["create_step", "update_flow"]);
+
+    let function_step = match &commands[0].payload {
+        Some(CommandPayload::CreateStep(step)) => match &step.payload {
+            Some(adk_protobuf::flows::create_step::Payload::FunctionStep(function_step)) => {
+                function_step
+            }
+            _ => panic!("expected function step create payload"),
+        },
+        _ => panic!("expected create_step payload"),
+    };
+    match &commands[1].payload {
+        Some(CommandPayload::UpdateFlow(update)) => {
+            assert_eq!(
+                update.start_step_id.as_deref(),
+                Some(function_step.id.as_str())
+            );
+        }
+        _ => panic!("expected update_flow payload"),
+    }
+}
+
 fn function_step_start_resources() -> ResourceMap {
     let mut resources = ResourceMap::new();
     resources.insert(
