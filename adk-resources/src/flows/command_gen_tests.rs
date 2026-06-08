@@ -1,6 +1,9 @@
 use super::payload_json_summary;
 use crate::test_support::local_resource;
-use crate::{build_push_commands, projection_to_resource_map, resource_file_content};
+use crate::{
+    build_push_commands, build_push_commands_for_changed_resources, projection_to_resource_map,
+    resource_file_content,
+};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
     AdvancedStepCondition, ConditionDetails, ExitFlowCondition, FlowUpdateTransitionFunction,
@@ -452,31 +455,7 @@ fn function_step_round_trips_without_push_commands() {
 
 #[test]
 fn new_flow_with_function_step_start_uses_temporary_default_step() {
-    let mut resources = ResourceMap::new();
-    resources.insert(
-        "flows/support_flow/flow_config.yaml".to_string(),
-        local_resource(
-            "flows/support_flow/flow_config.yaml",
-            "Support Flow",
-            "name: Support Flow\ndescription: Routes immediately.\nstart_step: do_work\n",
-        ),
-    );
-    resources.insert(
-        "flows/support_flow/steps/collect.yaml".to_string(),
-        local_resource(
-            "flows/support_flow/steps/collect.yaml",
-            "Collect",
-            "step_type: advanced_step\nname: Collect\nasr_biasing: {}\ndtmf_config: {}\nprompt: Collect details\n",
-        ),
-    );
-    resources.insert(
-        "flows/support_flow/function_steps/do_work.py".to_string(),
-        local_resource(
-            "flows/support_flow/function_steps/do_work.py",
-            "do_work",
-            "def do_work(conv: Conversation, flow: Flow):\n    return {}\n",
-        ),
-    );
+    let resources = function_step_start_resources();
 
     let commands = build_push_commands(&resources, &serde_json::json!({}));
     let command_types = commands
@@ -541,6 +520,57 @@ fn new_flow_with_function_step_start_uses_temporary_default_step() {
         }
         _ => panic!("expected delete_no_code_step payload"),
     }
+}
+
+#[test]
+fn changed_resource_push_keeps_function_start_temp_step_cleanup() {
+    let resources = function_step_start_resources();
+
+    let commands =
+        build_push_commands_for_changed_resources(&resources, &serde_json::json!({}), None);
+    let command_types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        command_types,
+        vec![
+            "create_flow",
+            "create_step",
+            "update_flow",
+            "delete_no_code_step"
+        ]
+    );
+}
+
+fn function_step_start_resources() -> ResourceMap {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/flow_config.yaml",
+            "Support Flow",
+            "name: Support Flow\ndescription: Routes immediately.\nstart_step: do_work\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/steps/collect.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/steps/collect.yaml",
+            "Collect",
+            "step_type: advanced_step\nname: Collect\nasr_biasing: {}\ndtmf_config: {}\nprompt: Collect details\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/function_steps/do_work.py".to_string(),
+        local_resource(
+            "flows/support_flow/function_steps/do_work.py",
+            "do_work",
+            "def do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+        ),
+    );
+    resources
 }
 
 #[test]

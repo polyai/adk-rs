@@ -264,7 +264,7 @@ fn create_flow_commands(groups: &mut CommandGroups, flow: &LocalFlow, metadata: 
     }
     if let Some(step_id) = temporary_start_step_id {
         push_command(
-            &mut groups.post_deletes,
+            &mut groups.cleanup_deletes,
             metadata,
             "delete_no_code_step",
             CommandPayload::DeleteNoCodeStep(adk_protobuf::flows::DeleteNoCodeStep {
