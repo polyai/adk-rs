@@ -65,6 +65,8 @@
 
 - Pull request titles and commit messages should follow the Conventional Commits spec.
 - When asked to babysit a PR through review and merge, immediately mark it ready and wait for Codex review.
+- When addressing PR review comments with code changes, also follow up on the corresponding
+  GitHub thread by replying with the fix/commit or resolving the thread once fully addressed.
 - You'll know Codex has begun a review when it adds an eyes emoji to the summary. You'll know
   Codex approves the PR when it adds a thumbs-up emoji on the summary. If it takes more than
   5 minutes with no comments or approval, ask the user for human review.
