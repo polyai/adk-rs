@@ -458,6 +458,66 @@ fn function_step_round_trips_without_push_commands() {
 }
 
 #[test]
+fn function_step_start_with_prefixed_projection_key_round_trips_without_commands() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/flow_config.yaml",
+            "Support Flow",
+            "name: Support Flow\ndescription: ''\nstart_step: do_work\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/function_steps/do_work.py".to_string(),
+        local_resource(
+            "flows/support_flow/function_steps/do_work.py",
+            "do_work",
+            "from _gen import *  # <AUTO GENERATED>\n\ndef do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "description": "",
+                        "startStepId": "step-1",
+                        "steps": {
+                            "entities": {
+                                "Support Flow_step-1": {
+                                    "id": "step-1",
+                                    "name": "do_work",
+                                    "type": "function_step",
+                                    "function": {
+                                        "code": "def do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+                                        "latencyControl": {"enabled": false}
+                                    }
+                                }
+                            }
+                        },
+                        "transitionFunctions": {"entities": {}}
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+
+    assert!(
+        commands.is_empty(),
+        "expected no commands, got types: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn new_flow_with_function_step_start_uses_temporary_default_step() {
     let resources = function_step_start_resources();
 
