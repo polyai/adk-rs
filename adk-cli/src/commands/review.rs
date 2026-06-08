@@ -4,10 +4,9 @@ use std::process::ExitCode;
 
 pub(crate) fn cmd_review(args: ReviewArgs) -> ExitCode {
     let json_mode = match &args.command {
-        Some(ReviewCommands::Create(create)) => args.json || create.json,
-        Some(ReviewCommands::List(list)) => args.json || list.json,
-        Some(ReviewCommands::Delete(delete)) => args.json || delete.json,
-        None => args.json,
+        ReviewCommands::Create(create) => args.json || create.json,
+        ReviewCommands::List(list) => args.json || list.json,
+        ReviewCommands::Delete(delete) => args.json || delete.json,
     };
     emit_review_message(
         json_mode,
