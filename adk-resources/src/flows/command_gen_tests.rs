@@ -6,11 +6,15 @@ use crate::{
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
-    AdvancedStepCondition, ConditionDetails, ExitFlowCondition, FlowUpdateTransitionFunction,
-    FunctionStepCondition, NoCodeStepCondition, StepPosition, TransitionFunctionReferences,
-    TransitionFunctionUpdateTransitionFunction, UpdateNoCodeCondition, update_no_code_condition,
+    AdvancedStepCondition, ConditionDetails, CreateNoCodeCondition, DeleteNoCodeCondition,
+    DeleteNoCodeStep, DeleteStep, ExitFlowCondition, FlowCreateFlow, FlowCreateTransitionFunction,
+    FlowDeleteFlow, FlowDeleteTransitionFunction, FlowImportFlow, FlowUpdateFlow, FlowUpdateStep,
+    FlowUpdateStepAsrConfig, FlowUpdateStepDtmfConfig, FlowUpdateTransitionFunction,
+    FlowUpdateTransitionFunctionLatencyControl, FunctionStepCondition, NoCodeStepCondition,
+    StepPosition, TransitionFunctionReferences, TransitionFunctionUpdateTransitionFunction,
+    UpdateNoCodeCondition, UpdateNoCodeStep, create_step, update_no_code_condition,
 };
-use adk_protobuf::functions::{ErrorsUpdate, ParametersUpdate};
+use adk_protobuf::functions::{ErrorsUpdate, FunctionUpdateLatencyControl, ParametersUpdate};
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -952,6 +956,180 @@ fn projection_to_resource_map_includes_flow_transition_function_decorators() {
         content.contains("@func_latency_control("),
         "missing @func_latency_control: {content}"
     );
+}
+
+#[test]
+fn flow_payload_json_summary_dispatches_supported_payloads() {
+    let cases = vec![
+        (
+            CommandPayload::CreateFlow(FlowCreateFlow {
+                id: "flow-1".into(),
+                name: "Support".into(),
+                description: "Routes callers".into(),
+                start_step_id: "step-1".into(),
+                steps: vec![],
+                transition_functions: vec![],
+                no_code_steps: vec![],
+            }),
+            "create_flow",
+        ),
+        (
+            CommandPayload::CreateStep(adk_protobuf::flows::CreateStep {
+                flow_id: "flow-1".into(),
+                payload: Some(create_step::Payload::FunctionStep(Default::default())),
+            }),
+            "create_step",
+        ),
+        (
+            CommandPayload::CreateFlowTransitionFunction(FlowCreateTransitionFunction {
+                flow_id: "flow-1".into(),
+                transition_function: None,
+            }),
+            "create_flow_transition_function",
+        ),
+        (
+            CommandPayload::CreateNoCodeCondition(CreateNoCodeCondition {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                condition_id: "condition-1".into(),
+                config: None,
+            }),
+            "create_no_code_condition",
+        ),
+        (
+            CommandPayload::DeleteStep(DeleteStep {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+            }),
+            "delete_step",
+        ),
+        (
+            CommandPayload::DeleteFlow(FlowDeleteFlow {
+                flow_id: "flow-1".into(),
+            }),
+            "delete_flow",
+        ),
+        (
+            CommandPayload::DeleteFlowTransitionFunction(FlowDeleteTransitionFunction {
+                flow_id: "flow-1".into(),
+                function_id: "function-1".into(),
+            }),
+            "delete_flow_transition_function",
+        ),
+        (
+            CommandPayload::DeleteNoCodeCondition(DeleteNoCodeCondition {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                condition_id: "condition-1".into(),
+            }),
+            "delete_no_code_condition",
+        ),
+        (
+            CommandPayload::DeleteNoCodeStep(DeleteNoCodeStep {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+            }),
+            "delete_no_code_step",
+        ),
+        (
+            CommandPayload::UpdateFlowStep(FlowUpdateStep {
+                flow_id: "flow-1".into(),
+                step: None,
+            }),
+            "update_flow_step",
+        ),
+        (
+            CommandPayload::UpdateFlowTransitionFunction(FlowUpdateTransitionFunction {
+                flow_id: "flow-1".into(),
+                transition_function: None,
+            }),
+            "update_flow_transition_function",
+        ),
+        (
+            CommandPayload::UpdateFlowTransitionFunctionLatencyControl(
+                FlowUpdateTransitionFunctionLatencyControl {
+                    flow_id: "flow-1".into(),
+                    latency_control: Some(FunctionUpdateLatencyControl {
+                        function_id: "function-1".into(),
+                        enabled: true,
+                        delay_responses: None,
+                        initial_delay: Some(1),
+                        interval: None,
+                    }),
+                },
+            ),
+            "update_flow_transition_function_latency_control",
+        ),
+        (
+            CommandPayload::UpdateNoCodeStep(UpdateNoCodeStep {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                name: Some("Collect".into()),
+                prompt: None,
+                position: None,
+                references: None,
+            }),
+            "update_no_code_step",
+        ),
+        (
+            CommandPayload::UpdateFlow(FlowUpdateFlow {
+                flow_id: "flow-1".into(),
+                name: Some("Support".into()),
+                description: None,
+                start_step_id: None,
+                old_flow_name: None,
+            }),
+            "update_flow",
+        ),
+        (
+            CommandPayload::UpdateFlowStepAsrConfig(FlowUpdateStepAsrConfig {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                asr_biasing: None,
+            }),
+            "update_flow_step_asr_config",
+        ),
+        (
+            CommandPayload::UpdateFlowStepDtmfConfig(FlowUpdateStepDtmfConfig {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                dtmf_config: None,
+            }),
+            "update_flow_step_dtmf_config",
+        ),
+        (
+            CommandPayload::UpdateNoCodeCondition(UpdateNoCodeCondition {
+                flow_id: "flow-1".into(),
+                step_id: "step-1".into(),
+                condition_id: "condition-1".into(),
+                config: None,
+            }),
+            "update_no_code_condition",
+        ),
+    ];
+
+    for (payload, expected_type) in cases {
+        let (actual_type, summary) =
+            payload_json_summary(&payload).expect("supported flow command summary");
+        assert_eq!(actual_type, expected_type);
+        assert!(
+            summary.is_object(),
+            "{expected_type} summary should be an object"
+        );
+    }
+
+    let unsupported_payload = CommandPayload::ImportFlow(FlowImportFlow {
+        flow_id: "flow-1".into(),
+        steps: vec![],
+        transition_functions: vec![],
+        global_functions: vec![],
+        handoffs: vec![],
+        sms: vec![],
+        attributes: vec![],
+        no_code_steps: vec![],
+        entities: vec![],
+    });
+    assert_eq!(payload_json_summary(&unsupported_payload), None);
 }
 
 #[test]
