@@ -48,6 +48,8 @@ pub(crate) enum Commands {
     Validate(ValidateArgs),
     #[command(about = "Start an interactive chat session with the agent.")]
     Chat(ChatArgs),
+    #[command(about = "List and inspect conversations.")]
+    Conversations(ConversationsArgs),
     #[command(about = "Update the ADK CLI installed by the release shell installer.")]
     SelfUpdate(SelfUpdateArgs),
     #[command(
@@ -453,6 +455,70 @@ pub(crate) struct ChatArgs {
     pub(crate) json: bool,
     #[arg(long, action = ArgAction::SetTrue)]
     pub(crate) debug: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) verbose: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct ConversationsArgs {
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) verbose: bool,
+    #[command(subcommand)]
+    pub(crate) command: ConversationsCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum ConversationsCommands {
+    #[command(about = "List conversations for the project.")]
+    List(ConversationsListArgs),
+    #[command(about = "Get details for a specific conversation.")]
+    Get(ConversationsGetArgs),
+    #[command(about = "Download audio recording for a conversation.")]
+    GetAudio(ConversationsGetAudioArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct ConversationsListArgs {
+    #[arg(long, default_value = ".")]
+    pub(crate) path: String,
+    #[arg(long, default_value_t = 50)]
+    pub(crate) limit: usize,
+    #[arg(long, default_value_t = 0)]
+    pub(crate) offset: usize,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) json: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) verbose: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct ConversationsGetArgs {
+    pub(crate) conversation_id: String,
+    #[arg(long, default_value = ".")]
+    pub(crate) path: String,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) json: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) verbose: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct ConversationsGetAudioArgs {
+    pub(crate) conversation_id: String,
+    #[arg(long, default_value = ".")]
+    pub(crate) path: String,
+    #[arg(
+        long,
+        default_value = "combined",
+        value_parser = clap::builder::PossibleValuesParser::new(["combined", "user", "agent"])
+    )]
+    pub(crate) direction: String,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) redacted: bool,
+    #[arg(long = "output", short = 'o')]
+    pub(crate) output_path: Option<String>,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) json: bool,
     #[arg(long, action = ArgAction::SetTrue)]
     pub(crate) verbose: bool,
 }

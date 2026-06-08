@@ -20,8 +20,10 @@ rich_rust.workspace = true
 adk-core.workspace = true
 adk-api-client.workspace = true
 adk-resources.workspace = true
+adk-types.workspace = true
 # 3rd-party CLI-only dependencies
 axoupdater = { version = "0.10.0", features = ["blocking"] }
+chrono.workspace = true
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }

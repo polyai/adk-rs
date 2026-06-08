@@ -1,5 +1,5 @@
 use super::*;
-use adk_types::Resource;
+use adk_types::{ConversationShortSummary, Resource};
 use httpmock::Method::GET;
 use httpmock::{Mock, MockServer};
 use serde_json::json;
@@ -108,6 +108,20 @@ fn deployment_projection_mock<'a>(
 
 fn empty_projection() -> Value {
     json!({})
+}
+
+fn redacted_us_studio_get_conversation_fixture() -> Value {
+    serde_json::from_str(include_str!(
+        "../tests/fixtures/conversations/get_conversation_us_studio_redacted.json"
+    ))
+    .expect("redacted US Studio get_conversation fixture is valid JSON")
+}
+
+fn redacted_us_studio_list_conversations_fixture() -> Value {
+    serde_json::from_str(include_str!(
+        "../tests/fixtures/conversations/list_conversations_us_studio_limit_2_redacted.json"
+    ))
+    .expect("redacted US Studio list_conversations fixture is valid JSON")
 }
 
 #[test]
@@ -614,6 +628,262 @@ fn extract_response_commands_reads_common_response_shapes() {
         "result": {"commands": [{"type": "update_topic"}]}
     });
     assert_eq!(extract_response_commands(&nested_result).len(), 1);
+}
+
+#[test]
+fn backend_status_errors_include_correlation_id_and_status_class() {
+    let error = http_status_error(
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+        "https://api.example.test/resource",
+        "adk-test-correlation",
+    )
+    .to_string();
+
+    assert!(error.contains("500 Server Error: Internal Server Error"));
+    assert!(error.contains("correlation ID: adk-test-correlation"));
+}
+
+#[test]
+fn adk_json_status_errors_include_sent_correlation_id() {
+    let server = MockServer::start();
+    let projection = server.mock(|when, then| {
+        when.method(GET)
+            .path("/adk/v1/accounts/test-account/projects/test-project/branches/main/projection")
+            .header_exists("X-PolyAI-Correlation-Id");
+        then.status(500)
+            .json_body(json!({"error": "backend exploded"}));
+    });
+
+    let error = adk_v1_test_client(&server)
+        .pull_projection_json()
+        .expect_err("500 should fail")
+        .to_string();
+
+    assert!(error.contains("500 Server Error: Internal Server Error"));
+    assert!(error.contains("correlation ID: adk-"));
+    projection.assert();
+}
+
+#[test]
+fn conversations_endpoints_use_public_platform_api() {
+    let server = MockServer::start();
+    let list = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/test-project/conversations")
+            .query_param("limit", "20")
+            .query_param("offset", "5");
+        then.status(200).json_body(json!({
+            "conversations": [{
+                "conversationId": "KA-123",
+                "accountId": "test-account",
+                "projectId": "test-project"
+            }],
+            "count": 1,
+            "limit": 20,
+            "offset": 5
+        }));
+    });
+    let get = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/test-project/conversations/KA-123");
+        then.status(200).json_body(json!({
+            "conversationId": "KA-123",
+            "accountId": "test-account",
+            "projectId": "test-project",
+            "turns": []
+        }));
+    });
+    let audio = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/test-project/conversations/KA-123/audio")
+            .query_param("direction", "user")
+            .query_param("redacted", "true");
+        then.status(200).body("RIFFtest");
+    });
+
+    let client = test_client(server.base_url());
+    let conversations = client
+        .list_conversations(20, 5)
+        .expect("list conversations");
+    assert_eq!(conversations.conversations[0].conversation_id, "KA-123");
+
+    let conversation = client.get_conversation("KA-123").expect("get conversation");
+    assert_eq!(conversation.summary.conversation_id, "KA-123");
+
+    let bytes = client
+        .get_conversation_audio("KA-123", "user", true)
+        .expect("get conversation audio");
+    assert_eq!(bytes, b"RIFFtest");
+    list.assert();
+    get.assert();
+    audio.assert();
+}
+
+#[test]
+fn conversations_list_deserializes_data_api_fields() {
+    let server = MockServer::start();
+    let list = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/test-project/conversations")
+            .query_param("limit", "2")
+            .query_param("offset", "0");
+        then.status(200)
+            .json_body(redacted_us_studio_list_conversations_fixture());
+    });
+
+    let response = test_client(server.base_url())
+        .list_conversations(2, 0)
+        .expect("list conversations");
+
+    assert_eq!(response.count, 3);
+    assert_eq!(response.limit, 2);
+    assert_eq!(response.offset, 0);
+    assert_eq!(response.conversations.len(), 2);
+    assert!(response.extra.is_empty());
+
+    let first = &response.conversations[0];
+    assert_eq!(first.conversation_id, "CA681f3ad0d037c1884614548178a5bc1b");
+    assert_eq!(first.account_id, "PLATFORM");
+    assert_eq!(first.project_id, "pacden-copy-usp");
+    assert_eq!(
+        first.started_at.as_deref(),
+        Some("2026-06-03T14:00:38.580000+00:00")
+    );
+    assert_eq!(first.duration, Some(4));
+    assert_eq!(first.total_duration, Some(4));
+    assert_eq!(first.polyai_duration, Some(4));
+    assert_eq!(first.from_number.as_deref(), Some("+440000000001"));
+    assert_eq!(first.to_number.as_deref(), Some("+440000000002"));
+    assert_eq!(first.handoff, Some(false));
+    assert_eq!(first.short_summary, None);
+    assert_eq!(first.variant_id, None);
+
+    let second = &response.conversations[1];
+    assert_eq!(second.conversation_id, "CAda1490e8c7548f99b6f524af75c34f64");
+    assert_eq!(second.duration, Some(5));
+    assert_eq!(second.total_duration, Some(5));
+    list.assert();
+}
+
+#[test]
+fn conversations_get_deserializes_detail_turns_and_function_events() {
+    let server = MockServer::start();
+    let get = server.mock(|when, then| {
+        when.method(GET).path(
+            "/v1/agents/test-project/conversations/LOCAL-0725f700-6fa7-437a-8fe6-3de9828a95c0",
+        );
+        then.status(200)
+            .json_body(redacted_us_studio_get_conversation_fixture());
+    });
+
+    let conversation = test_client(server.base_url())
+        .get_conversation("LOCAL-0725f700-6fa7-437a-8fe6-3de9828a95c0")
+        .expect("get conversation");
+
+    assert_eq!(
+        conversation.summary.conversation_id,
+        "LOCAL-0725f700-6fa7-437a-8fe6-3de9828a95c0"
+    );
+    assert_eq!(conversation.summary.account_id, "PLATFORM");
+    assert_eq!(conversation.summary.project_id, "pacden-copy-usp");
+    assert_eq!(conversation.summary.direction.as_deref(), Some("inbound"));
+    assert_eq!(conversation.summary.duration, Some(73));
+    assert_eq!(conversation.summary.handoff, Some(true));
+    assert_eq!(
+        conversation.summary.handoff_destination.as_deref(),
+        Some("Example Clinic")
+    );
+    assert_eq!(
+        conversation.summary.short_summary,
+        Some(ConversationShortSummary::Object {
+            heading: Some("Check appointment details".to_string()),
+            content: Some(
+                "The caller contacted the clinic to check their appointment. The agent had trouble capturing the full phone number and transferred the caller to a human representative."
+                    .to_string()
+            ),
+            extra: serde_json::Map::new()
+        })
+    );
+    assert_eq!(
+        conversation
+            .metrics
+            .as_ref()
+            .and_then(|value| value.pointer("/CALL_DURATION/0/value")),
+        Some(&json!("73"))
+    );
+    assert_eq!(
+        conversation
+            .function_events
+            .as_ref()
+            .and_then(|value| value.pointer("/6/0/name")),
+        Some(&json!("save_caller_phone_number"))
+    );
+    assert_eq!(conversation.turns.len(), 2);
+    assert_eq!(
+        conversation.turns[0].agent_response.as_deref(),
+        Some(
+            "Your phone call may be monitored or recorded. Thank you for choosing the clinic, this is Emily, I'm an AI agent. How may I help you?"
+        )
+    );
+    assert_eq!(
+        conversation.turns[0].extra.get("turn_id"),
+        Some(&json!(743916318))
+    );
+    assert_eq!(
+        conversation.turns[1].user_input.as_deref(),
+        Some("One two three four five six seven eight nine zero")
+    );
+    get.assert();
+}
+
+#[test]
+fn conversations_reject_legacy_conversations_api_payload_shape() {
+    let server = MockServer::start();
+    let list = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/test-project/conversations")
+            .query_param("limit", "50")
+            .query_param("offset", "0");
+        then.status(200).json_body(json!({
+            "conversations": [{
+                "id": "CA-123",
+                "account_id": "test-account",
+                "project_id": "test-project"
+            }],
+            "count": 1,
+            "limit": 50,
+            "offset": 0
+        }));
+    });
+
+    let error = test_client(server.base_url())
+        .list_conversations(50, 0)
+        .expect_err("legacy Conversations API shape should not deserialize")
+        .to_string();
+
+    assert!(error.contains("conversationId"));
+    list.assert();
+}
+
+#[test]
+fn platform_status_errors_include_sent_correlation_id() {
+    let server = MockServer::start();
+    let get = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/agents/test-project/conversations/KA-500")
+            .header_exists("X-PolyAI-Correlation-Id");
+        then.status(500)
+            .json_body(json!({"error": "backend exploded"}));
+    });
+
+    let error = test_client(server.base_url())
+        .get_conversation("KA-500")
+        .expect_err("500 should fail")
+        .to_string();
+
+    assert!(error.contains("500 Server Error: Internal Server Error"));
+    assert!(error.contains("correlation ID: adk-"));
+    get.assert();
 }
 
 fn test_client(base_url: String) -> HttpPlatformClient {
@@ -1321,7 +1591,8 @@ fn merge_branch_reports_non_conflict_errors() {
     });
     server.mock(|when, then| {
         when.method(POST)
-            .path("/accounts/test-account/projects/test-project/branches/main/merge");
+            .path("/accounts/test-account/projects/test-project/branches/main/merge")
+            .header_exists("X-PolyAI-Correlation-Id");
         then.status(500)
             .json_body(serde_json::json!({"error": "boom"}));
     });
@@ -1333,6 +1604,7 @@ fn merge_branch_reports_non_conflict_errors() {
 
     assert!(error.contains("status=500"));
     assert!(error.contains("boom"));
+    assert!(error.contains("correlation ID: adk-"));
 }
 
 #[test]

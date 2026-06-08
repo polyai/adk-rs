@@ -2013,6 +2013,7 @@ version = "0.0.8"
 dependencies = [
  "anyhow",
  "axoupdater",
+ "chrono",
  "clap",
  "clap_complete",
  "ctrlc",
@@ -2022,6 +2023,7 @@ dependencies = [
  "poly-adk-api-client",
  "poly-adk-core",
  "poly-adk-resources",
+ "poly-adk-types",
  "reqwest 0.12.28",
  "rich_rust",
  "serde",

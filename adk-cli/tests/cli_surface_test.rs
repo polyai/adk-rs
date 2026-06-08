@@ -272,6 +272,7 @@ fn top_level_help_matches_python_command_surface() {
         ),
         ("validate", "Validate the project configuration locally."),
         ("chat", "Start an interactive chat session with the agent."),
+        ("conversations", "List and inspect conversations."),
         (
             "self-update",
             "Update the ADK CLI installed by the release shell installer.",

@@ -1,6 +1,7 @@
 pub(crate) mod branch;
 mod chat;
 mod completion;
+mod conversations;
 mod deployments;
 pub(crate) mod diff;
 pub(crate) mod docs;
@@ -21,6 +22,7 @@ mod validate;
 pub(crate) use branch::cmd_branch;
 pub(crate) use chat::cmd_chat;
 pub(crate) use completion::cmd_completion;
+pub(crate) use conversations::cmd_conversations;
 pub(crate) use deployments::cmd_deployments;
 pub(crate) use diff::{cmd_diff, validate_diff_args};
 pub(crate) use docs::cmd_docs;

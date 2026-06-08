@@ -3,7 +3,10 @@ use adk_resources::{
     command_to_json_summary, try_build_push_commands_for_changed_resources,
     try_build_push_commands_with_created_by,
 };
-use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
+use adk_types::{
+    BranchDescriptor, BranchMergeResult, ConversationDetail, ConversationListResponse,
+    ConversationSummary, DeploymentList, PushResult, ResourceMap,
+};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
@@ -216,6 +219,66 @@ impl PlatformClient for InMemoryPlatformClient {
 
     fn end_chat_session(&self, _payload: Value) -> Result<Value, ApiError> {
         Ok(serde_json::json!({"success": true}))
+    }
+
+    fn list_conversations(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<ConversationListResponse, ApiError> {
+        Ok(ConversationListResponse {
+            conversations: vec![],
+            count: 0,
+            limit,
+            offset,
+            extra: serde_json::Map::new(),
+        })
+    }
+
+    fn get_conversation(&self, conversation_id: &str) -> Result<ConversationDetail, ApiError> {
+        Ok(ConversationDetail {
+            summary: ConversationSummary {
+                conversation_id: conversation_id.to_string(),
+                account_id: "local-account".to_string(),
+                project_id: "local-project".to_string(),
+                created_at: None,
+                started_at: None,
+                finished_at: None,
+                channel: None,
+                from_number: None,
+                to_number: None,
+                language: None,
+                variant_id: None,
+                client_env: None,
+                total_duration: None,
+                polyai_duration: None,
+                duration: None,
+                in_progress: None,
+                handoff: None,
+                handoff_destination: None,
+                handoff_reason: None,
+                direction: None,
+                tags: vec![],
+                poly_score: None,
+                short_summary: None,
+                deployment_id: None,
+                note: None,
+                audio_url: None,
+                extra: serde_json::Map::new(),
+            },
+            turns: vec![],
+            metrics: None,
+            function_events: None,
+        })
+    }
+
+    fn get_conversation_audio(
+        &self,
+        _conversation_id: &str,
+        _direction: &str,
+        _redacted: bool,
+    ) -> Result<Vec<u8>, ApiError> {
+        Ok(Vec::new())
     }
 
     fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {

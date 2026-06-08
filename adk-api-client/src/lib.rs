@@ -3,7 +3,10 @@ use adk_resources::{
     CommandGenError, command_to_json_summary, projection_to_resource_map,
     try_build_push_commands_for_changed_resources, try_build_push_commands_with_created_by,
 };
-use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
+use adk_types::{
+    BranchDescriptor, BranchMergeResult, ConversationDetail, ConversationListResponse,
+    DeploymentList, PushResult, ResourceMap,
+};
 use prost::Message;
 use serde_json::Value;
 use std::env;
@@ -14,11 +17,15 @@ use uuid::Uuid;
 pub enum ApiError {
     #[error("http error: {0}")]
     Http(String),
-    #[error("{status_code} Client Error: {reason} for url: {url}")]
+    #[error(
+        "{status_code} {error_kind}: {reason} for url: {url} (correlation ID: {correlation_id})"
+    )]
     HttpStatus {
         status_code: u16,
+        error_kind: String,
         reason: String,
         url: String,
+        correlation_id: String,
     },
     #[error("missing required configuration: {0}")]
     MissingConfig(String),
@@ -122,6 +129,18 @@ pub trait PlatformClient: Send + Sync {
     fn create_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
     fn send_chat_message(&self, _payload: Value) -> Result<Value, ApiError>;
     fn end_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
+    fn list_conversations(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<ConversationListResponse, ApiError>;
+    fn get_conversation(&self, conversation_id: &str) -> Result<ConversationDetail, ApiError>;
+    fn get_conversation_audio(
+        &self,
+        conversation_id: &str,
+        direction: &str,
+        redacted: bool,
+    ) -> Result<Vec<u8>, ApiError>;
     fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError>;
     fn create_branch(&self, branch_name: &str) -> Result<String, ApiError>;
     fn delete_branch(&self, branch_id: &str) -> Result<(), ApiError>;
@@ -330,16 +349,17 @@ impl HttpPlatformClient {
     ) -> Result<Value, ApiError> {
         let base_url = base_url_for_region(region)?;
         let url = format!("{base_url}{endpoint}");
+        let correlation_id = new_correlation_id();
         let response = reqwest::blocking::Client::new()
             .get(&url)
             .header("X-API-KEY", api_key)
-            .header("X-PolyAI-Correlation-Id", format!("adk-{}", Uuid::new_v4()))
+            .header("X-PolyAI-Correlation-Id", &correlation_id)
             .header("Content-Type", "application/json")
             .send()
             .map_err(|e| ApiError::Http(e.to_string()))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(http_status_error(status, &url));
+            return Err(http_status_error(status, &url, &correlation_id));
         }
         response.json().map_err(|e| ApiError::Http(e.to_string()))
     }
@@ -353,17 +373,18 @@ impl HttpPlatformClient {
     ) -> Result<Value, ApiError> {
         let base_url = base_url_for_region(region)?;
         let url = format!("{}{}", platform_root_url(&base_url), endpoint);
+        let correlation_id = new_correlation_id();
         let response = reqwest::blocking::Client::new()
             .request(method, &url)
             .header("X-API-KEY", api_key)
-            .header("X-PolyAI-Correlation-Id", format!("adk-{}", Uuid::new_v4()))
+            .header("X-PolyAI-Correlation-Id", &correlation_id)
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
             .map_err(|e| ApiError::Http(e.to_string()))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(http_status_error(status, &url));
+            return Err(http_status_error(status, &url, &correlation_id));
         }
         response.json().map_err(|e| ApiError::Http(e.to_string()))
     }
@@ -376,10 +397,12 @@ impl HttpPlatformClient {
         body: Option<Value>,
     ) -> Result<Value, ApiError> {
         let url = format!("{}{}", self.base_url, endpoint);
+        let correlation_id = new_correlation_id();
         let mut request = self
             .client
             .request(method, &url)
             .header("X-API-KEY", &self.api_key)
+            .header("X-PolyAI-Correlation-Id", &correlation_id)
             .header("Content-Type", "application/json");
         request = self.with_command_user_override_header(request);
         if let Some(q) = query {
@@ -391,7 +414,7 @@ impl HttpPlatformClient {
         let response = request.send().map_err(|e| ApiError::Http(e.to_string()))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(http_status_error(status, &url));
+            return Err(http_status_error(status, &url, &correlation_id));
         }
         response.json().map_err(|e| ApiError::Http(e.to_string()))
     }
@@ -402,33 +425,77 @@ impl HttpPlatformClient {
         endpoint: &str,
         payload: Option<Value>,
     ) -> Result<Value, ApiError> {
+        self.request_platform_json_with_query(method, endpoint, None, payload)
+    }
+
+    fn request_platform_json_with_query(
+        &self,
+        method: reqwest::Method,
+        endpoint: &str,
+        query: Option<&[(&str, String)]>,
+        payload: Option<Value>,
+    ) -> Result<Value, ApiError> {
         let url = format!("{}{}", platform_root_url(&self.base_url), endpoint);
+        let correlation_id = new_correlation_id();
         let mut request = self
             .client
             .request(method, &url)
             .header("X-API-KEY", &self.api_key)
-            .header("X-PolyAI-Correlation-Id", format!("adk-{}", Uuid::new_v4()))
+            .header("X-PolyAI-Correlation-Id", &correlation_id)
             .header("Content-Type", "application/json");
         request = self.with_command_user_override_header(request);
+        if let Some(query) = query {
+            request = request.query(query);
+        }
         if let Some(payload) = payload {
             request = request.json(&payload);
         }
         let response = request.send().map_err(|e| ApiError::Http(e.to_string()))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(http_status_error(status, &url));
+            return Err(http_status_error(status, &url, &correlation_id));
         }
         response.json().map_err(|e| ApiError::Http(e.to_string()))
     }
 
+    fn request_platform_bytes(
+        &self,
+        endpoint: &str,
+        query: Option<&[(&str, String)]>,
+    ) -> Result<Vec<u8>, ApiError> {
+        let url = format!("{}{}", platform_root_url(&self.base_url), endpoint);
+        let client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        let correlation_id = new_correlation_id();
+        let mut request = client
+            .get(&url)
+            .header("X-API-KEY", &self.api_key)
+            .header("X-PolyAI-Correlation-Id", &correlation_id);
+        request = self.with_command_user_override_header(request);
+        if let Some(query) = query {
+            request = request.query(query);
+        }
+        let response = request.send().map_err(|e| ApiError::Http(e.to_string()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(http_status_error(status, &url, &correlation_id));
+        }
+        response
+            .bytes()
+            .map(|bytes| bytes.to_vec())
+            .map_err(|e| ApiError::Http(e.to_string()))
+    }
+
     fn request_binary_json(&self, endpoint: &str, payload: &[u8]) -> Result<Value, ApiError> {
         let url = format!("{}{}", self.base_url, endpoint);
-        let correlation_id = format!("adk-{}", Uuid::new_v4());
+        let correlation_id = new_correlation_id();
         let request = self
             .client
             .post(&url)
             .header("X-API-KEY", &self.api_key)
-            .header("X-PolyAI-Correlation-Id", correlation_id)
+            .header("X-PolyAI-Correlation-Id", &correlation_id)
             .header("Content-Type", "application/octet-stream");
         let response = self
             .with_command_user_override_header(request)
@@ -437,7 +504,7 @@ impl HttpPlatformClient {
             .map_err(|e| ApiError::Http(e.to_string()))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(http_status_error(status, &url));
+            return Err(http_status_error(status, &url, &correlation_id));
         }
         response.json().map_err(|e| ApiError::Http(e.to_string()))
     }
@@ -992,6 +1059,48 @@ impl PlatformClient for HttpPlatformClient {
         )
     }
 
+    fn list_conversations(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<ConversationListResponse, ApiError> {
+        let endpoint = format!("/v1/agents/{}/conversations", self.project_id);
+        let limit = limit.to_string();
+        let offset = offset.to_string();
+        let query = [("limit", limit), ("offset", offset)];
+        let value = self.request_platform_json_with_query(
+            reqwest::Method::GET,
+            &endpoint,
+            Some(&query),
+            None,
+        )?;
+        serde_json::from_value(value).map_err(|e| ApiError::Http(e.to_string()))
+    }
+
+    fn get_conversation(&self, conversation_id: &str) -> Result<ConversationDetail, ApiError> {
+        let endpoint = format!(
+            "/v1/agents/{}/conversations/{conversation_id}",
+            self.project_id
+        );
+        let value = self.request_platform_json(reqwest::Method::GET, &endpoint, None)?;
+        serde_json::from_value(value).map_err(|e| ApiError::Http(e.to_string()))
+    }
+
+    fn get_conversation_audio(
+        &self,
+        conversation_id: &str,
+        direction: &str,
+        redacted: bool,
+    ) -> Result<Vec<u8>, ApiError> {
+        let endpoint = format!(
+            "/v1/agents/{}/conversations/{conversation_id}/audio",
+            self.project_id
+        );
+        let redacted = redacted.to_string();
+        let query = [("direction", direction.to_string()), ("redacted", redacted)];
+        self.request_platform_bytes(&endpoint, Some(&query))
+    }
+
     fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
         let payload =
             self.request_json(reqwest::Method::GET, &self.branches_endpoint(), None, None)?;
@@ -1075,10 +1184,12 @@ impl PlatformClient for HttpPlatformClient {
             self.account_id, self.project_id, self.branch_id
         );
         let url = format!("{}{}", self.base_url, endpoint);
+        let correlation_id = new_correlation_id();
         let response = self
             .client
-            .post(url)
+            .post(&url)
             .header("X-API-KEY", &self.api_key)
+            .header("X-PolyAI-Correlation-Id", &correlation_id)
             .header("Content-Type", "application/json")
             .json(&payload)
             .send()
@@ -1113,10 +1224,14 @@ impl PlatformClient for HttpPlatformClient {
                         .map(ToString::to_string),
                 });
             }
-            return Err(ApiError::Http(format!("status={status} body={body}")));
+            return Err(ApiError::Http(format!(
+                "status={status} body={body} (correlation ID: {correlation_id})"
+            )));
         }
         if !status.is_success() {
-            return Err(ApiError::Http(format!("status={status} body={body}")));
+            return Err(ApiError::Http(format!(
+                "status={status} body={body} (correlation ID: {correlation_id})"
+            )));
         }
         Ok(BranchMergeResult {
             success: true,
@@ -1317,14 +1432,31 @@ fn default_voice_id(region: &str) -> &'static str {
     }
 }
 
-pub(crate) fn http_status_error(status: reqwest::StatusCode, url: &str) -> ApiError {
+fn new_correlation_id() -> String {
+    format!("adk-{}", Uuid::new_v4())
+}
+
+pub(crate) fn http_status_error(
+    status: reqwest::StatusCode,
+    url: &str,
+    correlation_id: &str,
+) -> ApiError {
     ApiError::HttpStatus {
         status_code: status.as_u16(),
+        error_kind: if status.is_server_error() {
+            "Server Error"
+        } else if status.is_client_error() {
+            "Client Error"
+        } else {
+            "HTTP Error"
+        }
+        .to_string(),
         reason: status
             .canonical_reason()
             .unwrap_or_else(|| status.as_str())
             .to_string(),
         url: url.to_string(),
+        correlation_id: correlation_id.to_string(),
     }
 }
 

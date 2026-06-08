@@ -1,6 +1,5 @@
-use crate::{ApiError, http_status_error};
+use crate::{ApiError, http_status_error, new_correlation_id};
 use serde_json::Value;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Auth0DeviceCode {
@@ -53,9 +52,11 @@ impl Auth0Client {
 
     pub fn request_device_code(&self) -> Result<Auth0DeviceCode, ApiError> {
         let url = format!("{}/oauth/device/code", self.base_url);
+        let correlation_id = new_correlation_id();
         let response = self
             .client
             .post(&url)
+            .header("X-PolyAI-Correlation-Id", &correlation_id)
             .json(&serde_json::json!({
                 "client_id": self.client_id,
                 "scope": "openid profile email",
@@ -65,7 +66,7 @@ impl Auth0Client {
             .map_err(|error| ApiError::Http(error.to_string()))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(http_status_error(status, &url));
+            return Err(http_status_error(status, &url, &correlation_id));
         }
         let body: Value = response
             .json()
@@ -172,11 +173,12 @@ impl JupiterClient {
         body: Option<Value>,
     ) -> Result<Value, ApiError> {
         let url = format!("{}{}", self.base_url, endpoint);
+        let correlation_id = new_correlation_id();
         let mut request = self
             .client
             .request(method, &url)
             .bearer_auth(jwt_access_token)
-            .header("X-PolyAI-Correlation-Id", format!("adk-{}", Uuid::new_v4()))
+            .header("X-PolyAI-Correlation-Id", &correlation_id)
             .header("Content-Type", "application/json");
         if let Some(body) = body {
             request = request.json(&body);
@@ -186,7 +188,7 @@ impl JupiterClient {
             .map_err(|error| ApiError::Http(error.to_string()))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(http_status_error(status, &url));
+            return Err(http_status_error(status, &url, &correlation_id));
         }
         response
             .json()
