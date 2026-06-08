@@ -24,6 +24,30 @@ fn make_temp_unformatted_json_project_dir() -> String {
     support_temp_unformatted_json_project_dir("adk-rs-cli-test")
 }
 
+#[cfg(unix)]
+fn symlink_path(target: &std::path::Path, link: &std::path::Path) {
+    std::os::unix::fs::symlink(target, link).expect("create symlink");
+}
+
+#[cfg(unix)]
+fn json_string_array<'a>(value: &'a serde_json::Value, key: &str) -> Vec<&'a str> {
+    value
+        .get(key)
+        .and_then(|items| items.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.as_str())
+        .collect()
+}
+
+#[cfg(unix)]
+fn status_json_path(project_dir: &std::path::Path, relative_path: &str) -> String {
+    project_dir
+        .join(relative_path)
+        .to_string_lossy()
+        .to_string()
+}
+
 #[test]
 fn system_tool_dependencies_are_available() {
     for (tool, args) in [("ruff", &["--version"][..]), ("ty", &["version"][..])] {
@@ -439,6 +463,122 @@ fn status_json_does_not_require_remote_configuration() {
             .get("modified_files")
             .and_then(|v| v.as_array())
             .is_some_and(Vec::is_empty)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn status_json_discovers_symlinked_resource_file() {
+    let project_dir = std::path::PathBuf::from(make_temp_project_dir());
+    let shared_dir = temp_dir("adk-rs-shared-function-file");
+    fs::create_dir_all(&shared_dir).expect("mkdir shared function dir");
+    fs::write(
+        shared_dir.join("lookup.py"),
+        "def lookup(conv):\n    return {\"ok\": True}\n",
+    )
+    .expect("write shared function");
+    fs::create_dir_all(project_dir.join("functions")).expect("mkdir functions");
+    symlink_path(
+        &shared_dir.join("lookup.py"),
+        &project_dir.join("functions/lookup.py"),
+    );
+
+    let output = run_poly(&["status", "--json", "--path", project_dir.to_str().unwrap()]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid status JSON output");
+
+    let expected = status_json_path(&project_dir, "functions/lookup.py");
+    let new_files = json_string_array(&payload, "new_files");
+    assert!(
+        new_files.contains(&expected.as_str()),
+        "new_files={new_files:?} payload={payload}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn status_json_discovers_symlinked_resource_directory() {
+    let project_dir = std::path::PathBuf::from(make_temp_project_dir());
+    let shared_flow = temp_dir("adk-rs-shared-flow-dir");
+    fs::create_dir_all(shared_flow.join("steps")).expect("mkdir shared flow steps");
+    fs::write(
+        shared_flow.join("flow_config.yaml"),
+        "name: Support Flow\ndescription: Shared flow\nstart_step: greet\n",
+    )
+    .expect("write shared flow config");
+    fs::write(
+        shared_flow.join("steps/greet.yaml"),
+        "name: greet\nstep_type: default_step\nprompt: Hello from a shared flow.\n",
+    )
+    .expect("write shared flow step");
+    fs::create_dir_all(project_dir.join("flows")).expect("mkdir flows");
+    symlink_path(&shared_flow, &project_dir.join("flows/support"));
+
+    let output = run_poly(&["status", "--json", "--path", project_dir.to_str().unwrap()]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid status JSON output");
+    let new_files = json_string_array(&payload, "new_files");
+
+    let flow_config = status_json_path(&project_dir, "flows/support/flow_config.yaml");
+    assert!(
+        new_files.contains(&flow_config.as_str()),
+        "new_files={new_files:?} payload={payload}"
+    );
+    let flow_step = status_json_path(&project_dir, "flows/support/steps/greet.yaml");
+    assert!(
+        new_files.contains(&flow_step.as_str()),
+        "new_files={new_files:?} payload={payload}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn status_json_avoids_symlinked_directory_cycles() {
+    let project_dir = std::path::PathBuf::from(make_temp_project_dir());
+    let topics_dir = project_dir.join("topics");
+    fs::create_dir_all(&topics_dir).expect("mkdir topics");
+    fs::write(
+        topics_dir.join("billing.yaml"),
+        "name: Billing\ncontent: Ask us about billing.\n",
+    )
+    .expect("write topic");
+    symlink_path(&topics_dir, &topics_dir.join("loop"));
+
+    let output = run_poly(&["status", "--json", "--path", project_dir.to_str().unwrap()]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid status JSON output");
+    let new_files = json_string_array(&payload, "new_files");
+
+    let topic = status_json_path(&project_dir, "topics/billing.yaml");
+    assert!(
+        new_files.contains(&topic.as_str()),
+        "new_files={new_files:?} payload={payload}"
+    );
+    let looped_topic = status_json_path(&project_dir, "topics/loop/billing.yaml");
+    assert!(
+        !new_files.contains(&looped_topic.as_str()),
+        "new_files={new_files:?} payload={payload}"
     );
 }
 
