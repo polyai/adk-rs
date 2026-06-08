@@ -9,8 +9,9 @@ use adk_resources::{
     resource_status_file_hash, resource_status_payload,
 };
 use adk_types::{
-    BranchDescriptor, BranchMergeResult, DeploymentList, DiffMap, DomainError, ProjectConfig,
-    PushResult, Resource, ResourceMap, StatusSummary,
+    BranchDescriptor, BranchMergeResult, ConversationDetail, ConversationListResponse,
+    DeploymentList, DiffMap, DomainError, ProjectConfig, PushResult, Resource, ResourceMap,
+    StatusSummary,
 };
 use serde_json::{self, Value as JsonValue};
 use serde_yaml_ng::{Value as YamlValue, from_str, to_string};
@@ -960,11 +961,15 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         Ok(self.client.end_chat_session(payload)?)
     }
 
-    pub fn list_conversations(&self, limit: usize, offset: usize) -> Result<JsonValue, CoreError> {
+    pub fn list_conversations(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<ConversationListResponse, CoreError> {
         Ok(self.client.list_conversations(limit, offset)?)
     }
 
-    pub fn get_conversation(&self, conversation_id: &str) -> Result<JsonValue, CoreError> {
+    pub fn get_conversation(&self, conversation_id: &str) -> Result<ConversationDetail, CoreError> {
         Ok(self.client.get_conversation(conversation_id)?)
     }
 

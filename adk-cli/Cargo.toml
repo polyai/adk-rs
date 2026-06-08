@@ -20,6 +20,7 @@ rich_rust.workspace = true
 adk-core.workspace = true
 adk-api-client.workspace = true
 adk-resources.workspace = true
+adk-types.workspace = true
 # 3rd-party CLI-only dependencies
 axoupdater = { version = "0.10.0", features = ["blocking"] }
 chrono.workspace = true

@@ -867,6 +867,8 @@ fn conversations_list_json_passes_pagination_to_platform_api() {
             "conversations": [
                 {
                     "conversationId": "KA-123",
+                    "accountId": "acct",
+                    "projectId": "proj",
                     "startedAt": "2026-05-26T10:00:00+00:00",
                     "duration": 90,
                     "channel": "VOICE-SIP",
@@ -925,6 +927,8 @@ fn conversations_list_human_prints_summary_and_hides_empty_variant_column() {
             "conversations": [
                 {
                     "conversationId": "KA-123",
+                    "accountId": "acct",
+                    "projectId": "proj",
                     "startedAt": "2026-05-26T10:00:00+00:00",
                     "duration": 90,
                     "fromNumber": "+15551234567",
@@ -971,6 +975,8 @@ fn conversations_get_human_prints_details_and_turns() {
             .path("/v1/agents/proj/conversations/KA-123");
         then.status(200).json_body(json!({
             "conversationId": "KA-123",
+            "accountId": "acct",
+            "projectId": "proj",
             "channel": "VOICE-SIP",
             "direction": "inbound",
             "startedAt": "2026-05-26T10:00:00+00:00",

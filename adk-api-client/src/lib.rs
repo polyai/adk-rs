@@ -3,7 +3,10 @@ use adk_resources::{
     CommandGenError, command_to_json_summary, projection_to_resource_map,
     try_build_push_commands_for_changed_resources, try_build_push_commands_with_created_by,
 };
-use adk_types::{BranchDescriptor, BranchMergeResult, DeploymentList, PushResult, ResourceMap};
+use adk_types::{
+    BranchDescriptor, BranchMergeResult, ConversationDetail, ConversationListResponse,
+    DeploymentList, PushResult, ResourceMap,
+};
 use prost::Message;
 use serde_json::Value;
 use std::env;
@@ -126,8 +129,12 @@ pub trait PlatformClient: Send + Sync {
     fn create_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
     fn send_chat_message(&self, _payload: Value) -> Result<Value, ApiError>;
     fn end_chat_session(&self, _payload: Value) -> Result<Value, ApiError>;
-    fn list_conversations(&self, limit: usize, offset: usize) -> Result<Value, ApiError>;
-    fn get_conversation(&self, conversation_id: &str) -> Result<Value, ApiError>;
+    fn list_conversations(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<ConversationListResponse, ApiError>;
+    fn get_conversation(&self, conversation_id: &str) -> Result<ConversationDetail, ApiError>;
     fn get_conversation_audio(
         &self,
         conversation_id: &str,
@@ -1052,20 +1059,31 @@ impl PlatformClient for HttpPlatformClient {
         )
     }
 
-    fn list_conversations(&self, limit: usize, offset: usize) -> Result<Value, ApiError> {
+    fn list_conversations(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<ConversationListResponse, ApiError> {
         let endpoint = format!("/v1/agents/{}/conversations", self.project_id);
         let limit = limit.to_string();
         let offset = offset.to_string();
         let query = [("limit", limit), ("offset", offset)];
-        self.request_platform_json_with_query(reqwest::Method::GET, &endpoint, Some(&query), None)
+        let value = self.request_platform_json_with_query(
+            reqwest::Method::GET,
+            &endpoint,
+            Some(&query),
+            None,
+        )?;
+        serde_json::from_value(value).map_err(|e| ApiError::Http(e.to_string()))
     }
 
-    fn get_conversation(&self, conversation_id: &str) -> Result<Value, ApiError> {
+    fn get_conversation(&self, conversation_id: &str) -> Result<ConversationDetail, ApiError> {
         let endpoint = format!(
             "/v1/agents/{}/conversations/{conversation_id}",
             self.project_id
         );
-        self.request_platform_json(reqwest::Method::GET, &endpoint, None)
+        let value = self.request_platform_json(reqwest::Method::GET, &endpoint, None)?;
+        serde_json::from_value(value).map_err(|e| ApiError::Http(e.to_string()))
     }
 
     fn get_conversation_audio(

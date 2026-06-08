@@ -1,0 +1,226 @@
+{
+  "accountId": "PLATFORM",
+  "audioUrl": "conversations/LOCAL-0725f700-6fa7-437a-8fe6-3de9828a95c0/audio",
+  "channel": "VOICE-SIP",
+  "clientEnv": "sandbox",
+  "conversationId": "LOCAL-0725f700-6fa7-437a-8fe6-3de9828a95c0",
+  "createdAt": "2026-06-03T13:18:06.370000+00:00",
+  "deploymentId": "019e8d9e-8e30-7899-9e61-3d950c4101b2",
+  "direction": "inbound",
+  "duration": 73,
+  "finishedAt": "2026-06-03T13:19:19.750000+00:00",
+  "fromNumber": "redacted@example.com",
+  "functionEvents": {
+    "1": [
+      {
+        "arguments": {},
+        "content": null,
+        "conversation_id": "LOCAL-0725f700-6fa7-437a-8fe6-3de9828a95c0",
+        "duration": 4108,
+        "error": null,
+        "function_id": "FUNCTION-start",
+        "function_version": null,
+        "handoff": null,
+        "hangup": null,
+        "id": "00000000-0000-4000-8000-000000000001",
+        "llm_request_id": null,
+        "logs": null,
+        "name": "start_function",
+        "start_time": "Wed, 03 Jun 2026 13:18:09 GMT",
+        "state_changes": null,
+        "transition": null,
+        "turn_id": 1,
+        "utterance": null,
+        "variant_id_change": null
+      }
+    ],
+    "6": [
+      {
+        "arguments": {
+          "phone_number": "5550100000"
+        },
+        "content": null,
+        "conversation_id": "LOCAL-0725f700-6fa7-437a-8fe6-3de9828a95c0",
+        "duration": 2279,
+        "error": null,
+        "function_id": "FUNCTION-save-phone",
+        "function_version": null,
+        "handoff": {
+          "reason": "API_UNEXPECTED_FAIL_PATIENT_LOOKUP",
+          "type": "Example Clinic"
+        },
+        "hangup": null,
+        "id": "00000000-0000-4000-8000-000000000006",
+        "llm_request_id": "00000000-0000-4000-8000-000000000106",
+        "logs": null,
+        "name": "save_caller_phone_number",
+        "start_time": "Wed, 03 Jun 2026 13:19:11 GMT",
+        "state_changes": {
+          "added": {
+            "handoff_reason": "API_UNEXPECTED_FAIL_PATIENT_LOOKUP",
+            "try_handoff_triggered": true
+          },
+          "removed": [],
+          "updated": {}
+        },
+        "transition": null,
+        "turn_id": 6,
+        "utterance": "I'll need to put you through to someone who can help. One moment.",
+        "variant_id_change": null
+      }
+    ]
+  },
+  "handoff": true,
+  "handoffDestination": "Example Clinic",
+  "handoffReason": "API_UNEXPECTED_FAIL_PATIENT_LOOKUP",
+  "inProgress": false,
+  "language": "en-US",
+  "metrics": {
+    "CALL_DURATION": [
+      {
+        "timestamp": "2026-06-03T13:19:19.757917",
+        "value": "73"
+      }
+    ],
+    "HANDOFF_REASON": [
+      {
+        "timestamp": "2026-06-03T13:19:13.844793",
+        "value": "API_UNEXPECTED_FAIL_PATIENT_LOOKUP"
+      }
+    ],
+    "TOTAL_AGENT_TURNS": [
+      {
+        "timestamp": "2026-06-03T13:19:17.522563",
+        "value": "6"
+      }
+    ],
+    "VARIANT_ID": [
+      {
+        "timestamp": "2026-06-03T13:18:13.503245",
+        "value": "PDS Test Office"
+      }
+    ]
+  },
+  "note": null,
+  "polyScore": 6.0,
+  "polyaiDuration": 73,
+  "projectId": "pacden-copy-usp",
+  "shortSummary": {
+    "content": "The caller contacted the clinic to check their appointment. The agent had trouble capturing the full phone number and transferred the caller to a human representative.",
+    "heading": "Check appointment details"
+  },
+  "startedAt": "2026-06-03T13:18:06.370000+00:00",
+  "tags": [],
+  "toNumber": "polyai",
+  "totalDuration": 73,
+  "turns": [
+    {
+      "agent_response": "Your phone call may be monitored or recorded. Thank you for choosing the clinic, this is Emily, I'm an AI agent. How may I help you?",
+      "agent_response_datetime": "2026-06-03T13:18:20.877623+00:00",
+      "asr_lang_code": "",
+      "barge_in": false,
+      "english_agent_response": "",
+      "entities": null,
+      "intents": null,
+      "is_ood": null,
+      "is_silence": null,
+      "latency": {
+        "label": null,
+        "perceived_latency": 3.882713,
+        "perceived_latency_percentile_1d": null
+      },
+      "llm_requests": [],
+      "metadata": {
+        "asr_corrected_user_input": "",
+        "current_node": "",
+        "entities": [],
+        "function_events": [
+          {
+            "arguments": {},
+            "duration": 4108,
+            "function_id": "FUNCTION-start",
+            "name": "start_function",
+            "utterance": "Thank you for choosing the clinic, this is Emily, I'm an AI agent. How may I help you?"
+          }
+        ],
+        "retrieved_topics": [],
+        "safety": {
+          "filters_triggered": {
+            "provider": "azure"
+          }
+        },
+        "top_transcripts": []
+      },
+      "reviews": [],
+      "translated_user_input": "",
+      "tts_lang_code": "",
+      "turn_id": 743916318,
+      "user_input": "",
+      "user_input_audio_url": "",
+      "user_input_datetime": "2026-06-03T13:18:06.405623+00:00",
+      "user_input_dtmf": "",
+      "user_input_dtmf_finish_key": ""
+    },
+    {
+      "agent_response": "I'll need to put you through to someone who can help. One moment.",
+      "agent_response_datetime": "2026-06-03T13:19:14.608938+00:00",
+      "asr_lang_code": "en-US",
+      "barge_in": true,
+      "english_agent_response": "",
+      "entities": null,
+      "intents": null,
+      "is_ood": null,
+      "is_silence": null,
+      "latency": {
+        "label": null,
+        "perceived_latency": 1.61215,
+        "perceived_latency_percentile_1d": null
+      },
+      "llm_requests": [],
+      "metadata": {
+        "asr_corrected_user_input": "One two three four five six seven eight nine zero",
+        "current_node": "",
+        "entities": [],
+        "function_events": [
+          {
+            "arguments": {
+              "phone_number": "5550100000"
+            },
+            "duration": 2279,
+            "function_id": "FUNCTION-save-phone",
+            "handoff": {
+              "reason": "API_UNEXPECTED_FAIL_PATIENT_LOOKUP",
+              "type": "Example Clinic"
+            },
+            "name": "save_caller_phone_number",
+            "utterance": "I'll need to put you through to someone who can help. One moment."
+          }
+        ],
+        "retrieved_topics": [
+          "zip_code"
+        ],
+        "safety": {
+          "filters_triggered": {
+            "provider": "azure"
+          }
+        },
+        "top_transcripts": [
+          {
+            "intents": [],
+            "text": "One two three four five six seven eight nine zero"
+          }
+        ]
+      },
+      "reviews": [],
+      "translated_user_input": "",
+      "tts_lang_code": "en-US",
+      "turn_id": 743917872,
+      "user_input": "One two three four five six seven eight nine zero",
+      "user_input_audio_url": "conversations/LOCAL-0725f700-6fa7-437a-8fe6-3de9828a95c0/turns/5/audio",
+      "user_input_datetime": "2026-06-03T13:19:02.861683+00:00",
+      "user_input_dtmf": "",
+      "user_input_dtmf_finish_key": ""
+    }
+  ],
+  "variantId": "PDS Test Office"
+}

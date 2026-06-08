@@ -84,6 +84,124 @@ pub struct BranchMergeResult {
     pub sequence: Option<String>,
 }
 
+/// Page returned by the Data API `GET /v1/agents/{agentId}/conversations` endpoint.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationListResponse {
+    pub conversations: Vec<ConversationSummary>,
+    pub count: usize,
+    pub limit: usize,
+    pub offset: usize,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Public-facing conversation summary from the Data API.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSummary {
+    pub conversation_id: String,
+    pub account_id: String,
+    pub project_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_number: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_number: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_env: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_duration: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub polyai_duration: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_progress: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff_destination: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poly_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_summary: Option<ConversationShortSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deployment_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_url: Option<String>,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Conversation detail from the Data API, including transcript turns when available.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationDetail {
+    #[serde(flatten)]
+    pub summary: ConversationSummary,
+    #[serde(default)]
+    pub turns: Vec<ConversationTurn>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function_events: Option<serde_json::Value>,
+}
+
+/// Transcript turn object embedded in a conversation detail response.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationTurn {
+    #[serde(
+        default,
+        alias = "userInput",
+        alias = "input",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub user_input: Option<String>,
+    #[serde(
+        default,
+        alias = "agentResponse",
+        alias = "response",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_response: Option<String>,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Summary text returned by the Data API.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConversationShortSummary {
+    Text(String),
+    Object {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content: Option<String>,
+        #[serde(flatten)]
+        extra: serde_json::Map<String, serde_json::Value>,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResourceTypeDescriptor {
     pub type_name: &'static str,
@@ -333,6 +451,68 @@ mod tests {
                 descriptor.status_resource_name
             );
         }
+    }
+
+    #[test]
+    fn conversation_list_uses_data_api_camel_case_identity_shape() {
+        let raw = serde_json::json!({
+            "conversations": [{
+                "conversationId": "KA-123",
+                "accountId": "acct",
+                "projectId": "proj",
+                "duration": 90,
+                "shortSummary": "{\"heading\":\"Test call\"}",
+                "customField": "kept"
+            }],
+            "count": 1,
+            "limit": 50,
+            "offset": 0
+        });
+
+        let response: ConversationListResponse =
+            serde_json::from_value(raw).expect("deserialize Data API conversations response");
+
+        let conversation = &response.conversations[0];
+        assert_eq!(conversation.conversation_id, "KA-123");
+        assert_eq!(conversation.account_id, "acct");
+        assert_eq!(conversation.project_id, "proj");
+        assert_eq!(conversation.duration, Some(90));
+        assert_eq!(
+            conversation.short_summary,
+            Some(ConversationShortSummary::Text(
+                "{\"heading\":\"Test call\"}".to_string()
+            ))
+        );
+        assert_eq!(
+            conversation.extra.get("customField"),
+            Some(&serde_json::json!("kept"))
+        );
+
+        let serialized =
+            serde_json::to_value(response).expect("serialize Data API conversations response");
+        assert_eq!(
+            serialized["conversations"][0]["conversationId"],
+            serde_json::json!("KA-123")
+        );
+        assert!(serialized["conversations"][0].get("createdAt").is_none());
+    }
+
+    #[test]
+    fn conversation_list_rejects_legacy_conversations_api_identity_shape() {
+        let raw = serde_json::json!({
+            "conversations": [{
+                "id": "CA-123",
+                "account_id": "acct",
+                "project_id": "proj"
+            }],
+            "count": 1,
+            "limit": 50,
+            "offset": 0
+        });
+
+        let error = serde_json::from_value::<ConversationListResponse>(raw)
+            .expect_err("legacy Conversations API payload should not match Data API DTOs");
+        assert!(error.to_string().contains("conversationId"));
     }
 
     #[test]
