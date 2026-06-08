@@ -1,5 +1,6 @@
 use adk_protobuf::agent::{DisclaimerMessageUpdateDisclaimerMessage, GreetingUpdateGreeting};
-use adk_protobuf::channels::ChannelType;
+use adk_protobuf::channels::channel_update_status::ChannelStatus as ChannelUpdateStatusKind;
+use adk_protobuf::channels::{ChannelStatus, ChannelType, ChannelUpdateStatus};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::content_filter_settings::{
     AzureContentFilter, AzureContentFilterCategory,
@@ -42,6 +43,9 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
                     .unwrap_or_else(|| json!({})),
             ),
         )),
+        CommandPayload::ChannelUpdateStatus(msg) => {
+            Some(("channel_update_status", channel_update_status_json(msg)))
+        }
         CommandPayload::VoiceChannelUpdateDisclaimer(msg) => Some((
             "voice_channel_update_disclaimer",
             json!({
@@ -54,6 +58,23 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
         )),
         _ => None,
     }
+}
+
+fn channel_update_status_json(message: &ChannelUpdateStatus) -> Value {
+    match message.channel_status.as_ref() {
+        Some(ChannelUpdateStatusKind::Webchat(webchat)) => json!({
+            "webchat": {
+                "status": channel_status_name(webchat.status),
+            },
+        }),
+        None => json!({}),
+    }
+}
+
+fn channel_status_name(status: i32) -> String {
+    ChannelStatus::try_from(status)
+        .map(|status| status.as_str_name().to_string())
+        .unwrap_or_else(|_| status.to_string())
 }
 
 fn content_filter_settings_json(
@@ -137,4 +158,36 @@ fn disclaimer_json(disclaimer: &DisclaimerMessageUpdateDisclaimerMessage) -> Val
         "is_enabled": disclaimer.is_enabled.unwrap_or(false),
         "language_code": disclaimer.language_code,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_protobuf::channels::{
+        ChannelUpdateStatus, WebChatChannelUpdateStatus,
+        channel_update_status::ChannelStatus as ChannelUpdateStatusKind,
+    };
+
+    #[test]
+    fn payload_json_summary_includes_webchat_channel_status() {
+        let payload = CommandPayload::ChannelUpdateStatus(ChannelUpdateStatus {
+            channel_status: Some(ChannelUpdateStatusKind::Webchat(
+                WebChatChannelUpdateStatus {
+                    status: ChannelStatus::Created as i32,
+                },
+            )),
+        });
+
+        assert_eq!(
+            payload_json_summary(&payload),
+            Some((
+                "channel_update_status",
+                json!({
+                    "webchat": {
+                        "status": "CREATED",
+                    },
+                }),
+            ))
+        );
+    }
 }

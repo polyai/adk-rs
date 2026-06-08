@@ -17,20 +17,19 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 
 ## Action Summary
 
-- Port or fix in Rust: #173.
+- Port or fix in Rust: none currently.
 - Verify with a focused parity test or fixture: none currently.
 - Reserved for Ruari: #165.
 - Open upstream watchlist: #160.
-- Already covered in Rust: #175, #169, #164, #163, #161, #159, #158, #156, #154, #152, #148, #147, #144, #142, #138, #137, #136, #135, #130, #129, #125, #91, #64.
+- Already covered in Rust: #175, #173, #169, #164, #163, #161, #159, #158, #156, #154, #152, #148, #147, #144, #142, #138, #137, #136, #135, #130, #129, #125, #91, #64.
 - No Rust action expected: #155, #153, #149, #146, #145, #141, #140,
   #139, #134, #133, #132, #131, #174, #170, #168, #167, #166.
 
 ## Linear Tracking
 
-- [DEVP-263](https://linear.app/poly-ai/issue/DEVP-263/port-webchat-config-validation-and-push-enablement-parity) tracks #173.
 - [DEVP-225](https://linear.app/poly-ai/issue/DEVP-225/add-testing-suite-feature-to-rust-adk) tracks the Rust testing-suite port for #165 and is reserved for Ruari; upstream Python work is [DEVP-182](https://linear.app/poly-ai/issue/DEVP-182/test-management-in-adk).
 - No Rust Linear ticket is needed for #160 while the upstream Python PR remains open; create one only if #160 merges and Rust parity work is needed.
-- Completed parity tickets: [DEVP-226](https://linear.app/poly-ai/issue/DEVP-226/port-conversations-commands-from-python-adk) for #161, [DEVP-227](https://linear.app/poly-ai/issue/DEVP-227/remove-non-studio-project-id-default-slug-prompt) for #148/#175, [DEVP-228](https://linear.app/poly-ai/issue/DEVP-228/replace-push-email-flag-with-adk-command-user-override-parity) for #156, [DEVP-229](https://linear.app/poly-ai/issue/DEVP-229/port-resource-update-semantics-from-recent-python-adk-fixes) for #163/#154/#144, [DEVP-230](https://linear.app/poly-ai/issue/DEVP-230/eliminate-phantom-diffs-in-materialized-project-files) for #138/#135, [DEVP-231](https://linear.app/poly-ai/issue/DEVP-231/preserve-typed-values-in-branch-conflict-resolutions) for #129, [DEVP-232](https://linear.app/poly-ai/issue/DEVP-232/verify-branch-completion-and-review-parser-parity) for #159, and [DEVP-253](https://linear.app/poly-ai/issue/DEVP-253/support-function-step-start-step-during-flow-creation) for #136.
+- Completed parity tickets: [DEVP-226](https://linear.app/poly-ai/issue/DEVP-226/port-conversations-commands-from-python-adk) for #161, [DEVP-227](https://linear.app/poly-ai/issue/DEVP-227/remove-non-studio-project-id-default-slug-prompt) for #148/#175, [DEVP-228](https://linear.app/poly-ai/issue/DEVP-228/replace-push-email-flag-with-adk-command-user-override-parity) for #156, [DEVP-229](https://linear.app/poly-ai/issue/DEVP-229/port-resource-update-semantics-from-recent-python-adk-fixes) for #163/#154/#144, [DEVP-230](https://linear.app/poly-ai/issue/DEVP-230/eliminate-phantom-diffs-in-materialized-project-files) for #138/#135, [DEVP-231](https://linear.app/poly-ai/issue/DEVP-231/preserve-typed-values-in-branch-conflict-resolutions) for #129, [DEVP-232](https://linear.app/poly-ai/issue/DEVP-232/verify-branch-completion-and-review-parser-parity) for #159, [DEVP-253](https://linear.app/poly-ai/issue/DEVP-253/support-function-step-start-step-during-flow-creation) for #136, and [DEVP-263](https://linear.app/poly-ai/issue/DEVP-263/port-webchat-config-validation-and-push-enablement-parity) for #173.
 
 ## Open Upstream Watchlist
 
@@ -50,9 +49,7 @@ and Rust ownership is assigned.
 
 ## Port Or Fix In Rust
 
-| PR | Merged | Upstream change | Rust action |
-| --- | --- | --- | --- |
-| [#173](https://github.com/polyai/adk/pull/173) | 2026-06-08 | Adds all-or-nothing validation for webchat config resources and enables webchat by queuing a channel-status update when webchat config is pushed. | **Port needed.** Rust already materializes/discovers webchat resources and emits webchat greeting/style/safety update commands, but still needs Python's sibling validation and explicit webchat channel enable/update command. Linear: [DEVP-263](https://linear.app/poly-ai/issue/DEVP-263/port-webchat-config-validation-and-push-enablement-parity). |
+No merged upstream PRs in this audit window currently need Rust port/fix work.
 
 ## Verify With Focused Tests
 
@@ -63,6 +60,7 @@ No merged upstream PRs in this audit window currently need only verification.
 | PR | Merged | Upstream change | Rust action |
 | --- | --- | --- | --- |
 | [#175](https://github.com/polyai/adk/pull/175) | 2026-06-08 | Skips Python's interactive project-id prompt when project creation runs in JSON output mode. | **Covered.** Rust `project create --json` already resolves the non-interactive selection without prompting for project ID, while preserving an explicitly supplied ID. Linear: [DEVP-227](https://linear.app/poly-ai/issue/DEVP-227/remove-non-studio-project-id-default-slug-prompt). |
+| [#173](https://github.com/polyai/adk/pull/173) | 2026-06-08 | Adds all-or-nothing validation for webchat config resources and enables webchat by queuing a channel-status update when webchat config is pushed. | **Covered.** Rust validates that `ChatGreeting`, `ChatSafetyFilters`, and `ChatStylePrompt` are present together, emits the typed `channel_update_status` webchat `CREATED` command when webchat config resources are first pushed, and includes the command in JSON summaries. Linear: [DEVP-263](https://linear.app/poly-ai/issue/DEVP-263/port-webchat-config-validation-and-push-enablement-parity). |
 | [#169](https://github.com/polyai/adk/pull/169) | 2026-06-03 | Fixes translation validation when the default language changes locally, and reads `defaultLanguageCode` from projections. | **Covered.** Rust languages/translations read `defaultLanguageCode`, generate default-language updates from local `agent_settings/languages.yaml`, and validate translation coverage against locally configured languages. |
 | [#164](https://github.com/polyai/adk/pull/164) | 2026-05-28 | Defers Python `SourcererSDK` API-key lookup until the first HTTP request so offline `--from-projection` and dry-run command-output flows work without credentials. | **Covered.** Rust routes `pull --from-projection` and `push --dry-run --from-projection` through the in-memory local service instead of constructing an authenticated `HttpPlatformClient`, so those offline flows do not require `POLY_ADK_KEY`. |
 | [#163](https://github.com/polyai/adk/pull/163) | 2026-05-27 | Allows disabled unknown personality adjectives, but filters unknown adjectives out of the update proto. | **Covered.** Rust now matches Python validation by allowing disabled unknown adjectives, rejecting enabled unknown adjectives, and excluding unknown keys from `update_personality`. Linear: [DEVP-229](https://linear.app/poly-ai/issue/DEVP-229/port-resource-update-semantics-from-recent-python-adk-fixes). |

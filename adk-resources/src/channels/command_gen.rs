@@ -6,9 +6,11 @@ use crate::specs::{
 use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::agent::{DisclaimerMessageUpdateDisclaimerMessage, GreetingUpdateGreeting};
+use adk_protobuf::channels::channel_update_status::ChannelStatus as ChannelUpdateStatusKind;
 use adk_protobuf::channels::{
-    ChannelType, ChannelUpdateGreeting, ChannelUpdateSafetyFilters, ChannelUpdateStylePrompt,
-    StylePromptUpdateStylePrompt, VoiceChannelUpdateDisclaimer,
+    ChannelStatus, ChannelType, ChannelUpdateGreeting, ChannelUpdateSafetyFilters,
+    ChannelUpdateStatus, ChannelUpdateStylePrompt, StylePromptUpdateStylePrompt,
+    VoiceChannelUpdateDisclaimer, WebChatChannelUpdateStatus,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::content_filter_settings::{
@@ -102,6 +104,10 @@ pub(crate) fn append_channel_settings_updates(
         None
     };
 
+    if webchat_config_resource_created(resources, remote_resources) {
+        push_webchat_channel_status_update(commands, metadata, true);
+    }
+
     if let Some(yaml) = chat_configuration_yaml.as_ref()
         && let Some(greeting) = yaml.get("greeting")
     {
@@ -144,6 +150,42 @@ pub(crate) fn append_channel_settings_updates(
             }),
         );
     }
+}
+
+fn webchat_config_resource_created(
+    resources: &ResourceMap,
+    remote_resources: &ResourceMap,
+) -> bool {
+    [
+        CHAT_CONFIGURATION_FILE.file_path,
+        CHAT_SAFETY_FILTERS_FILE.file_path,
+    ]
+    .into_iter()
+    .any(|path| resources.contains_key(path) && !remote_resources.contains_key(path))
+}
+
+fn push_webchat_channel_status_update(
+    commands: &mut Vec<adk_protobuf::Command>,
+    metadata: &Option<Metadata>,
+    enabled: bool,
+) {
+    let status = if enabled {
+        ChannelStatus::Created
+    } else {
+        ChannelStatus::NotCreated
+    };
+    push_command(
+        commands,
+        metadata,
+        "channel_update_status",
+        CommandPayload::ChannelUpdateStatus(ChannelUpdateStatus {
+            channel_status: Some(ChannelUpdateStatusKind::Webchat(
+                WebChatChannelUpdateStatus {
+                    status: status as i32,
+                },
+            )),
+        }),
+    );
 }
 
 fn push_channel_safety_filters_update(
