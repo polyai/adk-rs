@@ -18,7 +18,8 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 
 - Port or fix in Rust: #148.
 - Verify with a focused parity test or fixture: #159.
-- Reserved for Ruari / open upstream watchlist: #165.
+- Reserved for Ruari: #165.
+- Open upstream watchlist: #160.
 - Already covered in Rust: #169, #164, #163, #161, #158, #156, #154, #152, #147, #144, #142, #138, #137, #136, #135, #130, #129, #125, #91, #64.
 - No Rust action expected: #155, #153, #149, #146, #145, #141, #140,
   #139, #134, #133, #132, #131, #170, #168, #167, #166.
@@ -28,16 +29,19 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 - [DEVP-227](https://linear.app/poly-ai/issue/DEVP-227/remove-non-studio-project-id-default-slug-prompt) tracks #148.
 - [DEVP-232](https://linear.app/poly-ai/issue/DEVP-232/verify-branch-completion-and-review-parser-parity) tracks #159.
 - [DEVP-225](https://linear.app/poly-ai/issue/DEVP-225/add-testing-suite-feature-to-rust-adk) tracks the Rust testing-suite port for #165 and is reserved for Ruari; upstream Python work is [DEVP-182](https://linear.app/poly-ai/issue/DEVP-182/test-management-in-adk).
+- No Rust Linear ticket is needed for #160 while the upstream Python PR remains open; create one only if #160 merges and Rust parity work is needed.
 - Completed parity tickets: [DEVP-226](https://linear.app/poly-ai/issue/DEVP-226/port-conversations-commands-from-python-adk) for #161, [DEVP-228](https://linear.app/poly-ai/issue/DEVP-228/replace-push-email-flag-with-adk-command-user-override-parity) for #156, [DEVP-229](https://linear.app/poly-ai/issue/DEVP-229/port-resource-update-semantics-from-recent-python-adk-fixes) for #163/#154/#144, [DEVP-230](https://linear.app/poly-ai/issue/DEVP-230/eliminate-phantom-diffs-in-materialized-project-files) for #138/#135, [DEVP-231](https://linear.app/poly-ai/issue/DEVP-231/preserve-typed-values-in-branch-conflict-resolutions) for #129, and [DEVP-253](https://linear.app/poly-ai/issue/DEVP-253/support-function-step-start-step-during-flow-creation) for #136.
 
-## Open Upstream Watchlist - Reserved For Ruari
+## Open Upstream Watchlist
 
 This section is intentionally separate from the merged-PR parity queue. Do not
-pick these up as ordinary Rust parity work unless Ruari takes the Rust ticket or
-the upstream Python PR merges and the ownership changes.
+pick these up as ordinary Rust parity work unless the upstream Python PR merges
+and Rust ownership is assigned. #165 remains reserved for Ruari while its
+upstream work is still in Ruari's lane.
 
 | PR | Status | Upstream change | Rust action |
 | --- | --- | --- | --- |
+| [#160](https://github.com/polyai/adk/pull/160) | Open as of 2026-06-08; not merged upstream. | Replaces the flow layout algorithm with a `networkx` hierarchical/Sugiyama-style layout, aligns layout constants with Agent Studio rendering, adds `move_flow_components`, and adds `poly push --clean-flows`. | **Watchlist only.** No merged-upstream parity obligation yet. If it merges, assess Rust parity for flow layout assignment, position move-command generation, `push --clean-flows`, and focused layout/push tests. |
 | [#165](https://github.com/polyai/adk/pull/165) | Open as of 2026-06-08; authored by Ruari. | Adds Agent Studio test case resource support: YAML resources under `test_suite/`, protobuf sync commands, projection parsing, pull/push integration, docs, sample test cases, and validation against configured languages/global functions. | **Reserved for Ruari.** Track under [DEVP-225](https://linear.app/poly-ai/issue/DEVP-225/add-testing-suite-feature-to-rust-adk). Do not add separate Rust parity work while [DEVP-182](https://linear.app/poly-ai/issue/DEVP-182/test-management-in-adk) / upstream #165 are still in Ruari's lane. |
 
 ## Port Or Fix In Rust
