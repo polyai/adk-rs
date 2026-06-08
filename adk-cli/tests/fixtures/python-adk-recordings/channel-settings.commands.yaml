@@ -677,6 +677,14 @@ workflows:
           created_at: ${TIMESTAMP}
           created_by: adk-recorder@example.com
         type: channel_update_safety_filters
+      - channel_update_status:
+          webchat:
+            status: CREATED
+        command_id: ${COMMAND_ID}
+        metadata:
+          created_at: ${TIMESTAMP}
+          created_by: adk-recorder@example.com
+        type: channel_update_status
       - channel_update_greeting:
           channel_type: WEB_CHAT
           greeting:
