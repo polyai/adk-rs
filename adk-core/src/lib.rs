@@ -243,6 +243,7 @@ fn recursive_file_paths_with_ancestors<Fs: FileSystem>(
         return Ok(files);
     }
 
+    // Follow symlinked resource directories, but stop if a link points back to an ancestor.
     let canonical_root = fs.canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     if ancestors.contains(&canonical_root) {
         return Ok(files);
