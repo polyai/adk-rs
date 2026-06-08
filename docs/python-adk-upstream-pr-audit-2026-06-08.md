@@ -16,21 +16,20 @@ gh search prs --repo polyai/adk --merged --merged-at ">=2026-05-07"
 
 ## Action Summary
 
-- Port or fix in Rust: #148.
+- Port or fix in Rust: none currently.
 - Verify with a focused parity test or fixture: #159.
 - Reserved for Ruari: #165.
 - Open upstream watchlist: #160.
-- Already covered in Rust: #169, #164, #163, #161, #158, #156, #154, #152, #147, #144, #142, #138, #137, #136, #135, #130, #129, #125, #91, #64.
+- Already covered in Rust: #169, #164, #163, #161, #158, #156, #154, #152, #148, #147, #144, #142, #138, #137, #136, #135, #130, #129, #125, #91, #64.
 - No Rust action expected: #155, #153, #149, #146, #145, #141, #140,
   #139, #134, #133, #132, #131, #170, #168, #167, #166.
 
 ## Linear Tracking
 
-- [DEVP-227](https://linear.app/poly-ai/issue/DEVP-227/remove-non-studio-project-id-default-slug-prompt) tracks #148.
 - [DEVP-232](https://linear.app/poly-ai/issue/DEVP-232/verify-branch-completion-and-review-parser-parity) tracks #159.
 - [DEVP-225](https://linear.app/poly-ai/issue/DEVP-225/add-testing-suite-feature-to-rust-adk) tracks the Rust testing-suite port for #165 and is reserved for Ruari; upstream Python work is [DEVP-182](https://linear.app/poly-ai/issue/DEVP-182/test-management-in-adk).
 - No Rust Linear ticket is needed for #160 while the upstream Python PR remains open; create one only if #160 merges and Rust parity work is needed.
-- Completed parity tickets: [DEVP-226](https://linear.app/poly-ai/issue/DEVP-226/port-conversations-commands-from-python-adk) for #161, [DEVP-228](https://linear.app/poly-ai/issue/DEVP-228/replace-push-email-flag-with-adk-command-user-override-parity) for #156, [DEVP-229](https://linear.app/poly-ai/issue/DEVP-229/port-resource-update-semantics-from-recent-python-adk-fixes) for #163/#154/#144, [DEVP-230](https://linear.app/poly-ai/issue/DEVP-230/eliminate-phantom-diffs-in-materialized-project-files) for #138/#135, [DEVP-231](https://linear.app/poly-ai/issue/DEVP-231/preserve-typed-values-in-branch-conflict-resolutions) for #129, and [DEVP-253](https://linear.app/poly-ai/issue/DEVP-253/support-function-step-start-step-during-flow-creation) for #136.
+- Completed parity tickets: [DEVP-226](https://linear.app/poly-ai/issue/DEVP-226/port-conversations-commands-from-python-adk) for #161, [DEVP-227](https://linear.app/poly-ai/issue/DEVP-227/remove-non-studio-project-id-default-slug-prompt) for #148, [DEVP-228](https://linear.app/poly-ai/issue/DEVP-228/replace-push-email-flag-with-adk-command-user-override-parity) for #156, [DEVP-229](https://linear.app/poly-ai/issue/DEVP-229/port-resource-update-semantics-from-recent-python-adk-fixes) for #163/#154/#144, [DEVP-230](https://linear.app/poly-ai/issue/DEVP-230/eliminate-phantom-diffs-in-materialized-project-files) for #138/#135, [DEVP-231](https://linear.app/poly-ai/issue/DEVP-231/preserve-typed-values-in-branch-conflict-resolutions) for #129, and [DEVP-253](https://linear.app/poly-ai/issue/DEVP-253/support-function-step-start-step-during-flow-creation) for #136.
 
 ## Open Upstream Watchlist
 
@@ -46,9 +45,7 @@ upstream work is still in Ruari's lane.
 
 ## Port Or Fix In Rust
 
-| PR | Merged | Upstream change | Rust action |
-| --- | --- | --- | --- |
-| [#148](https://github.com/polyai/adk/pull/148) | 2026-05-15 | Removes default project-id slugging and skips the project-id prompt for `--region studio`. | **Partially ported.** Rust now lets Studio generate project IDs unless explicitly supplied. Rust still offers a default slug in the non-Studio project-ID prompt, while current Python prompts without a default. Remove the Rust default slug for full prompt parity. Linear: [DEVP-227](https://linear.app/poly-ai/issue/DEVP-227/remove-non-studio-project-id-default-slug-prompt). |
+No merged upstream PRs in this audit window currently need a Rust port or fix.
 
 ## Verify With Focused Tests
 
@@ -68,6 +65,7 @@ upstream work is still in Ruari's lane.
 | [#156](https://github.com/polyai/adk/pull/156) | 2026-05-27 | Replaces threaded push email parameters with `ADK_COMMAND_USER_OVERRIDE`, used for request headers and command metadata. | **Covered.** Rust now reads `ADK_COMMAND_USER_OVERRIDE`, uses it for `X-PolyAI-Email` and command metadata authorship, and removed the Python-obsolete `push --email` flag from the CLI surface. Linear: [DEVP-228](https://linear.app/poly-ai/issue/DEVP-228/replace-push-email-flag-with-adk-command-user-override-parity). |
 | [#154](https://github.com/polyai/adk/pull/154) | 2026-05-19 | Reads the first experimental config entity instead of hardcoding `default`. | **Covered.** Rust now uses the actual first experimental config entity ID for materialization, comparison, and update command generation. Linear: [DEVP-229](https://linear.app/poly-ai/issue/DEVP-229/port-resource-update-semantics-from-recent-python-adk-fixes). |
 | [#152](https://github.com/polyai/adk/pull/152) | 2026-05-29 | Adds `Translation`, `DefaultLanguage`, and `AdditionalLanguage` resources plus language/translation validation. | **Covered.** Rust materializes, discovers, statuses, validates, and pushes `agent_settings/languages.yaml` and `config/translations.yaml`, including default-language updates, additional-language create/delete, translation create/update/delete, and non-`name` translation-key matching. |
+| [#148](https://github.com/polyai/adk/pull/148) | 2026-05-15 | Removes default project-id slugging and skips the project-id prompt for `--region studio`. | **Covered.** Rust lets Studio generate project IDs unless explicitly supplied, and non-Studio interactive `project create` now prompts for project ID without a default slug while blank input lets the platform generate one. Linear: [DEVP-227](https://linear.app/poly-ai/issue/DEVP-227/remove-non-studio-project-id-default-slug-prompt). |
 | [#147](https://github.com/polyai/adk/pull/147) | 2026-05-15 | Updates Python ADK docs to lead with `poly start` and credential files. | **Covered.** Rust README setup guidance now leads with `poly start`, `poly login`, and `~/.poly/credentials.json`. |
 | [#144](https://github.com/polyai/adk/pull/144) | 2026-05-15 | Sends an empty `ParametersUpdate` for global and transition functions so parameters can be deleted. | **Covered.** Rust now emits explicit empty parameter updates for function types that accept parameters, allowing remote parameters to be deleted. Linear: [DEVP-229](https://linear.app/poly-ai/issue/DEVP-229/port-resource-update-semantics-from-recent-python-adk-fixes). |
 | [#142](https://github.com/polyai/adk/pull/142) | 2026-05-15 | Saves API keys to `~/.poly/credentials.json`, masks key display, and checks credential availability. | **Covered.** Rust resolves credential-file keys before environment variables for Python parity, saves with user-only permissions, masks displayed keys, and checks for existing credentials during onboarding. |
