@@ -245,7 +245,7 @@ pub(crate) struct ReviewArgs {
     #[arg(long, action = ArgAction::SetTrue)]
     pub(crate) verbose: bool,
     #[command(subcommand)]
-    pub(crate) command: Option<ReviewCommands>,
+    pub(crate) command: ReviewCommands,
 }
 
 #[derive(Debug, Subcommand)]

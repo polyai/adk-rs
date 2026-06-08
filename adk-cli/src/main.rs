@@ -267,7 +267,7 @@ fn command_verbose(command: &Commands) -> bool {
             args.verbose
                 || matches!(
                     &args.command,
-                    Some(ReviewCommands::Create(create)) if create.verbose
+                    ReviewCommands::Create(create) if create.verbose
                 )
         }
         Commands::Branch(args) => branch_verbose(args),

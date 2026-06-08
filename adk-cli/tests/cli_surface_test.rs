@@ -413,6 +413,17 @@ fn completion_accepts_supported_shells() {
 }
 
 #[test]
+fn completion_bash_includes_branch_switch_static_surface() {
+    let output = run_poly(&["completion", "bash"]);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("poly__subcmd__branch__subcmd__switch"));
+    assert!(stdout.contains("[BRANCH_NAME]"));
+    assert!(stdout.contains("create list delete"));
+}
+
+#[test]
 fn status_json_missing_project_matches_contract() {
     let output = run_poly(&["status", "--json", "--path", "/tmp"]);
     assert_eq!(output.status.code(), Some(1));
@@ -871,6 +882,21 @@ fn review_subcommands_report_incomplete() {
             Some("The review subcommand is not implemented in adk-rs yet.")
         );
     }
+}
+
+#[test]
+fn review_requires_subcommand_at_parser_level() {
+    let output = run_poly(&["review", "--json"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stderr.contains("Usage:"));
+    assert!(stderr.contains("requires a subcommand"));
+    assert!(stderr.contains("subcommands: create, list, delete"));
+    assert!(stderr.contains("create"));
+    assert!(stderr.contains("list"));
+    assert!(stderr.contains("delete"));
 }
 
 #[test]
