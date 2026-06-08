@@ -230,13 +230,34 @@ fn migrate_legacy_keyphrase_boosting_file<Fs: FileSystem>(
 }
 
 fn recursive_file_paths<Fs: FileSystem>(fs: &Fs, root: &Path) -> Result<Vec<PathBuf>, CoreError> {
+    recursive_file_paths_with_ancestors(fs, root, &HashSet::new())
+}
+
+fn recursive_file_paths_with_ancestors<Fs: FileSystem>(
+    fs: &Fs,
+    root: &Path,
+    ancestors: &HashSet<PathBuf>,
+) -> Result<Vec<PathBuf>, CoreError> {
     let mut files = Vec::new();
     if !fs.is_dir(root) {
         return Ok(files);
     }
+
+    // Follow symlinked resource directories, but stop if a link points back to an ancestor.
+    let canonical_root = fs.canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    if ancestors.contains(&canonical_root) {
+        return Ok(files);
+    }
+    let mut child_ancestors = ancestors.clone();
+    child_ancestors.insert(canonical_root);
+
     for path in fs.read_dir(root)? {
         if fs.is_dir(&path) {
-            files.extend(recursive_file_paths(fs, &path)?);
+            files.extend(recursive_file_paths_with_ancestors(
+                fs,
+                &path,
+                &child_ancestors,
+            )?);
         } else if fs.is_file(&path) {
             files.push(path);
         }
@@ -318,7 +339,7 @@ fn delete_empty_subdirectories(dir: &Path) -> Result<(), CoreError> {
         .filter_map(Result::ok)
     {
         let path = entry.path();
-        if StdFileSystem.is_dir(path) && StdFileSystem.read_dir(path)?.is_empty() {
+        if entry.file_type().is_dir() && StdFileSystem.read_dir(path)?.is_empty() {
             StdFileSystem.remove_dir(path)?;
         }
     }
