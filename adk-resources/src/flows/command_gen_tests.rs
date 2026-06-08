@@ -399,7 +399,7 @@ fn function_step_round_trips_without_push_commands() {
         local_resource(
             "flows/support_flow/flow_config.yaml",
             "Support Flow",
-            "name: Support Flow\ndescription: ''\nstart_step: step-1\n",
+            "name: Support Flow\ndescription: ''\nstart_step: do_work\n",
         ),
     );
     resources.insert(
@@ -451,6 +451,99 @@ fn function_step_round_trips_without_push_commands() {
 }
 
 #[test]
+fn new_flow_with_function_step_start_uses_temporary_default_step() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support_flow/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/flow_config.yaml",
+            "Support Flow",
+            "name: Support Flow\ndescription: Routes immediately.\nstart_step: do_work\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/steps/collect.yaml".to_string(),
+        local_resource(
+            "flows/support_flow/steps/collect.yaml",
+            "Collect",
+            "step_type: advanced_step\nname: Collect\nasr_biasing: {}\ndtmf_config: {}\nprompt: Collect details\n",
+        ),
+    );
+    resources.insert(
+        "flows/support_flow/function_steps/do_work.py".to_string(),
+        local_resource(
+            "flows/support_flow/function_steps/do_work.py",
+            "do_work",
+            "def do_work(conv: Conversation, flow: Flow):\n    return {}\n",
+        ),
+    );
+
+    let commands = build_push_commands(&resources, &serde_json::json!({}));
+    let command_types = commands
+        .iter()
+        .map(|command| command.r#type.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        command_types,
+        vec![
+            "create_flow",
+            "create_step",
+            "update_flow",
+            "delete_no_code_step"
+        ]
+    );
+
+    let create_flow = match &commands[0].payload {
+        Some(CommandPayload::CreateFlow(flow)) => flow,
+        _ => panic!("expected create_flow payload"),
+    };
+    let temporary_step = create_flow
+        .no_code_steps
+        .iter()
+        .find(|step| step.name == "Support Flow-temp")
+        .expect("temporary default step");
+    assert_eq!(temporary_step.prompt, "temp prompt");
+    assert_eq!(
+        temporary_step.position,
+        Some(StepPosition { x: 0.0, y: 0.0 })
+    );
+    assert_eq!(create_flow.start_step_id, temporary_step.step_id);
+
+    let function_step = match &commands[1].payload {
+        Some(CommandPayload::CreateStep(step)) => match &step.payload {
+            Some(adk_protobuf::flows::create_step::Payload::FunctionStep(function_step)) => {
+                function_step
+            }
+            _ => panic!("expected function step create payload"),
+        },
+        _ => panic!("expected create_step payload"),
+    };
+    assert_eq!(function_step.name, "do_work");
+
+    match &commands[2].payload {
+        Some(CommandPayload::UpdateFlow(update)) => {
+            assert_eq!(update.flow_id, create_flow.id);
+            assert_eq!(update.name.as_deref(), Some("Support Flow"));
+            assert_eq!(update.description.as_deref(), Some("Routes immediately."));
+            assert_eq!(
+                update.start_step_id.as_deref(),
+                Some(function_step.id.as_str())
+            );
+        }
+        _ => panic!("expected update_flow payload"),
+    }
+
+    match &commands[3].payload {
+        Some(CommandPayload::DeleteNoCodeStep(delete)) => {
+            assert_eq!(delete.flow_id, create_flow.id);
+            assert_eq!(delete.step_id, temporary_step.step_id);
+        }
+        _ => panic!("expected delete_no_code_step payload"),
+    }
+}
+
+#[test]
 fn projection_function_step_with_module_docstring_import_round_trips_without_commands() {
     let function_path = "flows/support_flow/function_steps/do_work.py";
     let raw_function = "\"\"\"Helpers.\"\"\"\nimport json\n\ndef do_work(conv: Conversation, flow: Flow):\n    return json.dumps({})\n";
@@ -460,7 +553,7 @@ fn projection_function_step_with_module_docstring_import_round_trips_without_com
         local_resource(
             "flows/support_flow/flow_config.yaml",
             "Support Flow",
-            "name: Support Flow\ndescription: ''\nstart_step: step-1\n",
+            "name: Support Flow\ndescription: ''\nstart_step: do_work\n",
         ),
     );
     resources.insert(
@@ -797,6 +890,25 @@ fn update_transition_function_summary_includes_optional_sections() {
                         "variables": {"var-1": false},
                     },
                 },
+            })
+        ))
+    );
+}
+
+#[test]
+fn delete_no_code_step_summary_includes_flow_and_step_ids() {
+    let payload = CommandPayload::DeleteNoCodeStep(adk_protobuf::flows::DeleteNoCodeStep {
+        flow_id: "flow-1".into(),
+        step_id: "step-1".into(),
+    });
+
+    assert_eq!(
+        payload_json_summary(&payload),
+        Some((
+            "delete_no_code_step",
+            serde_json::json!({
+                "flow_id": "flow-1",
+                "step_id": "step-1",
             })
         ))
     );
