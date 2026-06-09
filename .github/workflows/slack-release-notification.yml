@@ -22,96 +22,46 @@ jobs:
         shell: bash
         env:
           PLAN_JSON: ${{ inputs.plan }}
-          REPOSITORY: ${{ github.repository }}
           REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           release_tag="$(jq -r '.announcement_tag' <<< "${PLAN_JSON}")"
           release_body="$(jq -r '.announcement_github_body // "No release notes provided."' <<< "${PLAN_JSON}")"
-          is_prerelease="$(jq -r '.announcement_is_prerelease' <<< "${PLAN_JSON}")"
-
-          release_url="${REPOSITORY_URL}/releases/tag/${release_tag}"
-          release_kind="New Release"
-          release_icon=":rocket:"
-
-          if [ "${is_prerelease}" = "true" ]; then
-            release_kind="Pre-release"
-            release_icon=":construction:"
-          fi
-
-          notes="${release_body}"
-          if [ "${#notes}" -gt 500 ]; then
-            notes="${notes:0:500}... <${release_url}|Read more>"
+          release_summary="$(awk 'NF { sub(/\r$/, ""); print; found=1; exit } END { if (!found) print "No release notes provided." }' <<< "${release_body}")"
+          if [ "${#release_summary}" -gt 500 ]; then
+            release_summary="${release_summary:0:500}..."
           fi
 
           jq -n \
-            --arg text "${release_kind} Alert: ${REPOSITORY} ${release_tag}" \
-            --arg header "${release_icon} ${release_kind}: ${REPOSITORY}" \
+            --arg text "Release ${release_tag}: ${release_summary} | Update with poly self-update." \
             --arg tag "${release_tag}" \
-            --arg actor "${GITHUB_ACTOR}" \
-            --arg notes "${notes}" \
-            --arg release_url "${release_url}" \
+            --arg notes "${release_summary}" \
             --arg repository_url "${REPOSITORY_URL}" \
             '{
               text: $text,
               blocks: [
                 {
-                  type: "header",
-                  text: {
-                    type: "plain_text",
-                    text: $header,
-                    emoji: true
-                  }
-                },
-                {
-                  type: "section",
-                  fields: [
-                    {
-                      type: "mrkdwn",
-                      text: ("*Version:*\n" + $tag)
-                    },
-                    {
-                      type: "mrkdwn",
-                      text: ("*Released by:*\n" + $actor)
-                    }
-                  ]
-                },
-                {
                   type: "section",
                   text: {
                     type: "mrkdwn",
-                    text: ("*Release Notes:*\n" + $notes)
-                  }
-                },
-                {
-                  type: "actions",
-                  elements: [
-                    {
-                      type: "button",
-                      text: {
-                        type: "plain_text",
-                        text: "View Release",
-                        emoji: true
-                      },
-                      url: $release_url,
-                      style: "primary"
+                    text: ("*Release:* `" + $tag + "`\n*Notes:* " + $notes)
+                  },
+                  accessory: {
+                    type: "button",
+                    text: {
+                      type: "plain_text",
+                      text: "Repo",
+                      emoji: true
                     },
-                    {
-                      type: "button",
-                      text: {
-                        type: "plain_text",
-                        text: "View Repository",
-                        emoji: true
-                      },
-                      url: $repository_url
-                    }
-                  ]
+                    url: $repository_url
+                  },
+                  expand: false
                 },
                 {
                   type: "context",
                   elements: [
                     {
                       type: "mrkdwn",
-                      text: "Run `poly self-update` to update to the latest version."
+                      text: "Update with `poly self-update`."
                     }
                   ]
                 }
