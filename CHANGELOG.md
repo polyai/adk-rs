@@ -4,6 +4,13 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+## 0.0.9 - 2026-06-09
+
+- Added `poly conversations list`, `poly conversations get`, and `poly conversations get-audio` backed by the Developer API.
+- Added language and translation resource parity, including validation and push/pull support.
+- Improved flow creation parity for function-step starts and added webchat config validation plus webchat enablement on push.
+- Fixed release-binary docs lookup, symlinked resource traversal, review parser validation, and project creation prompt parity.
+
 ## 0.0.8 - 2026-06-02
 
 - Added `poly uninstall` for shell-installed ADK releases.

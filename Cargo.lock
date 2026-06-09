@@ -2009,7 +2009,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "poly-adk"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "anyhow",
  "axoupdater",
@@ -2036,7 +2036,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-api-client"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "httpmock",
  "indexmap",
@@ -2053,7 +2053,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-core"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "anyhow",
  "base64",
@@ -2074,7 +2074,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-ffi"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "poly-adk-api-client",
  "poly-adk-core",
@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-io"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "poly-adk-types",
  "serde",
@@ -2097,7 +2097,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-protobuf"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "prost",
  "prost-types",
@@ -2105,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-resources"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "fancy-regex 0.14.0",
  "indexmap",
@@ -2127,7 +2127,7 @@ dependencies = [
 
 [[package]]
 name = "poly-adk-types"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "chrono",
  "indexmap",
