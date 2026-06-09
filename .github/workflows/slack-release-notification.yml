@@ -27,6 +27,9 @@ jobs:
           release_tag="$(jq -r '.announcement_tag' <<< "${PLAN_JSON}")"
           release_body="$(jq -r '.announcement_github_body // "No release notes provided."' <<< "${PLAN_JSON}")"
           release_summary="$(awk 'NF { sub(/\r$/, ""); print; found=1; exit } END { if (!found) print "No release notes provided." }' <<< "${release_body}")"
+          if [ "${#release_summary}" -gt 500 ]; then
+            release_summary="${release_summary:0:500}..."
+          fi
 
           jq -n \
             --arg text "Release ${release_tag}: ${release_summary} | Update with poly self-update." \
