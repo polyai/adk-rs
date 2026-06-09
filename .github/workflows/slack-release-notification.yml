@@ -26,15 +26,81 @@ jobs:
         run: |
           release_tag="$(jq -r '.announcement_tag' <<< "${PLAN_JSON}")"
           release_body="$(jq -r '.announcement_github_body // "No release notes provided."' <<< "${PLAN_JSON}")"
-          release_summary="$(awk 'NF { sub(/\r$/, ""); print; found=1; exit } END { if (!found) print "No release notes provided." }' <<< "${release_body}")"
-          if [ "${#release_summary}" -gt 500 ]; then
-            release_summary="${release_summary:0:500}..."
+          release_notes="$(
+            awk '
+              function trim(value) {
+                sub(/^[[:space:]]+/, "", value)
+                sub(/[[:space:]]+$/, "", value)
+                return value
+              }
+
+              {
+                sub(/\r$/, "")
+                trimmed = trim($0)
+
+                if (!started && (trimmed == "" || tolower(trimmed) ~ /^#{1,6}[[:space:]]+release notes[[:space:]]*$/)) {
+                  next
+                }
+
+                if (started && tolower(trimmed) ~ /^#{1,6}[[:space:]]+install polyai adk([[:space:]]|$)/) {
+                  exit
+                }
+
+                started = 1
+                lines[++count] = $0
+              }
+
+              END {
+                while (count > 0 && trim(lines[count]) == "") {
+                  count--
+                }
+
+                if (count == 0) {
+                  print "No release notes provided."
+                  exit
+                }
+
+                for (i = 1; i <= count; i++) {
+                  print lines[i]
+                }
+              }
+            ' <<< "${release_body}"
+          )"
+          release_preview="$(
+            awk '
+              {
+                sub(/\r$/, "")
+                line = $0
+                sub(/^[[:space:]]+/, "", line)
+                sub(/[[:space:]]+$/, "", line)
+
+                if (line == "" || line ~ /^#{1,6}[[:space:]]+/) {
+                  next
+                }
+
+                sub(/^[-*][[:space:]]+/, "", line)
+                print line
+                found = 1
+                exit
+              }
+
+              END {
+                if (!found) {
+                  print "No release notes provided."
+                }
+              }
+            ' <<< "${release_notes}"
+          )"
+
+          release_notes_limit=1500
+          if [ "${#release_notes}" -gt "${release_notes_limit}" ]; then
+            release_notes="${release_notes:0:${release_notes_limit}}..."
           fi
 
           jq -n \
-            --arg text "Release ${release_tag}: ${release_summary} | Update with poly self-update." \
+            --arg text "Release ${release_tag}: ${release_preview} | Update with poly self-update." \
             --arg tag "${release_tag}" \
-            --arg notes "${release_summary}" \
+            --arg notes "${release_notes}" \
             --arg repository_url "${REPOSITORY_URL}" \
             '{
               text: $text,
@@ -43,7 +109,7 @@ jobs:
                   type: "section",
                   text: {
                     type: "mrkdwn",
-                    text: ("*Release:* `" + $tag + "`\n*Notes:* " + $notes)
+                    text: ("*Release:* `" + $tag + "`\n*Notes:*\n" + $notes)
                   },
                   accessory: {
                     type: "button",
