@@ -194,7 +194,7 @@ impl HttpPlatformClient {
     ) -> Result<Self, ApiError> {
         let base_url = base_url_for_region(region)?;
         Ok(Self {
-            client: reqwest::blocking::Client::new(),
+            client: new_http_client()?,
             base_url,
             api_key: api_key.into(),
             account_id: account_id.to_string(),
@@ -350,7 +350,7 @@ impl HttpPlatformClient {
         let base_url = base_url_for_region(region)?;
         let url = format!("{base_url}{endpoint}");
         let correlation_id = new_correlation_id();
-        let response = reqwest::blocking::Client::new()
+        let response = new_http_client()?
             .get(&url)
             .header("X-API-KEY", api_key)
             .header("X-PolyAI-Correlation-Id", &correlation_id)
@@ -374,7 +374,7 @@ impl HttpPlatformClient {
         let base_url = base_url_for_region(region)?;
         let url = format!("{}{}", platform_root_url(&base_url), endpoint);
         let correlation_id = new_correlation_id();
-        let response = reqwest::blocking::Client::new()
+        let response = new_http_client()?
             .request(method, &url)
             .header("X-API-KEY", api_key)
             .header("X-PolyAI-Correlation-Id", &correlation_id)
@@ -464,12 +464,8 @@ impl HttpPlatformClient {
         query: Option<&[(&str, String)]>,
     ) -> Result<Vec<u8>, ApiError> {
         let url = format!("{}{}", platform_root_url(&self.base_url), endpoint);
-        let client = reqwest::blocking::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| ApiError::Http(e.to_string()))?;
         let correlation_id = new_correlation_id();
-        let mut request = client
+        let mut request = new_http_client()?
             .get(&url)
             .header("X-API-KEY", &self.api_key)
             .header("X-PolyAI-Correlation-Id", &correlation_id);
@@ -1365,6 +1361,14 @@ fn command_user_override_from_env() -> Option<String> {
     env::var("ADK_COMMAND_USER_OVERRIDE")
         .ok()
         .filter(|value| !value.is_empty())
+}
+
+fn new_http_client() -> Result<reqwest::blocking::Client, ApiError> {
+    reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent("poly-adk-rs")
+        .build()
+        .map_err(|e| ApiError::Http(e.to_string()))
 }
 
 fn api_key_for_region(region: &str) -> Result<String, ApiError> {
