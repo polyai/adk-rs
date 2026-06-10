@@ -1,6 +1,6 @@
 # poly-adk-napi
 
-N-API bindings for the pure PolyAI ADK engine.
+N-API wrapper for pure PolyAI ADK workflows.
 
 This crate is a thin synchronous adapter over `adk-core`. It accepts
 TypeScript-friendly file maps and projection JSON strings, loads them into an

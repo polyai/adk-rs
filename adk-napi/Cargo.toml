@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "N-API bindings for the pure PolyAI ADK engine."
+description = "N-API wrapper for pure PolyAI ADK workflows."
 readme = "README.md"
 publish = false
 

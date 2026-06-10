@@ -59,7 +59,7 @@ pub fn try_build_push_commands_with_created_by(
 
 /// Builds a full-resource command batch with caller-supplied command metadata.
 ///
-/// This is intended for pure engine bindings that receive timestamp and author
+/// This is intended for pure embedded bindings that receive timestamp and author
 /// context from their caller instead of reading environment variables or the
 /// system clock at the API boundary. Existing CLI and API-client paths should
 /// continue using the simpler wrappers unless they need deterministic metadata.

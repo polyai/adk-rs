@@ -1,4 +1,4 @@
-# TypeScript N-API ADK Engine Plan
+# TypeScript N-API ADK Wrapper Plan
 
 ## Motivation
 
@@ -8,7 +8,7 @@ files, and generating push commands. We want to expose that logic to
 TypeScript for backend and Node-like environments without rewriting ADK
 semantics in TypeScript.
 
-The proposed TypeScript library should be a pure project/projection engine:
+The proposed TypeScript library should be a pure project/projection library:
 all operations are functions of caller-provided inputs. TypeScript owns
 transport concerns such as auth, endpoint selection, fetch, retries, and
 posting command batches. Rust owns the ADK-specific interpretation of files
@@ -20,9 +20,9 @@ Node native-addon interface.
 
 ## Core Principles
 
-- No HTTP or backend calls in the TypeScript engine package.
-- No `adk-api-client` dependency in the TypeScript-facing engine crate graph.
-- No local disk access for the TypeScript engine APIs.
+- No HTTP or backend calls in the TypeScript wrapper package.
+- No `adk-api-client` dependency in the TypeScript-facing wrapper crate graph.
+- No local disk access for the TypeScript wrapper APIs.
 - No environment variable reads.
 - No subprocesses such as `ruff`.
 - No `_gen/.agent_studio_config` local status file.
@@ -33,12 +33,12 @@ Node native-addon interface.
 
 ## Desired Crate Structure
 
-The implementation should split pure engine behavior from CLI and transport
-behavior.
+The implementation should split pure core workflow behavior from CLI and
+transport behavior.
 
 ```text
 adk-core
-  Pure project/projection engine.
+  Pure project/projection workflows.
   Depends on adk-io, adk-resources, adk-protobuf, adk-types.
   Does not depend on adk-api-client.
 
@@ -93,7 +93,7 @@ File map keys are normalized POSIX-style relative paths:
 - No leading slash.
 - `/` path separators.
 - UTF-8 text content.
-- ADK resource files are interpreted by the engine.
+- ADK resource files are interpreted by the Rust ADK logic.
 - Unrelated files are preserved unless explicitly overwritten or deleted by
   ADK-owned pull behavior.
 
@@ -102,7 +102,7 @@ keys are interpreted relative to that root after they are loaded into
 `MemoryFileSystem` by `adk-napi`; `adk-core` should not discover or invent a
 root path for the TypeScript bindings.
 
-If `_gen/.agent_studio_config` is present in the input, the engine ignores it
+If `_gen/.agent_studio_config` is present in the input, the wrapper ignores it
 and never emits it. Other deterministic helper files under `_gen/**` may be
 generated or refreshed by pull, matching native CLI project materialization.
 
@@ -136,14 +136,14 @@ without storing `_gen/.agent_studio_config`.
 
 Pull conflict behavior:
 
-- With `baseProjectionJson`, the engine can compare base materialized files,
+- With `baseProjectionJson`, the Rust core can compare base materialized files,
   caller-provided files, and pull-projection materialized files.
 - If a file is unchanged from base locally, the pull projection content may be
   written.
 - If both local and pull projection changed relative to base and contents
   differ, the path is reported in `conflicts`.
 - If `force` is true, pull projection materialization wins for ADK-owned files.
-- Without `baseProjectionJson`, the engine cannot know whether existing local
+- Without `baseProjectionJson`, the Rust core cannot know whether existing local
   content is user-edited or previously materialized. TypeScript documentation
   should describe this as a conservative mode: callers should pass `force` to
   overwrite, or pass `baseProjectionJson` for conflict-aware pulls.
@@ -181,20 +181,19 @@ those bytes to the backend with the correct transport details.
 
 `currentTime` controls command metadata timestamps and should be an ISO
 8601/RFC 3339 timestamp string. The TypeScript wrapper may default this to the
-current time before calling Rust. The Rust engine should not read the system
-clock for this value when it is supplied.
+current time before calling Rust. The Rust core workflow should not read the
+system clock for this value when it is supplied.
 
 Command IDs are generated internally as UUID v4 values. They are intentionally
 not deterministic in v1. As a result, `commandBatchBytes` are not byte-stable
-across identical calls. Tests that need deterministic assertions should use
-optional normalized command summaries or decode command batches and ignore
-command IDs.
+across identical calls. Tests that need deterministic assertions should decode
+command batches and ignore command IDs.
 
 `message` is optional and should be set only when push cannot produce a command
 batch.
 
 `skipValidation` is retained for CLI parity and advanced callers. Formatting is
-not part of the TypeScript engine because it currently depends on subprocess
+not part of the TypeScript wrapper because it currently depends on subprocess
 behavior in native CLI flows.
 
 For v1, push should generate commands from the full caller-provided file map
@@ -229,7 +228,7 @@ N-API-facing errors should use stable TypeScript-friendly codes rather than raw
 Rust error strings alone.
 
 ```ts
-type AdkEngineError = {
+type AdkNapiError = {
   code:
     | "INVALID_INPUT"
     | "INVALID_PROJECTION"
@@ -262,7 +261,7 @@ field, but the shape should be stable.
 
 ## Determinism Contract
 
-The engine should be deterministic for:
+The core workflow should be deterministic for:
 
 - Projection materialization.
 - Conflict detection.
@@ -298,15 +297,15 @@ establish the `adk-service` crate boundary early so later pull extraction
 happens with the dependency direction already visible. The N-API boundary
 should still wait until the core behavior it needs is stable.
 
-### Phase 1: Filesystem-Backed Engine APIs
+### Phase 1: Filesystem-Backed Core Workflow APIs
 
 Refactor the existing Rust workflow code so the reusable pieces in `adk-core`
 continue to operate through the `adk_io::FileSystem` trait and parsed
 projection values. This should be an extraction of the current
 filesystem-backed discovery, materialization, validation, pull, and
-command-generation paths needed by the TypeScript engine, not a new parallel
+command-generation paths needed by the TypeScript wrapper, not a new parallel
 implementation. Existing native CLI diff behavior is not part of the v1
-TypeScript engine surface and can remain in the service/native workflow path.
+TypeScript wrapper surface and can remain in the service/native workflow path.
 
 Projection JSON parsing should not live deep in reusable workflow code. The
 filesystem-backed `adk-core` helpers should accept parsed
@@ -384,7 +383,7 @@ Verification for this phase:
 
 ### Phase 2: Pull and Push Semantics
 
-Implement the two agreed TypeScript engine operations in `adk-core`.
+Implement the two agreed TypeScript wrapper operations in `adk-core`.
 
 Pull:
 
@@ -402,8 +401,7 @@ Push:
 - Validate unless `skip_validation` is true.
 - Build push commands against the supplied projection.
 - Encode an `adk_protobuf::CommandBatch` with `last_known_sequence`.
-- Return command batch bytes, with optional command summaries for dry-run,
-  debugging, and tests.
+- Return command batch bytes.
 - Use the caller-provided `current_time` for command metadata when supplied.
 - Continue using UUID v4 command IDs in v1.
 
@@ -429,14 +427,14 @@ Add `adk-service` as the API-aware orchestration crate.
 - Own native CLI persistence of `_gen/.agent_studio_config`, including when to
   read it as a baseline and when to write it after successful pull/push flows.
   During the transition, `adk-service` may call status helper methods that
-  still live in `adk-core`; pure engine APIs should not expose those side
+  still live in `adk-core`; pure core workflow APIs should not expose those side
   effects.
 - Keep branch/deployment/chat operations that require remote state out of
   `adk-core`.
 - Have `adk-cli` call `adk-service`.
 - Keep CLI-facing semantics, output messages, and existing tests passing.
 
-This lets the native CLI keep its current behavior while the TypeScript engine
+This lets the native CLI keep its current behavior while the TypeScript wrapper
 uses the same pure core without transport.
 
 Verification for this phase:
@@ -454,7 +452,7 @@ Add `adk-napi` once the pure Rust APIs are stable.
 - Expose `pull` and `push` through NAPI-RS.
 - Accept projection inputs as JSON strings.
 - Accept and return file maps as TypeScript-friendly objects.
-- Convert errors into stable `AdkEngineError` values.
+- Convert errors into stable `AdkNapiError` values.
 - Return command batch bytes as `Uint8Array`.
 - Provide handwritten TypeScript wrapper code that handles `JSON.stringify`,
   defaulting `currentTime`, and passing the explicit root through to the raw
@@ -513,7 +511,7 @@ Verification for this phase:
   boundary conversion.
 - N-API tests should cover `FileMap` to `MemoryFileSystem` loading/export, path
   normalization, and `_gen/.agent_studio_config` exclusion.
-- Tests should cover bad projection JSON and stable `AdkEngineError`
+- Tests should cover bad projection JSON and stable `AdkNapiError`
   conversion.
 - Push tests should verify `commandBatchBytes` is returned as `Uint8Array`.
 - Packaging smoke tests should load the native addon in the supported backend
