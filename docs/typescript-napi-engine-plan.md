@@ -4,9 +4,9 @@
 
 The Rust ADK already contains the parity-sensitive logic for materializing
 Agent Studio projections, discovering local resources, validating project
-files, computing diffs, and generating push commands. We want to expose that
-logic to TypeScript for backend and Node-like environments without rewriting
-ADK semantics in TypeScript.
+files, and generating push commands. We want to expose that logic to
+TypeScript for backend and Node-like environments without rewriting ADK
+semantics in TypeScript.
 
 The proposed TypeScript library should be a pure project/projection engine:
 all operations are functions of caller-provided inputs. TypeScript owns
@@ -72,7 +72,7 @@ APIs.
 
 ## TypeScript API Surface
 
-The v1 library should expose three operations: `pull`, `push`, and `diff`.
+The v1 library should expose two operations: `pull` and `push`.
 
 ### File Map
 
@@ -202,26 +202,6 @@ For v1, push should generate commands from the full caller-provided file map
 against the supplied projection. Changed-resource optimization can be added
 later if the caller provides an explicit baseline.
 
-### Diff
-
-```ts
-type DiffInput = {
-  root: string;
-  files: FileMap;
-  projectionJson: string;
-};
-
-type DiffOutput = {
-  diffs: Record<string, string>;
-};
-```
-
-Diff compares the caller's current files against the files that would be
-materialized from `projectionJson`.
-
-It does not need a baseline projection, local status file, or remote fetch.
-This keeps the operation simple and fully explicit: `diff(files, projection)`.
-
 ## Projection Handling
 
 The TypeScript wrapper should serialize projection objects before calling into
@@ -283,7 +263,6 @@ field, but the shape should be stable.
 The engine should be deterministic for:
 
 - Projection materialization.
-- File diffs.
 - Conflict detection.
 - Validation results.
 - Logical command selection and ordering.
@@ -313,7 +292,7 @@ target is:
 The phases below are a concrete path toward that target. They can be landed as
 small boundary-preserving slices rather than strictly serial phases. In
 particular, once an initial pure push-planning slice exists, it is useful to
-establish the `adk-service` crate boundary early so later pull/diff extraction
+establish the `adk-service` crate boundary early so later pull extraction
 happens with the dependency direction already visible. The N-API boundary
 should still wait until the core behavior it needs is stable.
 
@@ -322,8 +301,10 @@ should still wait until the core behavior it needs is stable.
 Refactor the existing Rust workflow code so the reusable pieces in `adk-core`
 continue to operate through the `adk_io::FileSystem` trait and parsed
 projection values. This should be an extraction of the current
-filesystem-backed discovery, materialization, validation, diff, pull, and
-command-generation paths, not a new parallel implementation.
+filesystem-backed discovery, materialization, validation, pull, and
+command-generation paths needed by the TypeScript engine, not a new parallel
+implementation. Existing native CLI diff behavior is not part of the v1
+TypeScript engine surface and can remain in the service/native workflow path.
 
 Projection JSON parsing should not live deep in reusable workflow code. The
 filesystem-backed `adk-core` helpers should accept parsed
@@ -348,10 +329,6 @@ pub struct PushInput {
     pub skip_validation: bool,
 }
 
-pub struct DiffInput {
-    pub projection: serde_json::Value,
-}
-
 pub fn pull<Fs: adk_io::FileSystem>(
     fs: &Fs,
     root: &std::path::Path,
@@ -363,12 +340,6 @@ pub fn push<Fs: adk_io::FileSystem>(
     root: &std::path::Path,
     input: PushInput,
 ) -> Result<PushOutput, CoreError>;
-
-pub fn diff<Fs: adk_io::FileSystem>(
-    fs: &Fs,
-    root: &std::path::Path,
-    input: DiffInput,
-) -> Result<DiffOutput, CoreError>;
 ```
 
 Do not add a new `adk-core` facade whose main job is to translate external
@@ -409,9 +380,9 @@ Verification for this phase:
 - Existing filesystem-generic tests should pass with both `StdFileSystem`
   where appropriate and `MemoryFileSystem`.
 
-### Phase 2: Pull, Push, and Diff Semantics
+### Phase 2: Pull and Push Semantics
 
-Implement the three agreed operations in `adk-core`.
+Implement the two agreed TypeScript engine operations in `adk-core`.
 
 Pull:
 
@@ -433,13 +404,6 @@ Push:
 - Use the caller-provided `current_time` for command metadata when supplied.
 - Continue using UUID v4 command IDs in v1.
 
-Diff:
-
-- Materialize the supplied projection.
-- Compare the materialized projection files against the caller-provided files.
-- Return a path-keyed diff map.
-- Do not require a baseline projection.
-
 Verification for this phase:
 
 - Pull tests should cover conflict behavior with and without
@@ -448,7 +412,6 @@ Verification for this phase:
 - Push tests should use optional normalized command summaries when requested,
   and decode protobuf bytes to verify `last_known_sequence` and command
   ordering while ignoring UUID values.
-- Diff tests should prove `diff(files, projection)` needs no baseline.
 - Projection-to-files parity tests should reuse existing Python ADK fixtures
   where possible.
 
@@ -486,7 +449,7 @@ Verification for this phase:
 
 Add `adk-napi` once the pure Rust APIs are stable.
 
-- Expose `pull`, `push`, and `diff` through NAPI-RS.
+- Expose `pull` and `push` through NAPI-RS.
 - Accept projection inputs as JSON strings.
 - Accept and return file maps as TypeScript-friendly objects.
 - Convert errors into stable `AdkEngineError` values.
@@ -522,21 +485,11 @@ pub struct NapiPushInput {
     pub skip_validation: Option<bool>,
 }
 
-#[napi(object)]
-pub struct NapiDiffInput {
-    pub root: String,
-    pub files: std::collections::BTreeMap<String, String>,
-    pub projection_json: String,
-}
-
 #[napi]
 pub fn pull(input: NapiPullInput) -> napi::Result<NapiPullOutput>;
 
 #[napi]
 pub fn push(input: NapiPushInput) -> napi::Result<NapiPushOutput>;
-
-#[napi]
-pub fn diff(input: NapiDiffInput) -> napi::Result<NapiDiffOutput>;
 ```
 
 These exports should be synchronous. They perform CPU and in-memory filesystem
@@ -583,7 +536,6 @@ The main test contracts are:
 - Encoded command batches include the supplied `last_known_sequence`, while
   UUID command IDs remain nondeterministic.
 - Pull conflict behavior is covered with and without `base_projection`.
-- Diff remains exactly `diff(files, projection)` with no hidden baseline.
 - N-API wrapper behavior is covered at the TypeScript-facing boundary.
 
 The migration is complete when existing CLI tests still pass and the extracted
