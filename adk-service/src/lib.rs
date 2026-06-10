@@ -3,10 +3,10 @@ use adk_core::*;
 use adk_io::{FileSystem, StdFileSystem, diff_resources, parse_multi_resource_path};
 use adk_resources::{
     FileStructureEntry, ResourceStatusPayloadInput, StatusResourcePayload, StatusSnapshot,
-    clean_name, current_status_hash_for_expected, extract_variable_names_from_code,
-    flow_folder_name, legacy_python_snapshot_hashes, local_resource_content,
-    normalize_legacy_python_status_function_resources, resource_file_content,
-    resource_status_file_hash, resource_status_payload,
+    clean_name, command_to_json_summary, current_status_hash_for_expected,
+    extract_variable_names_from_code, flow_folder_name, legacy_python_snapshot_hashes,
+    local_resource_content, normalize_legacy_python_status_function_resources,
+    resource_file_content, resource_status_file_hash, resource_status_payload,
 };
 use adk_types::{
     BranchDescriptor, BranchMergeResult, ConversationDetail, ConversationListResponse,
@@ -492,10 +492,11 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             });
         }
         if dry_run {
+            let commands = plan.commands.iter().map(command_to_json_summary).collect();
             return Ok(PushResult {
                 success: true,
                 message: "Dry run completed. No changes were pushed.".to_string(),
-                commands: plan.command_summaries,
+                commands,
             });
         }
         Ok(self.client.push_command_batch(&plan.command_batch_bytes)?)

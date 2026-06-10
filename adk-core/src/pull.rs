@@ -1,4 +1,6 @@
-use crate::{CoreError, STATUS_FILE, flatten_discovered_paths, recursive_file_paths};
+use crate::{
+    CoreError, flatten_discovered_paths, is_generated_metadata_path, recursive_file_paths,
+};
 use adk_io::{FileSystem, parse_multi_resource_path};
 use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
@@ -228,7 +230,7 @@ fn snapshot_text_files<Fs: FileSystem>(
             .unwrap_or(path.as_path())
             .to_string_lossy()
             .replace('\\', "/");
-        if rel == STATUS_FILE {
+        if is_generated_metadata_path(&rel) {
             continue;
         }
         files.insert(rel, fs.read_to_string(&path)?);
@@ -284,8 +286,10 @@ mod tests {
         let root = Path::new("project");
         fs.write_string(&root.join("README.md"), "notes\n")
             .expect("write unrelated file");
-        fs.write_string(&root.join(STATUS_FILE), "ignored")
+        fs.write_string(&root.join(crate::STATUS_FILE), "ignored")
             .expect("write status file");
+        fs.write_string(&root.join("_gen/decorators.py"), "generated\n")
+            .expect("write generated helper");
 
         let output = pull_from_filesystem(
             &fs,
@@ -309,7 +313,9 @@ mod tests {
             Some(&topic_content("billing", "Remote"))
         );
         assert_eq!(output.files.get("README.md"), Some(&"notes\n".to_string()));
-        assert!(!output.files.contains_key(STATUS_FILE));
+        assert!(!output.files.contains_key(crate::STATUS_FILE));
+        assert!(!output.files.contains_key("_gen/decorators.py"));
+        assert!(fs.exists(&root.join("_gen/decorators.py")));
         assert_eq!(
             output.changes,
             vec![FileChange::Write {

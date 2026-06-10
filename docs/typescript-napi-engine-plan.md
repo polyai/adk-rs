@@ -167,7 +167,6 @@ type PushInput = {
 type PushOutput = {
   success: boolean;
   message?: string;
-  commandSummaries?: unknown[];
   commandBatchBytes?: Uint8Array;
 };
 ```
@@ -191,8 +190,7 @@ optional normalized command summaries or decode command batches and ignore
 command IDs.
 
 `message` is optional and should be set only when push cannot produce a command
-batch. `commandSummaries` are optional and intended for dry-run, debugging, and
-test assertions.
+batch.
 
 `skipValidation` is retained for CLI parity and advanced callers. Formatting is
 not part of the TypeScript engine because it currently depends on subprocess
@@ -409,9 +407,8 @@ Verification for this phase:
 - Pull tests should cover conflict behavior with and without
   `base_projection`, force overwrite behavior, patch output, and preservation
   of unrelated files.
-- Push tests should use optional normalized command summaries when requested,
-  and decode protobuf bytes to verify `last_known_sequence` and command
-  ordering while ignoring UUID values.
+- Push tests should decode protobuf bytes to verify `last_known_sequence` and
+  command ordering while ignoring UUID values.
 - Projection-to-files parity tests should reuse existing Python ADK fixtures
   where possible.
 

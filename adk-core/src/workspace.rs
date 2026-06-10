@@ -5,7 +5,7 @@ use crate::{
     apply_reference_name_replacements, compute_modified_files_against_snapshot,
     compute_modified_files_against_snapshot_with_replacements, find_project_root_with_fs,
     flatten_deleted_discovered_paths, flatten_discovered_paths_by_type_order,
-    migrate_legacy_keyphrase_boosting_file, migrate_legacy_topic_files,
+    is_generated_metadata_path, migrate_legacy_keyphrase_boosting_file, migrate_legacy_topic_files,
     migration_flags_from_status, project_config_contains_branch_id, project_config_yaml,
     recursive_file_paths, reference_name_from_logical_path, stable_dedup,
 };
@@ -656,7 +656,7 @@ pub(crate) fn collect_local_resources_from_fs<Fs: FileSystem>(
             .unwrap_or(file.as_path())
             .to_string_lossy()
             .replace('\\', "/");
-        if rel == PROJECT_CONFIG_FILE || rel == STATUS_FILE || rel.starts_with("_gen/") {
+        if rel == PROJECT_CONFIG_FILE || is_generated_metadata_path(&rel) {
             continue;
         }
         let content = fs.read_to_string(file.as_path()).unwrap_or_default();

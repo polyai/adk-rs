@@ -1,5 +1,6 @@
 use crate::{
-    CoreError, recursive_file_paths, validation, workspace::collect_local_resources_from_fs,
+    CoreError, is_generated_metadata_path, recursive_file_paths, validation,
+    workspace::collect_local_resources_from_fs,
 };
 use adk_io::FileSystem;
 use adk_protobuf::{Command, CommandBatch};
@@ -71,7 +72,6 @@ impl ChangedResourceMap {
 pub struct PushCommandPlan {
     pub last_known_sequence: u64,
     pub commands: Vec<Command>,
-    pub command_summaries: Vec<JsonValue>,
     pub command_batch_bytes: Vec<u8>,
 }
 
@@ -139,10 +139,6 @@ fn build_push_command_plan(
             )?
         }
     };
-    let command_summaries = commands
-        .iter()
-        .map(adk_resources::command_to_json_summary)
-        .collect();
     let command_batch_bytes = CommandBatch {
         last_known_sequence: input.last_known_sequence,
         commands: commands.clone(),
@@ -151,7 +147,6 @@ fn build_push_command_plan(
     Ok(PushCommandPlan {
         last_known_sequence: input.last_known_sequence,
         commands,
-        command_summaries,
         command_batch_bytes,
     })
 }
@@ -254,6 +249,14 @@ pub fn add_discovered_variable_resources_from_fs<Fs: FileSystem>(
 fn detect_conflict_files<Fs: FileSystem>(fs: &Fs, root: &Path) -> Result<Vec<String>, CoreError> {
     let mut conflicts = Vec::new();
     for path in recursive_file_paths(fs, root)? {
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        if is_generated_metadata_path(&rel) {
+            continue;
+        }
         let content = match fs.read_to_string(&path) {
             Ok(content) => content,
             Err(_) => continue,
@@ -388,6 +391,30 @@ mod tests {
         let forced = push_from_filesystem(&fs, root, forced_input).expect("forced push");
         assert!(forced.success);
         assert!(forced.command_batch_bytes.is_some());
+    }
+
+    #[test]
+    fn push_from_filesystem_ignores_generated_metadata_conflict_markers() {
+        let fs = MemoryFileSystem::new();
+        let root = Path::new("workspace/project");
+        write_topic(&fs, root, "sample", "hello");
+        fs.write_string(
+            &root.join(crate::STATUS_FILE),
+            "<<<<<<< local\nstatus\n=======\nremote\n>>>>>>> remote\n",
+        )
+        .expect("write generated status");
+        fs.write_string(
+            &root.join("_gen/decorators.py"),
+            "<<<<<<< local\ngenerated\n=======\nremote\n>>>>>>> remote\n",
+        )
+        .expect("write generated helper");
+
+        let output = push_from_filesystem(&fs, root, push_input(serde_json::json!({})))
+            .expect("push output");
+
+        assert!(output.success);
+        assert_eq!(output.message, None);
+        assert!(output.command_batch_bytes.is_some());
     }
 
     #[test]
