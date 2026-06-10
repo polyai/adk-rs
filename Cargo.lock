@@ -2223,6 +2223,8 @@ dependencies = [
  "napi-derive",
  "poly-adk-core",
  "poly-adk-io",
+ "poly-adk-protobuf",
+ "prost",
  "serde_json",
 ]
 

@@ -21,5 +21,9 @@ napi.workspace = true
 napi-derive.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+adk-protobuf.workspace = true
+prost.workspace = true
+
 [build-dependencies]
 napi-build.workspace = true
