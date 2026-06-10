@@ -345,6 +345,40 @@ mod tests {
     }
 
     #[test]
+    fn pull_from_filesystem_generates_python_helpers_without_status_file() {
+        let fs = MemoryFileSystem::new();
+        let root = Path::new("project");
+
+        let output = pull_from_filesystem(
+            &fs,
+            root,
+            PullInput {
+                pull_projection: serde_json::json!({}),
+                base_projection: None,
+                force: false,
+            },
+        )
+        .expect("pull");
+
+        assert!(output.conflicts.is_empty());
+        assert!(!fs.exists(&root.join(crate::STATUS_FILE)));
+        assert!(!output.files.contains_key(crate::STATUS_FILE));
+
+        for (file_name, content) in crate::workspace::PYTHON_GEN_TEMPLATE_FILES {
+            let path = format!("_gen/{file_name}");
+            assert_eq!(
+                fs.read_to_string(&root.join(&path)).expect("helper file"),
+                *content
+            );
+            assert_eq!(output.files.get(&path), Some(&(*content).to_string()));
+            assert!(output.changes.contains(&FileChange::Write {
+                path,
+                content: (*content).to_string(),
+            }));
+        }
+    }
+
+    #[test]
     fn pull_from_filesystem_writes_projection_and_preserves_unrelated_files() {
         let fs = MemoryFileSystem::new();
         let root = Path::new("project");
