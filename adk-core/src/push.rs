@@ -26,18 +26,44 @@ pub struct PushInput {
 }
 
 /// Inputs for planning push commands from an already selected resource map.
-///
-/// `include_deletes` mirrors the existing CLI distinction between full pushes
-/// and status-scoped changed-resource pushes. Full pushes include remote
-/// deletions; changed-resource pushes suppress deletes for resources the caller
-/// intentionally omitted from the selected local map.
 #[derive(Debug, Clone)]
 pub struct PushPlanInput {
     pub projection: JsonValue,
     pub last_known_sequence: u64,
     pub created_by: Option<String>,
     pub current_time: Option<DateTime<Utc>>,
-    pub include_deletes: bool,
+}
+
+/// Resource map containing only files selected by status-based change detection.
+///
+/// Plain `ResourceMap` values used by push planning are treated as full local
+/// snapshots, where absence can mean "delete remotely". `ChangedResourceMap`
+/// makes the changed-only case explicit: absence means "out of scope".
+#[derive(Debug, Clone, Default)]
+pub struct ChangedResourceMap {
+    resources: ResourceMap,
+}
+
+impl ChangedResourceMap {
+    pub fn new(resources: ResourceMap) -> Self {
+        Self { resources }
+    }
+
+    pub fn as_resources(&self) -> &ResourceMap {
+        &self.resources
+    }
+
+    pub fn as_resources_mut(&mut self) -> &mut ResourceMap {
+        &mut self.resources
+    }
+
+    pub fn into_inner(self) -> ResourceMap {
+        self.resources
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.resources.is_empty()
+    }
 }
 
 /// Planned push commands plus transport-ready protobuf bytes.
@@ -47,6 +73,12 @@ pub struct PushCommandPlan {
     pub commands: Vec<Command>,
     pub command_summaries: Vec<JsonValue>,
     pub command_batch_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PushCommandScope {
+    FullSnapshot,
+    ChangedOnly,
 }
 
 /// Result of planning a push command batch without contacting Agent Studio.
@@ -71,21 +103,41 @@ pub fn plan_push_commands_from_resources(
     resources: &ResourceMap,
     input: PushPlanInput,
 ) -> Result<PushCommandPlan, CoreError> {
+    build_push_command_plan(resources, input, PushCommandScope::FullSnapshot)
+}
+
+pub fn plan_push_commands_from_changed_resources(
+    resources: &ChangedResourceMap,
+    input: PushPlanInput,
+) -> Result<PushCommandPlan, CoreError> {
+    build_push_command_plan(
+        resources.as_resources(),
+        input,
+        PushCommandScope::ChangedOnly,
+    )
+}
+
+fn build_push_command_plan(
+    resources: &ResourceMap,
+    input: PushPlanInput,
+    scope: PushCommandScope,
+) -> Result<PushCommandPlan, CoreError> {
     let timestamp = input.current_time.map(timestamp_from_datetime);
-    let commands = if input.include_deletes {
-        adk_resources::try_build_push_commands_with_metadata(
+    let commands = match scope {
+        PushCommandScope::FullSnapshot => adk_resources::try_build_push_commands_with_metadata(
             resources,
             &input.projection,
             input.created_by.as_deref(),
             timestamp,
-        )?
-    } else {
-        adk_resources::try_build_push_commands_for_changed_resources_with_metadata(
-            resources,
-            &input.projection,
-            input.created_by.as_deref(),
-            timestamp,
-        )?
+        )?,
+        PushCommandScope::ChangedOnly => {
+            adk_resources::try_build_push_commands_for_changed_resources_with_metadata(
+                resources,
+                &input.projection,
+                input.created_by.as_deref(),
+                timestamp,
+            )?
+        }
     };
     let command_summaries = commands
         .iter()
@@ -151,7 +203,6 @@ pub fn push_from_filesystem<Fs: FileSystem>(
             last_known_sequence: input.last_known_sequence,
             created_by: input.created_by,
             current_time: input.current_time,
-            include_deletes: true,
         },
     )?;
     if plan.commands.is_empty() {

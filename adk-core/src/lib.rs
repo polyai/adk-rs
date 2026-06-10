@@ -16,7 +16,8 @@ pub use adk_resources::{
 use anyhow::Result;
 use globset::{Glob, GlobSetBuilder};
 pub use push::{
-    PushCommandPlan, PushInput, PushOutput, PushPlanInput, plan_push_commands_from_resources,
+    ChangedResourceMap, PushCommandPlan, PushInput, PushOutput, PushPlanInput,
+    plan_push_commands_from_changed_resources, plan_push_commands_from_resources,
     push_from_filesystem,
 };
 pub use service::{AdkService, PullOutcome};
@@ -32,11 +33,6 @@ pub const PROJECT_CONFIG_FILE: &str = "project.yaml";
 pub const STATUS_FILE: &str = "_gen/.agent_studio_config";
 const MIGRATED_LEGACY_TOPIC_FILES: &str = "migrated_legacy_topic_files";
 const MIGRATED_LEGACY_KEYPHRASE_BOOSTING_FILE: &str = "migrated_legacy_keyphrase_boosting_file";
-
-struct PushChangeSet {
-    resources: ResourceMap,
-    has_deletions: bool,
-}
 
 #[derive(Debug, Error)]
 pub enum CoreError {

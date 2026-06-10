@@ -30,6 +30,20 @@ pub struct PullOutcome {
     pub new_branch_id: Option<String>,
 }
 
+enum PushChangeSet {
+    FullSnapshot(ResourceMap),
+    ChangedOnly(ChangedResourceMap),
+}
+
+impl PushChangeSet {
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::FullSnapshot(resources) => resources.is_empty(),
+            Self::ChangedOnly(resources) => resources.is_empty(),
+        }
+    }
+}
+
 impl<C: PlatformClient> AdkService<C, StdFileSystem> {
     pub fn new(client: C) -> Self {
         Self::with_file_system(client, StdFileSystem)
@@ -347,26 +361,23 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         if let Some(mut changes) =
             self.push_resource_map_for_status_changes(root, &persistent_local, projection)?
         {
-            if changes.resources.is_empty() && !changes.has_deletions {
+            if changes.is_empty() {
                 return Ok(PushResult {
                     success: false,
                     message: "No changes detected".to_string(),
                     commands: vec![],
                 });
             }
-            if changes.has_deletions {
-                self.add_discovered_variable_resources(root, &mut changes.resources);
-                let plan = self.plan_push_resource_map(&changes.resources, projection, true)?;
-                let result = self.push_command_plan(plan, dry_run)?;
-                if result.success && !dry_run {
-                    self.client.record_successful_push(&persistent_local)?;
-                    self.save_replay_state_resources(root, &persistent_local)?;
-                    self.write_status_snapshot_from_resources(root, &persistent_local)?;
+            let plan = match &mut changes {
+                PushChangeSet::FullSnapshot(resources) => {
+                    self.add_discovered_variable_resources(root, resources);
+                    self.plan_push_resource_map(resources, projection)?
                 }
-                return Ok(result);
-            }
-            self.add_variable_resources_for_changed_resources(&mut changes.resources);
-            let plan = self.plan_push_resource_map(&changes.resources, projection, false)?;
+                PushChangeSet::ChangedOnly(resources) => {
+                    self.add_variable_resources_for_changed_resources(resources.as_resources_mut());
+                    self.plan_changed_push_resource_map(resources, projection)?
+                }
+            };
             let result = self.push_command_plan(plan, dry_run)?;
             if result.success && !dry_run {
                 self.client.record_successful_push(&persistent_local)?;
@@ -377,7 +388,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         }
         let mut local = persistent_local.clone();
         self.add_discovered_variable_resources(root, &mut local);
-        let plan = self.plan_push_resource_map(&local, projection, true)?;
+        let plan = self.plan_push_resource_map(&local, projection)?;
         let result = self.push_command_plan(plan, dry_run)?;
         if result.success && !dry_run {
             self.client.record_successful_push(&persistent_local)?;
@@ -404,7 +415,6 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         resources: &ResourceMap,
         projection: Option<&JsonValue>,
-        include_deletes: bool,
     ) -> Result<PushCommandPlan, CoreError> {
         let snapshot = self.projection_snapshot_for_push(projection)?;
         plan_push_commands_from_resources(
@@ -414,7 +424,23 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 last_known_sequence: snapshot.last_known_sequence,
                 created_by: self.client.command_user_override(),
                 current_time: None,
-                include_deletes,
+            },
+        )
+    }
+
+    fn plan_changed_push_resource_map(
+        &self,
+        resources: &ChangedResourceMap,
+        projection: Option<&JsonValue>,
+    ) -> Result<PushCommandPlan, CoreError> {
+        let snapshot = self.projection_snapshot_for_push(projection)?;
+        plan_push_commands_from_changed_resources(
+            resources,
+            PushPlanInput {
+                projection: snapshot.projection,
+                last_known_sequence: snapshot.last_known_sequence,
+                created_by: self.client.command_user_override(),
+                current_time: None,
             },
         )
     }
@@ -472,7 +498,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         };
         let discovered_typed = self.discover_local_resources(root);
         let typed_changes = self.find_new_kept_deleted(&discovered_typed, &existing_typed);
-        let has_deletions = !typed_changes.deleted_resources.values().all(Vec::is_empty);
+        let requires_full_snapshot = !typed_changes.deleted_resources.values().all(Vec::is_empty);
         let mut changed_paths = flatten_discovered_paths(&typed_changes.new_resources)
             .into_iter()
             .chain(flatten_discovered_paths(&typed_changes.deleted_resources))
@@ -495,10 +521,9 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         }
 
         if changed_paths.is_empty() {
-            return Ok(Some(PushChangeSet {
-                resources: ResourceMap::new(),
-                has_deletions: false,
-            }));
+            return Ok(Some(PushChangeSet::ChangedOnly(
+                ChangedResourceMap::default(),
+            )));
         }
 
         let changed_file_paths = changed_paths
@@ -508,7 +533,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         let metadata = self
             .workspace
             .load_status_snapshot_resource_metadata(root)?;
-        let mut resources = if has_deletions {
+        let mut resources = if requires_full_snapshot {
             persistent_local.clone()
         } else {
             ResourceMap::new()
@@ -527,10 +552,13 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 resources.shift_remove(&file_path);
             }
         }
-        Ok(Some(PushChangeSet {
-            resources,
-            has_deletions,
-        }))
+        if requires_full_snapshot {
+            Ok(Some(PushChangeSet::FullSnapshot(resources)))
+        } else {
+            Ok(Some(PushChangeSet::ChangedOnly(ChangedResourceMap::new(
+                resources,
+            ))))
+        }
     }
 
     fn add_discovered_variable_resources(&self, root: &Path, local: &mut ResourceMap) {
@@ -609,8 +637,10 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         self.apply_deleted_reference_names(root, &mut persistent_local)?;
         let mut local = self
             .push_resource_map_for_status_changes(root, &persistent_local, None)?
-            .filter(|changes| changes.has_deletions)
-            .map(|changes| changes.resources)
+            .and_then(|changes| match changes {
+                PushChangeSet::FullSnapshot(resources) => Some(resources),
+                PushChangeSet::ChangedOnly(_) => None,
+            })
             .unwrap_or_else(|| persistent_local.clone());
         self.add_discovered_variable_resources(root, &mut local);
         let (branch_id, snapshot) = self.client.create_branch_from_main(branch_name)?;
@@ -621,7 +651,6 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 last_known_sequence: snapshot.last_known_sequence,
                 created_by: self.client.command_user_override(),
                 current_time: None,
-                include_deletes: true,
             },
         )?;
         let push_result = self.push_command_plan_to_branch(&branch_id, plan)?;
