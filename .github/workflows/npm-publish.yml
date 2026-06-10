@@ -1,0 +1,107 @@
+name: Publish NPM Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      dist_tag:
+        description: npm dist-tag to publish under
+        required: true
+        default: alpha
+        type: choice
+        options:
+          - alpha
+          - beta
+          - latest
+
+permissions:
+  contents: read
+
+jobs:
+  build-native:
+    name: Build native addon (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Specify Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Specify Node.js toolchain
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: adk-napi/package-lock.json
+
+      - name: Install package dependencies
+        working-directory: adk-napi
+        run: npm ci
+
+      - name: Build native addon
+        working-directory: adk-napi
+        run: npm run build:native
+
+      - name: Upload native addon
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-${{ runner.os }}-${{ runner.arch }}
+          path: adk-napi/*.node
+          if-no-files-found: error
+
+  publish:
+    name: Publish @poly-ai/adk-node
+    runs-on: ubuntu-latest
+    needs: build-native
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Specify Node.js toolchain
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install package dependencies
+        working-directory: adk-napi
+        run: npm ci
+
+      - name: Download native addons
+        uses: actions/download-artifact@v7
+        with:
+          pattern: native-*
+          path: adk-napi
+          merge-multiple: true
+
+      - name: Build TypeScript wrapper
+        working-directory: adk-napi
+        run: npm run build:ts
+
+      - name: Test TypeScript wrapper against downloaded addon
+        working-directory: adk-napi
+        run: |
+          npm run build:test
+          node --test test/*.test.js
+
+      - name: Verify package contents
+        working-directory: adk-napi
+        run: npm pack --dry-run
+
+      - name: Publish package
+        working-directory: adk-napi
+        run: npm publish --access public --tag "${{ inputs.dist_tag }}"
