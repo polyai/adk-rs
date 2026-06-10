@@ -1,6 +1,22 @@
 const native = require("../native.cjs") as NativeBinding;
 
+/**
+ * Text-only virtual filesystem.
+ *
+ * Keys are POSIX-style file paths relative to the supplied `root`.
+ */
 export type FileMap = Record<string, string>;
+
+/**
+ * Agent Studio projection object.
+ *
+ * The exact projection schema lives outside this package, so the public type is
+ * intentionally `unknown`. The ADK still makes strong internal assumptions
+ * about this shape, which makes this an important unvalidated boundary.
+ *
+ * @remarks We should eventually move this API to snapshots instead of raw
+ * projections.
+ */
 export type Projection = unknown;
 
 export type FileChange =
@@ -10,8 +26,16 @@ export type FileChange =
 export type PullInput = {
   root: string;
   files: FileMap;
+  /** Projection pulled from the remote and materialized into files. */
   pullProjection: Projection;
+  /**
+   * Projection that the current files were originally materialized from.
+   *
+   * Supplying this lets `pull` resolve conflicts in the same role normally
+   * played by the native CLI status file.
+   */
   baseProjection?: Projection;
+  /** Resolve conflicts by overwriting or deleting local ADK-owned files. */
   force?: boolean;
 };
 
@@ -35,6 +59,7 @@ export type PushInput = {
 export type PushOutput = {
   success: boolean;
   message?: string;
+  /** Raw protobuf command batch bytes to send to the server. */
   commandBatchBytes?: Uint8Array;
 };
 
