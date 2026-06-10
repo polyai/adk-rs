@@ -4,6 +4,13 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+## 0.0.10-rc.0 - 2026-06-10
+
+- Added the `@poly-ai/adk-node` N-API package for TypeScript services to run pure pull and push workflows against in-memory file maps.
+- Split API-aware orchestration into `poly-adk-service` while keeping reusable push/pull planning in `poly-adk-core`.
+- Added manual npm publishing with Linux, macOS Intel, macOS Apple Silicon, and Windows native addon builds.
+- Added release-version guardrails so the Rust workspace and npm package stay in lock-step.
+
 ## 0.0.9 - 2026-06-09
 
 - Added `poly conversations list`, `poly conversations get`, and `poly conversations get-audio` backed by the Developer API.

@@ -6,11 +6,12 @@ on:
       dist_tag:
         description: npm dist-tag to publish under
         required: true
-        default: alpha
+        default: rc
         type: choice
         options:
           - alpha
           - beta
+          - rc
           - latest
 
 permissions:

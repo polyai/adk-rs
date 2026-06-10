@@ -32,6 +32,54 @@ jobs:
         node-version: 22
         cache: npm
         cache-dependency-path: adk-napi/package-lock.json
+    - name: Version lock-step check
+      run: |
+        node <<'NODE'
+        const { execFileSync } = require("node:child_process");
+        const { readFileSync } = require("node:fs");
+
+        const metadata = JSON.parse(
+          execFileSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], {
+            encoding: "utf8",
+          }),
+        );
+        const npmPackage = JSON.parse(readFileSync("adk-napi/package.json", "utf8"));
+        const npmLock = JSON.parse(readFileSync("adk-napi/package-lock.json", "utf8"));
+        const workspaceVersions = new Map(
+          metadata.packages
+            .filter((pkg) => pkg.source === null && pkg.name.startsWith("poly-adk"))
+            .map((pkg) => [pkg.name, pkg.version]),
+        );
+        const rustVersions = new Set(workspaceVersions.values());
+
+        if (rustVersions.size !== 1) {
+          console.error("Rust workspace crate versions are not in lock-step:");
+          for (const [name, version] of workspaceVersions) {
+            console.error(`  ${name}: ${version}`);
+          }
+          process.exit(1);
+        }
+
+        const [rustVersion] = rustVersions;
+        if (npmPackage.version !== rustVersion) {
+          console.error(
+            `adk-napi/package.json version ${npmPackage.version} does not match Rust workspace version ${rustVersion}`,
+          );
+          process.exit(1);
+        }
+
+        const lockfileRootVersion = npmLock.packages?.[""]?.version;
+        if (npmLock.version !== npmPackage.version || lockfileRootVersion !== npmPackage.version) {
+          console.error(
+            `adk-napi/package-lock.json versions do not match package.json version ${npmPackage.version}`,
+          );
+          console.error(`  package-lock root version: ${npmLock.version}`);
+          console.error(`  package-lock packages[""].version: ${lockfileRootVersion}`);
+          process.exit(1);
+        }
+
+        console.log(`Rust workspace and npm package versions are both ${rustVersion}`);
+        NODE
     - name: N-API wrapper test
       working-directory: adk-napi
       run: |
