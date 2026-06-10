@@ -36,8 +36,12 @@ pub const STATUS_FILE: &str = "_gen/.agent_studio_config";
 const MIGRATED_LEGACY_TOPIC_FILES: &str = "migrated_legacy_topic_files";
 const MIGRATED_LEGACY_KEYPHRASE_BOOSTING_FILE: &str = "migrated_legacy_keyphrase_boosting_file";
 
-pub(crate) fn is_generated_metadata_path(path: &str) -> bool {
-    path == STATUS_FILE || path.starts_with("_gen/")
+pub(crate) fn is_status_metadata_path(path: &str) -> bool {
+    path == STATUS_FILE
+}
+
+pub(crate) fn is_generated_path(path: &str) -> bool {
+    path.starts_with("_gen/")
 }
 
 #[derive(Debug, Error)]

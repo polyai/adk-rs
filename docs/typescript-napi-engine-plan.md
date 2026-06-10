@@ -253,8 +253,9 @@ field, but the shape should be stable.
 - Pull without `force` should avoid destructive changes when conflicts are
   detected.
 - `_gen/.agent_studio_config` is ignored if present and never emitted.
-- Generated helper files under `_gen/**` are out of scope for the TypeScript
-  engine unless a future API explicitly adds them.
+- Other generated helper files under `_gen/**` are not interpreted, generated,
+  or updated by the v1 TypeScript engine. If present in `files`, they are
+  treated like unrelated files and preserved in output snapshots.
 
 ## Determinism Contract
 

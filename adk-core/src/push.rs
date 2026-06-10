@@ -1,5 +1,5 @@
 use crate::{
-    CoreError, is_generated_metadata_path, recursive_file_paths, validation,
+    CoreError, is_generated_path, recursive_file_paths, validation,
     workspace::collect_local_resources_from_fs,
 };
 use adk_io::FileSystem;
@@ -254,7 +254,7 @@ fn detect_conflict_files<Fs: FileSystem>(fs: &Fs, root: &Path) -> Result<Vec<Str
             .unwrap_or(path.as_path())
             .to_string_lossy()
             .replace('\\', "/");
-        if is_generated_metadata_path(&rel) {
+        if is_generated_path(&rel) {
             continue;
         }
         let content = match fs.read_to_string(&path) {

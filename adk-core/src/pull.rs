@@ -1,6 +1,4 @@
-use crate::{
-    CoreError, flatten_discovered_paths, is_generated_metadata_path, recursive_file_paths,
-};
+use crate::{CoreError, flatten_discovered_paths, is_status_metadata_path, recursive_file_paths};
 use adk_io::{FileSystem, parse_multi_resource_path};
 use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
@@ -230,7 +228,7 @@ fn snapshot_text_files<Fs: FileSystem>(
             .unwrap_or(path.as_path())
             .to_string_lossy()
             .replace('\\', "/");
-        if is_generated_metadata_path(&rel) {
+        if is_status_metadata_path(&rel) {
             continue;
         }
         files.insert(rel, fs.read_to_string(&path)?);
@@ -314,7 +312,10 @@ mod tests {
         );
         assert_eq!(output.files.get("README.md"), Some(&"notes\n".to_string()));
         assert!(!output.files.contains_key(crate::STATUS_FILE));
-        assert!(!output.files.contains_key("_gen/decorators.py"));
+        assert_eq!(
+            output.files.get("_gen/decorators.py"),
+            Some(&"generated\n".to_string())
+        );
         assert!(fs.exists(&root.join("_gen/decorators.py")));
         assert_eq!(
             output.changes,
