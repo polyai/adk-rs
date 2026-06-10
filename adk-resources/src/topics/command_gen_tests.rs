@@ -135,7 +135,7 @@ fn push_commands_can_use_supplied_metadata_timestamp() {
         &resources,
         &serde_json::json!({}),
         Some("reviewer@example.com"),
-        Some(timestamp.clone()),
+        Some(timestamp),
     )
     .expect("build commands");
 
