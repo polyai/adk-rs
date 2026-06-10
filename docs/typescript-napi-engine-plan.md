@@ -103,7 +103,8 @@ keys are interpreted relative to that root after they are loaded into
 root path for the TypeScript bindings.
 
 If `_gen/.agent_studio_config` is present in the input, the engine ignores it
-and never emits it.
+and never emits it. Other deterministic helper files under `_gen/**` may be
+generated or refreshed by pull, matching native CLI project materialization.
 
 ### Pull
 
@@ -248,14 +249,16 @@ field, but the shape should be stable.
 
 - Unknown, non-ADK files in `files` are preserved in output snapshots.
 - Pull may write ADK-owned files materialized from the pull projection.
+- Pull may generate or refresh deterministic Python helper files under
+  `_gen/**`.
 - Pull with `force` may delete ADK-owned local-only files that are not present
   in the pull projection.
 - Pull without `force` should avoid destructive changes when conflicts are
   detected.
 - `_gen/.agent_studio_config` is ignored if present and never emitted.
-- Other generated helper files under `_gen/**` are not interpreted, generated,
-  or updated by the v1 TypeScript engine. If present in `files`, they are
-  treated like unrelated files and preserved in output snapshots.
+- Other `_gen/**` helper files are deterministic generated project support
+  files. Pull may create or update them, while push and resource collection
+  ignore them as non-resource files.
 
 ## Determinism Contract
 
@@ -390,6 +393,7 @@ Pull:
   conflict baseline.
 - Preserve unrelated files from the caller-provided filesystem snapshot.
 - Return both the full output snapshot and a patch list.
+- Generate or refresh deterministic Python helper files under `_gen/**`.
 - Never emit `_gen/.agent_studio_config`.
 
 Push:

@@ -29,6 +29,10 @@ pub struct PullResourceMapInput {
     pub base_resources: Option<ResourceMap>,
     pub force: bool,
     pub delete_local_only: bool,
+    /// Whether to sync the deterministic `_gen` Python helper package after a
+    /// conflict-free pull. Native service flows keep this false because they
+    /// generate helpers while persisting their status snapshot.
+    pub generate_python_helpers: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +74,7 @@ pub fn pull_from_filesystem<Fs: FileSystem>(
             base_resources,
             force: input.force,
             delete_local_only: input.force,
+            generate_python_helpers: true,
         },
     )
 }
@@ -156,6 +161,10 @@ pub fn pull_resource_map_from_filesystem<Fs: FileSystem>(
 
     conflicts.sort();
     conflicts.dedup();
+
+    if input.generate_python_helpers && conflicts.is_empty() {
+        sync_python_gen_package(fs, root, &mut changes)?;
+    }
 
     Ok(PullOutput {
         files: snapshot_text_files(fs, root)?,
@@ -244,6 +253,43 @@ fn write_file<Fs: FileSystem>(fs: &Fs, path: &Path, content: &str) -> Result<(),
     Ok(())
 }
 
+fn sync_python_gen_package<Fs: FileSystem>(
+    fs: &Fs,
+    root: &Path,
+    changes: &mut Vec<FileChange>,
+) -> Result<(), CoreError> {
+    let gen_dir = root.join("_gen");
+    fs.create_dir_all(&gen_dir)?;
+    for path in fs.read_dir(&gen_dir)? {
+        if path.extension().is_some_and(|extension| extension == "pyi") {
+            fs.remove_file(&path)?;
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            changes.push(FileChange::Delete { path: rel });
+        }
+    }
+
+    for (file_name, content) in crate::workspace::PYTHON_GEN_TEMPLATE_FILES {
+        let path = gen_dir.join(file_name);
+        if fs
+            .read_to_string(&path)
+            .is_ok_and(|existing| existing == *content)
+        {
+            continue;
+        }
+        fs.write_string(&path, content)?;
+        changes.push(FileChange::Write {
+            path: format!("_gen/{file_name}"),
+            content: (*content).to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 fn has_conflict_markers(content: &str) -> bool {
     content.contains("<<<<<<<") && content.contains("=======") && content.contains(">>>>>>>")
 }
@@ -276,6 +322,26 @@ mod tests {
             .expect("projection files")
             .remove(&format!("topics/{name}.yaml"))
             .expect("topic file")
+    }
+
+    fn python_gen_content(file_name: &str) -> String {
+        crate::workspace::PYTHON_GEN_TEMPLATE_FILES
+            .iter()
+            .find(|(template_file, _)| *template_file == file_name)
+            .map(|(_, content)| (*content).to_string())
+            .expect("python gen template")
+    }
+
+    fn non_generated_changes(changes: &[FileChange]) -> Vec<FileChange> {
+        changes
+            .iter()
+            .filter(|change| match change {
+                FileChange::Write { path, .. } | FileChange::Delete { path } => {
+                    !path.starts_with("_gen/")
+                }
+            })
+            .cloned()
+            .collect()
     }
 
     #[test]
@@ -314,11 +380,15 @@ mod tests {
         assert!(!output.files.contains_key(crate::STATUS_FILE));
         assert_eq!(
             output.files.get("_gen/decorators.py"),
-            Some(&"generated\n".to_string())
+            Some(&python_gen_content("decorators.py"))
         );
         assert!(fs.exists(&root.join("_gen/decorators.py")));
+        assert!(output.changes.contains(&FileChange::Write {
+            path: "_gen/decorators.py".to_string(),
+            content: python_gen_content("decorators.py"),
+        }));
         assert_eq!(
-            output.changes,
+            non_generated_changes(&output.changes),
             vec![FileChange::Write {
                 path: "topics/billing.yaml".to_string(),
                 content: topic_content("billing", "Remote"),
@@ -399,7 +469,7 @@ mod tests {
         assert!(output.conflicts.is_empty());
         assert!(!fs.exists(&root.join("topics/old.yaml")));
         assert_eq!(
-            output.changes,
+            non_generated_changes(&output.changes),
             vec![FileChange::Delete {
                 path: "topics/old.yaml".to_string(),
             }]
@@ -513,7 +583,7 @@ mod tests {
             "keep me\n"
         );
         assert_eq!(
-            output.changes,
+            non_generated_changes(&output.changes),
             vec![FileChange::Delete {
                 path: "topics/local_only.yaml".to_string(),
             }]

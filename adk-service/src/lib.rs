@@ -992,6 +992,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 base_resources: None,
                 force: true,
                 delete_local_only: force,
+                generate_python_helpers: false,
             },
         )?;
         files_with_conflicts.extend(output.conflicts.into_iter().map(|path| {

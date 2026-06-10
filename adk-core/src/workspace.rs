@@ -22,7 +22,7 @@ use serde_yaml_ng::from_str;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-const PYTHON_GEN_TEMPLATE_FILES: &[(&str, &str)] = &[
+pub(crate) const PYTHON_GEN_TEMPLATE_FILES: &[(&str, &str)] = &[
     (
         "__init__.py",
         include_str!("../python-gen-template/__init__.py"),
