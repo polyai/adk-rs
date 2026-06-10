@@ -1,0 +1,25 @@
+[package]
+name = "poly-adk-napi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "N-API bindings for the pure PolyAI ADK engine."
+readme = "README.md"
+publish = false
+
+[lib]
+name = "adk_napi"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+adk-core.workspace = true
+adk-io.workspace = true
+chrono.workspace = true
+napi.workspace = true
+napi-derive.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+napi-build.workspace = true
