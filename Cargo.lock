@@ -2189,17 +2189,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "poly-adk-ffi"
-version = "0.0.9"
-dependencies = [
- "poly-adk-api-client",
- "poly-adk-service",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "poly-adk-io"
 version = "0.0.9"
 dependencies = [
