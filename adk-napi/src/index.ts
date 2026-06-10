@@ -105,11 +105,11 @@ export function pull(input: PullInput): PullOutput {
     const nativeInput: NativePullInput = {
       root: input.root,
       files: normalizeFileMap(input.files),
-      pullProjectionJson: serializeProjection(input.pullProjection, "pullProjection"),
+      pullProjectionJson: serializeProjection(input.pullProjection),
     };
 
     if (input.baseProjection !== undefined) {
-      nativeInput.baseProjectionJson = serializeProjection(input.baseProjection, "baseProjection");
+      nativeInput.baseProjectionJson = serializeProjection(input.baseProjection);
     }
     if (input.force !== undefined) {
       nativeInput.force = input.force;
@@ -130,7 +130,7 @@ export function push(input: PushInput): PushOutput {
     const nativeInput: NativePushInput = {
       root: input.root,
       files: normalizeFileMap(input.files),
-      projectionJson: serializeProjection(input.projection, "projection"),
+      projectionJson: serializeProjection(input.projection),
       lastKnownSequence: normalizeLastKnownSequence(input.lastKnownSequence),
       currentTime: normalizeCurrentTime(input.currentTime),
     };
@@ -208,15 +208,15 @@ function normalizeFileChange(change: NativeFileChange): FileChange {
   throw new AdkNapiError("INTERNAL_ERROR", `unknown file change kind: ${change.kind}`);
 }
 
-function serializeProjection(projection: Projection, fieldName: string): string {
+function serializeProjection(projection: Projection): string {
   try {
     const serialized = JSON.stringify(projection);
     if (typeof serialized !== "string") {
-      throw new TypeError(`${fieldName} must be JSON-serializable`);
+      throw new TypeError("projection must be JSON-serializable");
     }
     return serialized;
   } catch (error) {
-    throw new AdkNapiError("INVALID_PROJECTION", `${fieldName} must be JSON-serializable`, {
+    throw new AdkNapiError("INVALID_PROJECTION", "projection must be JSON-serializable", {
       cause: error,
     });
   }
