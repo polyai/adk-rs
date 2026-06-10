@@ -36,7 +36,7 @@ for (const candidate of candidates) {
 const searched = candidates.map((candidate) => `  - ${candidate}`).join('\n');
 const suffix = loadErrors.length === 0 ? '' : `\nLoad errors:\n${loadErrors.join('\n')}`;
 
-throw new Error(`Unable to load poly-adk-napi native binding. Searched:\n${searched}${suffix}`);
+throw new Error(`Unable to load @poly-ai/adk-node native binding. Searched:\n${searched}${suffix}`);
 
 function platformTriples(platform, arch) {
   switch (`${platform}:${arch}`) {

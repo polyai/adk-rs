@@ -1,7 +1,6 @@
 {
-  "name": "poly-adk-napi",
+  "name": "@poly-ai/adk-node",
   "version": "0.0.9",
-  "private": true,
   "description": "TypeScript wrapper for pure PolyAI ADK N-API workflows.",
   "license": "Apache-2.0",
   "repository": {
@@ -17,6 +16,9 @@
     "native.cjs",
     "*.node"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20.0.0"
   },

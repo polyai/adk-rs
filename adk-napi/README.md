@@ -1,4 +1,4 @@
-# poly-adk-napi
+# @poly-ai/adk-node
 
 N-API wrapper for pure PolyAI ADK workflows.
 
