@@ -2136,6 +2136,7 @@ dependencies = [
  "indexmap",
  "poly-adk-api-client",
  "poly-adk-core",
+ "poly-adk-io",
  "poly-adk-resources",
  "poly-adk-service",
  "poly-adk-types",
@@ -2171,7 +2172,6 @@ name = "poly-adk-core"
 version = "0.0.9"
 dependencies = [
  "anyhow",
- "base64",
  "chrono",
  "globset",
  "indexmap",
@@ -2186,7 +2186,6 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "thiserror 1.0.69",
- "walkdir",
 ]
 
 [[package]]
@@ -2194,7 +2193,7 @@ name = "poly-adk-ffi"
 version = "0.0.9"
 dependencies = [
  "poly-adk-api-client",
- "poly-adk-core",
+ "poly-adk-service",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

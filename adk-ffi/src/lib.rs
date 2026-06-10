@@ -1,4 +1,5 @@
-use adk_core::ProjectWorkspace;
+use adk_api_client::InMemoryPlatformClient;
+use adk_service::AdkService;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,8 +14,8 @@ pub struct FfiStatusResponse {
 }
 
 pub fn status_json(project_path: &str) -> String {
-    let workspace = ProjectWorkspace::new();
-    let payload = match workspace.status(project_path.as_ref()) {
+    let service = AdkService::new(InMemoryPlatformClient::default());
+    let payload = match service.status(project_path.as_ref()) {
         Ok(summary) => FfiStatusResponse {
             success: true,
             conflict_detection_available: summary.conflict_detection_available,

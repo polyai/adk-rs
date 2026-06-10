@@ -7,7 +7,7 @@ mod push;
 pub mod validation;
 mod workspace;
 
-use adk_io::{FileSystem, StdFileSystem, parse_multi_resource_path};
+use adk_io::{FileSystem, parse_multi_resource_path};
 use adk_resources::current_status_hash_for_expected;
 pub use adk_resources::{
     DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
@@ -28,7 +28,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use thiserror::Error;
-use walkdir::WalkDir;
 pub use workspace::ProjectWorkspace;
 
 pub const PROJECT_CONFIG_FILE: &str = "project.yaml";
@@ -89,23 +88,6 @@ pub fn project_config_contains_branch_id(raw: &str) -> bool {
             _ => None,
         })
         .is_some_and(|mapping| mapping.contains_key("branch_id"))
-}
-
-/// Finds the nearest ADK project root using the native filesystem.
-pub fn find_project_root(start: &Path) -> Option<PathBuf> {
-    find_project_root_with_fs(&StdFileSystem, start)
-}
-
-pub fn find_project_root_with_fs<Fs: FileSystem>(fs: &Fs, start: &Path) -> Option<PathBuf> {
-    let mut current = start.to_path_buf();
-    loop {
-        if fs.exists(&current.join(PROJECT_CONFIG_FILE)) || fs.exists(&current.join(STATUS_FILE)) {
-            return Some(current);
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
 }
 
 pub fn migration_flags_from_status(
@@ -312,24 +294,6 @@ fn is_yaml_file(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| matches!(extension, "yaml" | "yml"))
-}
-
-pub fn delete_empty_subdirectories(dir: &Path) -> Result<(), CoreError> {
-    if !StdFileSystem.is_dir(dir) {
-        return Ok(());
-    }
-    for entry in WalkDir::new(dir)
-        .contents_first(true)
-        .min_depth(1)
-        .into_iter()
-        .filter_map(Result::ok)
-    {
-        let path = entry.path();
-        if entry.file_type().is_dir() && StdFileSystem.read_dir(path)?.is_empty() {
-            StdFileSystem.remove_dir(path)?;
-        }
-    }
-    Ok(())
 }
 
 pub fn normalize_format_file_patterns(root: &Path, files: &[String]) -> Vec<String> {
@@ -873,7 +837,8 @@ pub fn absolutize_deleted_diff_keys(
     }
 }
 
-pub fn compute_modified_files_against_snapshot(
+pub fn compute_modified_files_against_snapshot<Fs: FileSystem>(
+    fs: &Fs,
     root: &Path,
     kept_resources: &DiscoveredResourcePaths,
     snapshot_hashes: &indexmap::IndexMap<String, String>,
@@ -892,9 +857,7 @@ pub fn compute_modified_files_against_snapshot(
                 continue;
             };
         let current_path = root.join(&file_path);
-        let current_content = StdFileSystem
-            .read_to_string(&current_path)
-            .unwrap_or_default();
+        let current_content = fs.read_to_string(&current_path).unwrap_or_default();
         let current_hash = current_status_hash_for_expected(
             hash_path,
             &current_content,
@@ -916,7 +879,8 @@ pub fn compute_modified_files_against_snapshot(
     ))
 }
 
-pub fn compute_modified_files_against_snapshot_with_replacements(
+pub fn compute_modified_files_against_snapshot_with_replacements<Fs: FileSystem>(
+    fs: &Fs,
     root: &Path,
     kept_resources: &DiscoveredResourcePaths,
     snapshot_hashes: &indexmap::IndexMap<String, String>,
@@ -939,9 +903,7 @@ pub fn compute_modified_files_against_snapshot_with_replacements(
                 continue;
             };
         let current_path = root.join(&file_path);
-        let current_content = StdFileSystem
-            .read_to_string(&current_path)
-            .unwrap_or_default();
+        let current_content = fs.read_to_string(&current_path).unwrap_or_default();
         let normalized_content = replace_reference_ids_with_names(&current_content, replacements);
         if normalized_content == current_content {
             continue;
@@ -991,9 +953,11 @@ mod tests {
         assert!(fs.is_file(&root.join(PROJECT_CONFIG_FILE)));
         assert!(fs.is_file(&root.join("_gen/decorators.py")));
 
-        let loaded = workspace
-            .load_project_config(&root.join("functions"))
-            .expect("load project config from nested path");
+        let loaded: ProjectConfig = serde_yaml_ng::from_str(
+            &fs.read_to_string(&root.join(PROJECT_CONFIG_FILE))
+                .expect("read project config"),
+        )
+        .expect("parse project config");
         assert_eq!(loaded.account_id, "acct");
         assert_eq!(loaded.project_id, "proj");
         assert_eq!(loaded.region, "dev");
@@ -1024,49 +988,5 @@ mod tests {
             discovered.get("Variable").cloned().unwrap_or_default(),
             vec!["variables/customer_name".to_string()]
         );
-    }
-
-    #[test]
-    fn project_migrations_use_memory_filesystem() {
-        let fs = adk_io::MemoryFileSystem::new();
-        fs.write_string(
-            Path::new("workspace/project.yaml"),
-            "region: dev\naccount_id: acct\nproject_id: proj\nbranch_id: main\n",
-        )
-        .expect("write config");
-        fs.write_string(
-            Path::new("workspace/topics/nested/Hello Topic.yaml"),
-            "content: Hello\n",
-        )
-        .expect("write legacy topic");
-        fs.write_string(
-            Path::new("workspace/speech_recognition/keyphrase_boosting.yaml"),
-            "keyphrases:\n- keyphrase: PolyAI\n  level: boosted\n",
-        )
-        .expect("write legacy keyphrase boosting");
-
-        let workspace = ProjectWorkspace::with_file_system(fs.clone());
-        workspace
-            .load_project_config(Path::new("workspace"))
-            .expect("load project config");
-
-        let migrated = Path::new("workspace/topics/nested_hello_topic.yaml");
-        assert!(fs.is_file(migrated));
-        let migrated_content = fs.read_to_string(migrated).expect("read migrated topic");
-        assert!(migrated_content.contains("name: nested/Hello Topic"));
-        assert!(!fs.exists(Path::new("workspace/topics/nested/Hello Topic.yaml")));
-        assert!(!fs.exists(Path::new("workspace/topics/nested")));
-
-        let keyphrase_path =
-            Path::new("workspace/voice/speech_recognition/keyphrase_boosting.yaml");
-        assert!(fs.is_file(keyphrase_path));
-        let keyphrase_content = fs
-            .read_to_string(keyphrase_path)
-            .expect("read migrated keyphrase boosting");
-        assert!(keyphrase_content.contains("keyphrase: PolyAI"));
-        assert!(!fs.exists(Path::new(
-            "workspace/speech_recognition/keyphrase_boosting.yaml"
-        )));
-        assert!(!fs.exists(Path::new("workspace/speech_recognition")));
     }
 }

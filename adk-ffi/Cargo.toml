@@ -16,5 +16,5 @@ name = "adk_ffi"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-adk-core.workspace = true
 adk-api-client.workspace = true
+adk-service.workspace = true

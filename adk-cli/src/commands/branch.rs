@@ -1,7 +1,7 @@
 use crate::{
     AdkService, BranchArgs, BranchCommands, BranchCreateArgs, BranchDeleteArgs, BranchMergeArgs,
-    BranchSwitchArgs, CommonPathArgs, ProjectWorkspace, clean_error_message, console, emit_error,
-    ensure_project_loaded, local_service, parse_optional_json_arg, print_payload,
+    BranchSwitchArgs, CommonPathArgs, clean_error_message, console, emit_error,
+    ensure_project_loaded, local_service, native_workspace, parse_optional_json_arg, print_payload,
     prompt_branch_switch, prompt_confirm, prompt_multi_select, prompt_select,
     pull_projection_into_path, read_stdin_line, remote_service_for_path,
 };
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 pub(crate) fn cmd_branch(args: BranchArgs) -> ExitCode {
-    let workspace = ProjectWorkspace::new();
+    let workspace = native_workspace();
     match args.command {
         BranchCommands::List(a) => match remote_service_for_path(&workspace, &a.path, a.json) {
             Ok(service) => cmd_branch_list_with_service(&service, a),

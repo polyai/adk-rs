@@ -1,5 +1,5 @@
 use crate::{
-    AdkService, ChatArgs, ProjectWorkspace, console, emit_error, ensure_project_loaded,
+    AdkService, ChatArgs, console, emit_error, ensure_project_loaded, native_workspace,
     remote_service_for_path,
 };
 use adk_api_client::PlatformClient;
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 pub(crate) fn cmd_chat(args: ChatArgs) -> ExitCode {
-    let workspace = ProjectWorkspace::new();
+    let workspace = native_workspace();
     match remote_service_for_path(&workspace, &args.path, args.json) {
         Ok(service) => cmd_chat_with_service(&service, args),
         Err(code) => code,
