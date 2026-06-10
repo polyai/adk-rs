@@ -547,9 +547,9 @@ filesystem-backed `adk-core` APIs used by `adk-napi` can run without
 
 ## Open Follow-Up Work
 
-- Add the platform-specific prebuild/publish workflow for the colocated
-  `adk-napi` npm package.
-- Revisit the final npm package name and publish visibility before release.
+- After this PR lands on `main`, run the manual npm publish workflow with the
+  `alpha` dist-tag to validate trusted publishing and create the first
+  `@poly-ai/adk-node` package version.
 - Keep Node.js support at `>=20` for the first wrapper package; the Rust N-API
   binding currently targets Node-API 4.
 - Consider a future Wasm package if browser or edge-runtime portability becomes
