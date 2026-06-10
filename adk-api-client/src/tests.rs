@@ -124,6 +124,123 @@ fn redacted_us_studio_list_conversations_fixture() -> Value {
     .expect("redacted US Studio list_conversations fixture is valid JSON")
 }
 
+struct DefaultOnlyClient;
+
+impl PlatformClient for DefaultOnlyClient {
+    fn pull_resources(&self) -> Result<ResourceMap, ApiError> {
+        Ok(ResourceMap::new())
+    }
+
+    fn push_resources(&self, _resources: &ResourceMap) -> Result<PushResult, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn list_deployments(&self, _environment: &str) -> Result<DeploymentList, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn promote_deployment(
+        &self,
+        _deployment_id: &str,
+        _target_env: &str,
+        _message: &str,
+    ) -> Result<Value, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn rollback_deployment(&self, _deployment_id: &str, _message: &str) -> Result<Value, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn create_chat_session(&self, _payload: Value) -> Result<Value, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn send_chat_message(&self, _payload: Value) -> Result<Value, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn end_chat_session(&self, _payload: Value) -> Result<Value, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn list_conversations(
+        &self,
+        _limit: usize,
+        _offset: usize,
+    ) -> Result<ConversationListResponse, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn get_conversation(&self, _conversation_id: &str) -> Result<ConversationDetail, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn get_conversation_audio(
+        &self,
+        _conversation_id: &str,
+        _direction: &str,
+        _redacted: bool,
+    ) -> Result<Vec<u8>, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn create_branch(&self, _branch_name: &str) -> Result<String, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn delete_branch(&self, _branch_id: &str) -> Result<(), ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+
+    fn merge_branch(
+        &self,
+        _deployment_message: &str,
+        _conflict_resolutions: Option<Vec<Value>>,
+    ) -> Result<BranchMergeResult, ApiError> {
+        unreachable!("not needed for default command-batch behavior")
+    }
+}
+
+#[test]
+fn platform_client_command_batch_defaults_fail_loudly() {
+    let client = DefaultOnlyClient;
+
+    let Err(current_branch_error) = client.push_command_batch(&[]) else {
+        panic!("default push_command_batch must not report success");
+    };
+    assert!(
+        current_branch_error
+            .to_string()
+            .contains("command-batch push is not implemented"),
+        "{current_branch_error}"
+    );
+
+    let Err(branch_error) = client.push_command_batch_to_branch("branch-1", &[]) else {
+        panic!("default push_command_batch_to_branch must not report success");
+    };
+    assert!(
+        branch_error
+            .to_string()
+            .contains("command-batch push to branch 'branch-1' is not implemented"),
+        "{branch_error}"
+    );
+
+    let Err(record_error) = client.record_successful_push(&ResourceMap::new()) else {
+        panic!("default record_successful_push must not silently no-op");
+    };
+    assert!(
+        record_error
+            .to_string()
+            .contains("successful push recording is not implemented"),
+        "{record_error}"
+    );
+}
+
 #[test]
 fn api_key_env_names_match_python_resolution_order() {
     assert_eq!(

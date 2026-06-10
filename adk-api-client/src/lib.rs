@@ -125,25 +125,24 @@ pub trait PlatformClient: Send + Sync {
     fn command_user_override(&self) -> Option<String> {
         None
     }
-    fn push_command_batch(&self, command_batch_bytes: &[u8]) -> Result<PushResult, ApiError> {
-        let batch = CommandBatch::decode(command_batch_bytes)
-            .map_err(|e| ApiError::Http(format!("invalid command batch bytes: {e}")))?;
-        let commands = batch.commands.iter().map(command_to_json_summary).collect();
-        Ok(PushResult {
-            success: true,
-            message: "Push successful".to_string(),
-            commands,
-        })
+    fn push_command_batch(&self, _command_batch_bytes: &[u8]) -> Result<PushResult, ApiError> {
+        Err(ApiError::Http(
+            "command-batch push is not implemented for this platform client".to_string(),
+        ))
     }
     fn push_command_batch_to_branch(
         &self,
-        _branch_id: &str,
-        command_batch_bytes: &[u8],
+        branch_id: &str,
+        _command_batch_bytes: &[u8],
     ) -> Result<PushResult, ApiError> {
-        self.push_command_batch(command_batch_bytes)
+        Err(ApiError::Http(format!(
+            "command-batch push to branch '{branch_id}' is not implemented for this platform client"
+        )))
     }
     fn record_successful_push(&self, _resources: &ResourceMap) -> Result<(), ApiError> {
-        Ok(())
+        Err(ApiError::Http(
+            "successful push recording is not implemented for this platform client".to_string(),
+        ))
     }
     fn create_branch_from_main(
         &self,
@@ -847,6 +846,10 @@ impl PlatformClient for HttpPlatformClient {
         command_batch_bytes: &[u8],
     ) -> Result<PushResult, ApiError> {
         self.push_command_batch_bytes_to_branch(branch_id, command_batch_bytes)
+    }
+
+    fn record_successful_push(&self, _resources: &ResourceMap) -> Result<(), ApiError> {
+        Ok(())
     }
 
     fn create_branch_from_main(

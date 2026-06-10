@@ -192,6 +192,14 @@ impl PlatformClient for InMemoryPlatformClient {
         })
     }
 
+    fn push_command_batch_to_branch(
+        &self,
+        _branch_id: &str,
+        command_batch_bytes: &[u8],
+    ) -> Result<PushResult, ApiError> {
+        self.push_command_batch(command_batch_bytes)
+    }
+
     fn record_successful_push(&self, resources: &ResourceMap) -> Result<(), ApiError> {
         *self
             .resources
