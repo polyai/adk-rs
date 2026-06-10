@@ -14,7 +14,10 @@ pub use adk_resources::{
 };
 use anyhow::Result;
 use globset::{Glob, GlobSetBuilder};
-pub use pull::{FileChange, PullInput, PullOutput, pull_from_filesystem};
+pub use pull::{
+    FileChange, PullInput, PullOutput, PullResourceMapInput, pull_from_filesystem,
+    pull_resource_map_from_filesystem,
+};
 pub use push::{
     ChangedResourceMap, PushCommandPlan, PushInput, PushOutput, PushPlanInput,
     add_discovered_variable_resources_from_fs, plan_push_commands_from_changed_resources,
@@ -301,36 +304,6 @@ fn is_yaml_file(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| matches!(extension, "yaml" | "yml"))
-}
-
-pub fn delete_local_only_resource_files(
-    root: &Path,
-    remote: &ResourceMap,
-    local_resources: &DiscoveredResourcePaths,
-) -> Result<(), CoreError> {
-    let remote_file_paths: HashSet<String> = remote
-        .iter()
-        .flat_map(|(path, resource)| [path.clone(), resource.file_path.clone()])
-        .map(|path| parse_multi_resource_path(&path).0)
-        .collect();
-    let mut local_only_files: Vec<String> = flatten_discovered_paths(local_resources)
-        .into_iter()
-        .map(|path| parse_multi_resource_path(&path).0)
-        .filter(|path| !remote_file_paths.contains(path))
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    local_only_files.sort_by_key(|path| {
-        std::cmp::Reverse((Path::new(path).components().count(), path.clone()))
-    });
-
-    for rel_path in local_only_files {
-        let path = root.join(rel_path);
-        if StdFileSystem.is_file(&path) {
-            StdFileSystem.remove_file(&path)?;
-        }
-    }
-    Ok(())
 }
 
 pub fn delete_empty_subdirectories(dir: &Path) -> Result<(), CoreError> {

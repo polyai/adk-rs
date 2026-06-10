@@ -1,5 +1,6 @@
 use crate::{CoreError, STATUS_FILE, flatten_discovered_paths, recursive_file_paths};
 use adk_io::{FileSystem, parse_multi_resource_path};
+use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -15,6 +16,19 @@ pub struct PullInput {
     pub pull_projection: JsonValue,
     pub base_projection: Option<JsonValue>,
     pub force: bool,
+}
+
+/// Inputs for applying already materialized resources to an injected filesystem.
+///
+/// Most embedded callers should use `PullInput`; this lower-level form exists
+/// so native service code that already fetched or replayed a `ResourceMap` can
+/// reuse the same filesystem application logic without going back through JSON.
+#[derive(Debug, Clone)]
+pub struct PullResourceMapInput {
+    pub pull_resources: ResourceMap,
+    pub base_resources: Option<ResourceMap>,
+    pub force: bool,
+    pub delete_local_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,12 +56,35 @@ pub fn pull_from_filesystem<Fs: FileSystem>(
     root: &Path,
     input: PullInput,
 ) -> Result<PullOutput, CoreError> {
-    let pull_files = materialized_projection_files(&input.pull_projection)?;
-    let base_files = input
+    let pull_resources = adk_resources::projection_to_resource_map(&input.pull_projection)?;
+    let base_resources = input
         .base_projection
         .as_ref()
-        .map(materialized_projection_files)
+        .map(adk_resources::projection_to_resource_map)
         .transpose()?;
+    pull_resource_map_from_filesystem(
+        fs,
+        root,
+        PullResourceMapInput {
+            pull_resources,
+            base_resources,
+            force: input.force,
+            delete_local_only: input.force,
+        },
+    )
+}
+
+/// Applies already materialized resources to the supplied filesystem.
+pub fn pull_resource_map_from_filesystem<Fs: FileSystem>(
+    fs: &Fs,
+    root: &Path,
+    input: PullResourceMapInput,
+) -> Result<PullOutput, CoreError> {
+    let pull_files = materialized_resource_files(&input.pull_resources);
+    let base_files = input
+        .base_resources
+        .as_ref()
+        .map(materialized_resource_files);
     let mut changes = Vec::new();
     let mut conflicts = Vec::new();
 
@@ -91,7 +128,13 @@ pub fn pull_from_filesystem<Fs: FileSystem>(
         }
     }
 
-    for path in deleted_paths(fs, root, &pull_files, base_files.as_ref(), input.force) {
+    for path in deleted_paths(
+        fs,
+        root,
+        &pull_files,
+        base_files.as_ref(),
+        input.delete_local_only,
+    ) {
         let target = root.join(&path);
         if !fs.is_file(&target) {
             continue;
@@ -121,11 +164,16 @@ pub fn pull_from_filesystem<Fs: FileSystem>(
     })
 }
 
+#[cfg(test)]
 fn materialized_projection_files(
     projection: &JsonValue,
 ) -> Result<BTreeMap<String, String>, CoreError> {
     let resources = adk_resources::projection_to_resource_map(projection)?;
-    Ok(resources
+    Ok(materialized_resource_files(&resources))
+}
+
+fn materialized_resource_files(resources: &ResourceMap) -> BTreeMap<String, String> {
+    resources
         .iter()
         .map(|(path, resource)| {
             let content = resource
@@ -138,7 +186,7 @@ fn materialized_projection_files(
                 adk_resources::resource_file_content(path, content),
             )
         })
-        .collect())
+        .collect()
 }
 
 fn deleted_paths<Fs: FileSystem>(
@@ -146,7 +194,7 @@ fn deleted_paths<Fs: FileSystem>(
     root: &Path,
     pull_files: &BTreeMap<String, String>,
     base_files: Option<&BTreeMap<String, String>>,
-    force: bool,
+    delete_local_only: bool,
 ) -> BTreeSet<String> {
     let mut paths = BTreeSet::new();
     if let Some(base_files) = base_files {
@@ -157,7 +205,7 @@ fn deleted_paths<Fs: FileSystem>(
                 .cloned(),
         );
     }
-    if force {
+    if delete_local_only {
         let discovered = adk_resources::discover_local_resources(fs, root);
         paths.extend(
             flatten_discovered_paths(&discovered)

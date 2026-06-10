@@ -895,22 +895,21 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         Some(paths)
     }
 
-    fn write_pulled_resources(
+    fn pull_resources_to_apply(
         &self,
         root: &Path,
-        remote: ResourceMap,
+        remote: &ResourceMap,
         force: bool,
-        format: bool,
-    ) -> Result<Vec<String>, ServiceError> {
+    ) -> Result<(ResourceMap, Vec<String>), ServiceError> {
+        if force {
+            return Ok((remote.clone(), Vec::new()));
+        }
+
+        let snapshot_hashes = self.load_status_snapshot_file_hashes(root)?;
+        let mut resources_to_apply = ResourceMap::new();
         let mut files_with_conflicts = Vec::new();
-        let mut written_paths = Vec::new();
-        let local_resources_before_force = force.then(|| self.discover_local_resources(root));
-        let snapshot_hashes = if force {
-            None
-        } else {
-            self.load_status_snapshot_file_hashes(root)?
-        };
-        for (path, resource) in &remote {
+
+        for (path, resource) in remote {
             let target = root.join(path);
             let content = resource
                 .payload
@@ -919,7 +918,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 .unwrap_or_default()
                 .to_string();
             let file_content = resource_file_content(path, &content);
-            if self.workspace.file_system().exists(&target) && !force {
+            if self.workspace.file_system().exists(&target) {
                 let existing = self
                     .workspace
                     .file_system()
@@ -968,16 +967,45 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                     }
                 }
             }
-            if let Some(parent) = target.parent() {
-                self.workspace.file_system().create_dir_all(parent)?;
-            }
-            self.workspace
-                .file_system()
-                .write_string(&target, &file_content)?;
-            written_paths.push(path.clone());
+            resources_to_apply.insert(path.clone(), resource.clone());
         }
-        if let Some(local_resources) = local_resources_before_force.as_ref() {
-            delete_local_only_resource_files(root, &remote, local_resources)?;
+
+        Ok((resources_to_apply, files_with_conflicts))
+    }
+
+    fn write_pulled_resources(
+        &self,
+        root: &Path,
+        remote: ResourceMap,
+        force: bool,
+        format: bool,
+    ) -> Result<Vec<String>, ServiceError> {
+        let (resources_to_apply, mut files_with_conflicts) =
+            self.pull_resources_to_apply(root, &remote, force)?;
+        let written_paths = resources_to_apply.keys().cloned().collect::<Vec<_>>();
+        let output = pull_resource_map_from_filesystem(
+            self.workspace.file_system(),
+            root,
+            PullResourceMapInput {
+                pull_resources: resources_to_apply,
+                base_resources: None,
+                force: true,
+                delete_local_only: force,
+            },
+        )?;
+        files_with_conflicts.extend(output.conflicts.into_iter().map(|path| {
+            let path = PathBuf::from(path);
+            let path = if path.is_absolute() {
+                path
+            } else {
+                root.join(path)
+            };
+            path.to_string_lossy().to_string()
+        }));
+        files_with_conflicts.sort();
+        files_with_conflicts.dedup();
+
+        if force {
             delete_empty_subdirectories(&root.join("flows"))?;
         }
         if files_with_conflicts.is_empty() {
