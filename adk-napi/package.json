@@ -1,0 +1,43 @@
+{
+  "name": "poly-adk-napi",
+  "version": "0.0.9",
+  "private": true,
+  "description": "TypeScript wrapper for pure PolyAI ADK N-API workflows.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/polyai/adk-rs.git",
+    "directory": "adk-napi"
+  },
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "native.cjs",
+    "*.node"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "npm run build:native && npm run build:ts",
+    "build:native": "napi build --platform --release --no-js --dts native.d.ts",
+    "build:ts": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.cjs"
+  },
+  "napi": {
+    "binaryName": "adk_napi",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+      "x86_64-unknown-linux-gnu"
+    ]
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.7.1",
+    "@types/node": "^22.19.20",
+    "typescript": "^6.0.3"
+  }
+}

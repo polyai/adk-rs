@@ -112,8 +112,8 @@ generated or refreshed by pull, matching native CLI project materialization.
 type PullInput = {
   root: string;
   files: FileMap;
-  pullProjectionJson: string;
-  baseProjectionJson?: string;
+  pullProjection: unknown;
+  baseProjection?: unknown;
   force?: boolean;
 };
 
@@ -128,25 +128,26 @@ type PullOutput = {
 };
 ```
 
-`pullProjectionJson` is the projection to materialize into files.
+`pullProjection` is the projection to materialize into files. The handwritten
+TypeScript wrapper serializes it to JSON before calling the raw native binding.
 
-`baseProjectionJson`, when provided, describes the projection that the current
-files were originally materialized from. This enables conflict detection
-without storing `_gen/.agent_studio_config`.
+`baseProjection`, when provided, describes the projection that the current files
+were originally materialized from. This enables conflict detection without
+storing `_gen/.agent_studio_config`.
 
 Pull conflict behavior:
 
-- With `baseProjectionJson`, the Rust core can compare base materialized files,
+- With `baseProjection`, the Rust core can compare base materialized files,
   caller-provided files, and pull-projection materialized files.
 - If a file is unchanged from base locally, the pull projection content may be
   written.
 - If both local and pull projection changed relative to base and contents
   differ, the path is reported in `conflicts`.
 - If `force` is true, pull projection materialization wins for ADK-owned files.
-- Without `baseProjectionJson`, the Rust core cannot know whether existing local
+- Without `baseProjection`, the Rust core cannot know whether existing local
   content is user-edited or previously materialized. TypeScript documentation
   should describe this as a conservative mode: callers should pass `force` to
-  overwrite, or pass `baseProjectionJson` for conflict-aware pulls.
+  overwrite, or pass `baseProjection` for conflict-aware pulls.
 
 `files` returns the full updated snapshot. `changes` returns the corresponding
 patch for editor and UI integrations.
@@ -157,10 +158,10 @@ patch for editor and UI integrations.
 type PushInput = {
   root: string;
   files: FileMap;
-  projectionJson: string;
+  projection: unknown;
   lastKnownSequence: number;
   createdBy?: string;
-  currentTime?: string;
+  currentTime?: string | Date;
   force?: boolean;
   skipValidation?: boolean;
 };
@@ -172,9 +173,10 @@ type PushOutput = {
 };
 ```
 
-`projectionJson` is the inner Agent Studio projection object, not the full
-backend projection response. `lastKnownSequence` is passed separately and is
-encoded into the returned protobuf command batch.
+`projection` is the inner Agent Studio projection object, not the full backend
+projection response. The handwritten TypeScript wrapper serializes it to JSON
+before calling the raw native binding. `lastKnownSequence` is passed separately
+and is encoded into the returned protobuf command batch.
 
 Rust should build the protobuf `CommandBatch` bytes. TypeScript should post
 those bytes to the backend with the correct transport details.
@@ -450,7 +452,7 @@ Verification for this phase:
 Add `adk-napi` once the pure Rust APIs are stable.
 
 - Expose `pull` and `push` through NAPI-RS.
-- Accept projection inputs as JSON strings.
+- Accept projection inputs as JSON strings at the raw native boundary.
 - Accept and return file maps as TypeScript-friendly objects.
 - Convert errors into stable `AdkNapiError` values.
 - Return command batch bytes as `Uint8Array`.
@@ -545,9 +547,11 @@ filesystem-backed `adk-core` APIs used by `adk-napi` can run without
 
 ## Open Follow-Up Work
 
-- Decide the exact TypeScript packaging layout for generated native addon
-  artifacts and platform-specific prebuilds.
-- Decide the minimum supported Node.js and Node-API versions.
+- Add the platform-specific prebuild/publish workflow for the colocated
+  `adk-napi` npm package.
+- Revisit the final npm package name and publish visibility before release.
+- Keep Node.js support at `>=20` for the first wrapper package; the Rust N-API
+  binding currently targets Node-API 4.
 - Consider a future Wasm package if browser or edge-runtime portability becomes
   a real target.
 - Consider a future changed-resource push mode with an explicit baseline
