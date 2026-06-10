@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/polyai/adk-rs.git",
+    "url": "git+https://github.com/polyai/adk-rs.git",
     "directory": "adk-napi"
   },
   "type": "commonjs",
