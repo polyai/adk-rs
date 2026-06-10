@@ -13,11 +13,14 @@
 
 #![allow(clippy::disallowed_methods)]
 
-use adk_api_client::{InMemoryPlatformClient, PlatformClient};
+use adk_api_client::{ApiError, InMemoryPlatformClient, PlatformClient, ProjectionSnapshot};
 use adk_io::{compute_hash, parse_multi_resource_path};
 use adk_resources::projection_to_resource_map;
 use adk_service::AdkService;
-use adk_types::{DeploymentList, ORDERED_TYPE_NAMES, Resource, ResourceMap};
+use adk_types::{
+    BranchDescriptor, BranchMergeResult, ConversationDetail, ConversationListResponse,
+    DeploymentList, ORDERED_TYPE_NAMES, PushResult, Resource, ResourceMap,
+};
 use base64::Engine;
 use std::fs;
 use std::path::PathBuf;
@@ -170,6 +173,113 @@ fn replace_remote_resource_content(client: &InMemoryPlatformClient, path: &str, 
     client
         .push_resources(&remote)
         .expect("replace remote resources");
+}
+
+struct ProjectionOnlyClient {
+    projection: serde_json::Value,
+}
+
+impl ProjectionOnlyClient {
+    fn new(projection: serde_json::Value) -> Self {
+        Self { projection }
+    }
+}
+
+impl PlatformClient for ProjectionOnlyClient {
+    fn pull_projection_snapshot(&self) -> Result<ProjectionSnapshot, ApiError> {
+        Ok(ProjectionSnapshot {
+            projection: self.projection.clone(),
+            last_known_sequence: 0,
+        })
+    }
+
+    fn pull_resources(&self) -> Result<ResourceMap, ApiError> {
+        Ok(ResourceMap::new())
+    }
+
+    fn push_resources(&self, _resources: &ResourceMap) -> Result<PushResult, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn list_deployments(&self, _environment: &str) -> Result<DeploymentList, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn promote_deployment(
+        &self,
+        _deployment_id: &str,
+        _target_env: &str,
+        _message: &str,
+    ) -> Result<serde_json::Value, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn rollback_deployment(
+        &self,
+        _deployment_id: &str,
+        _message: &str,
+    ) -> Result<serde_json::Value, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn create_chat_session(
+        &self,
+        _payload: serde_json::Value,
+    ) -> Result<serde_json::Value, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn send_chat_message(
+        &self,
+        _payload: serde_json::Value,
+    ) -> Result<serde_json::Value, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn end_chat_session(&self, _payload: serde_json::Value) -> Result<serde_json::Value, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn list_conversations(
+        &self,
+        _limit: usize,
+        _offset: usize,
+    ) -> Result<ConversationListResponse, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn get_conversation(&self, _conversation_id: &str) -> Result<ConversationDetail, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn get_conversation_audio(
+        &self,
+        _conversation_id: &str,
+        _direction: &str,
+        _redacted: bool,
+    ) -> Result<Vec<u8>, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn create_branch(&self, _branch_name: &str) -> Result<String, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn delete_branch(&self, _branch_id: &str) -> Result<(), ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
+
+    fn merge_branch(
+        &self,
+        _deployment_message: &str,
+        _conflict_resolutions: Option<Vec<serde_json::Value>>,
+    ) -> Result<BranchMergeResult, ApiError> {
+        unreachable!("not needed for projection-only push tests")
+    }
 }
 
 /// Port: `poly/tests/project_test.py` - `InitTest.test_init`
@@ -1809,6 +1919,58 @@ fn push_force_bypasses_conflict_marker_guard() {
         .push(root.as_path(), true, true, false)
         .expect("forced push result");
     assert!(forced.success);
+}
+
+#[test]
+fn push_status_deletion_of_last_resource_emits_delete_command() {
+    let root = make_temp_project_dir();
+    fs::write(
+        root.join("project.yaml"),
+        "region: eu-west-1\naccount_id: test\nproject_id: proj\nbranch_id: main\n",
+    )
+    .expect("write project yaml");
+    fs::create_dir_all(root.join("topics")).expect("mkdir topics");
+    fs::write(
+        root.join("topics/sample.yaml"),
+        "name: sample\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n",
+    )
+    .expect("write topic");
+
+    let snapshot_service = service_offline();
+    let discovered = snapshot_service.discover_local_resources(&root);
+    write_status_snapshot_from_discovered(&root, &discovered);
+    fs::remove_file(root.join("topics/sample.yaml")).expect("delete final topic");
+
+    let projection = serde_json::json!({
+        "knowledgeBase": {
+            "topics": {
+                "entities": {
+                    "topic-1": {
+                        "name": "sample",
+                        "isActive": true,
+                        "actions": "",
+                        "content": "hello",
+                        "exampleQueries": []
+                    }
+                }
+            }
+        }
+    });
+    let service = AdkService::new(ProjectionOnlyClient::new(projection));
+
+    let result = service
+        .push(root.as_path(), false, true, true)
+        .expect("dry-run push");
+
+    assert!(result.success, "{result:#?}");
+    assert!(
+        result.commands.iter().any(|command| command
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            == Some("delete_topic")),
+        "{:#?}",
+        result.commands
+    );
 }
 
 #[test]

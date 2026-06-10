@@ -122,11 +122,8 @@ enum PushChangeSet {
 }
 
 impl PushChangeSet {
-    fn is_empty(&self) -> bool {
-        match self {
-            Self::FullSnapshot(resources) => resources.is_empty(),
-            Self::ChangedOnly(resources) => resources.is_empty(),
-        }
+    fn can_skip_planning(&self) -> bool {
+        matches!(self, Self::ChangedOnly(resources) if resources.is_empty())
     }
 }
 
@@ -527,7 +524,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         if let Some(mut changes) =
             self.push_resource_map_for_status_changes(root, &persistent_local, projection)?
         {
-            if changes.is_empty() {
+            if changes.can_skip_planning() {
                 return Ok(PushResult {
                     success: false,
                     message: "No changes detected".to_string(),
