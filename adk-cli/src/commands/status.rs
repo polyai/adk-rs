@@ -1,10 +1,11 @@
-use crate::{ProjectWorkspace, StatusArgs, console, emit_error};
+use crate::{AdkService, StatusArgs, console, emit_error};
+use adk_api_client::PlatformClient;
 use serde_json::json;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-pub(crate) fn cmd_status(workspace: &ProjectWorkspace, args: StatusArgs) -> ExitCode {
-    if workspace
+pub(crate) fn cmd_status<C: PlatformClient>(service: &AdkService<C>, args: StatusArgs) -> ExitCode {
+    if service
         .load_project_config(PathBuf::from(&args.path).as_path())
         .is_err()
     {
@@ -15,7 +16,7 @@ pub(crate) fn cmd_status(workspace: &ProjectWorkspace, args: StatusArgs) -> Exit
         return ExitCode::from(1);
     }
     let root = PathBuf::from(&args.path);
-    match workspace.status(root.as_path()) {
+    match service.status(root.as_path()) {
         Ok(summary) => {
             if args.json {
                 println!(

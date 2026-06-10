@@ -34,3 +34,10 @@ disallowed-methods = [
   { path = "std::path::Path::symlink_metadata", reason = "use adk-io filesystem abstractions" },
   { path = "std::path::Path::try_exists", reason = "use adk-io filesystem abstractions" },
 ]
+
+disallowed-types = [
+  { path = "adk_io::StdFileSystem", reason = "native filesystem selection belongs in binaries or service crates" },
+  { path = "std::process::Command", reason = "subprocess execution belongs in binaries or service crates" },
+  { path = "std::process::Stdio", reason = "subprocess execution belongs in binaries or service crates" },
+  { path = "walkdir::WalkDir", reason = "use adk-io filesystem abstractions" },
+]

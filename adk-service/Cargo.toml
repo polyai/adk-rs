@@ -1,0 +1,26 @@
+[package]
+name = "poly-adk-service"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "API-aware service orchestration for the PolyAI ADK."
+readme = "README.md"
+exclude = ["tests/**"]
+
+[lib]
+name = "adk_service"
+
+[dependencies]
+adk-api-client.workspace = true
+adk-core.workspace = true
+adk-io.workspace = true
+adk-resources.workspace = true
+adk-types.workspace = true
+base64.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+indexmap.workspace = true

@@ -5,7 +5,7 @@ use serde_json::Value as JsonValue;
 use serde_yaml_ng::{Value as YamlValue, from_str};
 use std::path::Path;
 
-pub(crate) fn validate_local_resources(
+pub fn validate_local_resources(
     root: &Path,
     resources: &ResourceMap,
 ) -> Result<Vec<String>, CoreError> {

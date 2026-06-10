@@ -54,7 +54,28 @@ pub fn try_build_push_commands_with_created_by(
     projection: &Value,
     created_by_override: Option<&str>,
 ) -> Result<Vec<Command>, CommandGenError> {
-    build_push_commands_inner(resources, projection, created_by_override, true)
+    build_push_commands_inner(resources, projection, created_by_override, None, true)
+}
+
+/// Builds a full-resource command batch with caller-supplied command metadata.
+///
+/// This is intended for pure embedded bindings that receive timestamp and author
+/// context from their caller instead of reading environment variables or the
+/// system clock at the API boundary. Existing CLI and API-client paths should
+/// continue using the simpler wrappers unless they need deterministic metadata.
+pub fn try_build_push_commands_with_metadata(
+    resources: &ResourceMap,
+    projection: &Value,
+    created_by_override: Option<&str>,
+    created_at_override: Option<prost_types::Timestamp>,
+) -> Result<Vec<Command>, CommandGenError> {
+    build_push_commands_inner(
+        resources,
+        projection,
+        created_by_override,
+        created_at_override,
+        true,
+    )
 }
 
 pub fn build_push_commands_for_changed_resources(
@@ -71,16 +92,32 @@ pub fn try_build_push_commands_for_changed_resources(
     projection: &Value,
     created_by_override: Option<&str>,
 ) -> Result<Vec<Command>, CommandGenError> {
-    build_push_commands_inner(resources, projection, created_by_override, false)
+    build_push_commands_inner(resources, projection, created_by_override, None, false)
+}
+
+pub fn try_build_push_commands_for_changed_resources_with_metadata(
+    resources: &ResourceMap,
+    projection: &Value,
+    created_by_override: Option<&str>,
+    created_at_override: Option<prost_types::Timestamp>,
+) -> Result<Vec<Command>, CommandGenError> {
+    build_push_commands_inner(
+        resources,
+        projection,
+        created_by_override,
+        created_at_override,
+        false,
+    )
 }
 
 fn build_push_commands_inner(
     resources: &ResourceMap,
     projection: &Value,
     created_by_override: Option<&str>,
+    created_at_override: Option<prost_types::Timestamp>,
     include_deletes: bool,
 ) -> Result<Vec<Command>, CommandGenError> {
-    let metadata = command_metadata_with_created_by(created_by_override);
+    let metadata = command_metadata_with_created_by(created_by_override, created_at_override);
 
     let groups =
         crate::push_command_queue::resource_command_groups(resources, projection, &metadata)?;
@@ -165,20 +202,26 @@ fn order_commands_with_priority(commands: &mut [Command], priority: &[&str]) {
     });
 }
 
-fn command_metadata_with_created_by(created_by_override: Option<&str>) -> Option<Metadata> {
-    let dur = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
+fn command_metadata_with_created_by(
+    created_by_override: Option<&str>,
+    created_at_override: Option<prost_types::Timestamp>,
+) -> Option<Metadata> {
+    let created_at = created_at_override.unwrap_or_else(|| {
+        let dur = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        prost_types::Timestamp {
+            seconds: dur.as_secs() as i64,
+            nanos: dur.subsec_nanos() as i32,
+        }
+    });
     let created_by = created_by_override
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
         .unwrap_or_else(default_metadata_created_by);
     Some(Metadata {
-        created_at: Some(prost_types::Timestamp {
-            seconds: dur.as_secs() as i64,
-            nanos: dur.subsec_nanos() as i32,
-        }),
+        created_at: Some(created_at),
         created_by,
     })
 }

@@ -11,7 +11,7 @@ Notes for contributors working on the Rust ADK rewrite.
 - `adk-types`: shared data models and errors.
 - `adk-io`: filesystem, hashing, diff, path, and serialization helpers.
 - `adk-protobuf`: protobuf command definitions used by push.
-- `adk-ffi`: thin FFI-facing wrappers for future library bindings.
+- `adk-napi`: TypeScript N-API wrapper for in-memory push/pull workflows.
 - `docs`: current TODOs, historical parity context, and testing strategy.
 
 Each crate also has a short local README.

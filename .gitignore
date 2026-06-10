@@ -1,1 +1,7 @@
 /target
+node_modules
+adk-napi/dist
+adk-napi/*.node
+adk-napi/native.d.ts
+adk-napi/npm
+adk-napi/test/*.test.js

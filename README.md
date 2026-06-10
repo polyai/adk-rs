@@ -296,7 +296,8 @@ poly uninstall
 - `adk-resources`: resource-family semantics shared by core and push/pull
   workflows
 - `adk-api-client`: HTTP communication with the PolyAI backend
-- `adk-types`, `adk-io`, `adk-protobuf`, `adk-ffi`: shared support crates
+- `adk-types`, `adk-io`, `adk-protobuf`: shared support crates
+- `adk-napi`: TypeScript N-API wrapper for in-memory push/pull workflows
 - `docs`: parity notes, testing strategy, and contributor documentation
 
 ## Bugs & Feature Requests

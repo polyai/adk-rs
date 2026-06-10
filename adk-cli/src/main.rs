@@ -1,6 +1,7 @@
 use adk_api_client::{AccountSummary, HttpPlatformClient, InMemoryPlatformClient, PlatformClient};
-use adk_core::{AdkService, ProjectWorkspace};
+use adk_io::StdFileSystem;
 use adk_resources::projection_to_resource_map;
+use adk_service::AdkService;
 use anyhow::Result;
 use clap::Parser;
 use std::io::{self, IsTerminal, Read, Write};
@@ -22,6 +23,8 @@ use commands::{
     project_verbose, validate_diff_args, validate_inline_projection_arg,
 };
 pub(crate) use output::{clean_error_message, emit_error, print_payload};
+
+pub(crate) type ProjectWorkspace = adk_core::ProjectWorkspace<StdFileSystem>;
 
 fn main() -> ExitCode {
     match run() {
@@ -53,7 +56,7 @@ fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
     console::configure(command_verbose(&cli.command), command_debug(&cli.command));
     tracing::debug!("debug logging enabled");
-    let workspace = ProjectWorkspace::new();
+    let workspace = native_workspace();
 
     let result = match cli.command {
         Commands::Help => {
@@ -87,7 +90,7 @@ fn run() -> Result<ExitCode> {
                 }
             }
         }
-        Commands::Status(args) => cmd_status(&workspace, args),
+        Commands::Status(args) => cmd_status(&local_service(), args),
         Commands::Revert(args) => match remote_service_for_path(&workspace, &args.path, args.json) {
             Ok(service) => cmd_revert(&service, args),
             Err(code) => code,
@@ -597,6 +600,9 @@ fn read_stdin_line() -> String {
     input
 }
 
+fn native_workspace() -> ProjectWorkspace {
+    ProjectWorkspace::with_file_system(StdFileSystem)
+}
 
 fn ensure_project_loaded<C: PlatformClient>(
     service: &AdkService<C>,
@@ -668,10 +674,10 @@ fn local_service() -> AdkService<InMemoryPlatformClient> {
 /// Local project config is read by `ProjectWorkspace`, then the CLI constructs
 /// the real HTTP client for the configured project and branch.
 fn http_service_for_path(
-    workspace: &ProjectWorkspace,
+    _workspace: &ProjectWorkspace,
     path: &str,
 ) -> Result<AdkService<HttpPlatformClient>, String> {
-    let cfg = workspace
+    let cfg = local_service()
         .load_project_config(PathBuf::from(path).as_path())
         .map_err(|_| {
             "No project configuration found. Run poly init to initialize a project.".to_string()

@@ -26,6 +26,17 @@ jobs:
       run: cargo fmt --all -- --check
     - name: Clippy check
       run: cargo clippy --workspace --all-targets -- -D warnings
+    - name: Specify Node.js toolchain
+      uses: actions/setup-node@v6
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: adk-napi/package-lock.json
+    - name: N-API wrapper test
+      working-directory: adk-napi
+      run: |
+        npm ci
+        npm test
     - name: Install ADK parity tools
       run: |
         curl -LsSf "https://astral.sh/ruff/${RUFF_VERSION}/install.sh" | sh

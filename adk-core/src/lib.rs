@@ -2,25 +2,30 @@ use adk_types::{DiffMap, DomainError, ProjectConfig, ResourceMap};
 use serde_json::{self, Value as JsonValue};
 use serde_yaml_ng::{Mapping, Value as YamlValue, from_str, to_string};
 
-mod service;
-mod validation;
+mod pull;
+mod push;
+pub mod validation;
 mod workspace;
 
-use adk_api_client::ApiError;
-use adk_io::{FileSystem, StdFileSystem, parse_multi_resource_path};
+use adk_io::{FileSystem, parse_multi_resource_path};
 use adk_resources::current_status_hash_for_expected;
 pub use adk_resources::{
     DiscoveredResourceChanges, DiscoveredResourcePaths, TypedResourceLifecycle,
 };
 use anyhow::Result;
 use globset::{Glob, GlobSetBuilder};
-pub use service::{AdkService, PullOutcome};
+pub use pull::{
+    FileChange, PullInput, PullOutput, PullResourceMapInput, pull_from_filesystem,
+    pull_resource_map_from_filesystem,
+};
+pub use push::{
+    ChangedResourceMap, PushCommandPlan, PushInput, PushOutput, PushPlanInput,
+    add_discovered_variable_resources_from_fs, plan_push_commands_from_changed_resources,
+    plan_push_commands_from_resources, push_from_filesystem,
+};
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use thiserror::Error;
-use walkdir::WalkDir;
 pub use workspace::ProjectWorkspace;
 
 pub const PROJECT_CONFIG_FILE: &str = "project.yaml";
@@ -28,24 +33,27 @@ pub const STATUS_FILE: &str = "_gen/.agent_studio_config";
 const MIGRATED_LEGACY_TOPIC_FILES: &str = "migrated_legacy_topic_files";
 const MIGRATED_LEGACY_KEYPHRASE_BOOSTING_FILE: &str = "migrated_legacy_keyphrase_boosting_file";
 
-struct PushChangeSet {
-    resources: ResourceMap,
-    has_deletions: bool,
+pub(crate) fn is_status_metadata_path(path: &str) -> bool {
+    path == STATUS_FILE
+}
+
+pub(crate) fn is_generated_path(path: &str) -> bool {
+    path.starts_with("_gen/")
 }
 
 #[derive(Debug, Error)]
 pub enum CoreError {
     #[error("{0}")]
     Domain(#[from] DomainError),
-    #[error("{0}")]
-    Api(#[from] ApiError),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("{0}")]
+    CommandGeneration(#[from] adk_resources::CommandGenError),
 }
 
-fn project_config_yaml(cfg: &ProjectConfig) -> Result<String, CoreError> {
+pub fn project_config_yaml(cfg: &ProjectConfig) -> Result<String, CoreError> {
     let mut map = Mapping::new();
     map.insert(
         YamlValue::String("project_id".to_string()),
@@ -70,7 +78,7 @@ fn project_config_yaml(cfg: &ProjectConfig) -> Result<String, CoreError> {
     to_string(&YamlValue::Mapping(map)).map_err(|e| DomainError::InvalidData(e.to_string()).into())
 }
 
-fn project_config_contains_branch_id(raw: &str) -> bool {
+pub fn project_config_contains_branch_id(raw: &str) -> bool {
     from_str::<YamlValue>(raw)
         .ok()
         .and_then(|value| match value {
@@ -80,24 +88,9 @@ fn project_config_contains_branch_id(raw: &str) -> bool {
         .is_some_and(|mapping| mapping.contains_key("branch_id"))
 }
 
-/// ADK operations backed by a concrete platform client.
-fn find_project_root(start: &Path) -> Option<PathBuf> {
-    find_project_root_with_fs(&StdFileSystem, start)
-}
-
-fn find_project_root_with_fs<Fs: FileSystem>(fs: &Fs, start: &Path) -> Option<PathBuf> {
-    let mut current = start.to_path_buf();
-    loop {
-        if fs.exists(&current.join(PROJECT_CONFIG_FILE)) || fs.exists(&current.join(STATUS_FILE)) {
-            return Some(current);
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
-}
-
-fn migration_flags_from_status(status: &serde_json::Map<String, JsonValue>) -> BTreeSet<String> {
+pub fn migration_flags_from_status(
+    status: &serde_json::Map<String, JsonValue>,
+) -> BTreeSet<String> {
     status
         .get("migration_flags")
         .and_then(JsonValue::as_array)
@@ -117,7 +110,7 @@ fn migration_flags_from_status(status: &serde_json::Map<String, JsonValue>) -> B
         .unwrap_or_default()
 }
 
-fn migrate_legacy_topic_files<Fs: FileSystem>(
+pub fn migrate_legacy_topic_files<Fs: FileSystem>(
     fs: &Fs,
     project_root: &Path,
 ) -> Result<bool, CoreError> {
@@ -196,7 +189,7 @@ fn migrate_legacy_topic_files<Fs: FileSystem>(
     Ok(!migrated_topics.is_empty())
 }
 
-fn migrate_legacy_keyphrase_boosting_file<Fs: FileSystem>(
+pub fn migrate_legacy_keyphrase_boosting_file<Fs: FileSystem>(
     fs: &Fs,
     project_root: &Path,
 ) -> Result<bool, CoreError> {
@@ -229,7 +222,10 @@ fn migrate_legacy_keyphrase_boosting_file<Fs: FileSystem>(
     Ok(true)
 }
 
-fn recursive_file_paths<Fs: FileSystem>(fs: &Fs, root: &Path) -> Result<Vec<PathBuf>, CoreError> {
+pub fn recursive_file_paths<Fs: FileSystem>(
+    fs: &Fs,
+    root: &Path,
+) -> Result<Vec<PathBuf>, CoreError> {
     recursive_file_paths_with_ancestors(fs, root, &HashSet::new())
 }
 
@@ -272,7 +268,7 @@ fn yaml_mapping_contains_key(mapping: &Mapping, key: &str) -> bool {
         .any(|candidate| candidate.as_str() == Some(key))
 }
 
-fn sort_json_value_keys(value: &mut JsonValue) {
+pub fn sort_json_value_keys(value: &mut JsonValue) {
     match value {
         JsonValue::Object(object) => {
             let old = std::mem::take(object);
@@ -298,55 +294,7 @@ fn is_yaml_file(path: &Path) -> bool {
         .is_some_and(|extension| matches!(extension, "yaml" | "yml"))
 }
 
-fn delete_local_only_resource_files(
-    root: &Path,
-    remote: &ResourceMap,
-    local_resources: &DiscoveredResourcePaths,
-) -> Result<(), CoreError> {
-    let remote_file_paths: HashSet<String> = remote
-        .iter()
-        .flat_map(|(path, resource)| [path.clone(), resource.file_path.clone()])
-        .map(|path| parse_multi_resource_path(&path).0)
-        .collect();
-    let mut local_only_files: Vec<String> = flatten_discovered_paths(local_resources)
-        .into_iter()
-        .map(|path| parse_multi_resource_path(&path).0)
-        .filter(|path| !remote_file_paths.contains(path))
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    local_only_files.sort_by_key(|path| {
-        std::cmp::Reverse((Path::new(path).components().count(), path.clone()))
-    });
-
-    for rel_path in local_only_files {
-        let path = root.join(rel_path);
-        if StdFileSystem.is_file(&path) {
-            StdFileSystem.remove_file(&path)?;
-        }
-    }
-    Ok(())
-}
-
-fn delete_empty_subdirectories(dir: &Path) -> Result<(), CoreError> {
-    if !StdFileSystem.is_dir(dir) {
-        return Ok(());
-    }
-    for entry in WalkDir::new(dir)
-        .contents_first(true)
-        .min_depth(1)
-        .into_iter()
-        .filter_map(Result::ok)
-    {
-        let path = entry.path();
-        if entry.file_type().is_dir() && StdFileSystem.read_dir(path)?.is_empty() {
-            StdFileSystem.remove_dir(path)?;
-        }
-    }
-    Ok(())
-}
-
-fn normalize_format_file_patterns(root: &Path, files: &[String]) -> Vec<String> {
+pub fn normalize_format_file_patterns(root: &Path, files: &[String]) -> Vec<String> {
     files
         .iter()
         .map(|file| {
@@ -361,7 +309,7 @@ fn normalize_format_file_patterns(root: &Path, files: &[String]) -> Vec<String> 
         .collect()
 }
 
-fn build_file_matcher(patterns: &[String]) -> Result<globset::GlobSet, CoreError> {
+pub fn build_file_matcher(patterns: &[String]) -> Result<globset::GlobSet, CoreError> {
     let mut builder = GlobSetBuilder::new();
     for p in patterns {
         let glob = Glob::new(p).map_err(|e| DomainError::InvalidData(e.to_string()))?;
@@ -372,45 +320,13 @@ fn build_file_matcher(patterns: &[String]) -> Result<globset::GlobSet, CoreError
         .map_err(|e| DomainError::InvalidData(e.to_string()).into())
 }
 
-fn format_python_content(_filename: &Path, content: &str) -> String {
-    let fallback = || ensure_trailing_newline(content);
-    let Some(formatted) = run_ruff_stdin(&["format", "-"], content) else {
-        return fallback();
-    };
-    run_ruff_stdin(&["check", "--fix", "-"], &formatted).unwrap_or(formatted)
-}
-
-fn run_ruff_stdin(args: &[&str], content: &str) -> Option<String> {
-    let mut child = Command::new("ruff")
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    child.stdin.as_mut()?.write_all(content.as_bytes()).ok()?;
-    let output = child.wait_with_output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8(output.stdout).ok()
-}
-
-fn ensure_trailing_newline(content: &str) -> String {
-    if content.ends_with('\n') {
-        content.to_string()
-    } else {
-        format!("{content}\n")
-    }
-}
-
-fn flatten_discovered_paths(paths: &DiscoveredResourcePaths) -> Vec<String> {
+pub fn flatten_discovered_paths(paths: &DiscoveredResourcePaths) -> Vec<String> {
     let mut out: Vec<String> = paths.values().flat_map(|v| v.iter().cloned()).collect();
     out.sort();
     out
 }
 
-fn flatten_discovered_paths_by_type_order(paths: &DiscoveredResourcePaths) -> Vec<String> {
+pub fn flatten_discovered_paths_by_type_order(paths: &DiscoveredResourcePaths) -> Vec<String> {
     let mut out = Vec::new();
     for type_name in adk_types::ORDERED_TYPE_NAMES {
         if let Some(type_paths) = paths.get(type_name) {
@@ -444,7 +360,7 @@ fn ordered_discovered_paths_for_modifications(
         .collect()
 }
 
-fn flatten_deleted_discovered_paths(paths: &DiscoveredResourcePaths) -> Vec<String> {
+pub fn flatten_deleted_discovered_paths(paths: &DiscoveredResourcePaths) -> Vec<String> {
     let mut entries = Vec::new();
     for (type_name, logical_paths) in paths {
         for path in logical_paths {
@@ -481,12 +397,15 @@ fn deleted_status_type_rank(type_name: &str) -> usize {
     }
 }
 
-fn stable_dedup(items: &mut Vec<String>) {
+pub fn stable_dedup(items: &mut Vec<String>) {
     let mut seen = HashSet::new();
     items.retain(|item| seen.insert(item.clone()));
 }
 
-fn normalize_flow_resources_for_diff(resources: &mut ResourceMap, reference: Option<&ResourceMap>) {
+pub fn normalize_flow_resources_for_diff(
+    resources: &mut ResourceMap,
+    reference: Option<&ResourceMap>,
+) {
     let step_ids = reference
         .map(flow_step_ids_by_folder_and_name)
         .unwrap_or_default();
@@ -771,7 +690,7 @@ fn yaml_string_sequence(yaml: Option<&YamlValue>) -> Vec<String> {
         .collect()
 }
 
-fn normalize_function_references_in_rules(resources: &mut ResourceMap) {
+pub fn normalize_function_references_in_rules(resources: &mut ResourceMap) {
     let replacements = resources
         .values()
         .filter(|resource| {
@@ -811,13 +730,13 @@ fn normalize_function_references_in_rules(resources: &mut ResourceMap) {
 }
 
 #[derive(Debug, Clone)]
-struct ReferenceNameReplacement {
-    prefix: String,
-    id: String,
-    name: String,
+pub struct ReferenceNameReplacement {
+    pub prefix: String,
+    pub id: String,
+    pub name: String,
 }
 
-fn apply_reference_name_replacements(
+pub fn apply_reference_name_replacements(
     resources: &mut ResourceMap,
     replacements: &[ReferenceNameReplacement],
 ) {
@@ -854,7 +773,7 @@ fn replace_reference_ids_with_names(
     normalized
 }
 
-fn reference_name_from_logical_path(logical_path: &str) -> String {
+pub fn reference_name_from_logical_path(logical_path: &str) -> String {
     let (_, resource_suffix) = parse_multi_resource_path(logical_path);
     let source = resource_suffix.as_deref().unwrap_or(logical_path);
     let leaf = source.rsplit('/').next().unwrap_or(source);
@@ -865,7 +784,7 @@ fn reference_name_from_logical_path(logical_path: &str) -> String {
         .to_string()
 }
 
-fn absolutize_deleted_diff_keys(
+pub fn absolutize_deleted_diff_keys(
     root: &Path,
     diffs: &mut DiffMap,
     deleted_file_paths: &HashSet<String>,
@@ -884,7 +803,8 @@ fn absolutize_deleted_diff_keys(
     }
 }
 
-fn compute_modified_files_against_snapshot(
+pub fn compute_modified_files_against_snapshot<Fs: FileSystem>(
+    fs: &Fs,
     root: &Path,
     kept_resources: &DiscoveredResourcePaths,
     snapshot_hashes: &indexmap::IndexMap<String, String>,
@@ -903,9 +823,7 @@ fn compute_modified_files_against_snapshot(
                 continue;
             };
         let current_path = root.join(&file_path);
-        let current_content = StdFileSystem
-            .read_to_string(&current_path)
-            .unwrap_or_default();
+        let current_content = fs.read_to_string(&current_path).unwrap_or_default();
         let current_hash = current_status_hash_for_expected(
             hash_path,
             &current_content,
@@ -927,7 +845,8 @@ fn compute_modified_files_against_snapshot(
     ))
 }
 
-fn compute_modified_files_against_snapshot_with_replacements(
+pub fn compute_modified_files_against_snapshot_with_replacements<Fs: FileSystem>(
+    fs: &Fs,
     root: &Path,
     kept_resources: &DiscoveredResourcePaths,
     snapshot_hashes: &indexmap::IndexMap<String, String>,
@@ -950,9 +869,7 @@ fn compute_modified_files_against_snapshot_with_replacements(
                 continue;
             };
         let current_path = root.join(&file_path);
-        let current_content = StdFileSystem
-            .read_to_string(&current_path)
-            .unwrap_or_default();
+        let current_content = fs.read_to_string(&current_path).unwrap_or_default();
         let normalized_content = replace_reference_ids_with_names(&current_content, replacements);
         if normalized_content == current_content {
             continue;
@@ -983,55 +900,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn format_check_preserves_python_shaped_yaml_key_order() {
-        let fs = adk_io::MemoryFileSystem::new();
-        fs.write_string(
-            Path::new("workspace/project.yaml"),
-            "region: dev\naccount_id: acct\nproject_id: proj\nbranch_id: main\n",
-        )
-        .expect("write config");
-        fs.write_string(
-            Path::new("workspace/topics/billing_general.yaml"),
-            "name: Billing General\nenabled: true\nactions: Transfer the caller.\ncontent: |-\n  Line one.\n  Line two.\nexample_queries:\n- Question about my bill\n",
-        )
-        .expect("write topic");
-        fs.write_string(
-            Path::new("workspace/config/entities.yaml"),
-            "entities:\n- name: Age\n  description: Customer age\n  entity_type: numeric\n  config:\n    min: 1\n    max: 120\n",
-        )
-        .expect("write entities");
-
-        let service = AdkService::with_file_system(
-            adk_api_client::InMemoryPlatformClient::default(),
-            fs.clone(),
-        );
-        let changed = service
-            .format_local_resources(Path::new("workspace"), &[], true)
-            .expect("format check");
-
-        assert!(changed.is_empty());
-        assert_eq!(
-            fs.read_to_string(Path::new("workspace/topics/billing_general.yaml"))
-                .expect("read topic"),
-            "name: Billing General\nenabled: true\nactions: Transfer the caller.\ncontent: |-\n  Line one.\n  Line two.\nexample_queries:\n- Question about my bill\n"
-        );
-        assert_eq!(
-            fs.read_to_string(Path::new("workspace/config/entities.yaml"))
-                .expect("read entities"),
-            "entities:\n- name: Age\n  description: Customer age\n  entity_type: numeric\n  config:\n    min: 1\n    max: 120\n"
-        );
-    }
-
-    #[test]
     fn init_and_load_project_can_use_memory_filesystem() {
         let fs = adk_io::MemoryFileSystem::new();
-        let service = AdkService::with_file_system(
-            adk_api_client::InMemoryPlatformClient::default(),
-            fs.clone(),
-        );
+        let workspace = ProjectWorkspace::with_file_system(fs.clone());
         let base = Path::new("workspace");
 
-        let config = service
+        let config = workspace
             .init_project(
                 base,
                 "dev".to_string(),
@@ -1045,9 +919,11 @@ mod tests {
         assert!(fs.is_file(&root.join(PROJECT_CONFIG_FILE)));
         assert!(fs.is_file(&root.join("_gen/decorators.py")));
 
-        let loaded = service
-            .load_project_config(&root.join("functions"))
-            .expect("load project config from nested path");
+        let loaded: ProjectConfig = serde_yaml_ng::from_str(
+            &fs.read_to_string(&root.join(PROJECT_CONFIG_FILE))
+                .expect("read project config"),
+        )
+        .expect("parse project config");
         assert_eq!(loaded.account_id, "acct");
         assert_eq!(loaded.project_id, "proj");
         assert_eq!(loaded.region, "dev");
@@ -1067,9 +943,8 @@ mod tests {
         )
         .expect("write function");
 
-        let service =
-            AdkService::with_file_system(adk_api_client::InMemoryPlatformClient::default(), fs);
-        let discovered = service.discover_local_resources(Path::new("workspace"));
+        let workspace = ProjectWorkspace::with_file_system(fs);
+        let discovered = workspace.discover_local_resources(Path::new("workspace"));
 
         assert_eq!(
             discovered.get("Topic").cloned().unwrap_or_default(),
@@ -1079,52 +954,5 @@ mod tests {
             discovered.get("Variable").cloned().unwrap_or_default(),
             vec!["variables/customer_name".to_string()]
         );
-    }
-
-    #[test]
-    fn project_migrations_use_memory_filesystem() {
-        let fs = adk_io::MemoryFileSystem::new();
-        fs.write_string(
-            Path::new("workspace/project.yaml"),
-            "region: dev\naccount_id: acct\nproject_id: proj\nbranch_id: main\n",
-        )
-        .expect("write config");
-        fs.write_string(
-            Path::new("workspace/topics/nested/Hello Topic.yaml"),
-            "content: Hello\n",
-        )
-        .expect("write legacy topic");
-        fs.write_string(
-            Path::new("workspace/speech_recognition/keyphrase_boosting.yaml"),
-            "keyphrases:\n- keyphrase: PolyAI\n  level: boosted\n",
-        )
-        .expect("write legacy keyphrase boosting");
-
-        let service = AdkService::with_file_system(
-            adk_api_client::InMemoryPlatformClient::default(),
-            fs.clone(),
-        );
-        service
-            .load_project_config(Path::new("workspace"))
-            .expect("load project config");
-
-        let migrated = Path::new("workspace/topics/nested_hello_topic.yaml");
-        assert!(fs.is_file(migrated));
-        let migrated_content = fs.read_to_string(migrated).expect("read migrated topic");
-        assert!(migrated_content.contains("name: nested/Hello Topic"));
-        assert!(!fs.exists(Path::new("workspace/topics/nested/Hello Topic.yaml")));
-        assert!(!fs.exists(Path::new("workspace/topics/nested")));
-
-        let keyphrase_path =
-            Path::new("workspace/voice/speech_recognition/keyphrase_boosting.yaml");
-        assert!(fs.is_file(keyphrase_path));
-        let keyphrase_content = fs
-            .read_to_string(keyphrase_path)
-            .expect("read migrated keyphrase boosting");
-        assert!(keyphrase_content.contains("keyphrase: PolyAI"));
-        assert!(!fs.exists(Path::new(
-            "workspace/speech_recognition/keyphrase_boosting.yaml"
-        )));
-        assert!(!fs.exists(Path::new("workspace/speech_recognition")));
     }
 }
