@@ -24,9 +24,7 @@ pub use push::{
     plan_push_commands_from_resources, push_from_filesystem,
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use thiserror::Error;
 pub use workspace::ProjectWorkspace;
 
@@ -320,38 +318,6 @@ pub fn build_file_matcher(patterns: &[String]) -> Result<globset::GlobSet, CoreE
     builder
         .build()
         .map_err(|e| DomainError::InvalidData(e.to_string()).into())
-}
-
-pub fn format_python_content(_filename: &Path, content: &str) -> String {
-    let fallback = || ensure_trailing_newline(content);
-    let Some(formatted) = run_ruff_stdin(&["format", "-"], content) else {
-        return fallback();
-    };
-    run_ruff_stdin(&["check", "--fix", "-"], &formatted).unwrap_or(formatted)
-}
-
-fn run_ruff_stdin(args: &[&str], content: &str) -> Option<String> {
-    let mut child = Command::new("ruff")
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    child.stdin.as_mut()?.write_all(content.as_bytes()).ok()?;
-    let output = child.wait_with_output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8(output.stdout).ok()
-}
-
-fn ensure_trailing_newline(content: &str) -> String {
-    if content.ends_with('\n') {
-        content.to_string()
-    } else {
-        format!("{content}\n")
-    }
 }
 
 pub fn flatten_discovered_paths(paths: &DiscoveredResourcePaths) -> Vec<String> {

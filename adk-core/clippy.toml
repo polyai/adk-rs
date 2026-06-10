@@ -37,5 +37,7 @@ disallowed-methods = [
 
 disallowed-types = [
   { path = "adk_io::StdFileSystem", reason = "native filesystem selection belongs in binaries or service crates" },
+  { path = "std::process::Command", reason = "subprocess execution belongs in binaries or service crates" },
+  { path = "std::process::Stdio", reason = "subprocess execution belongs in binaries or service crates" },
   { path = "walkdir::WalkDir", reason = "use adk-io filesystem abstractions" },
 ]

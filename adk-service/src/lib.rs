@@ -21,7 +21,9 @@ use serde_json::{self, Value as JsonValue};
 use serde_yaml_ng::{Value as YamlValue, from_str, to_string};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::env;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -69,6 +71,38 @@ pub struct PullOutcome {
 
 const MIGRATED_LEGACY_TOPIC_FILES: &str = "migrated_legacy_topic_files";
 const MIGRATED_LEGACY_KEYPHRASE_BOOSTING_FILE: &str = "migrated_legacy_keyphrase_boosting_file";
+
+fn format_python_content(content: &str) -> String {
+    let fallback = || ensure_trailing_newline(content);
+    let Some(formatted) = run_ruff_stdin(&["format", "-"], content) else {
+        return fallback();
+    };
+    run_ruff_stdin(&["check", "--fix", "-"], &formatted).unwrap_or(formatted)
+}
+
+fn run_ruff_stdin(args: &[&str], content: &str) -> Option<String> {
+    let mut child = Command::new("ruff")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    child.stdin.as_mut()?.write_all(content.as_bytes()).ok()?;
+    let output = child.wait_with_output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()
+}
+
+fn ensure_trailing_newline(content: &str) -> String {
+    if content.ends_with('\n') {
+        content.to_string()
+    } else {
+        format!("{content}\n")
+    }
+}
 
 fn find_project_root_with_fs<Fs: FileSystem>(fs: &Fs, start: &Path) -> Option<PathBuf> {
     let mut current = start.to_path_buf();
@@ -1456,7 +1490,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                     .file_system()
                     .read_to_string(&root.join(&path))
                     .unwrap_or_else(|_| resource_file_content(&path, resource_content));
-                let formatted = format_python_content(root.join(&path).as_path(), &file_content);
+                let formatted = format_python_content(&file_content);
                 (file_content, formatted, false)
             } else {
                 continue;
