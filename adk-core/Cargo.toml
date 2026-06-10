@@ -25,7 +25,6 @@ walkdir.workspace = true
 globset.workspace = true
 ruff_python_parser.workspace = true
 adk-io.workspace = true
-adk-api-client.workspace = true
 adk-protobuf.workspace = true
 adk-resources.workspace = true
 adk-types.workspace = true

@@ -310,10 +310,12 @@ target is:
 - `adk-cli` calls `adk-service` so existing native CLI behavior is preserved.
 - Resource-family-specific behavior stays in `adk-resources`.
 
-The phases below are a concrete path toward that target. The preferred
-sequence is to first introduce pure Rust APIs and tests, then move native
-service glue around them, then add the N-API boundary once the core behavior is
-stable.
+The phases below are a concrete path toward that target. They can be landed as
+small boundary-preserving slices rather than strictly serial phases. In
+particular, once an initial pure push-planning slice exists, it is useful to
+establish the `adk-service` crate boundary early so later pull/diff extraction
+happens with the dependency direction already visible. The N-API boundary
+should still wait until the core behavior it needs is stable.
 
 ### Phase 1: Filesystem-Backed Engine APIs
 
@@ -450,7 +452,7 @@ Verification for this phase:
 - Projection-to-files parity tests should reuse existing Python ADK fixtures
   where possible.
 
-### Phase 3: Service Glue
+### Phase 3: Service Boundary
 
 Add `adk-service` as the API-aware orchestration crate.
 
@@ -461,6 +463,9 @@ Add `adk-service` as the API-aware orchestration crate.
 - Combine `adk-core` operations with `adk-api-client` transport.
 - Own native CLI persistence of `_gen/.agent_studio_config`, including when to
   read it as a baseline and when to write it after successful pull/push flows.
+  During the transition, `adk-service` may call status helper methods that
+  still live in `adk-core`; pure engine APIs should not expose those side
+  effects.
 - Keep branch/deployment/chat operations that require remote state out of
   `adk-core`.
 - Have `adk-cli` call `adk-service`.

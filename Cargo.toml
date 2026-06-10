@@ -3,6 +3,7 @@ members = [
   "adk-cli",
   "adk-resources",
   "adk-core",
+  "adk-service",
   "adk-io",
   "adk-api-client",
   "adk-ffi",
@@ -23,6 +24,7 @@ rust-version = "1.95.0"
 adk-cli = { package = "poly-adk", version = "0.0.9", path = "adk-cli" }
 adk-resources = { package = "poly-adk-resources", version = "0.0.9", path = "adk-resources" }
 adk-core = { package = "poly-adk-core", version = "0.0.9", path = "adk-core" }
+adk-service = { package = "poly-adk-service", version = "0.0.9", path = "adk-service" }
 adk-ffi = { package = "poly-adk-ffi", version = "0.0.9", path = "adk-ffi" }
 adk-io = { package = "poly-adk-io", version = "0.0.9", path = "adk-io" }
 adk-api-client = { package = "poly-adk-api-client", version = "0.0.9", path = "adk-api-client" }

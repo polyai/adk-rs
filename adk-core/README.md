@@ -1,16 +1,15 @@
 # adk-core
 
-Core orchestration layer for ADK workflows.
+Core project and resource logic for ADK workflows.
 
 ## Responsibilities
 
-- Project initialization and config/status loading.
-- Status/diff computation over resources discovered by `adk-resources`.
-- Pull/push/deployments workflow entrypoints.
-- Coordination between domain models, IO helpers, and platform client traits.
+- Project initialization and local config/status helpers.
+- Filesystem-generic resource collection, validation, formatting helpers, and push command planning.
+- Projection/resource diff and materialization support shared by native and embedded callers.
 
 ## Design Notes
 
-- Keep business logic here, not in `adk-cli`.
-- Depend on abstractions from `adk-api-client`, not concrete network code.
+- Keep pure project/resource logic here, not in `adk-cli`.
+- Do not depend on `adk-api-client`; API-aware orchestration belongs in `adk-service`.
 - Keep resource-family-specific semantics in `adk-resources`.

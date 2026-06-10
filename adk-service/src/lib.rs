@@ -1,5 +1,5 @@
-use crate::*;
 use adk_api_client::{PlatformClient, ProjectionSnapshot};
+use adk_core::*;
 use adk_io::{FileSystem, StdFileSystem, diff_resources, parse_multi_resource_path};
 use adk_resources::{
     FileStructureEntry, ResourceStatusPayloadInput, StatusResourcePayload, StatusSnapshot,
@@ -18,6 +18,39 @@ use serde_yaml_ng::{Value as YamlValue, from_str, to_string};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::env;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ServiceError {
+    #[error("{0}")]
+    Core(#[from] adk_core::CoreError),
+    #[error("{0}")]
+    Api(#[from] adk_api_client::ApiError),
+}
+
+impl From<DomainError> for ServiceError {
+    fn from(error: DomainError) -> Self {
+        adk_core::CoreError::from(error).into()
+    }
+}
+
+impl From<std::io::Error> for ServiceError {
+    fn from(error: std::io::Error) -> Self {
+        adk_core::CoreError::from(error).into()
+    }
+}
+
+impl From<serde_json::Error> for ServiceError {
+    fn from(error: serde_json::Error) -> Self {
+        adk_core::CoreError::from(error).into()
+    }
+}
+
+impl From<adk_resources::CommandGenError> for ServiceError {
+    fn from(error: adk_resources::CommandGenError) -> Self {
+        adk_core::CoreError::from(error).into()
+    }
+}
 
 pub struct AdkService<C, Fs = StdFileSystem> {
     client: C,
@@ -64,9 +97,10 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         region: String,
         account_id: String,
         project_id: String,
-    ) -> Result<ProjectConfig, CoreError> {
-        self.workspace
-            .init_project(base_path, region, account_id, project_id)
+    ) -> Result<ProjectConfig, ServiceError> {
+        Ok(self
+            .workspace
+            .init_project(base_path, region, account_id, project_id)?)
     }
 
     pub fn init_project_with_name(
@@ -76,22 +110,22 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         account_id: String,
         project_id: String,
         project_name: Option<String>,
-    ) -> Result<ProjectConfig, CoreError> {
-        self.workspace.init_project_with_name(
+    ) -> Result<ProjectConfig, ServiceError> {
+        Ok(self.workspace.init_project_with_name(
             base_path,
             region,
             account_id,
             project_id,
             project_name,
-        )
+        )?)
     }
 
-    pub fn load_project_config(&self, base_path: &Path) -> Result<ProjectConfig, CoreError> {
-        self.workspace.load_project_config(base_path)
+    pub fn load_project_config(&self, base_path: &Path) -> Result<ProjectConfig, ServiceError> {
+        Ok(self.workspace.load_project_config(base_path)?)
     }
 
-    pub fn collect_local_resources(&self, root: &Path) -> Result<ResourceMap, CoreError> {
-        self.workspace.collect_local_resources(root)
+    pub fn collect_local_resources(&self, root: &Path) -> Result<ResourceMap, ServiceError> {
+        Ok(self.workspace.collect_local_resources(root)?)
     }
 
     /// Typed discovery matching Python `AgentStudioProject.discover_local_resources()`:
@@ -113,12 +147,12 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     pub fn typed_resource_lifecycle(
         &self,
         root: &Path,
-    ) -> Result<Vec<TypedResourceLifecycle>, CoreError> {
-        self.workspace.typed_resource_lifecycle(root)
+    ) -> Result<Vec<TypedResourceLifecycle>, ServiceError> {
+        Ok(self.workspace.typed_resource_lifecycle(root)?)
     }
 
-    pub fn status(&self, root: &Path) -> Result<StatusSummary, CoreError> {
-        self.workspace.status(root)
+    pub fn status(&self, root: &Path) -> Result<StatusSummary, ServiceError> {
+        Ok(self.workspace.status(root)?)
     }
 
     /// Computes resource diffs for either local project changes or named states.
@@ -141,7 +175,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         files: &[String],
         before: Option<String>,
         after: Option<String>,
-    ) -> Result<DiffMap, CoreError> {
+    ) -> Result<DiffMap, ServiceError> {
         if before.is_some() || after.is_some() {
             let mut before_name = before.unwrap_or_default();
             let mut after_name = after.unwrap_or_default();
@@ -305,7 +339,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         force: bool,
         skip_validation: bool,
         dry_run: bool,
-    ) -> Result<PushResult, CoreError> {
+    ) -> Result<PushResult, ServiceError> {
         self.push_with_options(root, force, skip_validation, dry_run, None)
     }
 
@@ -329,7 +363,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         skip_validation: bool,
         dry_run: bool,
         projection: Option<&JsonValue>,
-    ) -> Result<PushResult, CoreError> {
+    ) -> Result<PushResult, ServiceError> {
         if !force {
             let conflicted = self.detect_conflict_files(root)?;
             if !conflicted.is_empty() {
@@ -401,7 +435,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     fn projection_snapshot_for_push(
         &self,
         projection: Option<&JsonValue>,
-    ) -> Result<ProjectionSnapshot, CoreError> {
+    ) -> Result<ProjectionSnapshot, ServiceError> {
         if let Some(projection) = projection {
             return Ok(ProjectionSnapshot {
                 projection: projection.clone(),
@@ -415,9 +449,9 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         resources: &ResourceMap,
         projection: Option<&JsonValue>,
-    ) -> Result<PushCommandPlan, CoreError> {
+    ) -> Result<PushCommandPlan, ServiceError> {
         let snapshot = self.projection_snapshot_for_push(projection)?;
-        plan_push_commands_from_resources(
+        Ok(plan_push_commands_from_resources(
             resources,
             PushPlanInput {
                 projection: snapshot.projection,
@@ -425,16 +459,16 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 created_by: self.client.command_user_override(),
                 current_time: None,
             },
-        )
+        )?)
     }
 
     fn plan_changed_push_resource_map(
         &self,
         resources: &ChangedResourceMap,
         projection: Option<&JsonValue>,
-    ) -> Result<PushCommandPlan, CoreError> {
+    ) -> Result<PushCommandPlan, ServiceError> {
         let snapshot = self.projection_snapshot_for_push(projection)?;
-        plan_push_commands_from_changed_resources(
+        Ok(plan_push_commands_from_changed_resources(
             resources,
             PushPlanInput {
                 projection: snapshot.projection,
@@ -442,14 +476,14 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 created_by: self.client.command_user_override(),
                 current_time: None,
             },
-        )
+        )?)
     }
 
     fn push_command_plan(
         &self,
         plan: PushCommandPlan,
         dry_run: bool,
-    ) -> Result<PushResult, CoreError> {
+    ) -> Result<PushResult, ServiceError> {
         if plan.commands.is_empty() {
             return Ok(PushResult {
                 success: false,
@@ -471,7 +505,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         branch_id: &str,
         plan: PushCommandPlan,
-    ) -> Result<PushResult, CoreError> {
+    ) -> Result<PushResult, ServiceError> {
         if plan.commands.is_empty() {
             return Ok(PushResult {
                 success: false,
@@ -489,7 +523,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         root: &Path,
         persistent_local: &ResourceMap,
         projection: Option<&JsonValue>,
-    ) -> Result<Option<PushChangeSet>, CoreError> {
+    ) -> Result<Option<PushChangeSet>, ServiceError> {
         if projection.is_some() {
             return Ok(None);
         }
@@ -562,10 +596,10 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     }
 
     fn add_discovered_variable_resources(&self, root: &Path, local: &mut ResourceMap) {
-        let project_root = find_project_root_with_fs(&self.workspace.fs, root)
+        let project_root = find_project_root_with_fs(self.workspace.file_system(), root)
             .unwrap_or_else(|| root.to_path_buf());
-        crate::push::add_discovered_variable_resources_from_fs(
-            &self.workspace.fs,
+        add_discovered_variable_resources_from_fs(
+            self.workspace.file_system(),
             &project_root,
             local,
         );
@@ -600,7 +634,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         branch_name: &str,
         force: bool,
         skip_validation: bool,
-    ) -> Result<(ProjectConfig, PushResult), CoreError> {
+    ) -> Result<(ProjectConfig, PushResult), ServiceError> {
         if !force {
             let conflicted = self.detect_conflict_files(root)?;
             if !conflicted.is_empty() {
@@ -665,7 +699,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         Ok((cfg, push_result))
     }
 
-    pub fn pull(&self, root: &Path, force: bool) -> Result<Vec<String>, CoreError> {
+    pub fn pull(&self, root: &Path, force: bool) -> Result<Vec<String>, ServiceError> {
         self.pull_with_format(root, force, false)
     }
 
@@ -674,7 +708,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         root: &Path,
         force: bool,
         format: bool,
-    ) -> Result<Vec<String>, CoreError> {
+    ) -> Result<Vec<String>, ServiceError> {
         Ok(self
             .pull_detailed_with_format(root, force, format)?
             .files_with_conflicts)
@@ -686,7 +720,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         resources: ResourceMap,
         force: bool,
         format: bool,
-    ) -> Result<Vec<String>, CoreError> {
+    ) -> Result<Vec<String>, ServiceError> {
         self.write_pulled_resources(root, resources, force, format)
     }
 
@@ -695,7 +729,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         root: &Path,
         force: bool,
         format: bool,
-    ) -> Result<PullOutcome, CoreError> {
+    ) -> Result<PullOutcome, ServiceError> {
         let remote = if let Some(resources) = self.load_replay_state_resources(root)? {
             resources
         } else {
@@ -715,11 +749,11 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         })
     }
 
-    pub fn pull_projection_json(&self) -> Result<JsonValue, CoreError> {
+    pub fn pull_projection_json(&self) -> Result<JsonValue, ServiceError> {
         Ok(self.client.pull_projection_json()?)
     }
 
-    pub fn pull_projection_json_by_name(&self, name: &str) -> Result<JsonValue, CoreError> {
+    pub fn pull_projection_json_by_name(&self, name: &str) -> Result<JsonValue, ServiceError> {
         Ok(self.client.pull_projection_json_by_name(name)?)
     }
 
@@ -728,7 +762,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         root: &Path,
         name: &str,
         force: bool,
-    ) -> Result<Vec<String>, CoreError> {
+    ) -> Result<Vec<String>, ServiceError> {
         self.pull_named_with_format(root, name, force, false)
     }
 
@@ -738,7 +772,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         name: &str,
         force: bool,
         format: bool,
-    ) -> Result<Vec<String>, CoreError> {
+    ) -> Result<Vec<String>, ServiceError> {
         let remote = if let Some(resources) = self.load_replay_state_resources(root)? {
             resources
         } else {
@@ -750,7 +784,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     fn pull_resources_with_branch_reconciliation(
         &self,
         root: &Path,
-    ) -> Result<(ResourceMap, Option<BranchDescriptor>), CoreError> {
+    ) -> Result<(ResourceMap, Option<BranchDescriptor>), ServiceError> {
         let cfg = self.load_project_config(root)?;
         if cfg.branch_id == "main" {
             return Ok((self.client.pull_resources()?, None));
@@ -867,7 +901,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         remote: ResourceMap,
         force: bool,
         format: bool,
-    ) -> Result<Vec<String>, CoreError> {
+    ) -> Result<Vec<String>, ServiceError> {
         let mut files_with_conflicts = Vec::new();
         let mut written_paths = Vec::new();
         let local_resources_before_force = force.then(|| self.discover_local_resources(root));
@@ -885,10 +919,10 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 .unwrap_or_default()
                 .to_string();
             let file_content = resource_file_content(path, &content);
-            if self.workspace.fs.exists(&target) && !force {
+            if self.workspace.file_system().exists(&target) && !force {
                 let existing = self
                     .workspace
-                    .fs
+                    .file_system()
                     .read_to_string(&target)
                     .unwrap_or_default();
                 if existing.contains("<<<<<<<")
@@ -926,16 +960,20 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                         let merged = format!(
                             "<<<<<<< local\n{existing}\n=======\n{file_content}\n>>>>>>> remote\n"
                         );
-                        self.workspace.fs.write_string(&target, &merged)?;
+                        self.workspace
+                            .file_system()
+                            .write_string(&target, &merged)?;
                         files_with_conflicts.push(target.to_string_lossy().to_string());
                         continue;
                     }
                 }
             }
             if let Some(parent) = target.parent() {
-                self.workspace.fs.create_dir_all(parent)?;
+                self.workspace.file_system().create_dir_all(parent)?;
             }
-            self.workspace.fs.write_string(&target, &file_content)?;
+            self.workspace
+                .file_system()
+                .write_string(&target, &file_content)?;
             written_paths.push(path.clone());
         }
         if let Some(local_resources) = local_resources_before_force.as_ref() {
@@ -950,8 +988,10 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                     if let Some(resource) = snapshot_resources.get_mut(path)
                         && let Some(payload) = resource.payload.as_object_mut()
                     {
-                        let formatted_content =
-                            self.workspace.fs.read_to_string(&root.join(path))?;
+                        let formatted_content = self
+                            .workspace
+                            .file_system()
+                            .read_to_string(&root.join(path))?;
                         payload.insert(
                             "content".to_string(),
                             JsonValue::String(local_resource_content(path, &formatted_content)),
@@ -965,7 +1005,11 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         Ok(files_with_conflicts)
     }
 
-    pub fn revert_changes(&self, root: &Path, files: &[String]) -> Result<Vec<String>, CoreError> {
+    pub fn revert_changes(
+        &self,
+        root: &Path,
+        files: &[String],
+    ) -> Result<Vec<String>, ServiceError> {
         let remote = self.client.pull_resources()?;
         let all_files = files.is_empty();
         let selected: std::collections::HashSet<&str> = files.iter().map(String::as_str).collect();
@@ -976,7 +1020,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 target.clone()
             } else {
                 self.workspace
-                    .fs
+                    .file_system()
                     .current_dir()
                     .unwrap_or_else(|_| PathBuf::from("."))
                     .join(&target)
@@ -986,7 +1030,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 continue;
             }
             if let Some(parent) = target.parent() {
-                self.workspace.fs.create_dir_all(parent)?;
+                self.workspace.file_system().create_dir_all(parent)?;
             }
             let content = resource
                 .payload
@@ -995,14 +1039,14 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                 .unwrap_or_default()
                 .to_string();
             self.workspace
-                .fs
+                .file_system()
                 .write_string(&target, &resource_file_content(&path, &content))?;
             reverted.push(target_abs_str);
         }
         Ok(reverted)
     }
 
-    pub fn list_deployments(&self, environment: &str) -> Result<DeploymentList, CoreError> {
+    pub fn list_deployments(&self, environment: &str) -> Result<DeploymentList, ServiceError> {
         Ok(self.client.list_deployments(environment)?)
     }
 
@@ -1011,7 +1055,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         deployment_id: &str,
         target_env: &str,
         message: &str,
-    ) -> Result<JsonValue, CoreError> {
+    ) -> Result<JsonValue, ServiceError> {
         Ok(self
             .client
             .promote_deployment(deployment_id, target_env, message)?)
@@ -1021,19 +1065,19 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         deployment_id: &str,
         message: &str,
-    ) -> Result<JsonValue, CoreError> {
+    ) -> Result<JsonValue, ServiceError> {
         Ok(self.client.rollback_deployment(deployment_id, message)?)
     }
 
-    pub fn create_chat_session(&self, payload: JsonValue) -> Result<JsonValue, CoreError> {
+    pub fn create_chat_session(&self, payload: JsonValue) -> Result<JsonValue, ServiceError> {
         Ok(self.client.create_chat_session(payload)?)
     }
 
-    pub fn send_chat_message(&self, payload: JsonValue) -> Result<JsonValue, CoreError> {
+    pub fn send_chat_message(&self, payload: JsonValue) -> Result<JsonValue, ServiceError> {
         Ok(self.client.send_chat_message(payload)?)
     }
 
-    pub fn end_chat_session(&self, payload: JsonValue) -> Result<JsonValue, CoreError> {
+    pub fn end_chat_session(&self, payload: JsonValue) -> Result<JsonValue, ServiceError> {
         Ok(self.client.end_chat_session(payload)?)
     }
 
@@ -1041,11 +1085,14 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         limit: usize,
         offset: usize,
-    ) -> Result<ConversationListResponse, CoreError> {
+    ) -> Result<ConversationListResponse, ServiceError> {
         Ok(self.client.list_conversations(limit, offset)?)
     }
 
-    pub fn get_conversation(&self, conversation_id: &str) -> Result<ConversationDetail, CoreError> {
+    pub fn get_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<ConversationDetail, ServiceError> {
         Ok(self.client.get_conversation(conversation_id)?)
     }
 
@@ -1054,7 +1101,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         conversation_id: &str,
         direction: &str,
         redacted: bool,
-    ) -> Result<Vec<u8>, CoreError> {
+    ) -> Result<Vec<u8>, ServiceError> {
         Ok(self
             .client
             .get_conversation_audio(conversation_id, direction, redacted)?)
@@ -1064,7 +1111,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         conversation_id: &str,
-    ) -> Result<String, CoreError> {
+    ) -> Result<String, ServiceError> {
         let cfg = self.load_project_config(root)?;
         let short_region = match cfg.region.as_str() {
             "uk-1" => "uk",
@@ -1078,18 +1125,21 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         ))
     }
 
-    pub fn current_branch(&self, root: &Path) -> Result<String, CoreError> {
+    pub fn current_branch(&self, root: &Path) -> Result<String, ServiceError> {
         Ok(self.load_project_config(root)?.branch_id)
     }
 
-    pub fn current_branch_name(&self, root: &Path) -> Result<String, CoreError> {
+    pub fn current_branch_name(&self, root: &Path) -> Result<String, ServiceError> {
         let current_branch_id = self.current_branch(root)?;
         Ok(self
             .current_branch_name_optional(root)?
             .unwrap_or(current_branch_id))
     }
 
-    pub fn current_branch_name_optional(&self, root: &Path) -> Result<Option<String>, CoreError> {
+    pub fn current_branch_name_optional(
+        &self,
+        root: &Path,
+    ) -> Result<Option<String>, ServiceError> {
         let current_branch_id = self.current_branch(root)?;
         Ok(self
             .client
@@ -1101,7 +1151,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             .map(|branch| branch.name))
     }
 
-    pub fn list_known_branches(&self, root: &Path) -> Result<Vec<String>, CoreError> {
+    pub fn list_known_branches(&self, root: &Path) -> Result<Vec<String>, ServiceError> {
         let _ = root;
         let names: Vec<String> = self
             .client
@@ -1115,7 +1165,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     pub fn list_branch_map(
         &self,
         root: &Path,
-    ) -> Result<indexmap::IndexMap<String, String>, CoreError> {
+    ) -> Result<indexmap::IndexMap<String, String>, ServiceError> {
         let _ = self.load_project_config(root)?;
         let mut branches = indexmap::IndexMap::new();
         for branch in self.client.list_branches()? {
@@ -1128,7 +1178,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         branch_name: &str,
-    ) -> Result<ProjectConfig, CoreError> {
+    ) -> Result<ProjectConfig, ServiceError> {
         let mut cfg = self.load_project_config(root)?;
         if cfg.branch_id != "main" {
             return Err(DomainError::InvalidData(
@@ -1142,7 +1192,11 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         Ok(cfg)
     }
 
-    pub fn set_branch(&self, root: &Path, branch_name: &str) -> Result<ProjectConfig, CoreError> {
+    pub fn set_branch(
+        &self,
+        root: &Path,
+        branch_name: &str,
+    ) -> Result<ProjectConfig, ServiceError> {
         let mut cfg = self.load_project_config(root)?;
         cfg.branch_id = self
             .client
@@ -1159,7 +1213,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         branch_name: &str,
-    ) -> Result<(bool, Option<String>), CoreError> {
+    ) -> Result<(bool, Option<String>), ServiceError> {
         if branch_name == "main" {
             return Err(DomainError::InvalidData(format!(
                 "Branch '{branch_name}' does not exist or cannot be deleted."
@@ -1203,7 +1257,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         root: &Path,
         message: &str,
         conflict_resolutions: Option<Vec<JsonValue>>,
-    ) -> Result<BranchMergeResult, CoreError> {
+    ) -> Result<BranchMergeResult, ServiceError> {
         let result = self.client.merge_branch(message, conflict_resolutions)?;
         if result.success {
             let mut cfg = self.load_project_config(root)?;
@@ -1215,9 +1269,9 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         Ok(result)
     }
 
-    pub fn validate_local_resources(&self, root: &Path) -> Result<Vec<String>, CoreError> {
+    pub fn validate_local_resources(&self, root: &Path) -> Result<Vec<String>, ServiceError> {
         let resources = self.collect_local_resources(root)?;
-        validation::validate_local_resources(root, &resources)
+        Ok(validation::validate_local_resources(root, &resources)?)
     }
 
     pub fn format_local_resources(
@@ -1225,7 +1279,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         root: &Path,
         files: &[String],
         check: bool,
-    ) -> Result<Vec<String>, CoreError> {
+    ) -> Result<Vec<String>, ServiceError> {
         let resources = self.collect_local_resources(root)?;
         let file_patterns = normalize_format_file_patterns(root, files);
         let matcher = if files.is_empty() {
@@ -1271,7 +1325,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             } else if path.ends_with(".py") {
                 let file_content = self
                     .workspace
-                    .fs
+                    .file_system()
                     .read_to_string(&root.join(&path))
                     .unwrap_or_else(|_| resource_file_content(&path, resource_content));
                 let formatted = format_python_content(root.join(&path).as_path(), &file_content);
@@ -1287,7 +1341,9 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                     } else {
                         formatted
                     };
-                    self.workspace.fs.write_string(&root.join(&path), &output)?;
+                    self.workspace
+                        .file_system()
+                        .write_string(&root.join(&path), &output)?;
                 }
             }
         }
@@ -1298,7 +1354,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         changed_files: Vec<String>,
-    ) -> Result<Vec<String>, CoreError> {
+    ) -> Result<Vec<String>, ServiceError> {
         let mut remaining = changed_files.into_iter().collect::<BTreeSet<_>>();
         let Some(existing_typed) = self.load_status_snapshot_discovered_resources(root)? else {
             return Ok(remaining.into_iter().collect());
@@ -1328,12 +1384,13 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     fn load_status_snapshot_discovered_resources(
         &self,
         root: &Path,
-    ) -> Result<Option<DiscoveredResourcePaths>, CoreError> {
-        self.workspace
-            .load_status_snapshot_discovered_resources(root)
+    ) -> Result<Option<DiscoveredResourcePaths>, ServiceError> {
+        Ok(self
+            .workspace
+            .load_status_snapshot_discovered_resources(root)?)
     }
 
-    fn resolve_named_state(&self, root: &Path, name: &str) -> Result<ResourceMap, CoreError> {
+    fn resolve_named_state(&self, root: &Path, name: &str) -> Result<ResourceMap, ServiceError> {
         if name == "local" {
             let mut resources = self.collect_local_resources(root)?;
             self.apply_status_resource_ids(root, &mut resources)?;
@@ -1346,7 +1403,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         resources: &mut ResourceMap,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), ServiceError> {
         let existing_resource_ids = self.load_status_snapshot_resource_ids(root)?;
         for resource in resources.values_mut() {
             let file_path = resource.file_path.replace('\\', "/");
@@ -1361,7 +1418,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         resources: &mut ResourceMap,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), ServiceError> {
         let Some(existing_typed) = self.load_status_snapshot_discovered_resources(root)? else {
             return Ok(());
         };
@@ -1377,19 +1434,23 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         deleted_resources: &DiscoveredResourcePaths,
-    ) -> Result<Vec<ReferenceNameReplacement>, CoreError> {
-        self.workspace
-            .deleted_resource_reference_replacements(root, deleted_resources)
+    ) -> Result<Vec<ReferenceNameReplacement>, ServiceError> {
+        Ok(self
+            .workspace
+            .deleted_resource_reference_replacements(root, deleted_resources)?)
     }
 
-    fn load_replay_state_resources(&self, root: &Path) -> Result<Option<ResourceMap>, CoreError> {
+    fn load_replay_state_resources(
+        &self,
+        root: &Path,
+    ) -> Result<Option<ResourceMap>, ServiceError> {
         let Some(path) = self.replay_state_path(root)? else {
             return Ok(None);
         };
-        if !self.workspace.fs.exists(&path) {
+        if !self.workspace.file_system().exists(&path) {
             return Ok(None);
         }
-        let raw = self.workspace.fs.read_to_string(&path)?;
+        let raw = self.workspace.file_system().read_to_string(&path)?;
         Ok(Some(serde_json::from_str(&raw)?))
     }
 
@@ -1397,20 +1458,20 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         resources: &ResourceMap,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), ServiceError> {
         let Some(path) = self.replay_state_path(root)? else {
             return Ok(());
         };
         if let Some(parent) = path.parent() {
-            self.workspace.fs.create_dir_all(parent)?;
+            self.workspace.file_system().create_dir_all(parent)?;
         }
         self.workspace
-            .fs
+            .file_system()
             .write_string(&path, &serde_json::to_string(resources)?)?;
         Ok(())
     }
 
-    fn replay_state_path(&self, root: &Path) -> Result<Option<PathBuf>, CoreError> {
+    fn replay_state_path(&self, root: &Path) -> Result<Option<PathBuf>, ServiceError> {
         // Replay tests persist snapshots between recorded Python workflow steps.
         let Ok(state_dir) = env::var("POLY_ADK_REPLAY_STATE_DIR") else {
             return Ok(None);
@@ -1436,7 +1497,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         baseline: &ResourceMap,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), ServiceError> {
         let project_root = find_project_root(root).unwrap_or_else(|| root.to_path_buf());
         let baseline_file_paths: HashSet<String> = baseline
             .iter()
@@ -1489,7 +1550,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
                     String::new()
                 } else {
                     self.workspace
-                        .fs
+                        .file_system()
                         .read_to_string(&project_root.join(&file_path))
                         .unwrap_or_default()
                 };
@@ -1591,10 +1652,10 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         existing_resource_ids: &indexmap::IndexMap<String, String>,
-    ) -> Result<BTreeMap<String, String>, CoreError> {
+    ) -> Result<BTreeMap<String, String>, ServiceError> {
         let content = self
             .workspace
-            .fs
+            .file_system()
             .read_to_string(&root.join("config/variant_attributes.yaml"))
             .unwrap_or_default();
         let yaml = from_str::<YamlValue>(&content).ok();
@@ -1629,7 +1690,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         &self,
         root: &Path,
         existing_resource_ids: &indexmap::IndexMap<String, String>,
-    ) -> Result<BTreeMap<(String, String), String>, CoreError> {
+    ) -> Result<BTreeMap<(String, String), String>, ServiceError> {
         let discovered = self.discover_local_resources(root);
         let mut map = BTreeMap::new();
         for logical_path in discovered.get("FlowStep").into_iter().flatten() {
@@ -1639,7 +1700,7 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             let (file_path, _) = parse_multi_resource_path(logical_path);
             let content = self
                 .workspace
-                .fs
+                .file_system()
                 .read_to_string(&root.join(file_path))
                 .unwrap_or_default();
             let yaml = from_str::<YamlValue>(&content).ok();
@@ -1663,37 +1724,81 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         Ok(map)
     }
 
-    fn write_python_gen_package(&self, project_root: &Path) -> Result<(), CoreError> {
-        self.workspace.write_python_gen_package(project_root)
+    fn write_python_gen_package(&self, project_root: &Path) -> Result<(), ServiceError> {
+        Ok(self.workspace.write_python_gen_package(project_root)?)
     }
 
     fn run_and_persist_project_migrations(
         &self,
         project_root: &Path,
-    ) -> Result<BTreeSet<String>, CoreError> {
-        self.workspace
-            .run_and_persist_project_migrations(project_root)
+    ) -> Result<BTreeSet<String>, ServiceError> {
+        Ok(self
+            .workspace
+            .run_and_persist_project_migrations(project_root)?)
     }
 
-    fn write_project_config(&self, root: &Path, cfg: &ProjectConfig) -> Result<(), CoreError> {
-        self.workspace.write_project_config(root, cfg)
+    fn write_project_config(&self, root: &Path, cfg: &ProjectConfig) -> Result<(), ServiceError> {
+        Ok(self.workspace.write_project_config(root, cfg)?)
     }
 
-    fn detect_conflict_files(&self, root: &Path) -> Result<Vec<String>, CoreError> {
-        self.workspace.detect_conflict_files(root)
+    fn detect_conflict_files(&self, root: &Path) -> Result<Vec<String>, ServiceError> {
+        Ok(self.workspace.detect_conflict_files(root)?)
     }
 
     fn load_status_snapshot_file_hashes(
         &self,
         root: &Path,
-    ) -> Result<Option<indexmap::IndexMap<String, String>>, CoreError> {
-        self.workspace.load_status_snapshot_file_hashes(root)
+    ) -> Result<Option<indexmap::IndexMap<String, String>>, ServiceError> {
+        Ok(self.workspace.load_status_snapshot_file_hashes(root)?)
     }
 
     fn load_status_snapshot_resource_ids(
         &self,
         root: &Path,
-    ) -> Result<indexmap::IndexMap<String, String>, CoreError> {
-        self.workspace.load_status_snapshot_resource_ids(root)
+    ) -> Result<indexmap::IndexMap<String, String>, ServiceError> {
+        Ok(self.workspace.load_status_snapshot_resource_ids(root)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_api_client::InMemoryPlatformClient;
+
+    #[test]
+    fn format_check_preserves_python_shaped_yaml_key_order() {
+        let fs = adk_io::MemoryFileSystem::new();
+        fs.write_string(
+            Path::new("workspace/project.yaml"),
+            "region: dev\naccount_id: acct\nproject_id: proj\nbranch_id: main\n",
+        )
+        .expect("write config");
+        fs.write_string(
+            Path::new("workspace/topics/billing_general.yaml"),
+            "name: Billing General\nenabled: true\nactions: Transfer the caller.\ncontent: |-\n  Line one.\n  Line two.\nexample_queries:\n- Question about my bill\n",
+        )
+        .expect("write topic");
+        fs.write_string(
+            Path::new("workspace/config/entities.yaml"),
+            "entities:\n- name: Age\n  description: Customer age\n  entity_type: numeric\n  config:\n    min: 1\n    max: 120\n",
+        )
+        .expect("write entities");
+
+        let service = AdkService::with_file_system(InMemoryPlatformClient::default(), fs.clone());
+        let changed = service
+            .format_local_resources(Path::new("workspace"), &[], true)
+            .expect("format check");
+
+        assert!(changed.is_empty());
+        assert_eq!(
+            fs.read_to_string(Path::new("workspace/topics/billing_general.yaml"))
+                .expect("read topic"),
+            "name: Billing General\nenabled: true\nactions: Transfer the caller.\ncontent: |-\n  Line one.\n  Line two.\nexample_queries:\n- Question about my bill\n"
+        );
+        assert_eq!(
+            fs.read_to_string(Path::new("workspace/config/entities.yaml"))
+                .expect("read entities"),
+            "entities:\n- name: Age\n  description: Customer age\n  entity_type: numeric\n  config:\n    min: 1\n    max: 120\n"
+        );
     }
 }

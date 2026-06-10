@@ -1,6 +1,7 @@
 use adk_api_client::{AccountSummary, HttpPlatformClient, InMemoryPlatformClient, PlatformClient};
-use adk_core::{AdkService, ProjectWorkspace};
+use adk_core::ProjectWorkspace;
 use adk_resources::projection_to_resource_map;
+use adk_service::AdkService;
 use anyhow::Result;
 use clap::Parser;
 use std::io::{self, IsTerminal, Read, Write};

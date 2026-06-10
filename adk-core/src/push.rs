@@ -220,7 +220,7 @@ pub fn push_from_filesystem<Fs: FileSystem>(
     })
 }
 
-pub(crate) fn add_discovered_variable_resources_from_fs<Fs: FileSystem>(
+pub fn add_discovered_variable_resources_from_fs<Fs: FileSystem>(
     fs: &Fs,
     root: &Path,
     resources: &mut ResourceMap,

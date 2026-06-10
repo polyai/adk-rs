@@ -2,7 +2,7 @@ use crate::{
     AdkService, PlatformClient, PullArgs, emit_error, ensure_project_loaded,
     parse_optional_json_arg, pull_projection_into_path,
 };
-use adk_core::PullOutcome;
+use adk_service::PullOutcome;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::process::ExitCode;

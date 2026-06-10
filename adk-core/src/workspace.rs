@@ -93,6 +93,10 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Self { fs }
     }
 
+    pub fn file_system(&self) -> &Fs {
+        &self.fs
+    }
+
     pub fn init_project(
         &self,
         base_path: &Path,
@@ -159,7 +163,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Err(DomainError::ConfigNotFound(discovered.to_string_lossy().to_string()).into())
     }
 
-    pub(crate) fn write_python_gen_package(&self, project_root: &Path) -> Result<(), CoreError> {
+    pub fn write_python_gen_package(&self, project_root: &Path) -> Result<(), CoreError> {
         let gen_dir = project_root.join("_gen");
         self.fs.create_dir_all(&gen_dir)?;
         for path in self.fs.read_dir(&gen_dir)? {
@@ -173,7 +177,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(())
     }
 
-    pub(crate) fn run_and_persist_project_migrations(
+    pub fn run_and_persist_project_migrations(
         &self,
         project_root: &Path,
     ) -> Result<BTreeSet<String>, CoreError> {
@@ -238,7 +242,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(())
     }
 
-    pub(crate) fn load_status_snapshot(
+    pub fn load_status_snapshot(
         &self,
         project_root: &Path,
     ) -> Result<Option<StatusSnapshot>, CoreError> {
@@ -253,7 +257,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(Some(serde_json::from_slice(&decoded)?))
     }
 
-    pub(crate) fn write_status_snapshot(
+    pub fn write_status_snapshot(
         &self,
         project_root: &Path,
         snapshot: &StatusSnapshot,
@@ -268,11 +272,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(())
     }
 
-    pub(crate) fn write_project_config(
-        &self,
-        root: &Path,
-        cfg: &ProjectConfig,
-    ) -> Result<(), CoreError> {
+    pub fn write_project_config(&self, root: &Path, cfg: &ProjectConfig) -> Result<(), CoreError> {
         let project_root = find_project_root_with_fs(&self.fs, root)
             .ok_or_else(|| DomainError::ConfigNotFound(root.to_string_lossy().to_string()))?;
         let serialized = project_config_yaml(cfg)?;
@@ -371,7 +371,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(summary)
     }
 
-    pub(crate) fn load_status_snapshot_discovered_resources(
+    pub fn load_status_snapshot_discovered_resources(
         &self,
         root: &Path,
     ) -> Result<Option<DiscoveredResourcePaths>, CoreError> {
@@ -406,7 +406,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(Some(discovered))
     }
 
-    pub(crate) fn deleted_resource_reference_replacements(
+    pub fn deleted_resource_reference_replacements(
         &self,
         root: &Path,
         deleted_resources: &DiscoveredResourcePaths,
@@ -434,7 +434,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(replacements)
     }
 
-    pub(crate) fn detect_conflict_files(&self, root: &Path) -> Result<Vec<String>, CoreError> {
+    pub fn detect_conflict_files(&self, root: &Path) -> Result<Vec<String>, CoreError> {
         let mut conflicts = Vec::new();
         for path in recursive_file_paths(&self.fs, root)? {
             let content = match self.fs.read_to_string(&path) {
@@ -451,7 +451,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(conflicts)
     }
 
-    pub(crate) fn load_status_snapshot_file_hashes(
+    pub fn load_status_snapshot_file_hashes(
         &self,
         root: &Path,
     ) -> Result<Option<indexmap::IndexMap<String, String>>, CoreError> {
@@ -534,7 +534,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(Some(out))
     }
 
-    pub(crate) fn load_status_snapshot_resource_ids(
+    pub fn load_status_snapshot_resource_ids(
         &self,
         root: &Path,
     ) -> Result<indexmap::IndexMap<String, String>, CoreError> {
@@ -562,7 +562,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(ids)
     }
 
-    pub(crate) fn load_status_snapshot_resource_metadata(
+    pub fn load_status_snapshot_resource_metadata(
         &self,
         root: &Path,
     ) -> Result<indexmap::IndexMap<String, (String, String)>, CoreError> {
@@ -596,7 +596,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         Ok(metadata)
     }
 
-    pub(crate) fn load_status_snapshot_resource_map(
+    pub fn load_status_snapshot_resource_map(
         &self,
         root: &Path,
     ) -> Result<Option<ResourceMap>, CoreError> {

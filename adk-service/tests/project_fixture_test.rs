@@ -14,9 +14,9 @@
 #![allow(clippy::disallowed_methods)]
 
 use adk_api_client::{InMemoryPlatformClient, PlatformClient};
-use adk_core::AdkService;
 use adk_io::{compute_hash, parse_multi_resource_path};
 use adk_resources::projection_to_resource_map;
+use adk_service::AdkService;
 use adk_types::{DeploymentList, ORDERED_TYPE_NAMES, Resource, ResourceMap};
 use base64::Engine;
 use std::fs;

@@ -18,6 +18,7 @@ indexmap.workspace = true
 reqwest.workspace = true
 rich_rust.workspace = true
 adk-core.workspace = true
+adk-service.workspace = true
 adk-api-client.workspace = true
 adk-resources.workspace = true
 adk-types.workspace = true

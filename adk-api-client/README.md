@@ -4,7 +4,7 @@ API boundary crate between core workflows and remote platform operations.
 
 ## Responsibilities
 
-- Defines the `PlatformClient` trait used by `adk-core`.
+- Defines the `PlatformClient` trait used by `adk-service`.
 - Hosts adapter implementations:
   - `HttpPlatformClient`: real Platform API integration (region/account/project scoped).
   - `InMemoryPlatformClient`: deterministic test double for unit/local tests.

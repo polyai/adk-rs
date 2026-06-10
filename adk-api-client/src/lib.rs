@@ -49,7 +49,7 @@ impl From<CommandGenError> for ApiError {
     }
 }
 
-/// Platform API boundary used by `adk-core`.
+/// Platform API boundary used by `adk-service`.
 ///
 /// NOTE:
 /// - `HttpPlatformClient` is the real networked implementation.
