@@ -297,31 +297,7 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
     }
 
     pub fn collect_local_resources(&self, root: &Path) -> Result<ResourceMap, CoreError> {
-        let mut map = ResourceMap::new();
-        for file in recursive_file_paths(&self.fs, root)? {
-            let rel = file
-                .strip_prefix(root)
-                .unwrap_or(file.as_path())
-                .to_string_lossy()
-                .replace('\\', "/");
-            if rel == PROJECT_CONFIG_FILE || rel == STATUS_FILE || rel.starts_with("_gen/") {
-                continue;
-            }
-            let content = self.fs.read_to_string(file.as_path()).unwrap_or_default();
-            let payload = serde_json::json!({
-                "content": local_resource_content(&rel, &content),
-            });
-            map.insert(
-                rel.clone(),
-                Resource {
-                    resource_id: rel.clone(),
-                    name: rel.clone(),
-                    file_path: rel,
-                    payload,
-                },
-            );
-        }
-        Ok(map)
+        collect_local_resources_from_fs(&self.fs, root)
     }
 
     /// Typed discovery matching Python `AgentStudioProject.discover_local_resources()`.
@@ -667,4 +643,35 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
             Ok(Some(map))
         }
     }
+}
+
+pub(crate) fn collect_local_resources_from_fs<Fs: FileSystem>(
+    fs: &Fs,
+    root: &Path,
+) -> Result<ResourceMap, CoreError> {
+    let mut map = ResourceMap::new();
+    for file in recursive_file_paths(fs, root)? {
+        let rel = file
+            .strip_prefix(root)
+            .unwrap_or(file.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        if rel == PROJECT_CONFIG_FILE || rel == STATUS_FILE || rel.starts_with("_gen/") {
+            continue;
+        }
+        let content = fs.read_to_string(file.as_path()).unwrap_or_default();
+        let payload = serde_json::json!({
+            "content": local_resource_content(&rel, &content),
+        });
+        map.insert(
+            rel.clone(),
+            Resource {
+                resource_id: rel.clone(),
+                name: rel.clone(),
+                file_path: rel,
+                payload,
+            },
+        );
+    }
+    Ok(map)
 }

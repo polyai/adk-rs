@@ -82,6 +82,12 @@ All operations use a text-only in-memory filesystem:
 type FileMap = Record<string, string>;
 ```
 
+`FileMap` is a TypeScript and `adk-napi` boundary type. It should not become
+an `adk-core` abstraction. The `adk-napi` crate is responsible for loading this
+object into a concrete `MemoryFileSystem` before calling filesystem-generic
+core logic, and for exporting the resulting memory filesystem back to a
+`FileMap` when needed.
+
 File map keys are normalized POSIX-style relative paths:
 
 - No leading slash.
@@ -93,8 +99,8 @@ File map keys are normalized POSIX-style relative paths:
 
 Each operation also receives an explicit `root` string from the caller. File map
 keys are interpreted relative to that root after they are loaded into
-`MemoryFileSystem`; `adk-core` should not discover or invent a root path for
-the TypeScript bindings.
+`MemoryFileSystem` by `adk-napi`; `adk-core` should not discover or invent a
+root path for the TypeScript bindings.
 
 If `_gen/.agent_studio_config` is present in the input, the engine ignores it
 and never emits it.
@@ -311,19 +317,18 @@ stable.
 
 ### Phase 1: Filesystem-Backed Engine APIs
 
-Add pure Rust functions in `adk-core` that continue to operate through the
-`adk_io::FileSystem` trait and parsed projection values. `FileMap` is a
-TypeScript/N-API boundary shape: the native addon should construct a
-`MemoryFileSystem` from the caller-provided `FileMap`, then reuse the existing
-filesystem-backed discovery, materialization, validation, diff, and command
-generation logic.
+Refactor the existing Rust workflow code so the reusable pieces in `adk-core`
+continue to operate through the `adk_io::FileSystem` trait and parsed
+projection values. This should be an extraction of the current
+filesystem-backed discovery, materialization, validation, diff, pull, and
+command-generation paths, not a new parallel implementation.
 
-JSON string parsing should also live at the N-API boundary, not deep in the
-engine. The N-API exported Rust functions should accept projection JSON
-strings, parse them into `serde_json::Value`, load the caller's file map into a
-`MemoryFileSystem`, and then call the filesystem-backed `adk-core` APIs.
+Projection JSON parsing should not live deep in reusable workflow code. The
+filesystem-backed `adk-core` helpers should accept parsed
+`serde_json::Value` projections and leave string parsing to their callers.
 
-Suggested `adk-core` internal Rust shapes, not direct N-API exports:
+Suggested `adk-core` internal Rust shapes, not direct N-API exports and not
+boundary wrappers:
 
 ```rust
 pub struct PullInput {
@@ -364,80 +369,27 @@ pub fn diff<Fs: adk_io::FileSystem>(
 ) -> Result<DiffOutput, CoreError>;
 ```
 
-The N-API wrapper can define separate `FileMap`-shaped inputs, load them into a
-`MemoryFileSystem`, call these filesystem-backed core APIs, then export the
-resulting memory filesystem back to `FileMap`.
-
-Suggested `adk-napi` exported Rust functions should stay data-oriented and
-simple. The raw native-addon boundary can take ordinary NAPI-RS-compatible
-Rust/Serde shapes, while the handwritten TypeScript wrapper keeps the
-ergonomic object-shaped API described above.
-
-```rust
-#[napi(object)]
-pub struct NapiPullInput {
-    pub root: String,
-    pub files: std::collections::BTreeMap<String, String>,
-    pub pull_projection_json: String,
-    pub base_projection_json: Option<String>,
-    pub force: Option<bool>,
-}
-
-#[napi(object)]
-pub struct NapiPushInput {
-    pub root: String,
-    pub files: std::collections::BTreeMap<String, String>,
-    pub projection_json: String,
-    pub last_known_sequence: u64,
-    pub created_by: Option<String>,
-    pub current_time: Option<String>,
-    pub force: Option<bool>,
-    pub skip_validation: Option<bool>,
-}
-
-#[napi(object)]
-pub struct NapiDiffInput {
-    pub root: String,
-    pub files: std::collections::BTreeMap<String, String>,
-    pub projection_json: String,
-}
-
-#[napi]
-pub fn pull(input: NapiPullInput) -> napi::Result<NapiPullOutput>;
-
-#[napi]
-pub fn push(input: NapiPushInput) -> napi::Result<NapiPushOutput>;
-
-#[napi]
-pub fn diff(input: NapiDiffInput) -> napi::Result<NapiDiffOutput>;
-```
-
-These exports should be synchronous. They perform CPU and in-memory
-filesystem work only; TypeScript remains responsible for async network
-transport.
-
-For `commandBatchBytes`, `adk-napi` should return a `Uint8Array` generated
-from the Rust protobuf bytes.
-
-These exported functions are responsible for boundary conversion only: JSON
-strings to parsed projections, file maps to `MemoryFileSystem`, and
-filesystem-backed results back to TypeScript-friendly objects.
+Do not add a new `adk-core` facade whose main job is to translate external
+caller inputs or to reimplement existing service behavior. The intended
+migration is to move/refine current logic into pure helper functions with
+cleaner signatures, then have both `adk-service` and `adk-napi` call those
+helpers.
 
 The core implementation should remain generic over the `adk_io::FileSystem`
 trait where filesystem behavior is needed. `MemoryFileSystem` is the concrete
-adapter used by tests and by the N-API `FileMap` conversion path, not the
-abstraction that core logic should depend on directly. The goal is to preserve
-the existing filesystem-backed code path as much as possible rather than
-introduce a second direct-`FileMap` implementation.
+adapter used by tests, not the abstraction that core logic should depend on
+directly. The goal is to preserve the existing filesystem-backed code path as
+much as possible rather than introduce a second direct snapshot
+implementation.
 
 This phase should also remove or isolate remaining native filesystem
 assumptions in pure workflows:
 
 - Pure `adk-core` APIs should take an explicit root and should not define a
   global root-path convention. Native project root discovery is a CLI/service
-  concern; TypeScript bindings require the caller to provide the root. If any
-  reusable discovery helper remains in `adk-core`, it should use an injected
-  `adk_io::FileSystem`, not `StdFileSystem`.
+  concern; embedded callers that bypass CLI discovery must provide the root. If
+  any reusable discovery helper remains in `adk-core`, it should use an
+  injected `adk_io::FileSystem`, not `StdFileSystem`.
 - Force-pull deletion cleanup should work through `adk_io::FileSystem`, not
   `WalkDir` over disk.
 - Status file persistence should move out of pure workflows. `adk-core` may
@@ -449,8 +401,9 @@ Verification for this phase:
 
 - Compile-time checks should prove `adk-core` no longer depends on
   `adk-api-client`.
-- Unit tests should cover `FileMap` to `MemoryFileSystem` loading/export,
-  path normalization, and `_gen/.agent_studio_config` exclusion.
+- Unit tests should cover the extracted filesystem-generic helpers directly,
+  using `MemoryFileSystem` in tests where useful but without making
+  `MemoryFileSystem` the core API abstraction.
 - Existing filesystem-generic tests should pass with both `StdFileSystem`
   where appropriate and `MemoryFileSystem`.
 
@@ -463,7 +416,7 @@ Pull:
 - Materialize `pull_projection` into ADK-owned files.
 - If `base_projection` is provided, materialize it too and use it as the
   conflict baseline.
-- Preserve unrelated files from the input `FileMap`.
+- Preserve unrelated files from the caller-provided filesystem snapshot.
 - Return both the full output snapshot and a patch list.
 - Never emit `_gen/.agent_studio_config`.
 
@@ -537,6 +490,60 @@ Add `adk-napi` once the pure Rust APIs are stable.
   defaulting `currentTime`, and passing the explicit root through to the raw
   native binding.
 
+Suggested `adk-napi` exported Rust functions should stay data-oriented and
+simple. The raw native-addon boundary can take ordinary NAPI-RS-compatible
+Rust/Serde shapes, while the handwritten TypeScript wrapper keeps the
+ergonomic object-shaped API described above.
+
+```rust
+#[napi(object)]
+pub struct NapiPullInput {
+    pub root: String,
+    pub files: std::collections::BTreeMap<String, String>,
+    pub pull_projection_json: String,
+    pub base_projection_json: Option<String>,
+    pub force: Option<bool>,
+}
+
+#[napi(object)]
+pub struct NapiPushInput {
+    pub root: String,
+    pub files: std::collections::BTreeMap<String, String>,
+    pub projection_json: String,
+    pub last_known_sequence: u64,
+    pub created_by: Option<String>,
+    pub current_time: Option<String>,
+    pub force: Option<bool>,
+    pub skip_validation: Option<bool>,
+}
+
+#[napi(object)]
+pub struct NapiDiffInput {
+    pub root: String,
+    pub files: std::collections::BTreeMap<String, String>,
+    pub projection_json: String,
+}
+
+#[napi]
+pub fn pull(input: NapiPullInput) -> napi::Result<NapiPullOutput>;
+
+#[napi]
+pub fn push(input: NapiPushInput) -> napi::Result<NapiPushOutput>;
+
+#[napi]
+pub fn diff(input: NapiDiffInput) -> napi::Result<NapiDiffOutput>;
+```
+
+These exports should be synchronous. They perform CPU and in-memory filesystem
+work only; TypeScript remains responsible for async network transport.
+
+For `commandBatchBytes`, `adk-napi` should return a `Uint8Array` generated
+from the Rust protobuf bytes.
+
+These exported functions are responsible for boundary conversion only: JSON
+strings to parsed projections, file maps to `MemoryFileSystem`, and
+filesystem-backed results back to TypeScript-friendly objects.
+
 The N-API boundary can use richer native-addon conversions than Wasm, but it
 should still remain a thin, synchronous adapter over `adk-core`.
 
@@ -544,6 +551,8 @@ Verification for this phase:
 
 - N-API-facing tests should cover TypeScript wrapper shapes and raw native
   boundary conversion.
+- N-API tests should cover `FileMap` to `MemoryFileSystem` loading/export, path
+  normalization, and `_gen/.agent_studio_config` exclusion.
 - Tests should cover bad projection JSON and stable `AdkEngineError`
   conversion.
 - Push tests should verify `commandBatchBytes` is returned as `Uint8Array`.
@@ -572,9 +581,10 @@ The main test contracts are:
 - Diff remains exactly `diff(files, projection)` with no hidden baseline.
 - N-API wrapper behavior is covered at the TypeScript-facing boundary.
 
-The migration is complete when existing CLI tests still pass and the new
-TypeScript-facing `adk-core` APIs can run without `adk-api-client`, network
-access, disk access, env vars, subprocesses, or `_gen/.agent_studio_config`.
+The migration is complete when existing CLI tests still pass and the extracted
+filesystem-backed `adk-core` APIs used by `adk-napi` can run without
+`adk-api-client`, network access, disk access, env vars, subprocesses, or
+`_gen/.agent_studio_config`.
 
 ## Open Follow-Up Work
 

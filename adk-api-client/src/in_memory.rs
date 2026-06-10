@@ -1,4 +1,5 @@
-use crate::{ApiError, PlatformClient, command_user_override_from_env};
+use crate::{ApiError, PlatformClient, ProjectionSnapshot, command_user_override_from_env};
+use adk_protobuf::CommandBatch;
 use adk_resources::{
     command_to_json_summary, try_build_push_commands_for_changed_resources,
     try_build_push_commands_with_created_by,
@@ -7,6 +8,7 @@ use adk_types::{
     BranchDescriptor, BranchMergeResult, ConversationDetail, ConversationListResponse,
     ConversationSummary, DeploymentList, PushResult, ResourceMap,
 };
+use prost::Message;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
@@ -84,6 +86,13 @@ impl PlatformClient for InMemoryPlatformClient {
     fn pull_projection_json(&self) -> Result<Value, ApiError> {
         let resources = self.pull_resources()?;
         serde_json::to_value(resources).map_err(|e| ApiError::Http(e.to_string()))
+    }
+
+    fn pull_projection_snapshot(&self) -> Result<ProjectionSnapshot, ApiError> {
+        Ok(ProjectionSnapshot {
+            projection: self.pull_projection_json()?,
+            last_known_sequence: 0,
+        })
     }
 
     fn preview_push_resources(&self, resources: &ResourceMap) -> Result<PushResult, ApiError> {
@@ -166,6 +175,29 @@ impl PlatformClient for InMemoryPlatformClient {
             message: "Push successful".to_string(),
             commands: vec![],
         })
+    }
+
+    fn command_user_override(&self) -> Option<String> {
+        self.command_user_override.clone()
+    }
+
+    fn push_command_batch(&self, command_batch_bytes: &[u8]) -> Result<PushResult, ApiError> {
+        let batch = CommandBatch::decode(command_batch_bytes)
+            .map_err(|e| ApiError::Http(format!("invalid command batch bytes: {e}")))?;
+        let summaries = batch.commands.iter().map(command_to_json_summary).collect();
+        Ok(PushResult {
+            success: true,
+            message: "Push successful".to_string(),
+            commands: summaries,
+        })
+    }
+
+    fn record_successful_push(&self, resources: &ResourceMap) -> Result<(), ApiError> {
+        *self
+            .resources
+            .lock()
+            .map_err(|e| ApiError::Http(e.to_string()))? = resources.clone();
+        Ok(())
     }
 
     fn list_deployments(&self, _environment: &str) -> Result<DeploymentList, ApiError> {

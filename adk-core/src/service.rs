@@ -1,5 +1,5 @@
 use crate::*;
-use adk_api_client::PlatformClient;
+use adk_api_client::{PlatformClient, ProjectionSnapshot};
 use adk_io::{FileSystem, StdFileSystem, diff_resources, parse_multi_resource_path};
 use adk_resources::{
     FileStructureEntry, ResourceStatusPayloadInput, StatusResourcePayload, StatusSnapshot,
@@ -356,31 +356,20 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             }
             if changes.has_deletions {
                 self.add_discovered_variable_resources(root, &mut changes.resources);
-                if dry_run {
-                    return Ok(self
-                        .client
-                        .preview_push_resources_with_options(&changes.resources, projection)?);
-                }
-                let result = self
-                    .client
-                    .push_resources_with_options(&changes.resources, projection)?;
-                if result.success {
+                let plan = self.plan_push_resource_map(&changes.resources, projection, true)?;
+                let result = self.push_command_plan(plan, dry_run)?;
+                if result.success && !dry_run {
+                    self.client.record_successful_push(&persistent_local)?;
                     self.save_replay_state_resources(root, &persistent_local)?;
                     self.write_status_snapshot_from_resources(root, &persistent_local)?;
                 }
                 return Ok(result);
             }
             self.add_variable_resources_for_changed_resources(&mut changes.resources);
-            if dry_run {
-                return Ok(self.client.preview_push_changed_resources_with_options(
-                    &changes.resources,
-                    projection,
-                )?);
-            }
-            let result = self
-                .client
-                .push_changed_resources_with_options(&changes.resources, projection)?;
-            if result.success {
+            let plan = self.plan_push_resource_map(&changes.resources, projection, false)?;
+            let result = self.push_command_plan(plan, dry_run)?;
+            if result.success && !dry_run {
+                self.client.record_successful_push(&persistent_local)?;
                 self.save_replay_state_resources(root, &persistent_local)?;
                 self.write_status_snapshot_from_resources(root, &persistent_local)?;
             }
@@ -388,19 +377,85 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         }
         let mut local = persistent_local.clone();
         self.add_discovered_variable_resources(root, &mut local);
-        if dry_run {
-            return Ok(self
-                .client
-                .preview_push_resources_with_options(&local, projection)?);
-        }
-        let result = self
-            .client
-            .push_resources_with_options(&local, projection)?;
-        if result.success {
+        let plan = self.plan_push_resource_map(&local, projection, true)?;
+        let result = self.push_command_plan(plan, dry_run)?;
+        if result.success && !dry_run {
+            self.client.record_successful_push(&persistent_local)?;
             self.save_replay_state_resources(root, &persistent_local)?;
             self.write_status_snapshot_from_resources(root, &persistent_local)?;
         }
         Ok(result)
+    }
+
+    fn projection_snapshot_for_push(
+        &self,
+        projection: Option<&JsonValue>,
+    ) -> Result<ProjectionSnapshot, CoreError> {
+        if let Some(projection) = projection {
+            return Ok(ProjectionSnapshot {
+                projection: projection.clone(),
+                last_known_sequence: 0,
+            });
+        }
+        Ok(self.client.pull_projection_snapshot()?)
+    }
+
+    fn plan_push_resource_map(
+        &self,
+        resources: &ResourceMap,
+        projection: Option<&JsonValue>,
+        include_deletes: bool,
+    ) -> Result<PushCommandPlan, CoreError> {
+        let snapshot = self.projection_snapshot_for_push(projection)?;
+        plan_push_commands_from_resources(
+            resources,
+            PushPlanInput {
+                projection: snapshot.projection,
+                last_known_sequence: snapshot.last_known_sequence,
+                created_by: self.client.command_user_override(),
+                current_time: None,
+                include_deletes,
+            },
+        )
+    }
+
+    fn push_command_plan(
+        &self,
+        plan: PushCommandPlan,
+        dry_run: bool,
+    ) -> Result<PushResult, CoreError> {
+        if plan.commands.is_empty() {
+            return Ok(PushResult {
+                success: false,
+                message: "No changes detected".to_string(),
+                commands: vec![],
+            });
+        }
+        if dry_run {
+            return Ok(PushResult {
+                success: true,
+                message: "Dry run completed. No changes were pushed.".to_string(),
+                commands: plan.command_summaries,
+            });
+        }
+        Ok(self.client.push_command_batch(&plan.command_batch_bytes)?)
+    }
+
+    fn push_command_plan_to_branch(
+        &self,
+        branch_id: &str,
+        plan: PushCommandPlan,
+    ) -> Result<PushResult, CoreError> {
+        if plan.commands.is_empty() {
+            return Ok(PushResult {
+                success: false,
+                message: "No changes detected".to_string(),
+                commands: vec![],
+            });
+        }
+        Ok(self
+            .client
+            .push_command_batch_to_branch(branch_id, &plan.command_batch_bytes)?)
     }
 
     fn push_resource_map_for_status_changes(
@@ -479,31 +534,13 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
     }
 
     fn add_discovered_variable_resources(&self, root: &Path, local: &mut ResourceMap) {
-        let project_root = find_project_root(root).unwrap_or_else(|| root.to_path_buf());
-        let discovered = self.discover_local_resources(&project_root);
-        let Some(variables) = discovered.get("Variable") else {
-            return;
-        };
-        for logical_path in variables {
-            if local.contains_key(logical_path) {
-                continue;
-            }
-            let Some(name) = logical_path.strip_prefix("variables/") else {
-                continue;
-            };
-            if name.is_empty() {
-                continue;
-            }
-            local.insert(
-                logical_path.clone(),
-                Resource {
-                    resource_id: "local".to_string(),
-                    name: name.to_string(),
-                    file_path: logical_path.clone(),
-                    payload: serde_json::json!({ "content": "" }),
-                },
-            );
-        }
+        let project_root = find_project_root_with_fs(&self.workspace.fs, root)
+            .unwrap_or_else(|| root.to_path_buf());
+        crate::push::add_discovered_variable_resources_from_fs(
+            &self.workspace.fs,
+            &project_root,
+            local,
+        );
     }
 
     fn add_variable_resources_for_changed_resources(&self, local: &mut ResourceMap) {
@@ -576,13 +613,23 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
             .map(|changes| changes.resources)
             .unwrap_or_else(|| persistent_local.clone());
         self.add_discovered_variable_resources(root, &mut local);
-        let (branch_id, push_result) = self
-            .client
-            .push_main_resources_to_new_branch(branch_name, &local)?;
+        let (branch_id, snapshot) = self.client.create_branch_from_main(branch_name)?;
+        let plan = plan_push_commands_from_resources(
+            &local,
+            PushPlanInput {
+                projection: snapshot.projection,
+                last_known_sequence: snapshot.last_known_sequence,
+                created_by: self.client.command_user_override(),
+                current_time: None,
+                include_deletes: true,
+            },
+        )?;
+        let push_result = self.push_command_plan_to_branch(&branch_id, plan)?;
         let mut cfg = self.load_project_config(root)?;
         if push_result.success {
             cfg.branch_id = branch_id;
             self.write_project_config(root, &cfg)?;
+            self.client.record_successful_push(&persistent_local)?;
             self.save_replay_state_resources(root, &persistent_local)?;
             self.write_status_snapshot_from_resources(root, &persistent_local)?;
         }

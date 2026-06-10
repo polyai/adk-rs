@@ -13,6 +13,12 @@ use std::env;
 use thiserror::Error;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProjectionSnapshot {
+    pub projection: Value,
+    pub last_known_sequence: u64,
+}
+
 #[derive(Debug, Error)]
 pub enum ApiError {
     #[error("http error: {0}")]
@@ -52,6 +58,13 @@ pub trait PlatformClient: Send + Sync {
     fn pull_projection_json(&self) -> Result<Value, ApiError> {
         let resources = self.pull_resources()?;
         serde_json::to_value(resources).map_err(|e| ApiError::Http(e.to_string()))
+    }
+
+    fn pull_projection_snapshot(&self) -> Result<ProjectionSnapshot, ApiError> {
+        Ok(ProjectionSnapshot {
+            projection: self.pull_projection_json()?,
+            last_known_sequence: 0,
+        })
     }
 
     fn pull_resources(&self) -> Result<ResourceMap, ApiError>;
@@ -108,6 +121,37 @@ pub trait PlatformClient: Send + Sync {
         projection: Option<&Value>,
     ) -> Result<PushResult, ApiError> {
         self.push_resources_with_options(resources, projection)
+    }
+    fn command_user_override(&self) -> Option<String> {
+        None
+    }
+    fn push_command_batch(&self, command_batch_bytes: &[u8]) -> Result<PushResult, ApiError> {
+        let batch = CommandBatch::decode(command_batch_bytes)
+            .map_err(|e| ApiError::Http(format!("invalid command batch bytes: {e}")))?;
+        let commands = batch.commands.iter().map(command_to_json_summary).collect();
+        Ok(PushResult {
+            success: true,
+            message: "Push successful".to_string(),
+            commands,
+        })
+    }
+    fn push_command_batch_to_branch(
+        &self,
+        _branch_id: &str,
+        command_batch_bytes: &[u8],
+    ) -> Result<PushResult, ApiError> {
+        self.push_command_batch(command_batch_bytes)
+    }
+    fn record_successful_push(&self, _resources: &ResourceMap) -> Result<(), ApiError> {
+        Ok(())
+    }
+    fn create_branch_from_main(
+        &self,
+        branch_name: &str,
+    ) -> Result<(String, ProjectionSnapshot), ApiError> {
+        let snapshot = self.pull_projection_snapshot()?;
+        let branch_id = self.create_branch(branch_name)?;
+        Ok((branch_id, snapshot))
     }
     fn push_main_resources_to_new_branch(
         &self,
@@ -569,6 +613,14 @@ impl HttpPlatformClient {
         response.get("projection").cloned().unwrap_or(response)
     }
 
+    fn projection_snapshot_from_response(response: Value) -> ProjectionSnapshot {
+        let last_known_sequence = parse_last_known_sequence(&response);
+        ProjectionSnapshot {
+            projection: Self::extract_projection(response),
+            last_known_sequence,
+        }
+    }
+
     fn fetch_deployments_raw(&self, client_env: Option<&str>) -> Result<Vec<Value>, ApiError> {
         let endpoint = format!(
             "/accounts/{}/projects/{}/deployments",
@@ -657,6 +709,11 @@ impl PlatformClient for HttpPlatformClient {
     fn pull_projection_json(&self) -> Result<Value, ApiError> {
         let response = self.fetch_projection_response()?;
         Ok(Self::extract_projection(response))
+    }
+
+    fn pull_projection_snapshot(&self) -> Result<ProjectionSnapshot, ApiError> {
+        let response = self.fetch_projection_response()?;
+        Ok(Self::projection_snapshot_from_response(response))
     }
 
     fn pull_projection_json_by_name(&self, name: &str) -> Result<Value, ApiError> {
@@ -774,6 +831,49 @@ impl PlatformClient for HttpPlatformClient {
         }
 
         self.push_commands_to_branch(&self.branch_id, last_known_sequence, commands)
+    }
+
+    fn command_user_override(&self) -> Option<String> {
+        self.command_user_override.clone()
+    }
+
+    fn push_command_batch(&self, command_batch_bytes: &[u8]) -> Result<PushResult, ApiError> {
+        self.push_command_batch_to_branch(&self.branch_id, command_batch_bytes)
+    }
+
+    fn push_command_batch_to_branch(
+        &self,
+        branch_id: &str,
+        command_batch_bytes: &[u8],
+    ) -> Result<PushResult, ApiError> {
+        self.push_command_batch_bytes_to_branch(branch_id, command_batch_bytes)
+    }
+
+    fn create_branch_from_main(
+        &self,
+        branch_name: &str,
+    ) -> Result<(String, ProjectionSnapshot), ApiError> {
+        let main_projection_response = self.fetch_projection_response_for_branch("main")?;
+        let expected_main_last_known_sequence =
+            parse_last_known_sequence(&main_projection_response);
+        let snapshot = Self::projection_snapshot_from_response(main_projection_response);
+        let response = self.request_json(
+            reqwest::Method::POST,
+            &self.branches_endpoint(),
+            None,
+            Some(serde_json::json!({
+                "expectedMainLastKnownSequence": expected_main_last_known_sequence,
+                "branchName": branch_name,
+            })),
+        )?;
+        let branch_id = response
+            .get("branchId")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .ok_or_else(|| {
+                ApiError::Http("missing branchId in create-branch response".to_string())
+            })?;
+        Ok((branch_id, snapshot))
     }
 
     fn push_main_resources_to_new_branch(
@@ -1242,22 +1342,16 @@ impl PlatformClient for HttpPlatformClient {
 }
 
 impl HttpPlatformClient {
-    fn push_commands_to_branch(
+    fn push_command_batch_bytes_to_branch(
         &self,
         branch_id: &str,
-        last_known_sequence: u64,
-        commands: Vec<Command>,
+        command_batch_bytes: &[u8],
     ) -> Result<PushResult, ApiError> {
         let endpoint = format!(
             "/accounts/{}/projects/{}/branches/{branch_id}/command-batch",
             self.account_id, self.project_id
         );
-        let batch = CommandBatch {
-            last_known_sequence,
-            commands,
-        };
-        let bytes = batch.encode_to_vec();
-        let response = self.request_binary_json(&endpoint, &bytes)?;
+        let response = self.request_binary_json(&endpoint, command_batch_bytes)?;
         let response_commands = extract_response_commands(&response);
         let response_message = response
             .get("message")
@@ -1269,6 +1363,20 @@ impl HttpPlatformClient {
             message: response_message,
             commands: response_commands,
         })
+    }
+
+    fn push_commands_to_branch(
+        &self,
+        branch_id: &str,
+        last_known_sequence: u64,
+        commands: Vec<Command>,
+    ) -> Result<PushResult, ApiError> {
+        let batch = CommandBatch {
+            last_known_sequence,
+            commands,
+        };
+        let bytes = batch.encode_to_vec();
+        self.push_command_batch_bytes_to_branch(branch_id, &bytes)
     }
 
     fn build_push_commands_with_options(

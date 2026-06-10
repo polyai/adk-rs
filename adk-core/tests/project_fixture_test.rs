@@ -1762,6 +1762,11 @@ fn push_dry_run_and_validation_flags_are_respected() {
         "name: bad\ncontent: [unterminated\n",
     )
     .expect("write invalid yaml");
+    fs::write(
+        root.join("topics/good.yaml"),
+        "name: good\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n",
+    )
+    .expect("write valid topic yaml");
 
     let service = AdkService::new(InMemoryPlatformClient::default());
     let dry_run = service
@@ -1789,7 +1794,7 @@ fn push_force_bypasses_conflict_marker_guard() {
     fs::create_dir_all(root.join("topics")).expect("mkdir topics");
     fs::write(
         root.join("topics/topic_1.yaml"),
-        "<<<<<<< ours\nname: Ours\n=======\nname: Theirs\n>>>>>>> theirs\n",
+        "# <<<<<<< ours\nname: Ours\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n# =======\n# >>>>>>> theirs\n",
     )
     .expect("write conflicted file");
 

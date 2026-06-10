@@ -2,6 +2,7 @@ use adk_types::{DiffMap, DomainError, ProjectConfig, ResourceMap};
 use serde_json::{self, Value as JsonValue};
 use serde_yaml_ng::{Mapping, Value as YamlValue, from_str, to_string};
 
+mod push;
 mod service;
 mod validation;
 mod workspace;
@@ -14,6 +15,10 @@ pub use adk_resources::{
 };
 use anyhow::Result;
 use globset::{Glob, GlobSetBuilder};
+pub use push::{
+    PushCommandPlan, PushInput, PushOutput, PushPlanInput, plan_push_commands_from_resources,
+    push_from_filesystem,
+};
 pub use service::{AdkService, PullOutcome};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Write;
@@ -43,6 +48,8 @@ pub enum CoreError {
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("{0}")]
+    CommandGeneration(#[from] adk_resources::CommandGenError),
 }
 
 fn project_config_yaml(cfg: &ProjectConfig) -> Result<String, CoreError> {

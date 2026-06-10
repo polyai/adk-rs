@@ -1,20 +1,29 @@
-use crate::{build_push_commands, build_push_commands_with_created_by, projection_to_resource_map};
+use crate::{
+    build_push_commands, build_push_commands_with_created_by, projection_to_resource_map,
+    try_build_push_commands_with_metadata,
+};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::{Resource, ResourceMap};
+
+fn sample_topic_resource(content: &str) -> Resource {
+    Resource {
+        resource_id: "local".to_string(),
+        name: "sample".to_string(),
+        file_path: "topics/sample.yaml".to_string(),
+        payload: serde_json::json!({
+            "content": format!(
+                "name: sample\nenabled: true\nactions: \"\"\ncontent: \"{content}\"\nexample_queries: []\n"
+            )
+        }),
+    }
+}
 
 #[test]
 fn builds_create_topic_command_when_remote_missing() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "topics/sample.yaml".to_string(),
-        Resource {
-            resource_id: "local".to_string(),
-            name: "sample".to_string(),
-            file_path: "topics/sample.yaml".to_string(),
-            payload: serde_json::json!({
-                "content": "name: sample\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
-            }),
-        },
+        sample_topic_resource("hello"),
     );
     let projection = serde_json::json!({});
     let commands = build_push_commands(&resources, &projection);
@@ -99,14 +108,7 @@ fn push_commands_default_to_python_sdk_user_metadata() {
     let mut resources = ResourceMap::new();
     resources.insert(
         "topics/sample.yaml".to_string(),
-        Resource {
-            resource_id: "local".to_string(),
-            name: "sample".to_string(),
-            file_path: "topics/sample.yaml".to_string(),
-            payload: serde_json::json!({
-                "content": "name: sample\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
-            }),
-        },
+        sample_topic_resource("hello"),
     );
 
     let commands = build_push_commands(&resources, &serde_json::json!({}));
@@ -115,6 +117,32 @@ fn push_commands_default_to_python_sdk_user_metadata() {
         commands[0].metadata.as_ref().map(|m| m.created_by.as_str()),
         Some("sdk-user")
     );
+}
+
+#[test]
+fn push_commands_can_use_supplied_metadata_timestamp() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "topics/sample.yaml".to_string(),
+        sample_topic_resource("hello"),
+    );
+
+    let timestamp = prost_types::Timestamp {
+        seconds: 1_781_008_496,
+        nanos: 123_000_000,
+    };
+    let commands = try_build_push_commands_with_metadata(
+        &resources,
+        &serde_json::json!({}),
+        Some("reviewer@example.com"),
+        Some(timestamp.clone()),
+    )
+    .expect("build commands");
+
+    assert_eq!(commands.len(), 1);
+    let metadata = commands[0].metadata.as_ref().expect("metadata");
+    assert_eq!(metadata.created_by, "reviewer@example.com");
+    assert_eq!(metadata.created_at, Some(timestamp));
 }
 
 #[test]
