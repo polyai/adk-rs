@@ -2,6 +2,7 @@ use adk_types::{DiffMap, DomainError, ProjectConfig, ResourceMap};
 use serde_json::{self, Value as JsonValue};
 use serde_yaml_ng::{Mapping, Value as YamlValue, from_str, to_string};
 
+mod pull;
 mod push;
 pub mod validation;
 mod workspace;
@@ -13,6 +14,7 @@ pub use adk_resources::{
 };
 use anyhow::Result;
 use globset::{Glob, GlobSetBuilder};
+pub use pull::{FileChange, PullInput, PullOutput, pull_from_filesystem};
 pub use push::{
     ChangedResourceMap, PushCommandPlan, PushInput, PushOutput, PushPlanInput,
     add_discovered_variable_resources_from_fs, plan_push_commands_from_changed_resources,
