@@ -874,9 +874,9 @@ impl HttpPlatformClient {
             self.account_id, self.project_id
         );
         let active = self.request_json(reqwest::Method::GET, &active_endpoint, None, None)?;
-        let active: indexmap::IndexMap<String, ActiveDeploymentValue> =
+        let active: indexmap::IndexMap<String, Option<ActiveDeploymentValue>> =
             parse_json(active, "active-deployments response")?;
-        let Some(payload) = active.get(env_name) else {
+        let Some(payload) = active.get(env_name).and_then(Option::as_ref) else {
             return Ok(None);
         };
         let (id, hash) = match payload {
@@ -1194,13 +1194,14 @@ impl PlatformClient for HttpPlatformClient {
             self.account_id, self.project_id
         );
         let active = self.request_json(reqwest::Method::GET, &active_endpoint, None, None)?;
-        let active: indexmap::IndexMap<String, ActiveDeploymentValue> =
+        let active: indexmap::IndexMap<String, Option<ActiveDeploymentValue>> =
             parse_json(active, "active-deployments response")?;
         let mut active_hashes: indexmap::IndexMap<String, String> = Default::default();
         for (env_name, payload) in active {
             let hash = match payload {
-                ActiveDeploymentValue::Hash(hash) => hash,
-                ActiveDeploymentValue::Object(payload) => payload.hash.unwrap_or_default(),
+                Some(ActiveDeploymentValue::Hash(hash)) => hash,
+                Some(ActiveDeploymentValue::Object(payload)) => payload.hash.unwrap_or_default(),
+                None => String::new(),
             };
             active_hashes.insert(env_name, hash);
         }

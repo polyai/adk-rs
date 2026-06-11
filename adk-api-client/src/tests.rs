@@ -390,7 +390,8 @@ fn named_projection_uses_active_environment_deployment_id() {
         json!({
             "sandbox": {
                 "deployment_id": "dep-sandbox",
-            }
+            },
+            "live": null
         }),
     );
     let deployment_projection =
@@ -404,6 +405,41 @@ fn named_projection_uses_active_environment_deployment_id() {
     assert_eq!(projection, json!({ "source": "sandbox" }));
     active.assert_calls(1);
     deployment_projection.assert_calls(1);
+}
+
+#[test]
+fn list_deployments_preserves_null_active_environment_as_empty_hash() {
+    let server = MockServer::start();
+    let deployments = deployments_mock(&server, json!({ "deployments": [] }));
+    let active = active_deployments_mock(
+        &server,
+        json!({
+            "sandbox": {
+                "version": "sandbox-hash",
+            },
+            "pre-release": {},
+            "live": null
+        }),
+    );
+    let client = adk_v1_test_client(&server);
+
+    let deployment_list = client.list_deployments("sandbox").expect("deployments");
+
+    assert!(deployment_list.versions.is_empty());
+    assert_eq!(
+        deployment_list.active_deployment_hashes.get("sandbox"),
+        Some(&"sandbox-hash".to_string())
+    );
+    assert_eq!(
+        deployment_list.active_deployment_hashes.get("pre-release"),
+        Some(&String::new())
+    );
+    assert_eq!(
+        deployment_list.active_deployment_hashes.get("live"),
+        Some(&String::new())
+    );
+    deployments.assert_calls(1);
+    active.assert_calls(1);
 }
 
 #[test]
