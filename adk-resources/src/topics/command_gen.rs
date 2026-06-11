@@ -130,6 +130,7 @@ pub(crate) fn topic_resource_command_groups(
                     }),
                     references: None,
                     is_active: Some(enabled),
+                    variant_id: None,
                 }),
             );
         } else {
@@ -147,6 +148,7 @@ pub(crate) fn topic_resource_command_groups(
                     }),
                     references: None,
                     is_active: Some(enabled),
+                    variant_id: None,
                 }),
             );
         }

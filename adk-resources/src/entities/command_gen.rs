@@ -9,8 +9,8 @@ use serde_yaml_ng::{Value as YamlValue, from_str, to_value};
 use crate::push_commands::CommandGroups;
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
-use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityUpdate};
-use adk_types::ResourceMap;
+use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityReferences, EntityUpdate};
+use adk_types::{Resource, ResourceMap};
 use std::collections::{HashMap, HashSet};
 
 use crate::ids::stable_resource_id;
@@ -33,6 +33,8 @@ pub(crate) fn entity_command_groups(
             (name, (id, entity))
         })
         .collect::<HashMap<_, _>>();
+    let local_entity_ids = local_entity_ids_by_name(resources, &remote_entities);
+    let local_entity_references = local_entity_references(resources, projection, &local_entity_ids);
     let mut local_entity_names = HashSet::new();
     let mut groups = CommandGroups::default();
     for resource in resources.values() {
@@ -58,15 +60,7 @@ pub(crate) fn entity_command_groups(
                 }
                 local_entity_names.insert(name.clone());
                 let remote = remote_entities.get(&name);
-                let id = remote
-                    .map(|(id, _)| id.clone())
-                    .or_else(|| {
-                        (!is_synthetic_local_resource_id(&resource.resource_id))
-                            .then_some(resource.resource_id.clone())
-                    })
-                    .unwrap_or_else(|| {
-                        stable_resource_id(ENTITY_ID_PREFIX, &name, ENTITIES_FILE.file_path)
-                    });
+                let id = local_entity_id(resource, &name, remote);
                 let entity_type = item
                     .get("entity_type")
                     .and_then(YamlValue::as_str)
@@ -104,7 +98,12 @@ pub(crate) fn entity_command_groups(
                             name: name.clone(),
                             r#type: to_camel_case(entity_type),
                             description: description.clone(),
-                            references: None,
+                            references: Some(
+                                local_entity_references
+                                    .get(&id)
+                                    .cloned()
+                                    .unwrap_or_default(),
+                            ),
                             config: build_entity_create_config(entity_type, config),
                         }),
                     );
@@ -129,6 +128,233 @@ pub(crate) fn entity_command_groups(
 
 fn entity_entries(projection: &JsonValue) -> HashMap<String, JsonValue> {
     extract_entities_map(projection, &["entities", "entities", "entities"])
+}
+
+fn local_entity_ids_by_name(
+    resources: &ResourceMap,
+    remote_entities: &HashMap<String, (String, JsonValue)>,
+) -> HashMap<String, String> {
+    let mut ids = HashMap::new();
+    for resource in resources.values() {
+        if resource.file_path.as_str() != ENTITIES_FILE.file_path {
+            continue;
+        }
+        let content = resource
+            .payload
+            .get("content")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default();
+        let Ok(yaml) = from_str::<YamlValue>(content) else {
+            continue;
+        };
+        let Some(items) = yaml.get("entities").and_then(YamlValue::as_sequence) else {
+            continue;
+        };
+        for item in items {
+            let name = item
+                .get("name")
+                .and_then(YamlValue::as_str)
+                .unwrap_or_default();
+            if name.is_empty() {
+                continue;
+            }
+            ids.insert(
+                name.to_string(),
+                local_entity_id(resource, name, remote_entities.get(name)),
+            );
+        }
+    }
+    ids
+}
+
+fn local_entity_id(
+    resource: &Resource,
+    name: &str,
+    remote: Option<&(String, JsonValue)>,
+) -> String {
+    remote
+        .map(|(id, _)| id.clone())
+        .or_else(|| {
+            (!is_synthetic_local_resource_id(&resource.resource_id))
+                .then_some(resource.resource_id.clone())
+        })
+        .unwrap_or_else(|| stable_resource_id(ENTITY_ID_PREFIX, name, ENTITIES_FILE.file_path))
+}
+
+fn local_entity_references(
+    resources: &ResourceMap,
+    projection: &JsonValue,
+    local_entity_ids: &HashMap<String, String>,
+) -> HashMap<String, EntityReferences> {
+    let flow_names = local_flow_names_by_folder(resources);
+    let remote_step_ids = remote_step_ids_by_flow_and_name(projection);
+    let mut references = HashMap::new();
+
+    for resource in resources.values() {
+        let path = resource.file_path.as_str();
+        if !path.starts_with("flows/") || !path.contains("/steps/") || !path.ends_with(".yaml") {
+            continue;
+        }
+        let content = resource
+            .payload
+            .get("content")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default();
+        let Ok(yaml) = from_str::<YamlValue>(content) else {
+            continue;
+        };
+        let step_name = yaml
+            .get("name")
+            .and_then(YamlValue::as_str)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(&resource.name);
+        let step_id = flow_folder_from_path(path)
+            .and_then(|folder| {
+                let flow_name = flow_names
+                    .get(&folder)
+                    .map_or(folder.as_str(), String::as_str);
+                remote_step_ids
+                    .get(&(flow_name.to_string(), step_name.to_string()))
+                    .cloned()
+            })
+            .unwrap_or_else(|| stable_resource_id("FLOW_STEPS", step_name, path));
+        let is_default_step = yaml
+            .get("step_type")
+            .and_then(YamlValue::as_str)
+            .unwrap_or("advanced_step")
+            == "default_step";
+
+        let mut referenced_entities =
+            extract_prompt_entity_references(yaml_str_value(&yaml, "prompt").as_str());
+        referenced_entities.extend(yaml_value_string_list(yaml.get("extracted_entities")));
+        referenced_entities.extend(condition_required_entities(&yaml));
+
+        for entity in referenced_entities {
+            let entity_id = resolve_entity_reference(&entity, local_entity_ids);
+            let entry = references
+                .entry(entity_id)
+                .or_insert_with(EntityReferences::default);
+            if is_default_step {
+                entry.no_code_steps.insert(step_id.clone(), true);
+            } else {
+                entry.flow_steps.insert(step_id.clone(), true);
+            }
+        }
+    }
+
+    references
+}
+
+fn local_flow_names_by_folder(resources: &ResourceMap) -> HashMap<String, String> {
+    let mut names = HashMap::new();
+    for resource in resources.values() {
+        let path = resource.file_path.as_str();
+        if !path.starts_with("flows/") || !path.ends_with("/flow_config.yaml") {
+            continue;
+        }
+        let Some(folder) = flow_folder_from_path(path) else {
+            continue;
+        };
+        let content = resource
+            .payload
+            .get("content")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default();
+        let Ok(yaml) = from_str::<YamlValue>(content) else {
+            continue;
+        };
+        let name = yaml_str_value(&yaml, "name");
+        if name.is_empty() {
+            names.insert(folder.clone(), folder);
+        } else {
+            names.insert(folder, name);
+        }
+    }
+    names
+}
+
+fn remote_step_ids_by_flow_and_name(projection: &JsonValue) -> HashMap<(String, String), String> {
+    let mut ids = HashMap::new();
+    let Some(flows) = projection
+        .get("flows")
+        .and_then(|flows| flows.get("flows"))
+        .and_then(|flows| flows.get("entities"))
+        .and_then(JsonValue::as_object)
+    else {
+        return ids;
+    };
+
+    for (flow_id, flow) in flows {
+        let flow_name = flow
+            .get("name")
+            .and_then(JsonValue::as_str)
+            .unwrap_or(flow_id.as_str())
+            .to_string();
+        let Some(steps) = flow
+            .get("steps")
+            .and_then(|steps| steps.get("entities"))
+            .and_then(JsonValue::as_object)
+        else {
+            continue;
+        };
+        for (step_key, step) in steps {
+            let Some(step_name) = step.get("name").and_then(JsonValue::as_str) else {
+                continue;
+            };
+            let step_id = step
+                .get("id")
+                .and_then(JsonValue::as_str)
+                .unwrap_or(step_key.as_str())
+                .to_string();
+            ids.insert((flow_name.clone(), step_name.to_string()), step_id);
+        }
+    }
+
+    ids
+}
+
+fn flow_folder_from_path(path: &str) -> Option<String> {
+    let mut parts = path.split('/');
+    (parts.next()? == "flows").then_some(parts.next()?.to_string())
+}
+
+fn extract_prompt_entity_references(prompt: &str) -> Vec<String> {
+    extract_template_references(prompt, "entity")
+}
+
+fn extract_template_references(prompt: &str, prefix: &str) -> Vec<String> {
+    let marker = format!("{{{{{prefix}:");
+    let mut out = Vec::new();
+    let mut start = 0;
+    while let Some(index) = prompt[start..].find(&marker) {
+        let value_start = start + index + marker.len();
+        let tail = &prompt[value_start..];
+        let Some(end) = tail.find("}}") else {
+            break;
+        };
+        let value = tail[..end].trim();
+        if !value.is_empty() {
+            out.push(value.to_string());
+        }
+        start = value_start + end + 2;
+    }
+    out
+}
+
+fn condition_required_entities(yaml: &YamlValue) -> Vec<String> {
+    yaml.get("conditions")
+        .and_then(YamlValue::as_sequence)
+        .into_iter()
+        .flatten()
+        .flat_map(|condition| yaml_value_string_list(condition.get("required_entities")))
+        .collect()
+}
+
+fn resolve_entity_reference(value: &str, local_entity_ids: &HashMap<String, String>) -> String {
+    local_entity_ids
+        .get(value)
+        .cloned()
+        .unwrap_or_else(|| value.to_string())
 }
 
 fn entity_item_matches_remote(item: &YamlValue, remote: &JsonValue) -> bool {
@@ -219,7 +445,7 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
             );
             value.insert(
                 "references".to_string(),
-                JsonValue::Object(serde_json::Map::new()),
+                entity_references_json(create.references.as_ref()),
             );
             if let Some((key, config)) = entity_create_config_json(create.config.as_ref()) {
                 value.insert(key.to_string(), config);
@@ -374,7 +600,11 @@ fn yaml_string(config: Option<&YamlValue>, key: &str) -> String {
 }
 
 fn yaml_string_list(config: Option<&YamlValue>, key: &str) -> Vec<String> {
-    yaml_get(config, key)
+    yaml_value_string_list(yaml_get(config, key))
+}
+
+fn yaml_value_string_list(value: Option<&YamlValue>) -> Vec<String> {
+    value
         .and_then(YamlValue::as_sequence)
         .map(|seq| {
             seq.iter()
@@ -383,6 +613,14 @@ fn yaml_string_list(config: Option<&YamlValue>, key: &str) -> Vec<String> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default()
+}
+
+fn yaml_str_value(value: &YamlValue, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(YamlValue::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn yaml_f32_opt(config: Option<&YamlValue>, key: &str) -> Option<f32> {
@@ -497,6 +735,19 @@ fn number_config_json(config: &entities::NumberConfig) -> JsonValue {
         value.insert("max".to_string(), serde_json::json!(max));
     }
     JsonValue::Object(value)
+}
+
+fn entity_references_json(references: Option<&EntityReferences>) -> JsonValue {
+    let Some(references) = references else {
+        return JsonValue::Object(serde_json::Map::new());
+    };
+    if references.flow_steps.is_empty() && references.no_code_steps.is_empty() {
+        return JsonValue::Object(serde_json::Map::new());
+    }
+    serde_json::json!({
+        "flow_steps": references.flow_steps,
+        "no_code_steps": references.no_code_steps,
+    })
 }
 
 #[cfg(test)]

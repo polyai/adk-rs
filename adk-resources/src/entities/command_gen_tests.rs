@@ -1,4 +1,7 @@
 use super::*;
+use crate::build_push_commands;
+use crate::ids::stable_resource_id;
+use crate::test_support::local_resource;
 
 fn yaml(value: &str) -> YamlValue {
     serde_yaml_ng::from_str(value).expect("valid entity config yaml")
@@ -128,4 +131,86 @@ fn entity_payload_summaries_include_selected_config_shapes() {
             Some((expected_key, expected_json))
         );
     }
+}
+
+#[test]
+fn entity_create_populates_flow_reverse_references() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "config/entities.yaml".to_string(),
+        local_resource(
+            "config/entities.yaml",
+            "entities",
+            "entities:\n  - name: customer_id\n    description: Customer id\n    entity_type: free_text\n    config: {}\n  - name: confirmation\n    description: Confirmation\n    entity_type: enum\n    config:\n      options: [yes, no]\n",
+        ),
+    );
+    resources.insert(
+        "flows/support/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support/flow_config.yaml",
+            "support",
+            "name: support\ndescription: Support flow\nstart_step: collect\n",
+        ),
+    );
+    resources.insert(
+        "flows/support/steps/collect.yaml".to_string(),
+        local_resource(
+            "flows/support/steps/collect.yaml",
+            "collect",
+            "step_type: default_step\nname: collect\nprompt: Collect {{entity:customer_id}}\nconditions:\n  - name: done\n    condition_type: exit_flow_condition\n    description: Done.\n    required_entities:\n      - customer_id\nextracted_entities:\n  - customer_id\n",
+        ),
+    );
+    resources.insert(
+        "flows/support/steps/confirm.yaml".to_string(),
+        local_resource(
+            "flows/support/steps/confirm.yaml",
+            "confirm",
+            "step_type: advanced_step\nname: confirm\nprompt: Confirm {{entity:confirmation}}\n",
+        ),
+    );
+
+    let commands = build_push_commands(&resources, &serde_json::json!({}));
+    let collect_step_id =
+        stable_resource_id("FLOW_STEPS", "collect", "flows/support/steps/collect.yaml");
+    let confirm_step_id =
+        stable_resource_id("FLOW_STEPS", "confirm", "flows/support/steps/confirm.yaml");
+    let customer_id = stable_resource_id(ENTITY_ID_PREFIX, "customer_id", ENTITIES_FILE.file_path);
+    let confirmation_id =
+        stable_resource_id(ENTITY_ID_PREFIX, "confirmation", ENTITIES_FILE.file_path);
+
+    let customer_create = commands
+        .iter()
+        .find_map(|command| match &command.payload {
+            Some(CommandPayload::EntityCreate(create)) if create.id == customer_id => Some(create),
+            _ => None,
+        })
+        .expect("customer_id create");
+    assert_eq!(
+        customer_create
+            .references
+            .as_ref()
+            .expect("customer_id references")
+            .no_code_steps
+            .get(&collect_step_id),
+        Some(&true)
+    );
+
+    let confirmation_create = commands
+        .iter()
+        .find_map(|command| match &command.payload {
+            Some(CommandPayload::EntityCreate(create)) if create.id == confirmation_id => {
+                Some(create)
+            }
+            _ => None,
+        })
+        .expect("confirmation create");
+    assert_eq!(
+        confirmation_create
+            .references
+            .as_ref()
+            .expect("confirmation references")
+            .flow_steps
+            .get(&confirm_step_id),
+        Some(&true)
+    );
 }
