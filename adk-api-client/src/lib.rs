@@ -889,7 +889,7 @@ impl HttpPlatformClient {
             return Ok(Some(id.to_string()));
         }
         if let Some(hash) = hash {
-            return self.deployment_id_from_version_prefix(&hash);
+            return self.deployment_id_from_version_prefix(hash);
         }
         Ok(None)
     }
