@@ -7,6 +7,7 @@ pub mod api_integrations;
 pub mod asr;
 pub mod asr_settings;
 pub mod channels;
+pub mod child_overwrites;
 pub mod content_filter_settings;
 pub mod csat;
 pub mod end_function;
