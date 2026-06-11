@@ -8,6 +8,7 @@ use adk_types::{
     DeploymentList, PushResult, ResourceMap,
 };
 use prost::Message;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
 use thiserror::Error;
@@ -217,6 +218,255 @@ pub struct ProjectSummary {
     pub name: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct AccountApiResponse {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    active: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProjectsResponse {
+    #[serde(default)]
+    projects: Vec<ProjectApiResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProjectApiResponse {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateProjectRequest<'a> {
+    name: &'a str,
+    response_settings: CreateProjectResponseSettings<'a>,
+    voice_settings: CreateProjectVoiceSettings<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_id: Option<&'a str>,
+}
+
+#[derive(Debug, Serialize)]
+struct CreateProjectResponseSettings<'a> {
+    greeting: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateProjectVoiceSettings<'a> {
+    voice_id: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreatedProjectResponse {
+    #[serde(default)]
+    agent_id: String,
+    #[serde(default)]
+    agent_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BranchSequenceResponse {
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    last_known_sequence: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrepareBranchChatRequest {
+    expected_branch_last_known_sequence: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PrepareBranchChatResponse {
+    #[serde(default)]
+    artifact_version: Option<String>,
+    #[serde(default)]
+    lambda_deployment_version: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BranchesResponse {
+    #[serde(default)]
+    branches: Vec<BranchResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BranchResponse {
+    #[serde(default)]
+    branch_id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateBranchRequest<'a> {
+    expected_main_last_known_sequence: u64,
+    branch_name: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateBranchResponse {
+    branch_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteBranchRequest {
+    expected_branch_last_known_sequence: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeploymentsResponse {
+    #[serde(default)]
+    deployments: Vec<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeploymentVersionLookup {
+    #[serde(default, alias = "deployment_id", alias = "deploymentId")]
+    id: Option<String>,
+    #[serde(default, alias = "version_hash", alias = "versionHash", alias = "hash")]
+    hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ActiveDeploymentValue {
+    Hash(String),
+    Object(ActiveDeploymentObject),
+}
+
+#[derive(Debug, Deserialize)]
+struct ActiveDeploymentObject {
+    #[serde(default, alias = "deployment_id", alias = "deploymentId")]
+    id: Option<String>,
+    #[serde(
+        default,
+        alias = "version",
+        alias = "version_hash",
+        alias = "versionHash",
+        alias = "hash"
+    )]
+    hash: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PromoteDeploymentRequest<'a> {
+    target_environment: &'a str,
+    deployment_message: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RollbackDeploymentRequest<'a> {
+    deployment_message: &'a str,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ChatSessionInput {
+    #[serde(default)]
+    environment: Option<String>,
+    #[serde(default)]
+    channel: Option<String>,
+    #[serde(default)]
+    variant: Option<String>,
+    #[serde(default)]
+    input_lang: Option<String>,
+    #[serde(default)]
+    output_lang: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CreateChatSessionRequest<'a> {
+    channel: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    variant_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    asr_lang_code: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tts_lang_code: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_env: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    artifact_version: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lambda_deployment_version: Option<&'a str>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ChatMessageInput {
+    #[serde(default)]
+    conversation_id: Option<String>,
+    #[serde(default)]
+    environment: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    input_lang: Option<String>,
+    #[serde(default)]
+    output_lang: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SendChatMessageRequest<'a> {
+    message: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_env: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    asr_lang_code: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tts_lang_code: Option<&'a str>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct EndChatSessionInput {
+    #[serde(default)]
+    conversation_id: Option<String>,
+    #[serde(default)]
+    environment: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct EndChatSessionRequest<'a> {
+    client_env: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MergeBranchRequest<'a> {
+    expected_branch_last_known_sequence: u64,
+    deployment_message: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conflict_resolutions: Option<Vec<Value>>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct MergeBranchResponse {
+    #[serde(default)]
+    has_conflicts: bool,
+    #[serde(default)]
+    conflicts: Vec<Value>,
+    #[serde(default)]
+    errors: Vec<Value>,
+    #[serde(default)]
+    sequence: Option<String>,
+}
+
 impl HttpPlatformClient {
     pub fn new(
         region: &str,
@@ -269,21 +519,14 @@ impl HttpPlatformClient {
         api_key: &str,
     ) -> Result<Vec<AccountSummary>, ApiError> {
         let value = Self::request_region_json_with_api_key(region, "/accounts", api_key)?;
-        let accounts = value
-            .as_array()
-            .ok_or_else(|| ApiError::Http("Expected a list of accounts".to_string()))?;
+        let accounts: Vec<AccountApiResponse> = parse_json(value, "accounts response")?;
         Ok(accounts
-            .iter()
-            .filter(|account| {
-                account
-                    .get("active")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-            })
+            .into_iter()
+            .filter(|account| account.active)
             .filter_map(|account| {
                 Some(AccountSummary {
-                    id: account.get("id")?.as_str()?.to_string(),
-                    name: account.get("name")?.as_str()?.to_string(),
+                    id: account.id?,
+                    name: account.name?,
                 })
             })
             .collect())
@@ -301,22 +544,17 @@ impl HttpPlatformClient {
     ) -> Result<Vec<ProjectSummary>, ApiError> {
         let endpoint = format!("/accounts/{account_id}/projects");
         let value = Self::request_region_json_with_api_key(region, &endpoint, api_key)?;
-        let projects = value
-            .get("projects")
-            .and_then(Value::as_array)
-            .ok_or_else(|| ApiError::Http("Expected a list of projects".to_string()))?;
-        Ok(projects
-            .iter()
+        let response: ProjectsResponse = parse_json(value, "projects response")?;
+        Ok(response
+            .projects
+            .into_iter()
             .filter_map(|project| {
-                let id = project.get("id")?.as_str()?;
-                let name = project.get("name")?.as_str()?;
+                let id = project.id?;
+                let name = project.name?;
                 if id.is_empty() || name.is_empty() {
                     return None;
                 }
-                Some(ProjectSummary {
-                    id: id.to_string(),
-                    name: name.to_string(),
-                })
+                Some(ProjectSummary { id, name })
             })
             .collect())
     }
@@ -351,37 +589,29 @@ impl HttpPlatformClient {
         api_key: &str,
     ) -> Result<ProjectSummary, ApiError> {
         let endpoint = format!("/v1/accounts/{account_id}/agents");
-        let mut body = serde_json::json!({
-            "name": project_name,
-            "responseSettings": {
-                "greeting": greeting,
+        let body = CreateProjectRequest {
+            name: project_name,
+            response_settings: CreateProjectResponseSettings { greeting },
+            voice_settings: CreateProjectVoiceSettings {
+                voice_id: voice_id.unwrap_or_else(|| default_voice_id(region)),
             },
-            "voiceSettings": {
-                "voiceId": voice_id.unwrap_or_else(|| default_voice_id(region)),
-            },
-        });
-        if let Some(project_id) = project_id.filter(|value| !value.is_empty()) {
-            body["agentId"] = Value::String(project_id.to_string());
-        }
+            agent_id: project_id.filter(|value| !value.is_empty()),
+        };
 
         let value = Self::request_region_platform_json_with_api_key(
             region,
             reqwest::Method::POST,
             &endpoint,
-            body,
+            serialize_json(&body)?,
             api_key,
         )?;
+        let response: CreatedProjectResponse = parse_json(value, "create-project response")?;
         Ok(ProjectSummary {
-            id: value
-                .get("agentId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            name: value
-                .get("agentName")
-                .and_then(Value::as_str)
-                .unwrap_or(project_name)
-                .to_string(),
+            id: response.agent_id,
+            name: response
+                .agent_name
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| project_name.to_string()),
         })
     }
 
@@ -592,20 +822,23 @@ impl HttpPlatformClient {
     fn fetch_branch_sequence(&self, branch_id: &str) -> Result<u64, ApiError> {
         let endpoint = format!("{}/{branch_id}/sequence", self.branches_endpoint());
         let payload = self.request_json(reqwest::Method::GET, &endpoint, None, None)?;
-        Ok(parse_last_known_sequence(&payload))
+        let response: BranchSequenceResponse = parse_json(payload, "branch-sequence response")?;
+        Ok(response.last_known_sequence.unwrap_or(0))
     }
 
-    fn prepare_branch_chat(&self) -> Result<Value, ApiError> {
+    fn prepare_branch_chat(&self) -> Result<PrepareBranchChatResponse, ApiError> {
         let sequence = self.fetch_branch_sequence(&self.branch_id)?;
         let endpoint = format!("{}/{}/chat", self.branches_endpoint(), self.branch_id);
-        self.request_json(
+        let request = PrepareBranchChatRequest {
+            expected_branch_last_known_sequence: sequence,
+        };
+        let response = self.request_json(
             reqwest::Method::POST,
             &endpoint,
             None,
-            Some(serde_json::json!({
-                "expectedBranchLastKnownSequence": sequence,
-            })),
-        )
+            Some(serialize_json(&request)?),
+        )?;
+        parse_json(response, "branch-chat response")
     }
 
     fn extract_projection(response: Value) -> Value {
@@ -631,11 +864,8 @@ impl HttpPlatformClient {
         } else {
             self.request_json(reqwest::Method::GET, &endpoint, None, None)?
         };
-        Ok(deployments
-            .get("deployments")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default())
+        let response: DeploymentsResponse = parse_json(deployments, "deployments response")?;
+        Ok(response.deployments)
     }
 
     fn deployment_id_from_active_env(&self, env_name: &str) -> Result<Option<String>, ApiError> {
@@ -644,30 +874,22 @@ impl HttpPlatformClient {
             self.account_id, self.project_id
         );
         let active = self.request_json(reqwest::Method::GET, &active_endpoint, None, None)?;
-        let payload = active.get(env_name);
-        if let Some(id) = payload
-            .and_then(|v| {
-                v.get("deployment_id")
-                    .or_else(|| v.get("deploymentId"))
-                    .or_else(|| v.get("id"))
-            })
-            .and_then(Value::as_str)
-        {
+        let active: indexmap::IndexMap<String, Option<ActiveDeploymentValue>> =
+            parse_json(active, "active-deployments response")?;
+        let Some(payload) = active.get(env_name).and_then(Option::as_ref) else {
+            return Ok(None);
+        };
+        let (id, hash) = match payload {
+            ActiveDeploymentValue::Hash(hash) => (None, Some(hash.as_str())),
+            ActiveDeploymentValue::Object(payload) => {
+                (payload.id.as_deref(), payload.hash.as_deref())
+            }
+        };
+        if let Some(id) = id {
             return Ok(Some(id.to_string()));
         }
-        let hash = payload.and_then(|v| {
-            if v.is_string() {
-                v.as_str().map(ToString::to_string)
-            } else {
-                v.get("version_hash")
-                    .or_else(|| v.get("versionHash"))
-                    .or_else(|| v.get("hash"))
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string)
-            }
-        });
         if let Some(hash) = hash {
-            return self.deployment_id_from_version_prefix(&hash);
+            return self.deployment_id_from_version_prefix(hash);
         }
         Ok(None)
     }
@@ -679,24 +901,19 @@ impl HttpPlatformClient {
         }
         for env_name in [None, Some("sandbox"), Some("pre-release"), Some("live")] {
             for deployment in self.fetch_deployments_raw(env_name)? {
+                let deployment: DeploymentVersionLookup =
+                    parse_json(deployment, "deployment lookup response")?;
                 let hash = deployment
-                    .get("version_hash")
-                    .or_else(|| deployment.get("versionHash"))
-                    .or_else(|| deployment.get("hash"))
-                    .and_then(Value::as_str)
+                    .hash
                     .unwrap_or_default()
                     .chars()
                     .take(9)
                     .collect::<String>()
                     .to_lowercase();
                 if hash == prefix
-                    && let Some(id) = deployment
-                        .get("id")
-                        .or_else(|| deployment.get("deployment_id"))
-                        .or_else(|| deployment.get("deploymentId"))
-                        .and_then(Value::as_str)
+                    && let Some(id) = deployment.id
                 {
-                    return Ok(Some(id.to_string()));
+                    return Ok(Some(id));
                 }
             }
         }
@@ -864,18 +1081,13 @@ impl PlatformClient for HttpPlatformClient {
             reqwest::Method::POST,
             &self.branches_endpoint(),
             None,
-            Some(serde_json::json!({
-                "expectedMainLastKnownSequence": expected_main_last_known_sequence,
-                "branchName": branch_name,
-            })),
+            Some(serialize_json(&CreateBranchRequest {
+                expected_main_last_known_sequence,
+                branch_name,
+            })?),
         )?;
-        let branch_id = response
-            .get("branchId")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .ok_or_else(|| {
-                ApiError::Http("missing branchId in create-branch response".to_string())
-            })?;
+        let response: CreateBranchResponse = parse_json(response, "create-branch response")?;
+        let branch_id = response.branch_id;
         Ok((branch_id, snapshot))
     }
 
@@ -891,18 +1103,13 @@ impl PlatformClient for HttpPlatformClient {
             reqwest::Method::POST,
             &self.branches_endpoint(),
             None,
-            Some(serde_json::json!({
-                "expectedMainLastKnownSequence": expected_main_last_known_sequence,
-                "branchName": branch_name,
-            })),
+            Some(serialize_json(&CreateBranchRequest {
+                expected_main_last_known_sequence,
+                branch_name,
+            })?),
         )?;
-        let branch_id = response
-            .get("branchId")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .ok_or_else(|| {
-                ApiError::Http("missing branchId in create-branch response".to_string())
-            })?;
+        let response: CreateBranchResponse = parse_json(response, "create-branch response")?;
+        let branch_id = response.branch_id;
         let projection = main_projection_response
             .get("projection")
             .cloned()
@@ -979,28 +1186,24 @@ impl PlatformClient for HttpPlatformClient {
         );
         let query = [("client_env", environment)];
         let deployments = self.request_json(reqwest::Method::GET, &endpoint, Some(&query), None)?;
-        let versions = deployments
-            .get("deployments")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let versions =
+            parse_json::<DeploymentsResponse>(deployments, "deployments response")?.deployments;
 
         let active_endpoint = format!(
             "/accounts/{}/projects/{}/deployments/active",
             self.account_id, self.project_id
         );
         let active = self.request_json(reqwest::Method::GET, &active_endpoint, None, None)?;
+        let active: indexmap::IndexMap<String, Option<ActiveDeploymentValue>> =
+            parse_json(active, "active-deployments response")?;
         let mut active_hashes: indexmap::IndexMap<String, String> = Default::default();
-        if let Some(obj) = active.as_object() {
-            for (env_name, payload) in obj {
-                let hash = payload
-                    .get("version")
-                    .or_else(|| payload.get("version_hash"))
-                    .or_else(|| payload.get("versionHash"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                active_hashes.insert(env_name.clone(), hash.to_string());
-            }
+        for (env_name, payload) in active {
+            let hash = match payload {
+                Some(ActiveDeploymentValue::Hash(hash)) => hash,
+                Some(ActiveDeploymentValue::Object(payload)) => payload.hash.unwrap_or_default(),
+                None => String::new(),
+            };
+            active_hashes.insert(env_name, hash);
         }
 
         Ok(DeploymentList {
@@ -1022,10 +1225,10 @@ impl PlatformClient for HttpPlatformClient {
         self.request_platform_json(
             reqwest::Method::POST,
             &endpoint,
-            Some(serde_json::json!({
-                "targetEnvironment": target_env,
-                "deploymentMessage": message,
-            })),
+            Some(serialize_json(&PromoteDeploymentRequest {
+                target_environment: target_env,
+                deployment_message: message,
+            })?),
         )
     }
 
@@ -1037,92 +1240,74 @@ impl PlatformClient for HttpPlatformClient {
         self.request_platform_json(
             reqwest::Method::POST,
             &endpoint,
-            Some(serde_json::json!({
-                "deploymentMessage": message,
-            })),
+            Some(serialize_json(&RollbackDeploymentRequest {
+                deployment_message: message,
+            })?),
         )
     }
 
     fn create_chat_session(&self, payload: Value) -> Result<Value, ApiError> {
-        let environment = payload
-            .get("environment")
-            .and_then(Value::as_str)
-            .unwrap_or("sandbox");
-        let channel = payload
-            .get("channel")
-            .and_then(Value::as_str)
-            .unwrap_or("chat.polyai");
-        let mut body = serde_json::json!({
-            "channel": channel,
-        });
-        if let Some(variant) = payload.get("variant").and_then(Value::as_str) {
-            body["variant_id"] = Value::String(variant.to_string());
-        }
-        if let Some(input_lang) = payload.get("input_lang").and_then(Value::as_str) {
-            body["asr_lang_code"] = Value::String(input_lang.to_string());
-        }
-        if let Some(output_lang) = payload.get("output_lang").and_then(Value::as_str) {
-            body["tts_lang_code"] = Value::String(output_lang.to_string());
-        }
+        let input: ChatSessionInput = parse_json(payload, "chat-session input")?;
+        let environment = input.environment.as_deref().unwrap_or("sandbox");
+        let channel = input.channel.as_deref().unwrap_or("chat.polyai");
 
-        let endpoint = if environment == "draft" {
-            let chat_info = self.prepare_branch_chat()?;
-            let artifact_version = chat_info
-                .get("artifactVersion")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    ApiError::Http(format!(
-                        "missing artifactVersion in branch chat response: {chat_info}"
-                    ))
+        let (endpoint, artifact_version, lambda_deployment_version, client_env) =
+            if environment == "draft" {
+                let chat_info = self.prepare_branch_chat()?;
+                let artifact_version = chat_info.artifact_version.ok_or_else(|| {
+                    ApiError::Http("missing artifactVersion in branch chat response".to_string())
                 })?;
-            let lambda_deployment_version = chat_info
-                .get("lambdaDeploymentVersion")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    ApiError::Http(format!(
-                        "missing lambdaDeploymentVersion in branch chat response: {chat_info}"
-                    ))
-                })?;
-            body["artifact_version"] = Value::String(artifact_version.to_string());
-            body["lambda_deployment_version"] =
-                Value::String(lambda_deployment_version.to_string());
-            format!(
-                "/accounts/{}/projects/{}/draft/chat",
-                self.account_id, self.project_id
-            )
-        } else {
-            body["client_env"] = Value::String(environment.to_string());
-            format!(
-                "/accounts/{}/projects/{}/chat",
-                self.account_id, self.project_id
-            )
+                let lambda_deployment_version =
+                    chat_info.lambda_deployment_version.ok_or_else(|| {
+                        ApiError::Http(
+                            "missing lambdaDeploymentVersion in branch chat response".to_string(),
+                        )
+                    })?;
+                (
+                    format!(
+                        "/accounts/{}/projects/{}/draft/chat",
+                        self.account_id, self.project_id
+                    ),
+                    Some(artifact_version),
+                    Some(lambda_deployment_version),
+                    None,
+                )
+            } else {
+                (
+                    format!(
+                        "/accounts/{}/projects/{}/chat",
+                        self.account_id, self.project_id
+                    ),
+                    None,
+                    None,
+                    Some(environment),
+                )
+            };
+        let body = CreateChatSessionRequest {
+            channel,
+            variant_id: input.variant.as_deref(),
+            asr_lang_code: input.input_lang.as_deref(),
+            tts_lang_code: input.output_lang.as_deref(),
+            client_env,
+            artifact_version: artifact_version.as_deref(),
+            lambda_deployment_version: lambda_deployment_version.as_deref(),
         };
-        self.request_json(reqwest::Method::POST, &endpoint, None, Some(body))
+        self.request_json(
+            reqwest::Method::POST,
+            &endpoint,
+            None,
+            Some(serialize_json(&body)?),
+        )
     }
 
     fn send_chat_message(&self, payload: Value) -> Result<Value, ApiError> {
-        let conversation_id = payload
-            .get("conversation_id")
-            .and_then(Value::as_str)
+        let input: ChatMessageInput = parse_json(payload, "chat-message input")?;
+        let conversation_id = input
+            .conversation_id
+            .as_deref()
             .ok_or_else(|| ApiError::MissingConfig("conversation_id".to_string()))?;
-        let environment = payload
-            .get("environment")
-            .and_then(Value::as_str)
-            .unwrap_or("sandbox");
-        let message = payload
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let mut body = serde_json::json!({"message": message});
-        if environment != "draft" {
-            body["client_env"] = Value::String(environment.to_string());
-        }
-        if let Some(input_lang) = payload.get("input_lang").and_then(Value::as_str) {
-            body["asr_lang_code"] = Value::String(input_lang.to_string());
-        }
-        if let Some(output_lang) = payload.get("output_lang").and_then(Value::as_str) {
-            body["tts_lang_code"] = Value::String(output_lang.to_string());
-        }
+        let environment = input.environment.as_deref().unwrap_or("sandbox");
+        let message = input.message.as_deref().unwrap_or_default();
         let endpoint = if environment == "draft" {
             format!(
                 "/accounts/{}/projects/{}/draft/chat/{conversation_id}",
@@ -1134,18 +1319,27 @@ impl PlatformClient for HttpPlatformClient {
                 self.account_id, self.project_id
             )
         };
-        self.request_json(reqwest::Method::POST, &endpoint, None, Some(body))
+        let body = SendChatMessageRequest {
+            message,
+            client_env: (environment != "draft").then_some(environment),
+            asr_lang_code: input.input_lang.as_deref(),
+            tts_lang_code: input.output_lang.as_deref(),
+        };
+        self.request_json(
+            reqwest::Method::POST,
+            &endpoint,
+            None,
+            Some(serialize_json(&body)?),
+        )
     }
 
     fn end_chat_session(&self, payload: Value) -> Result<Value, ApiError> {
-        let conversation_id = payload
-            .get("conversation_id")
-            .and_then(Value::as_str)
+        let input: EndChatSessionInput = parse_json(payload, "end-chat-session input")?;
+        let conversation_id = input
+            .conversation_id
+            .as_deref()
             .ok_or_else(|| ApiError::MissingConfig("conversation_id".to_string()))?;
-        let environment = payload
-            .get("environment")
-            .and_then(Value::as_str)
-            .unwrap_or("sandbox");
+        let environment = input.environment.as_deref().unwrap_or("sandbox");
         let endpoint = format!(
             "/accounts/{}/projects/{}/chat/{conversation_id}/end",
             self.account_id, self.project_id
@@ -1154,7 +1348,9 @@ impl PlatformClient for HttpPlatformClient {
             reqwest::Method::POST,
             &endpoint,
             None,
-            Some(serde_json::json!({"client_env": environment})),
+            Some(serialize_json(&EndChatSessionRequest {
+                client_env: environment,
+            })?),
         )
     }
 
@@ -1203,30 +1399,22 @@ impl PlatformClient for HttpPlatformClient {
     fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
         let payload =
             self.request_json(reqwest::Method::GET, &self.branches_endpoint(), None, None)?;
-        let branches = payload
-            .get("branches")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let mut out = Vec::with_capacity(branches.len() + 1);
+        let response: BranchesResponse = parse_json(payload, "branches response")?;
+        let mut out = Vec::with_capacity(response.branches.len() + 1);
         out.push(BranchDescriptor {
             name: "main".to_string(),
             branch_id: "main".to_string(),
         });
-        for branch in branches {
-            let Some(branch_id) = branch.get("branchId").and_then(Value::as_str) else {
+        for branch in response.branches {
+            let Some(branch_id) = branch.branch_id else {
                 continue;
             };
-            let name = branch
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or(branch_id)
-                .to_string();
-            if !out.iter().any(|existing| existing.branch_id == branch_id) {
-                out.push(BranchDescriptor {
-                    name,
-                    branch_id: branch_id.to_string(),
-                });
+            let name = branch.name.unwrap_or_else(|| branch_id.clone());
+            if !out
+                .iter()
+                .any(|existing| existing.branch_id == branch_id.as_str())
+            {
+                out.push(BranchDescriptor { name, branch_id });
             }
         }
         Ok(out)
@@ -1239,16 +1427,13 @@ impl PlatformClient for HttpPlatformClient {
             reqwest::Method::POST,
             &self.branches_endpoint(),
             None,
-            Some(serde_json::json!({
-                "expectedMainLastKnownSequence": expected_main_last_known_sequence,
-                "branchName": branch_name,
-            })),
+            Some(serialize_json(&CreateBranchRequest {
+                expected_main_last_known_sequence,
+                branch_name,
+            })?),
         )?;
-        response
-            .get("branchId")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .ok_or_else(|| ApiError::Http("missing branchId in create-branch response".to_string()))
+        let response: CreateBranchResponse = parse_json(response, "create-branch response")?;
+        Ok(response.branch_id)
     }
 
     fn delete_branch(&self, branch_id: &str) -> Result<(), ApiError> {
@@ -1258,9 +1443,9 @@ impl PlatformClient for HttpPlatformClient {
             reqwest::Method::DELETE,
             &endpoint,
             None,
-            Some(serde_json::json!({
-                "expectedBranchLastKnownSequence": sequence,
-            })),
+            Some(serialize_json(&DeleteBranchRequest {
+                expected_branch_last_known_sequence: sequence,
+            })?),
         )?;
         Ok(())
     }
@@ -1271,13 +1456,11 @@ impl PlatformClient for HttpPlatformClient {
         conflict_resolutions: Option<Vec<Value>>,
     ) -> Result<BranchMergeResult, ApiError> {
         let expected_branch_last_known_sequence = self.fetch_branch_sequence(&self.branch_id)?;
-        let mut payload = serde_json::json!({
-            "expectedBranchLastKnownSequence": expected_branch_last_known_sequence,
-            "deploymentMessage": deployment_message,
-        });
-        if let Some(resolutions) = conflict_resolutions {
-            payload["conflictResolutions"] = Value::Array(resolutions);
-        }
+        let payload = MergeBranchRequest {
+            expected_branch_last_known_sequence,
+            deployment_message,
+            conflict_resolutions,
+        };
         let endpoint = format!(
             "/accounts/{}/projects/{}/branches/{}/merge",
             self.account_id, self.project_id, self.branch_id
@@ -1299,28 +1482,14 @@ impl PlatformClient for HttpPlatformClient {
             .json()
             .map_err(|e| ApiError::Http(format!("failed to parse merge response: {e}")))?;
         if status == reqwest::StatusCode::BAD_REQUEST {
-            if body
-                .get("hasConflicts")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-                || body.get("conflicts").is_some()
-            {
+            let merge_response: MergeBranchResponse =
+                parse_json(body.clone(), "merge-branch conflict response")?;
+            if merge_response.has_conflicts || !merge_response.conflicts.is_empty() {
                 return Ok(BranchMergeResult {
                     success: false,
-                    conflicts: body
-                        .get("conflicts")
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default(),
-                    errors: body
-                        .get("errors")
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default(),
-                    sequence: body
-                        .get("sequence")
-                        .and_then(Value::as_str)
-                        .map(ToString::to_string),
+                    conflicts: merge_response.conflicts,
+                    errors: merge_response.errors,
+                    sequence: merge_response.sequence,
                 });
             }
             return Err(ApiError::Http(format!(
@@ -1332,14 +1501,12 @@ impl PlatformClient for HttpPlatformClient {
                 "status={status} body={body} (correlation ID: {correlation_id})"
             )));
         }
+        let merge_response: MergeBranchResponse = parse_json(body, "merge-branch response")?;
         Ok(BranchMergeResult {
             success: true,
             conflicts: vec![],
             errors: vec![],
-            sequence: body
-                .get("sequence")
-                .and_then(Value::as_str)
-                .map(ToString::to_string),
+            sequence: merge_response.sequence,
         })
     }
 }
@@ -1472,6 +1639,27 @@ fn command_user_override_from_env() -> Option<String> {
     env::var("ADK_COMMAND_USER_OVERRIDE")
         .ok()
         .filter(|value| !value.is_empty())
+}
+
+fn serialize_json<T: Serialize>(payload: &T) -> Result<Value, ApiError> {
+    serde_json::to_value(payload).map_err(|e| ApiError::Http(e.to_string()))
+}
+
+fn parse_json<T: for<'de> Deserialize<'de>>(value: Value, context: &str) -> Result<T, ApiError> {
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::Http(format!("failed to parse {context}: {e}")))
+}
+
+fn deserialize_optional_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| match value {
+        Value::String(value) => value.parse::<u64>().ok(),
+        Value::Number(value) => value.as_u64(),
+        _ => None,
+    }))
 }
 
 fn new_http_client() -> Result<reqwest::blocking::Client, ApiError> {
