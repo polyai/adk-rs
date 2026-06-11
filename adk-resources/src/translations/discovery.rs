@@ -4,6 +4,7 @@ use crate::resource_utils::{clean_name, rel_under_root};
 use serde_yaml_ng::Value;
 use std::path::Path;
 
+/// Validation parity: implemented against Python Translation.validate().
 pub(crate) struct Translation;
 impl DiscoverResources for Translation {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {

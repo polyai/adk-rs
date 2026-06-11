@@ -15,6 +15,7 @@ const ALLOWED_ADJECTIVES: &[&str] = &[
     "Thoughtful",
 ];
 
+/// Validation parity: TODO(DEVP-319) audit Python SettingsPersonality.validate().
 pub(crate) struct SettingsPersonality;
 impl DiscoverResources for SettingsPersonality {
     const LOCAL_PATH: LocalResourcePath =
@@ -66,6 +67,7 @@ fn validate_personality_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>)
     }
 }
 
+/// Validation parity: TODO(DEVP-319) audit Python SettingsRole.validate().
 pub(crate) struct SettingsRole;
 impl DiscoverResources for SettingsRole {
     const LOCAL_PATH: LocalResourcePath =
@@ -79,8 +81,29 @@ impl DiscoverResources for SettingsRole {
             vec![]
         }
     }
+
+    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        validate_role_yaml(path, yaml, errors);
+    }
 }
 
+fn validate_role_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    let custom = yaml
+        .get("custom")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let value = yaml
+        .get("value")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !custom.is_empty() && !value.eq_ignore_ascii_case("other") {
+        errors.push(format!(
+            "Validation error in {path}/custom: Custom role can only be set if role is 'other'."
+        ));
+    }
+}
+
+/// Validation parity: TODO(DEVP-319) audit Python SettingsRules.validate().
 pub(crate) struct SettingsRules;
 impl DiscoverResources for SettingsRules {
     const LOCAL_PATH: LocalResourcePath =
@@ -108,6 +131,13 @@ mod tests {
         errors
     }
 
+    fn role_validation_errors(yaml: &str) -> Vec<String> {
+        let yaml = from_str::<Value>(yaml).expect("role YAML");
+        let mut errors = Vec::new();
+        validate_role_yaml("agent_settings/role.yaml", &yaml, &mut errors);
+        errors
+    }
+
     #[test]
     fn disabled_unknown_personality_adjectives_are_allowed() {
         let errors = validation_errors(
@@ -126,5 +156,21 @@ mod tests {
 
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("Enabled adjectives must be from the allowed set"));
+    }
+
+    #[test]
+    fn validates_python_role_custom_requires_other_value() {
+        let errors = role_validation_errors(
+            r#"
+value: agent
+custom: bespoke role text
+"#,
+        );
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("Custom role can only be set if role is 'other'"))
+        );
     }
 }

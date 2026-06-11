@@ -5,6 +5,7 @@ use serde_yaml_ng::Value;
 use std::collections::BTreeSet;
 use std::path::Path;
 
+/// Validation parity: implemented against Python DefaultLanguage.validate().
 pub(crate) struct DefaultLanguage;
 impl DiscoverResources for DefaultLanguage {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
@@ -34,6 +35,7 @@ impl DiscoverResources for DefaultLanguage {
     }
 }
 
+/// Validation parity: implemented against Python AdditionalLanguage.validate().
 pub(crate) struct AdditionalLanguage;
 impl DiscoverResources for AdditionalLanguage {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {

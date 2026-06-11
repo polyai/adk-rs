@@ -1,9 +1,11 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::is_file;
 use crate::resource_utils::rel_under_root;
+use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/safety_filters.py
+/// Validation parity: implemented against Python GeneralSafetyFilters.validate().
 pub(crate) struct GeneralSafetyFilters;
 impl DiscoverResources for GeneralSafetyFilters {
     const LOCAL_PATH: LocalResourcePath =
@@ -16,5 +18,9 @@ impl DiscoverResources for GeneralSafetyFilters {
         } else {
             vec![]
         }
+    }
+
+    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        crate::channels::validate_safety_filters_yaml(path, yaml, false, errors);
     }
 }

@@ -1377,3 +1377,36 @@ fn rules_references_from_projection_accepts_camel_and_snake_global_functions() {
     );
     assert!(rules_references_from_projection(&serde_json::json!({})).is_none());
 }
+
+#[test]
+fn every_registered_resource_has_validation_parity_marker() {
+    fn collect_rs_sources(dir: &std::path::Path, out: &mut String) {
+        for entry in std::fs::read_dir(dir).expect("read source dir") {
+            let path = entry.expect("source entry").path();
+            if path.is_dir() {
+                collect_rs_sources(&path, out);
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                out.push_str(&std::fs::read_to_string(&path).expect("read source file"));
+                out.push('\n');
+            }
+        }
+    }
+
+    let mut source = String::new();
+    collect_rs_sources(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut source,
+    );
+
+    for descriptor in adk_types::RESOURCE_TYPE_REGISTRY {
+        let marker = format!("Python {}.validate()", descriptor.type_name);
+        let has_marker = source
+            .lines()
+            .any(|line| line.contains("Validation parity:") && line.contains(&marker));
+        assert!(
+            has_marker,
+            "missing validation parity marker for {}",
+            descriptor.type_name
+        );
+    }
+}

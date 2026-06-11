@@ -5,6 +5,7 @@ use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/keyphrase_boosting.py
+/// Validation parity: implemented against Python KeyphraseBoosting.validate().
 pub(crate) struct KeyphraseBoosting;
 impl DiscoverResources for KeyphraseBoosting {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
@@ -39,5 +40,76 @@ impl DiscoverResources for KeyphraseBoosting {
             ));
         }
         out
+    }
+
+    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        validate_local_yaml(yaml, errors);
+    }
+}
+
+pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
+    let path = KeyphraseBoosting::LOCAL_PATH
+        .primary_path()
+        .expect("local file path");
+    let Some(keyphrases) = yaml.get("keyphrases").and_then(Value::as_sequence) else {
+        return;
+    };
+    for (idx, keyphrase) in keyphrases.iter().enumerate() {
+        let keyphrase_text = keyphrase
+            .get("keyphrase")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if keyphrase_text.is_empty() {
+            errors.push(format!(
+                "Validation error in {path}/keyphrases/{idx}: Keyphrase is required"
+            ));
+        }
+        let level = keyphrase
+            .get("level")
+            .and_then(Value::as_str)
+            .unwrap_or("default")
+            .to_lowercase();
+        if !matches!(level.as_str(), "default" | "boosted" | "maximum") {
+            errors.push(format!(
+                "Validation error in {path}/keyphrases/{keyphrase_text}: Invalid level '{level}'. Must be one of: default, boosted, maximum"
+            ));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_yaml_ng::from_str;
+
+    fn validation_errors(yaml: &str) -> Vec<String> {
+        let yaml = from_str::<Value>(yaml).expect("keyphrase YAML");
+        let mut errors = Vec::new();
+        validate_local_yaml(&yaml, &mut errors);
+        errors
+    }
+
+    #[test]
+    fn validates_python_keyphrase_required_and_level_rules() {
+        let errors = validation_errors(
+            r#"
+keyphrases:
+  - keyphrase: ""
+    level: boosted
+  - keyphrase: Open sesame
+    level: loud
+"#,
+        );
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("Keyphrase is required"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("Invalid level 'loud'"))
+        );
     }
 }

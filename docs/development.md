@@ -112,3 +112,6 @@ cargo test --test record_python_adk_from_manifest_test -- --ignored --nocapture
 See `adk-cli/tests/fixtures/python-adk-recordings/README.md` for the recording
 format and replay workflow, and `docs/parity-test-strategy.md` for when to use
 recordings versus in-memory matrix tests.
+
+For the structural plan to close validation parity gaps, see
+`docs/validation-parity-plan.md`.

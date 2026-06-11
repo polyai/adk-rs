@@ -5,6 +5,7 @@ use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/pronunciation.py
+/// Validation parity: implemented against Python Pronunciation.validate().
 pub(crate) struct Pronunciation;
 impl DiscoverResources for Pronunciation {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
@@ -32,5 +33,56 @@ impl DiscoverResources for Pronunciation {
             ));
         }
         out
+    }
+
+    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        validate_local_yaml(yaml, errors);
+    }
+}
+
+pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
+    let path = Pronunciation::LOCAL_PATH
+        .primary_path()
+        .expect("local file path");
+    let Some(pronunciations) = yaml.get("pronunciations").and_then(Value::as_sequence) else {
+        return;
+    };
+    for (idx, pronunciation) in pronunciations.iter().enumerate() {
+        if pronunciation
+            .get("regex")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+        {
+            errors.push(format!(
+                "Validation error in {path}/pronunciations/{idx}: Regex pattern is required"
+            ));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_yaml_ng::from_str;
+
+    #[test]
+    fn validates_python_pronunciation_regex_required_rule() {
+        let yaml = from_str::<Value>(
+            r#"
+pronunciations:
+  - regex: ""
+    replacement: poly
+"#,
+        )
+        .expect("pronunciation YAML");
+        let mut errors = Vec::new();
+
+        validate_local_yaml(&yaml, &mut errors);
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("Regex pattern is required"))
+        );
     }
 }

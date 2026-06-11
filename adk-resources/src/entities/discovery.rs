@@ -5,6 +5,7 @@ use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/entities.py
+/// Validation parity: implemented against Python Entity.validate().
 pub(crate) struct Entity;
 impl DiscoverResources for Entity {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
@@ -79,6 +80,157 @@ pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
             errors.push(format!(
                 "Validation error in {path}/entities/{name}: unsupported entity_type '{entity_type}'."
             ));
+            continue;
         }
+        if let Some(description) = item.get("description").and_then(Value::as_str)
+            && description != description.trim()
+        {
+            errors.push(format!(
+                "Validation error in {path}/entities/{name}: Description cannot contain leading or trailing whitespace."
+            ));
+        }
+        validate_entity_config(path, name, entity_type, item.get("config"), errors);
+    }
+}
+
+fn validate_entity_config(
+    path: &str,
+    name: &str,
+    entity_type: &str,
+    config: Option<&Value>,
+    errors: &mut Vec<String>,
+) {
+    let Some(config) = config.and_then(Value::as_mapping) else {
+        return;
+    };
+    for (field, expected) in expected_config_fields(entity_type) {
+        let Some(value) = config.get(Value::String(field.to_string())) else {
+            continue;
+        };
+        if !expected.matches(value) {
+            errors.push(format!(
+                "Validation error in {path}/entities/{name}/config/{field}: Config field '{field}' should be of type '{}' for entity type '{entity_type}'.",
+                expected.python_name()
+            ));
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ExpectedConfigType {
+    Bool,
+    Number,
+    String,
+    List,
+}
+
+impl ExpectedConfigType {
+    fn matches(self, value: &Value) -> bool {
+        match self {
+            Self::Bool => value.as_bool().is_some(),
+            Self::Number => value.as_i64().is_some() || value.as_f64().is_some(),
+            Self::String => value.as_str().is_some(),
+            Self::List => value.as_sequence().is_some(),
+        }
+    }
+
+    fn python_name(self) -> &'static str {
+        match self {
+            Self::Bool => "bool",
+            Self::Number => "float or int",
+            Self::String => "str",
+            Self::List => "list",
+        }
+    }
+}
+
+fn expected_config_fields(entity_type: &str) -> &'static [(&'static str, ExpectedConfigType)] {
+    use ExpectedConfigType::{Bool, List, Number, String};
+    match entity_type {
+        "numeric" => &[
+            ("has_decimal", Bool),
+            ("has_range", Bool),
+            ("min", Number),
+            ("max", Number),
+        ],
+        "alphanumeric" => &[
+            ("enabled", Bool),
+            ("validation_type", String),
+            ("regular_expression", String),
+        ],
+        "enum" => &[("options", List)],
+        "date" => &[("relative_date", Bool)],
+        "phone_number" => &[("enabled", Bool), ("country_codes", List)],
+        "time" => &[
+            ("enabled", Bool),
+            ("start_time", String),
+            ("end_time", String),
+        ],
+        "address" | "free_text" | "name_config" => &[],
+        _ => &[],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_yaml_ng::from_str;
+
+    fn validation_errors(yaml: &str) -> Vec<String> {
+        let yaml = from_str::<Value>(yaml).expect("entity YAML");
+        let mut errors = Vec::new();
+        validate_local_yaml(&yaml, &mut errors);
+        errors
+    }
+
+    #[test]
+    fn validates_python_entity_type_description_and_config_rules() {
+        let errors = validation_errors(
+            r#"
+entities:
+  - name: Missing type
+  - name: Bad type
+    entity_type: unsupported
+  - name: Amount
+    entity_type: numeric
+    description: " has padding "
+    config:
+      has_decimal: "yes"
+      min: low
+  - name: Options
+    entity_type: enum
+    config:
+      options: one
+"#,
+        );
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("entity_type is required"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("unsupported entity_type 'unsupported'"))
+        );
+        assert!(errors.iter().any(|error| {
+            error.contains("Description cannot contain leading or trailing whitespace")
+        }));
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("Config field 'has_decimal' should be of type 'bool'"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("Config field 'min' should be of type 'float or int'"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("Config field 'options' should be of type 'list'"))
+        );
     }
 }
