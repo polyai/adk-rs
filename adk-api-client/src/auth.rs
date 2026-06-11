@@ -89,7 +89,8 @@ enum PersonalAccessTokensResponse {
 
 #[derive(Debug, Deserialize)]
 struct PersonalAccessTokenResponse {
-    key: String,
+    #[serde(default)]
+    key: Option<String>,
     name: Option<String>,
 }
 
@@ -341,11 +342,12 @@ fn parse_personal_access_tokens(body: &Value) -> Vec<PersonalAccessToken> {
     values
         .into_iter()
         .filter_map(|value| {
-            if value.key.is_empty() {
+            let key = value.key?;
+            if key.is_empty() {
                 return None;
             }
             Some(PersonalAccessToken {
-                key: value.key,
+                key,
                 name: value.name,
             })
         })
@@ -488,5 +490,22 @@ mod tests {
         authorise.assert_calls(1);
         list.assert_calls(1);
         create.assert_calls(1);
+    }
+
+    #[test]
+    fn parse_personal_access_tokens_skips_rows_without_keys() {
+        let tokens = parse_personal_access_tokens(&json!([
+            { "name": "redacted" },
+            { "name": "empty", "key": "" },
+            { "name": "adk-key", "key": "existing-key" }
+        ]));
+
+        assert_eq!(
+            tokens,
+            vec![PersonalAccessToken {
+                key: "existing-key".to_string(),
+                name: Some("adk-key".to_string()),
+            }]
+        );
     }
 }
