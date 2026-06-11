@@ -28,7 +28,7 @@
     "build:ts": "tsc -p tsconfig.json",
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build && npm run build:test && node --test test/*.test.js",
-    "test:published": "npm run build:ts && npm run build:test && node scripts/test-published.cjs"
+    "test:published": "npm run build:ts && npm run build:test && npm --prefix published-smoke install --no-audit --no-fund --package-lock=false && npm --prefix published-smoke test"
   },
   "napi": {
     "binaryName": "adk_napi",

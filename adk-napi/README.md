@@ -22,5 +22,9 @@ To smoke test the shared wrapper tests against the package currently published
 to npm, run:
 
 ```bash
-npm run test:published -- @poly-ai/adk-node@rc
+npm run test:published
 ```
+
+The published-package smoke test installs `@poly-ai/adk-node@rc` into
+`published-smoke/`, a tiny checked-in npm package that imports the package the
+same way a downstream service would.
