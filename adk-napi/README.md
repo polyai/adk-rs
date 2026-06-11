@@ -17,3 +17,14 @@ npm test
 
 The native binding is built by NAPI-RS as part of `npm test`. The generated
 `.node` binary and TypeScript build output are intentionally ignored by Git.
+
+To smoke test the shared wrapper tests against the package currently published
+to npm, run:
+
+```bash
+npm run test:published
+```
+
+The published-package smoke test installs `@poly-ai/adk-node@rc` into
+`published-smoke/`, a tiny checked-in npm package that imports the package the
+same way a downstream service would.

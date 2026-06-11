@@ -107,3 +107,11 @@ jobs:
       - name: Publish package
         working-directory: adk-napi
         run: npm publish --access public --tag "${{ inputs.dist_tag }}"
+
+      - name: Smoke test published package
+        working-directory: adk-napi
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          npm run build:test
+          npm --prefix published-smoke install --no-audit --no-fund --no-save --package-lock=false "@poly-ai/adk-node@${package_version}"
+          npm --prefix published-smoke test
