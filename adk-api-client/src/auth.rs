@@ -48,8 +48,8 @@ struct Auth0DeviceCodeRequest<'a> {
 struct Auth0DeviceCodeResponse {
     device_code: String,
     user_code: String,
-    #[serde(alias = "verification_uri")]
-    verification_uri_complete: String,
+    verification_uri: Option<String>,
+    verification_uri_complete: Option<String>,
     #[serde(default = "default_auth0_poll_interval")]
     interval: u64,
 }
@@ -308,6 +308,13 @@ fn jupiter_base_url(region: &str) -> Result<&'static str, ApiError> {
 }
 
 fn parse_device_code(body: Auth0DeviceCodeResponse) -> Result<Auth0DeviceCode, ApiError> {
+    let verification_uri_complete = body
+        .verification_uri_complete
+        .or(body.verification_uri)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ApiError::Http("missing verification_uri_complete in Auth0 device-code response".into())
+        })?;
     if body.device_code.is_empty() {
         return Err(ApiError::Http(
             "missing device_code in Auth0 device-code response".to_string(),
@@ -318,15 +325,10 @@ fn parse_device_code(body: Auth0DeviceCodeResponse) -> Result<Auth0DeviceCode, A
             "missing user_code in Auth0 device-code response".to_string(),
         ));
     }
-    if body.verification_uri_complete.is_empty() {
-        return Err(ApiError::Http(
-            "missing verification_uri_complete in Auth0 device-code response".to_string(),
-        ));
-    }
     Ok(Auth0DeviceCode {
         device_code: body.device_code,
         user_code: body.user_code,
-        verification_uri_complete: body.verification_uri_complete,
+        verification_uri_complete,
         interval_seconds: body.interval,
     })
 }
@@ -380,6 +382,7 @@ mod tests {
             then.status(200).json_body(json!({
                 "device_code": "device-code",
                 "user_code": "ABCD-EFGH",
+                "verification_uri": "https://example.test/basic",
                 "verification_uri_complete": "https://example.test/device",
                 "interval": 2,
             }));
@@ -397,6 +400,28 @@ mod tests {
             }
         );
         mock.assert_calls(1);
+    }
+
+    #[test]
+    fn auth0_device_code_prefers_complete_verification_uri_when_both_are_present() {
+        let code = parse_device_code(Auth0DeviceCodeResponse {
+            device_code: "device-code".to_string(),
+            user_code: "ABCD-EFGH".to_string(),
+            verification_uri: Some("https://example.test/basic".to_string()),
+            verification_uri_complete: Some("https://example.test/complete".to_string()),
+            interval: 2,
+        })
+        .expect("device code");
+
+        assert_eq!(
+            code,
+            Auth0DeviceCode {
+                device_code: "device-code".to_string(),
+                user_code: "ABCD-EFGH".to_string(),
+                verification_uri_complete: "https://example.test/complete".to_string(),
+                interval_seconds: 2,
+            }
+        );
     }
 
     #[test]
