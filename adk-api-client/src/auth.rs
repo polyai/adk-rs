@@ -1,4 +1,5 @@
 use crate::{ApiError, http_status_error, new_correlation_id};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +37,62 @@ pub struct JupiterClient {
     base_url: String,
 }
 
+#[derive(Debug, Serialize)]
+struct Auth0DeviceCodeRequest<'a> {
+    client_id: &'a str,
+    scope: &'a str,
+    audience: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct Auth0DeviceCodeResponse {
+    device_code: String,
+    user_code: String,
+    #[serde(alias = "verification_uri")]
+    verification_uri_complete: String,
+    #[serde(default = "default_auth0_poll_interval")]
+    interval: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct Auth0TokenRequest<'a> {
+    client_id: &'a str,
+    grant_type: &'a str,
+    device_code: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct Auth0TokenResponse {
+    access_token: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CreatePersonalAccessTokenRequest<'a> {
+    name: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreatePersonalAccessTokenResponse {
+    key: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PersonalAccessTokensResponse {
+    List(Vec<PersonalAccessTokenResponse>),
+    Object {
+        #[serde(default, alias = "personalAccessTokens")]
+        pats: Vec<PersonalAccessTokenResponse>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct PersonalAccessTokenResponse {
+    key: String,
+    name: Option<String>,
+}
+
 impl Auth0Client {
     pub fn new(region: &str) -> Result<Self, ApiError> {
         let details = auth0_region_details(region)?;
@@ -57,18 +114,18 @@ impl Auth0Client {
             .client
             .post(&url)
             .header("X-PolyAI-Correlation-Id", &correlation_id)
-            .json(&serde_json::json!({
-                "client_id": self.client_id,
-                "scope": "openid profile email",
-                "audience": "https://platform.polyai.app/api",
-            }))
+            .json(&Auth0DeviceCodeRequest {
+                client_id: &self.client_id,
+                scope: "openid profile email",
+                audience: "https://platform.polyai.app/api",
+            })
             .send()
             .map_err(|error| ApiError::Http(error.to_string()))?;
         let status = response.status();
         if !status.is_success() {
             return Err(http_status_error(status, &url, &correlation_id));
         }
-        let body: Value = response
+        let body: Auth0DeviceCodeResponse = response
             .json()
             .map_err(|error| ApiError::Http(error.to_string()))?;
         parse_device_code(body)
@@ -79,36 +136,33 @@ impl Auth0Client {
         let response = self
             .client
             .post(&url)
-            .json(&serde_json::json!({
-                "client_id": self.client_id,
-                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                "device_code": device_code,
-            }))
+            .json(&Auth0TokenRequest {
+                client_id: &self.client_id,
+                grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+                device_code,
+            })
             .send()
             .map_err(|error| ApiError::Http(error.to_string()))?;
         let status = response.status();
-        let body: Value = response
+        let body: Auth0TokenResponse = response
             .json()
             .map_err(|error| ApiError::Http(error.to_string()))?;
 
         if status.is_success() {
             let access_token = body
-                .get("access_token")
-                .and_then(Value::as_str)
+                .access_token
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| {
                     ApiError::Http("missing access_token in Auth0 response".to_string())
                 })?;
-            return Ok(Auth0TokenPoll::Authorized {
-                access_token: access_token.to_string(),
-            });
+            return Ok(Auth0TokenPoll::Authorized { access_token });
         }
 
-        match body.get("error").and_then(Value::as_str) {
+        match body.error.as_deref() {
             Some("authorization_pending") => Ok(Auth0TokenPoll::AuthorizationPending),
             Some("slow_down") => Ok(Auth0TokenPoll::SlowDown),
             Some("expired_token") => Ok(Auth0TokenPoll::Expired),
-            _ => Err(ApiError::Http(format!("status={status} body={body}"))),
+            _ => Err(ApiError::Http(format!("status={status} body={body:?}"))),
         }
     }
 }
@@ -156,13 +210,21 @@ impl JupiterClient {
             reqwest::Method::POST,
             "/jupiter/v2/pats",
             jwt_access_token,
-            Some(serde_json::json!({ "name": name })),
+            Some(
+                serde_json::to_value(CreatePersonalAccessTokenRequest { name })
+                    .map_err(|error| ApiError::Http(error.to_string()))?,
+            ),
         )?;
-        body.get("key")
-            .and_then(Value::as_str)
-            .filter(|key| !key.is_empty())
-            .map(ToString::to_string)
-            .ok_or_else(|| ApiError::Http("missing key in PAT creation response".to_string()))
+        let response: CreatePersonalAccessTokenResponse =
+            serde_json::from_value(body).map_err(|error| {
+                ApiError::Http(format!("failed to parse PAT creation response: {error}"))
+            })?;
+        if response.key.is_empty() {
+            return Err(ApiError::Http(
+                "missing key in PAT creation response".to_string(),
+            ));
+        }
+        Ok(response.key)
     }
 
     fn request_json(
@@ -244,64 +306,54 @@ fn jupiter_base_url(region: &str) -> Result<&'static str, ApiError> {
     }
 }
 
-fn parse_device_code(body: Value) -> Result<Auth0DeviceCode, ApiError> {
-    let device_code = required_string(&body, "device_code", "Auth0 device-code response")?;
-    let user_code = required_string(&body, "user_code", "Auth0 device-code response")?;
-    let verification_uri_complete = body
-        .get("verification_uri_complete")
-        .or_else(|| body.get("verification_uri"))
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            ApiError::Http(
-                "missing verification_uri_complete in Auth0 device-code response".to_string(),
-            )
-        })?
-        .to_string();
-    let interval_seconds = body.get("interval").and_then(Value::as_u64).unwrap_or(5);
-
+fn parse_device_code(body: Auth0DeviceCodeResponse) -> Result<Auth0DeviceCode, ApiError> {
+    if body.device_code.is_empty() {
+        return Err(ApiError::Http(
+            "missing device_code in Auth0 device-code response".to_string(),
+        ));
+    }
+    if body.user_code.is_empty() {
+        return Err(ApiError::Http(
+            "missing user_code in Auth0 device-code response".to_string(),
+        ));
+    }
+    if body.verification_uri_complete.is_empty() {
+        return Err(ApiError::Http(
+            "missing verification_uri_complete in Auth0 device-code response".to_string(),
+        ));
+    }
     Ok(Auth0DeviceCode {
-        device_code,
-        user_code,
-        verification_uri_complete,
-        interval_seconds,
+        device_code: body.device_code,
+        user_code: body.user_code,
+        verification_uri_complete: body.verification_uri_complete,
+        interval_seconds: body.interval,
     })
 }
 
-fn required_string(body: &Value, key: &str, context: &str) -> Result<String, ApiError> {
-    body.get(key)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
-        .ok_or_else(|| ApiError::Http(format!("missing {key} in {context}")))
-}
-
 fn parse_personal_access_tokens(body: &Value) -> Vec<PersonalAccessToken> {
-    let values = body
-        .as_array()
-        .or_else(|| body.get("pats").and_then(Value::as_array))
-        .or_else(|| body.get("personalAccessTokens").and_then(Value::as_array));
-    let Some(values) = values else {
+    let Ok(response) = serde_json::from_value::<PersonalAccessTokensResponse>(body.clone()) else {
         return vec![];
     };
-
+    let values = match response {
+        PersonalAccessTokensResponse::List(values) => values,
+        PersonalAccessTokensResponse::Object { pats } => pats,
+    };
     values
-        .iter()
+        .into_iter()
         .filter_map(|value| {
-            let key = value
-                .get("key")
-                .and_then(Value::as_str)
-                .filter(|key| !key.is_empty())?;
-            let name = value
-                .get("name")
-                .and_then(Value::as_str)
-                .map(ToString::to_string);
+            if value.key.is_empty() {
+                return None;
+            }
             Some(PersonalAccessToken {
-                key: key.to_string(),
-                name,
+                key: value.key,
+                name: value.name,
             })
         })
         .collect()
+}
+
+fn default_auth0_poll_interval() -> u64 {
+    5
 }
 
 #[cfg(test)]

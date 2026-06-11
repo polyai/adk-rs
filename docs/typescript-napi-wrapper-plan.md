@@ -1,5 +1,8 @@
 # TypeScript N-API ADK Wrapper Plan
 
+This is the plan that was used to have Codex generate the Typescript bindings for ADK.
+It is preserved here only for informational purposes.
+
 ## Motivation
 
 The Rust ADK already contains the parity-sensitive logic for materializing

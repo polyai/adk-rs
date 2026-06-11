@@ -21,22 +21,16 @@ your filesystem and Agent Studio.
 > [Python ADK](https://github.com/polyai/adk). New users should install the
 > Python ADK unless they are explicitly testing the Rust port.
 
-## Rust Port Status
+## Installation
 
-This Rust CLI is intended to match the Python ADK command surface and on-disk
-project layout. Most core local workflows are implemented, including start,
-login, init, pull, push, status, diff, branch, format, validate, chat,
-deployments, and project creation.
+To try the Rust ADK from the latest GitHub release:
 
-Some newer Python ADK features are still being ported, including conversations
-commands. The `poly review` command group is present but still incomplete in
-this Rust port.
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/polyai/adk-rs/releases/latest/download/poly-adk-installer.sh | sh
+```
 
-## Early Access
-
-The PolyAI ADK is currently in Early Access. Changes may land frequently while
-the platform evolves. If you encounter an issue, first make sure you are running
-the latest available version (try `poly self-update`).
+The release installer installs the `poly` binary and provides `adk` as an alias.
 
 ## Prerequisites
 
@@ -68,16 +62,22 @@ Some commands also shell out to Python tooling:
 - `ruff`: used by `poly format` for Python formatting
 - `ty`: used by `poly format --ty` for optional Python type checking
 
-## Installation
+## Rust Port Status
 
-To try the Rust ADK from the latest GitHub release:
+This Rust CLI is intended to match the Python ADK command surface and on-disk
+project layout. Most core local workflows are implemented, including start,
+login, init, pull, push, status, diff, branch, format, validate, chat,
+deployments, and project creation.
 
-```bash
-curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/polyai/adk-rs/releases/latest/download/poly-adk-installer.sh | sh
-```
+Some newer Python ADK features are still being ported, including conversations
+commands. The `poly review` command group is present but still incomplete in
+this Rust port.
 
-The release installer installs the `poly` binary and provides `adk` as an alias.
+## Early Access
+
+The PolyAI ADK is currently in Early Access. Changes may land frequently while
+the platform evolves. If you encounter an issue, first make sure you are running
+the latest available version (try `poly self-update`).
 
 ## Usage
 
@@ -279,7 +279,7 @@ Update a release-installer managed Rust ADK binary:
 poly self-update
 ```
 
-### EXPERIMENTAL: `poly uninstall`
+### `poly uninstall` (EXPERIMENTAL)
 
 Uninstall a shell-installed Rust ADK binary. This command reads
 cargo-dist's install receipt, whose format is not a stable public API:
@@ -291,13 +291,23 @@ poly uninstall
 ## Repository Layout
 
 - `adk-cli`: `poly` binary, CLI parsing, output, and integration tests
-- `adk-core`: project workflows such as init, pull, push, status, diff,
-  validate, chat, and deployments
-- `adk-resources`: resource-family semantics shared by core and push/pull
-  workflows
+- `adk-core`: filesystem-generic project/resource logic for init, pure pull,
+  pure push planning, validation, formatting helpers, and projection
+  materialization
+- `adk-service`: API-aware orchestration that combines `adk-core` with
+  `adk-api-client` for native CLI workflows such as pull, push, diff,
+  deployments, branches, chat, and conversations
+- `adk-resources`: resource-family semantics, local file layout, validation
+  helpers, and command generation helpers shared by core and service workflows
 - `adk-api-client`: HTTP communication with the PolyAI backend
-- `adk-types`, `adk-io`, `adk-protobuf`: shared support crates
-- `adk-napi`: TypeScript N-API wrapper for in-memory push/pull workflows
+- `adk-io`: filesystem traits, path/resource parsing, and in-memory filesystem
+  support used by reusable crates
+- `adk-types`: shared project, status, resource, deployment, and conversation
+  types
+- `adk-protobuf`: protobuf command batch encoding used by push workflows
+- `adk-napi`: N-API crate and colocated `@poly-ai/adk-node` TypeScript package
+  for in-memory pull and push workflows
+- `dist-workspace.toml`: cargo-dist release configuration for CLI installers
 - `docs`: parity notes, testing strategy, and contributor documentation
 
 ## Bugs & Feature Requests
