@@ -7,6 +7,7 @@ const path = require("node:path");
 
 const packageSpec = process.argv[2] || process.env.ADK_NAPI_PUBLISHED_PACKAGE || "@poly-ai/adk-node@rc";
 const packageName = "@poly-ai/adk-node";
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const smokeDir = mkdtempSync(path.join(tmpdir(), "adk-napi-published-"));
 const helperPath = path.resolve(__dirname, "../test/wrapper_cases.js");
 const testPath = path.join(smokeDir, "published-wrapper.test.cjs");
@@ -17,7 +18,7 @@ try {
     `${JSON.stringify({ private: true, type: "commonjs" }, null, 2)}\n`,
   );
 
-  execFileSync("npm", ["install", "--no-audit", "--no-fund", packageSpec], {
+  execFileSync(npmCommand, ["install", "--no-audit", "--no-fund", packageSpec], {
     cwd: smokeDir,
     stdio: "inherit",
   });
