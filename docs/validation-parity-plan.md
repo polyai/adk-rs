@@ -12,12 +12,12 @@ resource class, runs `resource.validate(resource_mappings=...)`, then runs
 validation part of the authoring surface: local project files are expected to
 obey the same semantic rules as Agent Studio resources.
 
-Rust ADK validation currently parses local YAML/JSON, calls optional
-resource-local raw YAML checks, then runs a handful of bespoke cross-resource
-passes. The `DiscoverResources::validate_local_yaml` hook has a no-op default,
-so adding discovery for a resource family does not require adding the Python
-validator contract. This made missing validation the default outcome and led to
-many partial, symptom-driven ports.
+Rust ADK validation historically parsed local YAML/JSON, called optional
+resource-local raw YAML checks, then ran a handful of bespoke cross-resource
+passes. That made missing validation the default outcome and led to many
+partial, symptom-driven ports. The current migration has introduced a
+parse-first resource boundary, but some older resource families still walk raw
+YAML values directly and should be migrated.
 
 ## Goals
 
@@ -26,8 +26,8 @@ many partial, symptom-driven ports.
   checks, unless a reviewer accepts a documented divergence.
 - Keep each resource family's business rules close to that resource's
   implementation.
-- Use typed local resource views for validation where possible, rather than
-  ad hoc YAML traversal.
+- Use typed local resource parsing as the default way to enforce
+  resource-scoped invariants, rather than ad hoc YAML traversal.
 - Keep resource-family rules in `adk-resources` and cross-resource orchestration
   in `adk-core/src/validation.rs`.
 - Add parity tests with every substantive validation change.
@@ -76,13 +76,13 @@ parity, is validation not applicable, or is work still outstanding?
 
 Avoid no-op defaults that look like success. A new resource family should fail a
 local parity audit until it chooses one of these states and, when implemented,
-points at resource-local validation code.
+points at resource-local typed parsing code.
 
 ### 2. Typed Local Resource Parsing
 
 Build typed local resource parsers from the same discovered resource mapping
 data used by `validate_project` in Python. Resource-family parsing should sit
-behind a standard trait, currently shaped as:
+behind the standard `ParseLocalResource` trait, currently shaped as:
 
 ```rust
 trait ParseLocalResource {
@@ -94,8 +94,9 @@ trait ParseLocalResource {
 ```
 
 The parser should return a typed resource-family value whose fields encode as
-many resource-local invariants as practical. Prefer deserializing newtypes and
-enums over post-parse `Value` traversal:
+many resource-local invariants as practical. This is the default resource-local
+implementation target. Prefer deserializing newtypes and enums over post-parse
+`Value` traversal:
 
 - `NonEmptyString` for required non-empty names and regex strings;
 - `NoEdgeWhitespace` for Python's description whitespace checks;
@@ -108,6 +109,22 @@ Only use raw intermediary structs when the Python authoring shape has defaults
 or compatibility behavior that cannot be expressed cleanly in the final type.
 The raw type should be private to the resource family and immediately converted
 into the parsed type.
+
+The validation command still needs to accumulate user-facing errors. That is an
+adapter concern:
+
+- `DiscoverResources::append_local_resource_errors(...)` is the discovery/CLI
+  hook that appends errors for files owned by a resource family.
+- `ParseLocalResource::append_parse_errors(...)` is the thin adapter from
+  `parse_local_yaml(...)` failures into user-facing validation output.
+- Resource business rules should live in `parse_local_yaml`, serde-derived
+  types, newtypes, field adapters, or private parse constructors.
+
+Do not add new resource-family business rules as raw `serde_yaml_ng::Value`
+traversal unless the resource is explicitly still in the migration backlog or a
+Python compatibility quirk makes typed parsing impractical. Discovery,
+materialization, and command generation may still inspect raw YAML where that is
+their actual job.
 
 The parser inputs include:
 
@@ -122,9 +139,45 @@ resource names are converted to IDs before validation, flow-scoped resources
 know their flow ID/name, and aggregate entries are validated as individual
 resources before collection checks run.
 
-`DiscoverResources::validate_local_yaml` should become a thin compatibility
-adapter over typed parsing while the migration is in progress. It should not be
-the place where resource-family business rules are authored.
+`DiscoverResources::append_local_resource_errors` should remain a thin adapter
+over typed parsing wherever possible. It should not be the place where
+resource-family business rules are authored.
+
+### Current Typed-Parsing Coverage
+
+The following resource families already use `ParseLocalResource` for
+resource-scoped parsing and errors:
+
+- `ApiIntegration`
+- `AsrSettings`
+- `Entity`
+- `Handoff`
+- `KeyphraseBoosting`
+- `PhraseFilter`
+- `Pronunciation`
+- `SMSTemplate`
+- `TranscriptCorrection`
+- `Translation`
+- `Variant`
+- `VariantAttribute`
+
+Remaining resource-local raw YAML traversal is easiest to find by looking for
+`append_local_resource_errors` implementations that do not delegate to
+`ParseLocalResource`, plus helper functions that inspect
+`serde_yaml_ng::Value`. Known migration targets include:
+
+- channel greetings, disclaimers, and related channel singleton settings;
+- agent settings personality and role;
+- languages;
+- topics;
+- safety/schema-backed paths where the current validator delegates to a schema
+  or specialized helper.
+
+Those remaining families should be migrated by introducing typed parsed values
+first, then moving checks into field types, serde adapters, and parse
+constructors. The migration should not add more `validate_*_yaml`-style helper
+names; a guardrail test now prevents reintroducing the legacy
+`validate_local_yaml` boundary name.
 
 ### 3. Shared Reference Validation
 
@@ -199,17 +252,19 @@ resource validation error.
 
 ### Phase 3: Port Collection and Simple Resource Parsers
 
-Start with low-dependency parsers to exercise the architecture:
+This phase is partially complete. The low-dependency parsers already migrated
+include handoffs, keyphrase boosting, pronunciations, ASR settings, transcript
+corrections, entities, variants, API integrations, phrase filters, SMS
+templates, and translations.
 
-- handoffs;
-- keyphrase boosting;
-- pronunciations;
-- ASR settings;
-- transcript corrections;
-- safety filters.
+The remaining work in this phase is to migrate simple singleton and
+schema-adjacent resource families that still inspect raw YAML directly, notably:
 
-These validate mostly one file or one aggregate collection and should give quick
-coverage without depending heavily on prompt reference resolution.
+- channel greetings and disclaimers;
+- agent settings personality and role;
+- languages;
+- topics;
+- safety filters where typed parsing can wrap or replace schema checks.
 
 Add a curated parse matrix for this phase. Each row should feed one invalid
 fixture through `ParseLocalResource::parse_local_content` and assert the
@@ -247,11 +302,16 @@ Keep existing syntax/signature validation, but route new checks through the
 typed validation context so global functions, transition functions, and function
 steps share the same metadata model as Python.
 
-### Phase 6: Remove Silent No-Ops
+### Phase 6: Remove Silent No-Ops And Legacy Boundaries
 
 After each family has an explicit parity status, remove or quarantine the
 current no-op validation default. New resource support should not compile or
 should fail a parity matrix test until validation status is explicit.
+
+Keep the naming boundary parse-first. The legacy `validate_local_yaml` name
+should not return; validation remains the CLI/user-facing command, while
+resource-local implementation should parse into typed values and append parse
+errors through the discovery adapter.
 
 ## Test Strategy
 
@@ -274,6 +334,8 @@ Before closing a validation parity PR:
 - Does every changed resource family name the Python validator it mirrors?
 - Are per-resource and collection-level checks both covered where Python has
   both?
+- Do resource-scoped checks live in typed parsing/newtypes/serde adapters rather
+  than raw YAML traversal?
 - Does the implementation validate local authoring names after Python-compatible
   name-to-ID conversion?
 - Are invalid references validated through the shared reference helper?
