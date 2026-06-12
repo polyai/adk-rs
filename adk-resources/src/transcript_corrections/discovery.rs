@@ -1,7 +1,7 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_parse::{
     NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
-    duplicate_names,
+    duplicate_names, non_empty_vec,
 };
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
@@ -108,32 +108,21 @@ struct TranscriptCorrectionsFileUnchecked {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(try_from = "TranscriptCorrectionItemUnchecked")]
 #[allow(dead_code)]
 struct TranscriptCorrectionItem {
     name: NonEmptyString,
+    #[serde(deserialize_with = "regular_expression_rules")]
     regular_expressions: Vec<RegularExpressionRule>,
 }
 
-#[derive(Debug, Deserialize)]
-struct TranscriptCorrectionItemUnchecked {
-    name: NonEmptyString,
-    #[serde(default)]
-    regular_expressions: Vec<RegularExpressionRule>,
-}
-
-impl TryFrom<TranscriptCorrectionItemUnchecked> for TranscriptCorrectionItem {
-    type Error = String;
-
-    fn try_from(raw: TranscriptCorrectionItemUnchecked) -> Result<Self, Self::Error> {
-        if raw.regular_expressions.is_empty() {
-            return Err("At least one regular expression rule is required".to_string());
-        }
-        Ok(Self {
-            name: raw.name,
-            regular_expressions: raw.regular_expressions,
-        })
-    }
+fn regular_expression_rules<'de, D>(deserializer: D) -> Result<Vec<RegularExpressionRule>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    non_empty_vec(
+        deserializer,
+        "At least one regular expression rule is required",
+    )
 }
 
 #[derive(Debug, Deserialize)]

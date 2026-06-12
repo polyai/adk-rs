@@ -1,7 +1,7 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_parse::{
     NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
-    duplicate_names,
+    duplicate_names, non_empty_map,
 };
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
@@ -254,31 +254,19 @@ struct VariantItem {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(try_from = "VariantAttributeItemUnchecked")]
 struct VariantAttributeItem {
     name: NonEmptyString,
+    #[serde(deserialize_with = "variant_attribute_values")]
     values: std::collections::BTreeMap<String, String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct VariantAttributeItemUnchecked {
-    name: NonEmptyString,
-    #[serde(default)]
-    values: std::collections::BTreeMap<String, String>,
-}
-
-impl TryFrom<VariantAttributeItemUnchecked> for VariantAttributeItem {
-    type Error = String;
-
-    fn try_from(raw: VariantAttributeItemUnchecked) -> Result<Self, Self::Error> {
-        if raw.values.is_empty() {
-            return Err("Mappings are required".to_string());
-        }
-        Ok(Self {
-            name: raw.name,
-            values: raw.values,
-        })
-    }
+fn variant_attribute_values<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    non_empty_map(deserializer, "Mappings are required")
 }
 
 fn quoted_set(values: &[String]) -> String {

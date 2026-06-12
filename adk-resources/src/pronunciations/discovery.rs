@@ -1,6 +1,10 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
+use crate::local_parse::{
+    NonEmptyString, ParseLocalResource, ResourceParseErrors, deserialize_yaml,
+};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
+use serde::Deserialize;
 use serde_yaml_ng::Value;
 use std::path::Path;
 
@@ -36,28 +40,41 @@ impl DiscoverResources for Pronunciation {
     }
 
     fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(yaml, errors);
+        <Self as ParseLocalResource>::validate_local_yaml(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     let path = Pronunciation::LOCAL_PATH
         .primary_path()
         .expect("local file path");
-    let Some(pronunciations) = yaml.get("pronunciations").and_then(Value::as_sequence) else {
-        return;
-    };
-    for (idx, pronunciation) in pronunciations.iter().enumerate() {
-        if pronunciation
-            .get("regex")
-            .and_then(Value::as_str)
-            .is_none_or(str::is_empty)
-        {
-            errors.push(format!(
-                "Validation error in {path}/pronunciations/{idx}: Regex pattern is required"
-            ));
-        }
+    <Pronunciation as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+}
+
+impl ParseLocalResource for Pronunciation {
+    type Parsed = PronunciationsFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> Result<Self::Parsed, ResourceParseErrors> {
+        deserialize_yaml(path, yaml)
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub(crate) struct PronunciationsFile {
+    #[serde(default)]
+    pronunciations: Vec<PronunciationItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct PronunciationItem {
+    regex: NonEmptyString,
 }
 
 #[cfg(test)]
@@ -79,10 +96,6 @@ pronunciations:
 
         validate_local_yaml(&yaml, &mut errors);
 
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("Regex pattern is required"))
-        );
+        assert!(errors.iter().any(|error| error.contains("cannot be empty")));
     }
 }

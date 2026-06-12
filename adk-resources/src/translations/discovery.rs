@@ -1,7 +1,13 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_resources::{is_file, read_yaml_mapping, validate_duplicate_names};
+use crate::local_parse::{
+    NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
+    duplicate_names, non_empty_map,
+};
+use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
+use serde::Deserialize;
 use serde_yaml_ng::Value;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Validation parity: implemented against Python Translation.validate().
@@ -41,40 +47,130 @@ impl DiscoverResources for Translation {
     }
 
     fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(yaml, errors);
+        <Self as ParseLocalResource>::validate_local_yaml(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     let path = crate::specs::TRANSLATIONS_FILE.file_path;
-    let Some(translations) = yaml.get("translations").and_then(Value::as_sequence) else {
-        return;
-    };
-    for (idx, translation) in translations.iter().enumerate() {
-        let name = translation
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if name.is_empty() {
-            errors.push(format!(
-                "Validation error in {path}/translations/{idx}: Translation name cannot be empty."
-            ));
+    <Translation as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+}
+
+impl ParseLocalResource for Translation {
+    type Parsed = TranslationsFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        let raw = deserialize_yaml::<TranslationsFileUnchecked>(path, yaml)?;
+        TranslationsFile::try_from_unchecked(path, raw)
+    }
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) struct TranslationsFile {
+    translations: Vec<TranslationItem>,
+}
+
+impl TranslationsFile {
+    fn try_from_unchecked(path: &str, raw: TranslationsFileUnchecked) -> ResourceParseResult<Self> {
+        let mut errors = ResourceParseErrors::new();
+        for duplicate in duplicate_names(raw.translations.iter().map(|item| item.name.as_str())) {
+            errors.push(
+                &format!("{path}/translations/{duplicate}"),
+                format!("duplicate translation name '{duplicate}'."),
+            );
         }
-        let translation_count = translation
-            .get("translations")
-            .and_then(Value::as_mapping)
-            .map(|items| items.len())
-            .unwrap_or(0);
-        if translation_count == 0 {
-            errors.push(format!(
-                "Validation error in {path}/translations/{}: Translations cannot be empty.",
-                if name.is_empty() {
-                    idx.to_string()
-                } else {
-                    clean_name(name, false)
-                }
-            ));
+        if errors.is_empty() {
+            Ok(Self {
+                translations: raw.translations,
+            })
+        } else {
+            Err(errors)
         }
     }
-    validate_duplicate_names(path, "translations", "translation", translations, errors);
+}
+
+#[derive(Debug, Deserialize)]
+struct TranslationsFileUnchecked {
+    #[serde(default)]
+    translations: Vec<TranslationItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct TranslationItem {
+    name: NonEmptyString,
+    #[serde(deserialize_with = "translation_values")]
+    translations: BTreeMap<String, String>,
+}
+
+fn translation_values<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    non_empty_map(deserializer, "Translations cannot be empty.")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_yaml_ng::from_str;
+
+    fn validation_errors(yaml: &str) -> Vec<String> {
+        let yaml = from_str::<Value>(yaml).expect("translations YAML");
+        let mut errors = Vec::new();
+        validate_local_yaml(&yaml, &mut errors);
+        errors
+    }
+
+    #[test]
+    fn validates_python_translation_required_fields_and_duplicates() {
+        let missing_name = validation_errors(
+            r#"
+translations:
+  - translations:
+      en-US: Hello
+"#,
+        );
+        assert!(
+            missing_name
+                .iter()
+                .any(|error| error.contains("missing field `name`"))
+        );
+
+        let empty_translations = validation_errors(
+            r#"
+translations:
+  - name: greeting
+    translations: {}
+"#,
+        );
+        assert!(
+            empty_translations
+                .iter()
+                .any(|error| error.contains("Translations cannot be empty"))
+        );
+
+        let duplicate_names = validation_errors(
+            r#"
+translations:
+  - name: greeting
+    translations:
+      en-US: Hello
+  - name: greeting
+    translations:
+      en-US: Hi
+"#,
+        );
+        assert!(
+            duplicate_names
+                .iter()
+                .any(|error| error.contains("duplicate translation name 'greeting'"))
+        );
+    }
 }

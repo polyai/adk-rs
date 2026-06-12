@@ -1,6 +1,10 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
+use crate::local_parse::{
+    NonEmptyString, ParseLocalResource, ResourceParseErrors, deserialize_yaml, non_empty_vec,
+};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
+use serde::Deserialize;
 use serde_yaml_ng::Value;
 use std::path::Path;
 
@@ -43,39 +47,50 @@ impl DiscoverResources for PhraseFilter {
     }
 
     fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(yaml, errors);
+        <Self as ParseLocalResource>::validate_local_yaml(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     let path = PhraseFilter::LOCAL_PATH
         .primary_path()
         .expect("local file path");
-    let Some(filters) = yaml.get("phrase_filtering").and_then(Value::as_sequence) else {
-        return;
-    };
-    for (idx, filter) in filters.iter().enumerate() {
-        let name = filter.get("name").and_then(Value::as_str).unwrap_or("");
-        let error_path = if name.is_empty() {
-            format!("{path}/phrase_filtering/{idx}")
-        } else {
-            format!("{path}/phrase_filtering/{}", clean_name(name, false))
-        };
-        if name.is_empty() {
-            errors.push(format!(
-                "Validation error in {error_path}: Name is required"
-            ));
-        }
-        if filter
-            .get("regular_expressions")
-            .and_then(Value::as_sequence)
-            .is_none_or(Vec::is_empty)
-        {
-            errors.push(format!(
-                "Validation error in {error_path}: At least one regular expression is required"
-            ));
-        }
+    <PhraseFilter as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+}
+
+impl ParseLocalResource for PhraseFilter {
+    type Parsed = PhraseFiltersFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> Result<Self::Parsed, ResourceParseErrors> {
+        deserialize_yaml(path, yaml)
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub(crate) struct PhraseFiltersFile {
+    #[serde(default)]
+    phrase_filtering: Vec<PhraseFilterItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct PhraseFilterItem {
+    name: NonEmptyString,
+    #[serde(deserialize_with = "regular_expressions")]
+    regular_expressions: Vec<String>,
+}
+
+fn regular_expressions<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    non_empty_vec(deserializer, "At least one regular expression is required")
 }
 
 #[cfg(test)]
@@ -92,22 +107,28 @@ mod tests {
 
     #[test]
     fn validates_python_phrase_filter_local_required_fields() {
-        let errors = validation_errors(
+        let missing_name = validation_errors(
             r#"
 phrase_filtering:
   - description: Missing all
+"#,
+        );
+        assert!(
+            missing_name
+                .iter()
+                .any(|error| error.contains("missing field `name`"))
+        );
+
+        let empty_regex = validation_errors(
+            r#"
+phrase_filtering:
   - name: Empty regex
     regular_expressions: []
 "#,
         );
 
         assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("Name is required"))
-        );
-        assert!(
-            errors
+            empty_regex
                 .iter()
                 .any(|error| error.contains("At least one regular expression is required"))
         );

@@ -7,6 +7,7 @@
 use serde::Deserialize;
 use serde::de::{DeserializeOwned, Error as DeError};
 use serde_yaml_ng::Value;
+use std::collections::BTreeMap;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +75,39 @@ where
     T: Default + Deserialize<'de>,
 {
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+pub(crate) fn non_empty_vec<'de, D, T>(
+    deserializer: D,
+    message: &'static str,
+) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    let values = Vec::<T>::deserialize(deserializer)?;
+    if values.is_empty() {
+        Err(D::Error::custom(message))
+    } else {
+        Ok(values)
+    }
+}
+
+pub(crate) fn non_empty_map<'de, D, K, V>(
+    deserializer: D,
+    message: &'static str,
+) -> Result<BTreeMap<K, V>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    K: Ord + Deserialize<'de>,
+    V: Deserialize<'de>,
+{
+    let values = BTreeMap::<K, V>::deserialize(deserializer)?;
+    if values.is_empty() {
+        Err(D::Error::custom(message))
+    } else {
+        Ok(values)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

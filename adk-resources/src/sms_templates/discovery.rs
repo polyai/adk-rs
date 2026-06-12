@@ -1,6 +1,11 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_resources::{is_file, read_yaml_mapping, validate_named_sequence};
+use crate::local_parse::{
+    NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
+    duplicate_names,
+};
+use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
+use serde::Deserialize;
 use serde_yaml_ng::Value;
 use std::path::Path;
 
@@ -43,40 +48,79 @@ impl DiscoverResources for SMSTemplate {
     }
 
     fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(yaml, errors);
+        <Self as ParseLocalResource>::validate_local_yaml(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     let path = SMSTemplate::LOCAL_PATH
         .primary_path()
         .expect("local file path");
-    validate_named_sequence(path, yaml, "sms_templates", "SMS template", errors);
-    let Some(templates) = yaml.get("sms_templates").and_then(Value::as_sequence) else {
-        return;
-    };
-    for (idx, template) in templates.iter().enumerate() {
-        let name = template.get("name").and_then(Value::as_str).unwrap_or("");
-        let error_path = if name.is_empty() {
-            format!("{path}/sms_templates/{idx}")
-        } else {
-            format!("{path}/sms_templates/{}", clean_name(name, false))
-        };
-        if template
-            .get("text")
-            .and_then(Value::as_str)
-            .is_none_or(str::is_empty)
-        {
-            errors.push(format!(
-                "Validation error in {error_path}: Text is required"
-            ));
+    <SMSTemplate as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+}
+
+impl ParseLocalResource for SMSTemplate {
+    type Parsed = SMSTemplatesFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        let raw = deserialize_yaml::<SMSTemplatesFileUnchecked>(path, yaml)?;
+        SMSTemplatesFile::try_from_unchecked(path, raw)
+    }
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) struct SMSTemplatesFile {
+    sms_templates: Vec<SMSTemplateItem>,
+}
+
+impl SMSTemplatesFile {
+    fn try_from_unchecked(path: &str, raw: SMSTemplatesFileUnchecked) -> ResourceParseResult<Self> {
+        let mut errors = ResourceParseErrors::new();
+        for duplicate in duplicate_names(raw.sms_templates.iter().map(|item| item.name.as_str())) {
+            errors.push(
+                &format!("{path}/sms_templates/{duplicate}"),
+                format!("duplicate SMS template name '{duplicate}'."),
+            );
         }
-        if template.get("env_phone_numbers").is_none() {
-            errors.push(format!(
-                "Validation error in {error_path}: Env phone numbers are required"
-            ));
+        if errors.is_empty() {
+            Ok(Self {
+                sms_templates: raw.sms_templates,
+            })
+        } else {
+            Err(errors)
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct SMSTemplatesFileUnchecked {
+    #[serde(default)]
+    sms_templates: Vec<SMSTemplateItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct SMSTemplateItem {
+    name: NonEmptyString,
+    text: NonEmptyString,
+    env_phone_numbers: EnvPhoneNumbers,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[allow(dead_code)]
+struct EnvPhoneNumbers {
+    #[serde(default)]
+    sandbox: String,
+    #[serde(default, alias = "preRelease")]
+    pre_release: String,
+    #[serde(default)]
+    live: String,
 }
 
 #[cfg(test)]
@@ -93,29 +137,45 @@ mod tests {
 
     #[test]
     fn validates_python_sms_template_local_required_fields() {
-        let errors = validation_errors(
+        let empty_text = validation_errors(
             r#"
 sms_templates:
   - name: Empty text
     text: ""
-  - text: Hello
+    env_phone_numbers: {}
 "#,
         );
 
         assert!(
-            errors
+            empty_text
                 .iter()
-                .any(|error| error.contains("Text is required"))
+                .any(|error| error.contains("cannot be empty"))
+        );
+
+        let missing_env_phone_numbers = validation_errors(
+            r#"
+sms_templates:
+  - name: Missing env
+    text: Hello
+"#,
         );
         assert!(
-            errors
+            missing_env_phone_numbers
                 .iter()
-                .any(|error| error.contains("Env phone numbers are required"))
+                .any(|error| error.contains("missing field `env_phone_numbers`"))
+        );
+
+        let missing_name = validation_errors(
+            r#"
+sms_templates:
+  - text: Hello
+    env_phone_numbers: {}
+"#,
         );
         assert!(
-            errors
+            missing_name
                 .iter()
-                .any(|error| error.contains("SMS template name is required"))
+                .any(|error| error.contains("missing field `name`"))
         );
     }
 }

@@ -13,7 +13,6 @@
 
 use adk_io::FileSystem;
 use serde_yaml_ng::{Mapping, Value, from_str};
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 pub(crate) use crate::agent_settings::{
@@ -65,52 +64,4 @@ pub(crate) fn is_file<Fs: FileSystem>(fs: &Fs, path: impl AsRef<Path>) -> bool {
 
 pub(crate) fn is_dir<Fs: FileSystem>(fs: &Fs, path: impl AsRef<Path>) -> bool {
     fs.is_dir(path.as_ref())
-}
-
-pub(crate) fn validate_named_sequence(
-    path: &str,
-    yaml: &Value,
-    key: &str,
-    label: &str,
-    errors: &mut Vec<String>,
-) {
-    let Some(items) = yaml.get(key).and_then(Value::as_sequence) else {
-        return;
-    };
-    for (idx, item) in items.iter().enumerate() {
-        if item
-            .get("name")
-            .and_then(Value::as_str)
-            .is_none_or(str::is_empty)
-        {
-            errors.push(format!(
-                "Validation error in {path}/{key}/{idx}: {label} name is required."
-            ));
-        }
-    }
-    validate_duplicate_names(path, key, label, items, errors);
-}
-
-pub(crate) fn validate_duplicate_names(
-    path: &str,
-    key: &str,
-    label: &str,
-    items: &[Value],
-    errors: &mut Vec<String>,
-) {
-    let mut seen = BTreeSet::new();
-    let mut duplicates = BTreeSet::new();
-    for item in items {
-        let Some(name) = item.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-        if !seen.insert(name.to_string()) {
-            duplicates.insert(name.to_string());
-        }
-    }
-    for name in duplicates {
-        errors.push(format!(
-            "Validation error in {path}/{key}/{name}: duplicate {label} name '{name}'."
-        ));
-    }
 }

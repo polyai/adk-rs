@@ -1,6 +1,10 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
+use crate::local_parse::{
+    NonEmptyString, ParseLocalResource, ResourceParseErrors, deserialize_yaml,
+};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
+use serde::Deserialize;
 use serde_yaml_ng::Value;
 use std::path::Path;
 
@@ -43,36 +47,66 @@ impl DiscoverResources for KeyphraseBoosting {
     }
 
     fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(yaml, errors);
+        <Self as ParseLocalResource>::validate_local_yaml(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     let path = KeyphraseBoosting::LOCAL_PATH
         .primary_path()
         .expect("local file path");
-    let Some(keyphrases) = yaml.get("keyphrases").and_then(Value::as_sequence) else {
-        return;
-    };
-    for (idx, keyphrase) in keyphrases.iter().enumerate() {
-        let keyphrase_text = keyphrase
-            .get("keyphrase")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if keyphrase_text.is_empty() {
-            errors.push(format!(
-                "Validation error in {path}/keyphrases/{idx}: Keyphrase is required"
-            ));
-        }
-        let level = keyphrase
-            .get("level")
-            .and_then(Value::as_str)
-            .unwrap_or("default")
-            .to_lowercase();
-        if !matches!(level.as_str(), "default" | "boosted" | "maximum") {
-            errors.push(format!(
-                "Validation error in {path}/keyphrases/{keyphrase_text}: Invalid level '{level}'. Must be one of: default, boosted, maximum"
-            ));
+    <KeyphraseBoosting as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+}
+
+impl ParseLocalResource for KeyphraseBoosting {
+    type Parsed = KeyphraseBoostingFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> Result<Self::Parsed, ResourceParseErrors> {
+        deserialize_yaml(path, yaml)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub(crate) struct KeyphraseBoostingFile {
+    #[serde(default)]
+    keyphrases: Vec<KeyphraseItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct KeyphraseItem {
+    keyphrase: NonEmptyString,
+    #[serde(default)]
+    level: KeyphraseLevel,
+}
+
+#[derive(Debug, Default)]
+enum KeyphraseLevel {
+    #[default]
+    Default,
+    Boosted,
+    Maximum,
+}
+
+impl<'de> Deserialize<'de> for KeyphraseLevel {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?.to_lowercase();
+        match value.as_str() {
+            "default" => Ok(Self::Default),
+            "boosted" => Ok(Self::Boosted),
+            "maximum" => Ok(Self::Maximum),
+            _ => Err(serde::de::Error::custom(format!(
+                "Invalid level '{value}'. Must be one of: default, boosted, maximum"
+            ))),
         }
     }
 }
@@ -91,25 +125,43 @@ mod tests {
 
     #[test]
     fn validates_python_keyphrase_required_and_level_rules() {
-        let errors = validation_errors(
+        let missing_keyphrase = validation_errors(
             r#"
 keyphrases:
   - keyphrase: ""
     level: boosted
-  - keyphrase: Open sesame
-    level: loud
 "#,
         );
 
         assert!(
-            errors
+            missing_keyphrase
                 .iter()
-                .any(|error| error.contains("Keyphrase is required"))
+                .any(|error| error.contains("cannot be empty"))
+        );
+
+        let bad_level = validation_errors(
+            r#"
+keyphrases:
+  - keyphrase: Open sesame
+    level: loud
+"#,
         );
         assert!(
-            errors
+            bad_level
                 .iter()
                 .any(|error| error.contains("Invalid level 'loud'"))
+        );
+
+        let uppercase_level = validation_errors(
+            r#"
+keyphrases:
+  - keyphrase: Open sesame
+    level: BOOSTED
+"#,
+        );
+        assert!(
+            uppercase_level.is_empty(),
+            "uppercase level should follow Python lower-casing behavior: {uppercase_level:?}"
         );
     }
 }
