@@ -1,6 +1,7 @@
 use crate::asr_settings::AsrSettings;
 use crate::entities::Entity;
 use crate::handoffs::HandoffResource;
+use crate::languages::DefaultLanguage;
 use crate::local_parse::ParseLocalResource;
 use crate::transcript_corrections::TranscriptCorrection;
 use crate::variants::{Variant, VariantAttribute};
@@ -68,6 +69,35 @@ corrections:
         replacement_type: typo
 "#,
         "unknown variant `typo`",
+    );
+
+    assert_parse_error::<DefaultLanguage>(
+        "agent_settings/languages.yaml",
+        r#"
+default_language: nope!
+additional_languages:
+  - fr-FR
+"#,
+        "Invalid language code: 'nope!'",
+    );
+    assert_parse_error::<DefaultLanguage>(
+        "agent_settings/languages.yaml",
+        r#"
+default_language: en-GB
+additional_languages:
+  - fr-FR
+  - fr-FR
+"#,
+        "Duplicate language code: 'fr-FR'",
+    );
+    assert_parse_error::<DefaultLanguage>(
+        "agent_settings/languages.yaml",
+        r#"
+default_language: en-GB
+additional_languages:
+  - en-GB
+"#,
+        "Default language 'en-GB' also appears in additional languages",
     );
 
     assert_parse_error::<Entity>(

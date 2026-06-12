@@ -1,6 +1,8 @@
-use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
+use crate::languages::DefaultLanguage;
+use crate::local_parse::ParseLocalResource;
+use crate::push_command;
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};
 use crate::specs::{ADDITIONAL_LANGUAGES, LANGUAGES_FILE};
-use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::languages::{
@@ -8,7 +10,6 @@ use adk_protobuf::languages::{
 };
 use adk_types::ResourceMap;
 use serde_json::{Value as JsonValue, json};
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn append_default_language_update(
@@ -95,17 +96,16 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
 }
 
 fn local_default_language(resources: &ResourceMap) -> Option<String> {
-    resource_yaml(resources, LANGUAGES_FILE.file_path).and_then(|yaml| {
-        let code = yaml_str(&yaml, "default_language");
-        (!code.is_empty()).then_some(code)
-    })
+    let yaml = resource_yaml(resources, LANGUAGES_FILE.file_path)?;
+    let file = DefaultLanguage::parse_local_yaml(LANGUAGES_FILE.file_path, &yaml).ok()?;
+    file.default_language().map(ToString::to_string)
 }
 
-fn local_additional_languages(yaml: &YamlValue) -> Vec<String> {
-    yaml_sequence(yaml, ADDITIONAL_LANGUAGES.yaml_key)
-        .into_iter()
-        .filter_map(YamlValue::as_str)
-        .filter(|code| !code.is_empty())
+fn local_additional_languages(yaml: &serde_yaml_ng::Value) -> Vec<String> {
+    let Ok(file) = DefaultLanguage::parse_local_yaml(LANGUAGES_FILE.file_path, yaml) else {
+        return Vec::new();
+    };
+    file.additional_languages()
         .map(ToString::to_string)
         .collect()
 }
