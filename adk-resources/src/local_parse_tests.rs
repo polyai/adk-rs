@@ -25,7 +25,7 @@ fn local_parse_matrix_covers_resource_scoped_validation_rules() {
     assert_parse_error::<AsrSettings>(
         "voice/speech_recognition/asr_settings.yaml",
         "barge_in: false\ninteraction_style: warp\n",
-        "Invalid interaction_style 'warp'",
+        "unknown variant `warp`",
     );
 
     assert_parse_error::<Handoff>(
@@ -37,7 +37,7 @@ handoffs:
     sip_config:
       method: transfer
 "#,
-        "Invalid SIP method 'transfer'",
+        "unknown variant `transfer`",
     );
     assert_parse_error::<Handoff>(
         "config/handoffs.yaml",
@@ -67,7 +67,7 @@ corrections:
       - regular_expression: abc
         replacement_type: typo
 "#,
-        "Invalid replacement_type 'typo'",
+        "unknown variant `typo`",
     );
 
     assert_parse_error::<Entity>(
@@ -88,7 +88,7 @@ entities:
   - name: Bad type
     entity_type: unsupported
 "#,
-        "unsupported entity_type 'unsupported'",
+        "unknown variant `unsupported`",
     );
 
     assert_parse_error::<Variant>(

@@ -6,9 +6,7 @@ use crate::local_parse::{
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde::Deserialize;
-use serde::de::{Error as DeError, Visitor};
 use serde_yaml_ng::Value;
-use std::fmt;
 use std::path::Path;
 
 // poly/resources/handoff.py
@@ -160,7 +158,8 @@ impl TryFrom<SipConfigUnchecked> for SipConfig {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
 enum SipMethod {
     Invite,
     Refer,
@@ -168,75 +167,12 @@ enum SipMethod {
     Bye,
 }
 
-impl<'de> Deserialize<'de> for SipMethod {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct SipMethodVisitor;
-
-        impl Visitor<'_> for SipMethodVisitor {
-            type Value = SipMethod;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("invite, refer, or bye")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: DeError,
-            {
-                match value {
-                    "invite" => Ok(SipMethod::Invite),
-                    "refer" => Ok(SipMethod::Refer),
-                    "bye" => Ok(SipMethod::Bye),
-                    _ => Err(E::custom(format!(
-                        "Invalid SIP method '{value}'. Must be one of: invite, refer, bye"
-                    ))),
-                }
-            }
-        }
-
-        deserializer.deserialize_str(SipMethodVisitor)
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 enum InviteEncryption {
+    #[serde(rename = "TLS/SRTP")]
     TlsSrtp,
+    #[serde(rename = "UDP/RTP")]
     UdpRtp,
-}
-
-impl<'de> Deserialize<'de> for InviteEncryption {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct InviteEncryptionVisitor;
-
-        impl Visitor<'_> for InviteEncryptionVisitor {
-            type Value = InviteEncryption;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("TLS/SRTP or UDP/RTP")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: DeError,
-            {
-                match value {
-                    "TLS/SRTP" => Ok(InviteEncryption::TlsSrtp),
-                    "UDP/RTP" => Ok(InviteEncryption::UdpRtp),
-                    _ => Err(E::custom(format!(
-                        "Invalid encryption method '{value}'. Must be one of: TLS/SRTP, UDP/RTP"
-                    ))),
-                }
-            }
-        }
-
-        deserializer.deserialize_str(InviteEncryptionVisitor)
-    }
 }
 
 fn python_string_list(values: &[String]) -> String {
@@ -273,7 +209,7 @@ handoffs:
         assert!(
             invalid_method
                 .iter()
-                .any(|error| error.contains("Invalid SIP method 'transfer'"))
+                .any(|error| error.contains("unknown variant `transfer`"))
         );
 
         let invalid_encryption = validation_errors(
@@ -289,7 +225,7 @@ handoffs:
         assert!(
             invalid_encryption
                 .iter()
-                .any(|error| error.contains("Invalid encryption method 'plaintext'"))
+                .any(|error| error.contains("unknown variant `plaintext`"))
         );
 
         let missing_default = validation_errors(

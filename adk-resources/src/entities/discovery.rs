@@ -1,14 +1,12 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_parse::{
     NoEdgeWhitespace, NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult,
-    deserialize_yaml, duplicate_names,
+    default_if_null, deserialize_yaml, duplicate_names,
 };
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde::Deserialize;
-use serde::de::{Error as DeError, Visitor};
 use serde_yaml_ng::Value;
-use std::fmt;
 use std::path::Path;
 
 // poly/resources/entities.py
@@ -106,10 +104,11 @@ struct EntitiesFileUnchecked {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(try_from = "EntityItemUnchecked")]
+#[serde(tag = "entity_type", rename_all = "snake_case")]
 enum EntityItem {
     Numeric(EntityWithConfig<NumericConfig>),
     Alphanumeric(EntityWithConfig<AlphanumericConfig>),
+    #[serde(rename = "enum")]
     Enum(EntityWithConfig<EnumConfig>),
     Date(EntityWithConfig<DateConfig>),
     PhoneNumber(EntityWithConfig<PhoneNumberConfig>),
@@ -136,122 +135,22 @@ impl EntityItem {
 }
 
 #[derive(Debug, Deserialize)]
-struct EntityItemUnchecked {
-    name: NonEmptyString,
-    entity_type: EntityType,
-    #[serde(default)]
-    description: Option<NoEdgeWhitespace>,
-    #[serde(default)]
-    config: Value,
-}
-
-impl TryFrom<EntityItemUnchecked> for EntityItem {
-    type Error = String;
-
-    fn try_from(raw: EntityItemUnchecked) -> Result<Self, Self::Error> {
-        match raw.entity_type {
-            EntityType::Numeric => parse_entity_config(raw, EntityItem::Numeric),
-            EntityType::Alphanumeric => parse_entity_config(raw, EntityItem::Alphanumeric),
-            EntityType::Enum => parse_entity_config(raw, EntityItem::Enum),
-            EntityType::Date => parse_entity_config(raw, EntityItem::Date),
-            EntityType::PhoneNumber => parse_entity_config(raw, EntityItem::PhoneNumber),
-            EntityType::Time => parse_entity_config(raw, EntityItem::Time),
-            EntityType::Address => Ok(EntityItem::Address(EntityWithoutConfig {
-                name: raw.name,
-                description: raw.description,
-            })),
-            EntityType::FreeText => Ok(EntityItem::FreeText(EntityWithoutConfig {
-                name: raw.name,
-                description: raw.description,
-            })),
-            EntityType::NameConfig => Ok(EntityItem::NameConfig(EntityWithoutConfig {
-                name: raw.name,
-                description: raw.description,
-            })),
-        }
-    }
-}
-
-fn parse_entity_config<T, F>(raw: EntityItemUnchecked, build: F) -> Result<EntityItem, String>
-where
-    T: Default + for<'de> Deserialize<'de>,
-    F: FnOnce(EntityWithConfig<T>) -> EntityItem,
-{
-    let config = if matches!(raw.config, Value::Null) {
-        T::default()
-    } else {
-        serde_yaml_ng::from_value::<T>(raw.config).map_err(|error| error.to_string())?
-    };
-    Ok(build(EntityWithConfig {
-        name: raw.name,
-        description: raw.description,
-        config,
-    }))
-}
-
-#[derive(Debug)]
+#[serde(bound(deserialize = "T: Default + Deserialize<'de>"))]
 #[allow(dead_code)]
 struct EntityWithConfig<T> {
     name: NonEmptyString,
+    #[serde(default)]
     description: Option<NoEdgeWhitespace>,
+    #[serde(default, deserialize_with = "default_if_null")]
     config: T,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct EntityWithoutConfig {
     name: NonEmptyString,
+    #[serde(default)]
     description: Option<NoEdgeWhitespace>,
-}
-
-#[derive(Debug)]
-enum EntityType {
-    Numeric,
-    Alphanumeric,
-    Enum,
-    Date,
-    PhoneNumber,
-    Time,
-    Address,
-    FreeText,
-    NameConfig,
-}
-
-impl<'de> Deserialize<'de> for EntityType {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct EntityTypeVisitor;
-
-        impl Visitor<'_> for EntityTypeVisitor {
-            type Value = EntityType;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a supported entity_type")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: DeError,
-            {
-                match value {
-                    "numeric" => Ok(EntityType::Numeric),
-                    "alphanumeric" => Ok(EntityType::Alphanumeric),
-                    "enum" => Ok(EntityType::Enum),
-                    "date" => Ok(EntityType::Date),
-                    "phone_number" => Ok(EntityType::PhoneNumber),
-                    "time" => Ok(EntityType::Time),
-                    "address" => Ok(EntityType::Address),
-                    "free_text" => Ok(EntityType::FreeText),
-                    "name_config" => Ok(EntityType::NameConfig),
-                    _ => Err(E::custom(format!("unsupported entity_type '{value}'."))),
-                }
-            }
-        }
-
-        deserializer.deserialize_str(EntityTypeVisitor)
-    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -334,7 +233,7 @@ entities:
         assert!(
             bad_type
                 .iter()
-                .any(|error| error.contains("unsupported entity_type 'unsupported'"))
+                .any(|error| error.contains("unknown variant `unsupported`"))
         );
 
         let padded_description = validation_errors(
@@ -379,5 +278,15 @@ entities:
                 .iter()
                 .any(|error| error.contains("invalid type: string \"one\", expected a sequence"))
         );
+
+        let null_config = validation_errors(
+            r#"
+entities:
+  - name: Amount
+    entity_type: numeric
+    config: null
+"#,
+        );
+        assert!(null_config.is_empty());
     }
 }

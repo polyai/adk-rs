@@ -3,9 +3,7 @@ use crate::local_parse::{ParseLocalResource, ResourceParseErrors, deserialize_ya
 use crate::local_resources::is_file;
 use crate::resource_utils::rel_under_root;
 use serde::Deserialize;
-use serde::de::{Error as DeError, Visitor};
 use serde_yaml_ng::Value;
-use std::fmt;
 use std::path::Path;
 
 // poly/resources/asr_settings.py
@@ -49,7 +47,8 @@ pub(crate) struct AsrSettingsFile {
     interaction_style: InteractionStyle,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
 enum InteractionStyle {
     #[default]
     Balanced,
@@ -57,41 +56,6 @@ enum InteractionStyle {
     Swift,
     Sonic,
     Turbo,
-}
-
-impl<'de> Deserialize<'de> for InteractionStyle {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct InteractionStyleVisitor;
-
-        impl Visitor<'_> for InteractionStyleVisitor {
-            type Value = InteractionStyle;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a valid ASR interaction style")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: DeError,
-            {
-                match value {
-                    "balanced" => Ok(InteractionStyle::Balanced),
-                    "precise" => Ok(InteractionStyle::Precise),
-                    "swift" => Ok(InteractionStyle::Swift),
-                    "sonic" => Ok(InteractionStyle::Sonic),
-                    "turbo" => Ok(InteractionStyle::Turbo),
-                    _ => Err(E::custom(format!(
-                        "Invalid interaction_style '{value}'. Must be one of: balanced, precise, swift, sonic, turbo"
-                    ))),
-                }
-            }
-        }
-
-        deserializer.deserialize_str(InteractionStyleVisitor)
-    }
 }
 
 #[cfg(test)]
@@ -114,7 +78,7 @@ mod tests {
         assert!(
             errors
                 .iter()
-                .any(|error| error.contains("Invalid interaction_style 'warp'"))
+                .any(|error| error.contains("unknown variant `warp`"))
         );
     }
 }

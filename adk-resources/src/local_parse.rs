@@ -68,6 +68,14 @@ where
         .map_err(|error| ResourceParseErrors::single(path, error))
 }
 
+pub(crate) fn default_if_null<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct NonEmptyString(String);
 

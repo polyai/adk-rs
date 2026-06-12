@@ -6,9 +6,7 @@ use crate::local_parse::{
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde::Deserialize;
-use serde::de::{Error as DeError, Visitor};
 use serde_yaml_ng::Value;
-use std::fmt;
 use std::path::Path;
 
 // poly/resources/transcript_correction.py
@@ -146,45 +144,13 @@ struct RegularExpressionRule {
     replacement_type: ReplacementType,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
 enum ReplacementType {
     #[default]
     Full,
     Partial,
     Substring,
-}
-
-impl<'de> Deserialize<'de> for ReplacementType {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct ReplacementTypeVisitor;
-
-        impl Visitor<'_> for ReplacementTypeVisitor {
-            type Value = ReplacementType;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("full, partial, or substring")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: DeError,
-            {
-                match value {
-                    "full" => Ok(ReplacementType::Full),
-                    "partial" => Ok(ReplacementType::Partial),
-                    "substring" => Ok(ReplacementType::Substring),
-                    _ => Err(E::custom(format!(
-                        "Invalid replacement_type '{value}'. Must be one of: full, partial, substring"
-                    ))),
-                }
-            }
-        }
-
-        deserializer.deserialize_str(ReplacementTypeVisitor)
-    }
 }
 
 #[cfg(test)]
@@ -227,7 +193,7 @@ corrections:
         assert!(
             invalid_replacement_type
                 .iter()
-                .any(|error| error.contains("Invalid replacement_type 'typo'"))
+                .any(|error| error.contains("unknown variant `typo`"))
         );
 
         let empty_rules = validation_errors(
