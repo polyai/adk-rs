@@ -51,7 +51,7 @@ fn local_correction_from_projection(
         .flatten()
         .map(local_regex_from_projection)
         .collect::<Result<Vec<_>, _>>()?;
-    TranscriptCorrectionItem::new(
+    TranscriptCorrectionItem::from_projection(
         name.to_string(),
         json_str(correction, &["description"]),
         regular_expressions,

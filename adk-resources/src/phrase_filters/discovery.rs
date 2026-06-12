@@ -7,12 +7,12 @@ use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/phrase_filter.py
-/// Validation parity: TODO(DEVP-319) audit Python PhraseFilter.validate().
+/// Validation parity: implemented against Python PhraseFilter.validate().
 pub(crate) struct PhraseFilter;
 impl DiscoverResources for PhraseFilter {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
         path: "voice/response_control/phrase_filtering.yaml",
-        yaml_path: &["phrase_filters"],
+        yaml_path: &["phrase_filtering"],
     };
 
     fn discover_resources<Fs: adk_io::FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String> {
@@ -83,6 +83,14 @@ mod tests {
 
     #[test]
     fn validates_python_phrase_filter_local_required_fields() {
+        assert_eq!(
+            PhraseFilter::LOCAL_PATH,
+            LocalResourcePath::InFile {
+                path: "voice/response_control/phrase_filtering.yaml",
+                yaml_path: &["phrase_filtering"],
+            }
+        );
+
         let missing_name = validation_errors(
             r#"
 phrase_filtering:

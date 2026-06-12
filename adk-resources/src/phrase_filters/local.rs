@@ -41,7 +41,7 @@ pub(crate) struct PhraseFilterItem {
 }
 
 impl PhraseFilterItem {
-    pub(crate) fn new(
+    pub(crate) fn from_projection(
         name: String,
         description: String,
         regular_expressions: Vec<String>,
@@ -49,9 +49,6 @@ impl PhraseFilterItem {
         language_code: String,
         function: Option<String>,
     ) -> Result<Self, String> {
-        if regular_expressions.is_empty() {
-            return Err("At least one regular expression is required".to_string());
-        }
         Ok(Self {
             name: NonEmptyString::new(name)?,
             description: description.trim().to_string(),

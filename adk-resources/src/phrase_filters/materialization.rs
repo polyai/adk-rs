@@ -67,7 +67,7 @@ fn local_phrase_filter_from_projection(
     let Some(name) = phrase_filter.get("title").and_then(Value::as_str) else {
         return Ok(None);
     };
-    PhraseFilterItem::new(
+    PhraseFilterItem::from_projection(
         name.to_string(),
         json_str(phrase_filter, "description"),
         phrase_filter

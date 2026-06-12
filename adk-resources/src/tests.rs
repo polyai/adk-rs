@@ -1366,6 +1366,45 @@ fn projection_materializes_broad_resources_without_python_omitted_metadata() {
 }
 
 #[test]
+fn projection_materializes_backend_incomplete_regex_collections_like_python() {
+    let projection = serde_json::json!({
+        "transcriptCorrections": {"transcriptCorrections": {"entities": {
+            "correction-empty": {
+                "name": "Empty correction",
+                "description": "",
+                "regularExpressions": []
+            }
+        }}},
+        "stopKeywords": {"filters": {"entities": {
+            "stop-empty": {
+                "title": "Empty stop keyword",
+                "description": "",
+                "regularExpressions": [],
+                "sayPhrase": false,
+                "languageCode": ""
+            }
+        }}}
+    });
+
+    let map = projection_to_resource_map(&projection).expect("map");
+    let transcript_corrections = map
+        .get("voice/speech_recognition/transcript_corrections.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("transcript corrections");
+    assert!(transcript_corrections.contains("name: Empty correction"));
+    assert!(transcript_corrections.contains("regular_expressions: []"));
+
+    let phrase_filtering = map
+        .get("voice/response_control/phrase_filtering.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("phrase filtering");
+    assert!(phrase_filtering.contains("name: Empty stop keyword"));
+    assert!(phrase_filtering.contains("regular_expressions: []"));
+}
+
+#[test]
 fn rules_references_from_projection_accepts_camel_and_snake_global_functions() {
     let cases = [
         (
