@@ -20,7 +20,7 @@ pub(crate) struct HandoffsFile {
 }
 
 impl HandoffsFile {
-    fn try_from_unchecked(path: &str, raw: HandoffsFileUnchecked) -> ResourceParseResult<Self> {
+    fn try_from_raw(path: &str, raw: RawHandoffsFile) -> ResourceParseResult<Self> {
         let mut errors = ResourceParseErrors::new();
         for duplicate in duplicate_names(raw.handoffs.iter().map(|handoff| handoff.name())) {
             errors.push(
@@ -54,8 +54,8 @@ impl HandoffsFile {
 }
 
 pub(crate) fn parse_handoffs_file(path: &str, yaml: &Value) -> ResourceParseResult<HandoffsFile> {
-    let raw = deserialize_yaml::<HandoffsFileUnchecked>(path, yaml)?;
-    HandoffsFile::try_from_unchecked(path, raw)
+    let raw = deserialize_yaml::<RawHandoffsFile>(path, yaml)?;
+    HandoffsFile::try_from_raw(path, raw)
 }
 
 pub(crate) fn parse_handoffs_content(
@@ -65,8 +65,7 @@ pub(crate) fn parse_handoffs_content(
     let yaml = serde_yaml_ng::from_str::<Value>(content)
         .map_err(|error| ResourceParseErrors::single(path, error))?;
     if path == HANDOFFS_FILE_PATH {
-        return deserialize_yaml::<HandoffsFileUnchecked>(path, &yaml)
-            .map(|file| file.into_handoffs());
+        return deserialize_yaml::<RawHandoffsFile>(path, &yaml).map(|file| file.into_handoffs());
     }
     if path.starts_with(HANDOFF_ITEM_PREFIX) {
         return deserialize_yaml::<Handoff>(path, &yaml).map(|handoff| vec![handoff]);
@@ -75,12 +74,12 @@ pub(crate) fn parse_handoffs_content(
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct HandoffsFileUnchecked {
+struct RawHandoffsFile {
     #[serde(default)]
     handoffs: Vec<Handoff>,
 }
 
-impl HandoffsFileUnchecked {
+impl RawHandoffsFile {
     fn into_handoffs(self) -> Vec<Handoff> {
         self.handoffs
     }
@@ -127,7 +126,7 @@ impl Handoff {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(try_from = "SipConfigUnchecked")]
+#[serde(try_from = "RawSipConfig")]
 struct SipConfig {
     method: SipMethod,
     phone_number: String,
@@ -160,7 +159,7 @@ impl SipConfig {
 }
 
 #[derive(Debug, Deserialize)]
-struct SipConfigUnchecked {
+struct RawSipConfig {
     #[serde(default)]
     method: SipMethod,
     #[serde(default, deserialize_with = "string_or_default")]
@@ -171,10 +170,10 @@ struct SipConfigUnchecked {
     outbound_encryption: Option<InviteEncryption>,
 }
 
-impl TryFrom<SipConfigUnchecked> for SipConfig {
+impl TryFrom<RawSipConfig> for SipConfig {
     type Error = String;
 
-    fn try_from(raw: SipConfigUnchecked) -> Result<Self, Self::Error> {
+    fn try_from(raw: RawSipConfig) -> Result<Self, Self::Error> {
         if matches!(raw.method, SipMethod::Invite) && raw.outbound_encryption.is_none() {
             return Err(
                 "Invalid encryption method ''. Must be one of: TLS/SRTP, UDP/RTP".to_string(),
