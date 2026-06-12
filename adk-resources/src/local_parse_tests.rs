@@ -1,6 +1,6 @@
 use crate::asr_settings::AsrSettings;
 use crate::entities::Entity;
-use crate::handoffs::Handoff;
+use crate::handoffs::HandoffResource;
 use crate::local_parse::ParseLocalResource;
 use crate::transcript_corrections::TranscriptCorrection;
 use crate::variants::{Variant, VariantAttribute};
@@ -28,7 +28,7 @@ fn local_parse_matrix_covers_resource_scoped_validation_rules() {
         "unknown variant `warp`",
     );
 
-    assert_parse_error::<Handoff>(
+    assert_parse_error::<HandoffResource>(
         "config/handoffs.yaml",
         r#"
 handoffs:
@@ -39,7 +39,7 @@ handoffs:
 "#,
         "Invalid SIP method 'transfer'",
     );
-    assert_parse_error::<Handoff>(
+    assert_parse_error::<HandoffResource>(
         "config/handoffs.yaml",
         r#"
 handoffs:

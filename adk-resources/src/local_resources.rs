@@ -28,7 +28,7 @@ pub(crate) use crate::entities::Entity;
 pub(crate) use crate::experimental_config::ExperimentalConfig;
 pub(crate) use crate::flows::{FlowConfig, FlowStep, FunctionStep};
 pub(crate) use crate::functions::Function;
-pub(crate) use crate::handoffs::Handoff;
+pub(crate) use crate::handoffs::HandoffResource;
 pub(crate) use crate::keyphrase_boosting::KeyphraseBoosting;
 pub(crate) use crate::languages::{AdditionalLanguage, DefaultLanguage};
 pub(crate) use crate::phrase_filters::PhraseFilter;

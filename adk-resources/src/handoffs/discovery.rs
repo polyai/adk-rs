@@ -8,8 +8,8 @@ use std::path::Path;
 
 // poly/resources/handoff.py
 /// Validation parity: implemented against Python Handoff.validate() and Handoff.validate_collection().
-pub(crate) struct Handoff;
-impl DiscoverResources for Handoff {
+pub(crate) struct HandoffResource;
+impl DiscoverResources for HandoffResource {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
         path: HANDOFFS_FILE_PATH,
         yaml_path: &["handoffs"],
@@ -55,11 +55,13 @@ impl DiscoverResources for Handoff {
 
 #[cfg(test)]
 pub(crate) fn append_parse_errors(yaml: &Value, errors: &mut Vec<String>) {
-    let path = Handoff::LOCAL_PATH.primary_path().expect("local file path");
-    <Handoff as ParseLocalResource>::append_parse_errors(path, yaml, errors);
+    let path = HandoffResource::LOCAL_PATH
+        .primary_path()
+        .expect("local file path");
+    <HandoffResource as ParseLocalResource>::append_parse_errors(path, yaml, errors);
 }
 
-impl ParseLocalResource for Handoff {
+impl ParseLocalResource for HandoffResource {
     type Parsed = HandoffsFile;
 
     fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {

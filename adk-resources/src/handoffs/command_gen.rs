@@ -1,4 +1,4 @@
-use crate::handoffs::local::{HANDOFFS_FILE_PATH, HandoffItem, parse_handoff_items_content};
+use crate::handoffs::local::{HANDOFFS_FILE_PATH, Handoff, parse_handoffs_content};
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
@@ -26,7 +26,7 @@ pub(crate) fn handoff_command_groups(
     let local_handoffs = local_handoff_resources(resources);
 
     {
-        let mut queue = HandoffItemQueue {
+        let mut queue = HandoffQueue {
             projection,
             remote: &remote,
             metadata,
@@ -36,7 +36,7 @@ pub(crate) fn handoff_command_groups(
         };
 
         for local in &local_handoffs {
-            if let Some(name) = queue.queue(&local.item, &local.resource_id) {
+            if let Some(name) = queue.queue(&local.handoff, &local.resource_id) {
                 changed_names.insert(name);
             }
         }
@@ -56,7 +56,7 @@ pub(crate) fn handoff_command_groups(
     let mut defaults: Vec<Command> = Vec::new();
     for local in &local_handoffs {
         queue_handoff_default_item(
-            &local.item,
+            &local.handoff,
             &local.resource_id,
             projection,
             &remote,
@@ -78,7 +78,7 @@ pub(crate) fn handoff_command_groups(
 
 struct LocalHandoffResource {
     resource_id: String,
-    item: HandoffItem,
+    handoff: Handoff,
 }
 
 fn local_handoff_resources(resources: &ResourceMap) -> Vec<LocalHandoffResource> {
@@ -90,7 +90,7 @@ fn local_handoff_resources(resources: &ResourceMap) -> Vec<LocalHandoffResource>
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(items) = parse_handoff_items_content(path, content) else {
+        let Ok(parsed_handoffs) = parse_handoffs_content(path, content) else {
             continue;
         };
         let resource_id = if path == HANDOFFS_FILE_PATH {
@@ -98,10 +98,14 @@ fn local_handoff_resources(resources: &ResourceMap) -> Vec<LocalHandoffResource>
         } else {
             resource.resource_id.as_str()
         };
-        handoffs.extend(items.into_iter().map(|item| LocalHandoffResource {
-            resource_id: resource_id.to_string(),
-            item,
-        }));
+        handoffs.extend(
+            parsed_handoffs
+                .into_iter()
+                .map(|handoff| LocalHandoffResource {
+                    resource_id: resource_id.to_string(),
+                    handoff,
+                }),
+        );
     }
     handoffs
 }
@@ -135,7 +139,7 @@ fn json_str(value: &JsonValue, key: &str) -> String {
         .to_string()
 }
 
-struct HandoffItemQueue<'a> {
+struct HandoffQueue<'a> {
     projection: &'a JsonValue,
     remote: &'a HashMap<String, String>,
     metadata: &'a Option<Metadata>,
@@ -144,9 +148,9 @@ struct HandoffItemQueue<'a> {
     updates: &'a mut Vec<Command>,
 }
 
-impl HandoffItemQueue<'_> {
-    fn queue(&mut self, item: &HandoffItem, resource_id: &str) -> Option<String> {
-        let name = item.name().to_string();
+impl HandoffQueue<'_> {
+    fn queue(&mut self, handoff: &Handoff, resource_id: &str) -> Option<String> {
+        let name = handoff.name().to_string();
         self.local_names.insert(name.clone());
         let id = self
             .remote
@@ -156,15 +160,15 @@ impl HandoffItemQueue<'_> {
                 (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
             })
             .unwrap_or_else(|| stable_resource_id("HANDOFFS", &name, HANDOFFS_FILE_PATH));
-        let description = item.description().to_string();
-        let sip_config = item.sip_config_proto();
-        let sip_headers = item.sip_headers_proto();
+        let description = handoff.description().to_string();
+        let sip_config = handoff.sip_config_proto();
+        let sip_headers = handoff.sip_headers_proto();
         if self.remote.contains_key(&name) {
             if let Some(remote) = self.remote.get(&name).and_then(|id| {
                 extract_entities_map(self.projection, &["handoff", "handoffs", "entities"])
                     .get(id)
                     .cloned()
-            }) && handoff_matches_remote(item, &remote)
+            }) && handoff_matches_remote(handoff, &remote)
             {
                 return None;
             }
@@ -204,7 +208,7 @@ impl HandoffItemQueue<'_> {
 }
 
 fn queue_handoff_default_item(
-    item: &HandoffItem,
+    handoff: &Handoff,
     resource_id: &str,
     projection: &JsonValue,
     remote_handoffs: &HashMap<String, String>,
@@ -212,10 +216,10 @@ fn queue_handoff_default_item(
     metadata: &Option<Metadata>,
     defaults: &mut Vec<Command>,
 ) {
-    if !item.is_default() {
+    if !handoff.is_default() {
         return;
     }
-    let name = item.name();
+    let name = handoff.name();
     if let Some(remote_id) = remote_handoffs.get(name)
         && let Some(remote) = extract_entities_map(projection, &["handoff", "handoffs", "entities"])
             .get(remote_id)
@@ -244,7 +248,7 @@ fn queue_handoff_default_item(
     );
 }
 
-fn handoff_matches_remote(local: &HandoffItem, remote: &JsonValue) -> bool {
+fn handoff_matches_remote(local: &Handoff, remote: &JsonValue) -> bool {
     local.name() == remote.get("name").and_then(JsonValue::as_str).unwrap_or("")
         && local.description()
             == remote

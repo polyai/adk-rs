@@ -16,7 +16,7 @@ pub(crate) const HANDOFF_ITEM_PREFIX: &str = "config/handoffs.yaml/handoffs/";
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub(crate) struct HandoffsFile {
-    handoffs: Vec<HandoffItem>,
+    handoffs: Vec<Handoff>,
 }
 
 impl HandoffsFile {
@@ -58,10 +58,10 @@ pub(crate) fn parse_handoffs_file(path: &str, yaml: &Value) -> ResourceParseResu
     HandoffsFile::try_from_unchecked(path, raw)
 }
 
-pub(crate) fn parse_handoff_items_content(
+pub(crate) fn parse_handoffs_content(
     path: &str,
     content: &str,
-) -> ResourceParseResult<Vec<HandoffItem>> {
+) -> ResourceParseResult<Vec<Handoff>> {
     let yaml = serde_yaml_ng::from_str::<Value>(content)
         .map_err(|error| ResourceParseErrors::single(path, error))?;
     if path == HANDOFFS_FILE_PATH {
@@ -69,7 +69,7 @@ pub(crate) fn parse_handoff_items_content(
             .map(|file| file.into_handoffs());
     }
     if path.starts_with(HANDOFF_ITEM_PREFIX) {
-        return deserialize_yaml::<HandoffItem>(path, &yaml).map(|handoff| vec![handoff]);
+        return deserialize_yaml::<Handoff>(path, &yaml).map(|handoff| vec![handoff]);
     }
     Ok(Vec::new())
 }
@@ -77,17 +77,17 @@ pub(crate) fn parse_handoff_items_content(
 #[derive(Debug, Clone, Deserialize)]
 struct HandoffsFileUnchecked {
     #[serde(default)]
-    handoffs: Vec<HandoffItem>,
+    handoffs: Vec<Handoff>,
 }
 
 impl HandoffsFileUnchecked {
-    fn into_handoffs(self) -> Vec<HandoffItem> {
+    fn into_handoffs(self) -> Vec<Handoff> {
         self.handoffs
     }
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct HandoffItem {
+pub(crate) struct Handoff {
     name: NonEmptyString,
     #[serde(default, deserialize_with = "string_or_default")]
     description: String,
@@ -99,7 +99,7 @@ pub(crate) struct HandoffItem {
     sip_headers: Vec<LocalSipHeader>,
 }
 
-impl HandoffItem {
+impl Handoff {
     pub(crate) fn name(&self) -> &str {
         self.name.as_str()
     }
