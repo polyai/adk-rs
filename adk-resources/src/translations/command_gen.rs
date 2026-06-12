@@ -1,9 +1,9 @@
+use super::discovery::TranslationItem as LocalTranslationItem;
 use crate::ids::stable_resource_id;
-use crate::push_command_inputs::{
-    SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence, yaml_string_map,
-};
+use crate::local_parse::ParseLocalResource;
+use crate::push_command;
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};
 use crate::specs::TRANSLATIONS;
-use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::translations::{
@@ -126,22 +126,23 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
 }
 
 fn local_translation_items(yaml: &YamlValue) -> Vec<TranslationItem> {
-    yaml_sequence(yaml, TRANSLATIONS.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let translation_key = yaml_str(item, "name");
-            if translation_key.is_empty() {
-                return None;
-            }
-            Some(TranslationItem {
-                id: String::new(),
-                translation_key,
-                translations: yaml_string_map(item.get("translations"))
-                    .into_iter()
-                    .collect(),
-            })
-        })
+    let Ok(file) =
+        crate::translations::Translation::parse_local_yaml(TRANSLATIONS.file.file_path, yaml)
+    else {
+        return Vec::new();
+    };
+    file.translations
+        .iter()
+        .map(local_translation_item)
         .collect()
+}
+
+fn local_translation_item(item: &LocalTranslationItem) -> TranslationItem {
+    TranslationItem {
+        id: String::new(),
+        translation_key: item.name().to_string(),
+        translations: item.translations().clone(),
+    }
 }
 
 fn remote_translation_items(projection: &JsonValue) -> Vec<TranslationItem> {
@@ -214,4 +215,31 @@ fn update_entry_json(entry: &UpdateEntry) -> JsonValue {
         "text": entry.text.clone().unwrap_or_default(),
         "is_auto_translated": entry.is_auto_translated.unwrap_or(false),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_translation_items_use_typed_file_model() {
+        let yaml = serde_yaml_ng::from_str(
+            r#"
+translations:
+  - name: greeting
+    translations:
+      fr-FR: Bonjour
+      en-US: Hello
+"#,
+        )
+        .expect("translations yaml");
+
+        let items = local_translation_items(&yaml);
+
+        assert_eq!(items[0].translation_key, "greeting");
+        assert_eq!(
+            items[0].translations.keys().cloned().collect::<Vec<_>>(),
+            vec!["en-US".to_string(), "fr-FR".to_string()]
+        );
+    }
 }

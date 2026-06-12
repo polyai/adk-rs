@@ -72,18 +72,26 @@ impl ParseLocalResource for KeyphraseBoosting {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct KeyphraseBoostingFile {
     #[serde(default)]
-    keyphrases: Vec<KeyphraseItem>,
+    pub(crate) keyphrases: Vec<KeyphraseItem>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct KeyphraseItem {
+pub(crate) struct KeyphraseItem {
     keyphrase: NonEmptyString,
     #[serde(default)]
     level: KeyphraseLevel,
+}
+
+impl KeyphraseItem {
+    pub(crate) fn keyphrase(&self) -> &str {
+        self.keyphrase.as_str()
+    }
+
+    pub(crate) fn level(&self) -> &'static str {
+        self.level.as_str()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -107,6 +115,16 @@ impl<'de> Deserialize<'de> for KeyphraseLevel {
             _ => Err(serde::de::Error::custom(format!(
                 "Invalid level '{value}'. Must be one of: default, boosted, maximum"
             ))),
+        }
+    }
+}
+
+impl KeyphraseLevel {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Boosted => "boosted",
+            Self::Maximum => "maximum",
         }
     }
 }

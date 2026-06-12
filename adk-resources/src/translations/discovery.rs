@@ -71,9 +71,8 @@ impl ParseLocalResource for Translation {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(crate) struct TranslationsFile {
-    translations: Vec<TranslationItem>,
+    pub(crate) translations: Vec<TranslationItem>,
 }
 
 impl TranslationsFile {
@@ -102,11 +101,20 @@ struct TranslationsFileUnchecked {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct TranslationItem {
+pub(crate) struct TranslationItem {
     name: NonEmptyString,
     #[serde(deserialize_with = "translation_values")]
     translations: BTreeMap<String, String>,
+}
+
+impl TranslationItem {
+    pub(crate) fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub(crate) fn translations(&self) -> &BTreeMap<String, String> {
+        &self.translations
+    }
 }
 
 fn translation_values<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>

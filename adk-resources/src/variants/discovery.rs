@@ -1,7 +1,7 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_parse::{
     NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
-    duplicate_names, non_empty_map,
+    duplicate_names,
 };
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
@@ -121,8 +121,8 @@ impl ParseLocalResource for Variant {
     type Parsed = VariantDefinitionsFile;
 
     fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
-        let raw = deserialize_yaml::<VariantAttributesFileUnchecked>(path, yaml)?;
-        VariantDefinitionsFile::try_from_unchecked(path, raw)
+        let raw = parse_variant_attributes_file(path, yaml)?;
+        VariantDefinitionsFile::try_from_file(path, raw)
     }
 }
 
@@ -130,8 +130,8 @@ impl ParseLocalResource for VariantAttribute {
     type Parsed = VariantAttributeDefinitionsFile;
 
     fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
-        let raw = deserialize_yaml::<VariantAttributesFileUnchecked>(path, yaml)?;
-        VariantAttributeDefinitionsFile::try_from_unchecked(path, raw)
+        let raw = parse_variant_attributes_file(path, yaml)?;
+        VariantAttributeDefinitionsFile::try_from_file(path, raw)
     }
 }
 
@@ -142,10 +142,7 @@ pub(crate) struct VariantDefinitionsFile {
 }
 
 impl VariantDefinitionsFile {
-    fn try_from_unchecked(
-        path: &str,
-        raw: VariantAttributesFileUnchecked,
-    ) -> ResourceParseResult<Self> {
+    fn try_from_file(path: &str, raw: VariantAttributesFile) -> ResourceParseResult<Self> {
         let mut errors = ResourceParseErrors::new();
         for duplicate in duplicate_names(raw.variants.iter().map(|variant| variant.name.as_str())) {
             errors.push(
@@ -184,10 +181,7 @@ pub(crate) struct VariantAttributeDefinitionsFile {
 }
 
 impl VariantAttributeDefinitionsFile {
-    fn try_from_unchecked(
-        path: &str,
-        raw: VariantAttributesFileUnchecked,
-    ) -> ResourceParseResult<Self> {
+    fn try_from_file(path: &str, raw: VariantAttributesFile) -> ResourceParseResult<Self> {
         let mut errors = ResourceParseErrors::new();
         let known_variants = raw
             .variants
@@ -199,6 +193,9 @@ impl VariantAttributeDefinitionsFile {
                 "{path}/attributes/{}",
                 clean_name(attribute.name.as_str(), false)
             );
+            if attribute.values.is_empty() {
+                errors.push(&error_path, "Mappings are required");
+            }
             let attribute_variants = attribute.values.keys().cloned().collect::<BTreeSet<_>>();
             let additional_variants = attribute_variants
                 .difference(&known_variants)
@@ -238,34 +235,52 @@ impl VariantAttributeDefinitionsFile {
 }
 
 #[derive(Debug, Deserialize)]
-struct VariantAttributesFileUnchecked {
+pub(crate) struct VariantAttributesFile {
     #[serde(default)]
-    variants: Vec<VariantItem>,
+    pub(crate) variants: Vec<VariantItem>,
     #[serde(default)]
-    attributes: Vec<VariantAttributeItem>,
+    pub(crate) attributes: Vec<VariantAttributeItem>,
+}
+
+pub(crate) fn parse_variant_attributes_file(
+    path: &str,
+    yaml: &Value,
+) -> ResourceParseResult<VariantAttributesFile> {
+    deserialize_yaml(path, yaml)
 }
 
 #[derive(Debug, Deserialize)]
-struct VariantItem {
+pub(crate) struct VariantItem {
     name: NonEmptyString,
     #[serde(default)]
     is_default: bool,
 }
 
+impl VariantItem {
+    pub(crate) fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub(crate) fn is_default(&self) -> bool {
+        self.is_default
+    }
+}
+
 #[derive(Debug, Deserialize)]
-struct VariantAttributeItem {
+pub(crate) struct VariantAttributeItem {
     name: NonEmptyString,
-    #[serde(deserialize_with = "variant_attribute_values")]
+    #[serde(default)]
     values: std::collections::BTreeMap<String, String>,
 }
 
-fn variant_attribute_values<'de, D>(
-    deserializer: D,
-) -> Result<std::collections::BTreeMap<String, String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    non_empty_map(deserializer, "Mappings are required")
+impl VariantAttributeItem {
+    pub(crate) fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub(crate) fn values(&self) -> &std::collections::BTreeMap<String, String> {
+        &self.values
+    }
 }
 
 fn quoted_set(values: &[String]) -> String {

@@ -101,9 +101,8 @@ impl ParseLocalResource for TranscriptCorrection {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(crate) struct TranscriptCorrectionsFile {
-    corrections: Vec<TranscriptCorrectionItem>,
+    pub(crate) corrections: Vec<TranscriptCorrectionItem>,
 }
 
 impl TranscriptCorrectionsFile {
@@ -168,11 +167,26 @@ fn transcript_correction_item_errors(path: &str, yaml: &Value) -> ResourceParseE
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct TranscriptCorrectionItem {
+pub(crate) struct TranscriptCorrectionItem {
     name: NonEmptyString,
+    #[serde(default, deserialize_with = "deserialize_trimmed_string")]
+    description: String,
     #[serde(deserialize_with = "regular_expression_rules")]
     regular_expressions: Vec<RegularExpressionRule>,
+}
+
+impl TranscriptCorrectionItem {
+    pub(crate) fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub(crate) fn description(&self) -> &str {
+        &self.description
+    }
+
+    pub(crate) fn regular_expressions(&self) -> &[RegularExpressionRule] {
+        &self.regular_expressions
+    }
 }
 
 fn regular_expression_rules<'de, D>(deserializer: D) -> Result<Vec<RegularExpressionRule>, D::Error>
@@ -186,11 +200,26 @@ where
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct RegularExpressionRule {
+pub(crate) struct RegularExpressionRule {
     regular_expression: NonEmptyString,
     #[serde(default)]
+    replacement: String,
+    #[serde(default)]
     replacement_type: ReplacementType,
+}
+
+impl RegularExpressionRule {
+    pub(crate) fn regular_expression(&self) -> &str {
+        self.regular_expression.as_str()
+    }
+
+    pub(crate) fn replacement(&self) -> &str {
+        &self.replacement
+    }
+
+    pub(crate) fn backend_replacement_type(&self) -> &'static str {
+        self.replacement_type.backend_str()
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -200,6 +229,25 @@ enum ReplacementType {
     Full,
     Partial,
     Substring,
+}
+
+impl ReplacementType {
+    fn backend_str(&self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Partial | Self::Substring => "partial",
+        }
+    }
+}
+
+fn deserialize_trimmed_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?
+        .unwrap_or_default()
+        .trim()
+        .to_string())
 }
 
 #[cfg(test)]

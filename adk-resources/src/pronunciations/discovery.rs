@@ -65,16 +65,60 @@ impl ParseLocalResource for Pronunciation {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct PronunciationsFile {
     #[serde(default)]
-    pronunciations: Vec<PronunciationItem>,
+    pub(crate) pronunciations: Vec<PronunciationItem>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct PronunciationItem {
+pub(crate) struct PronunciationItem {
     regex: NonEmptyString,
+    #[serde(default)]
+    replacement: String,
+    #[serde(default)]
+    case_sensitive: bool,
+    #[serde(default)]
+    language_code: String,
+    #[serde(default, deserialize_with = "deserialize_trimmed_string")]
+    description: String,
+    #[serde(default)]
+    name: String,
+}
+
+impl PronunciationItem {
+    pub(crate) fn regex(&self) -> &str {
+        self.regex.as_str()
+    }
+
+    pub(crate) fn replacement(&self) -> &str {
+        &self.replacement
+    }
+
+    pub(crate) fn case_sensitive(&self) -> bool {
+        self.case_sensitive
+    }
+
+    pub(crate) fn language_code(&self) -> &str {
+        &self.language_code
+    }
+
+    pub(crate) fn description(&self) -> &str {
+        &self.description
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+fn deserialize_trimmed_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?
+        .unwrap_or_default()
+        .trim()
+        .to_string())
 }
 
 #[cfg(test)]

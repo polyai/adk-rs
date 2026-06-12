@@ -83,7 +83,7 @@ fn stop_keyword_payload_summaries_cover_optional_defaults_and_refs() {
 }
 
 #[test]
-fn stop_keyword_references_include_global_functions_map() {
+fn stop_keyword_references_are_derived_from_function_field() {
     let pf_yaml = r#"
 name: HangUp
 description: end
@@ -91,10 +91,7 @@ regular_expressions:
   - "^bye$"
 say_phrase: false
 language_code: en-US
-references:
-  global_functions:
-    fn-one: true
-    fn-two: false
+function: fn-one
 "#;
     let resources = map_with(vec![(
         "voice/response_control/phrase_filtering.yaml/phrase_filtering/HangUp".into(),
@@ -116,7 +113,6 @@ references:
         Some(CommandPayload::StopKeywordsCreate(msg)) => {
             let refs = msg.references.as_ref().expect("references");
             assert_eq!(refs.global_functions.get("fn-one"), Some(&true));
-            assert_eq!(refs.global_functions.get("fn-two"), Some(&false));
         }
         _ => panic!("unexpected payload variant for stop keyword create command"),
     }
