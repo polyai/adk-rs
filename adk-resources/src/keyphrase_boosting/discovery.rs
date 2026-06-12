@@ -1,10 +1,8 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_parse::{
-    NonEmptyString, ParseLocalResource, ResourceParseErrors, deserialize_yaml,
-};
+use crate::keyphrase_boosting::local::{KeyphraseBoostingFile, parse_keyphrase_boosting_file};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
-use serde::Deserialize;
 use serde_yaml_ng::Value;
 use std::path::Path;
 
@@ -66,66 +64,8 @@ pub(crate) fn append_parse_errors(yaml: &Value, errors: &mut Vec<String>) {
 impl ParseLocalResource for KeyphraseBoosting {
     type Parsed = KeyphraseBoostingFile;
 
-    fn parse_local_yaml(path: &str, yaml: &Value) -> Result<Self::Parsed, ResourceParseErrors> {
-        deserialize_yaml(path, yaml)
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct KeyphraseBoostingFile {
-    #[serde(default)]
-    pub(crate) keyphrases: Vec<KeyphraseItem>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct KeyphraseItem {
-    keyphrase: NonEmptyString,
-    #[serde(default)]
-    level: KeyphraseLevel,
-}
-
-impl KeyphraseItem {
-    pub(crate) fn keyphrase(&self) -> &str {
-        self.keyphrase.as_str()
-    }
-
-    pub(crate) fn level(&self) -> &'static str {
-        self.level.as_str()
-    }
-}
-
-#[derive(Debug, Default)]
-enum KeyphraseLevel {
-    #[default]
-    Default,
-    Boosted,
-    Maximum,
-}
-
-impl<'de> Deserialize<'de> for KeyphraseLevel {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?.to_lowercase();
-        match value.as_str() {
-            "default" => Ok(Self::Default),
-            "boosted" => Ok(Self::Boosted),
-            "maximum" => Ok(Self::Maximum),
-            _ => Err(serde::de::Error::custom(format!(
-                "Invalid level '{value}'. Must be one of: default, boosted, maximum"
-            ))),
-        }
-    }
-}
-
-impl KeyphraseLevel {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::Boosted => "boosted",
-            Self::Maximum => "maximum",
-        }
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_keyphrase_boosting_file(path, yaml)
     }
 }
 

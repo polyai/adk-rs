@@ -2,6 +2,7 @@
 
 mod command_gen;
 mod discovery;
+mod local;
 mod materialization;
 
 pub(crate) use command_gen::{payload_json_summary, translation_lifecycle_commands};

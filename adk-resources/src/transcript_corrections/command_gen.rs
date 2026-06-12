@@ -1,12 +1,12 @@
-use super::discovery::{
-    RegularExpressionRule as LocalRegularExpressionRule,
-    TranscriptCorrectionItem as LocalTranscriptCorrectionItem,
-};
 use crate::ids::stable_resource_id;
 use crate::local_parse::ParseLocalResource;
 use crate::push_command;
 use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};
 use crate::specs::TRANSCRIPT_CORRECTIONS;
+use crate::transcript_corrections::local::{
+    RegularExpressionRule as LocalRegularExpressionRule,
+    TranscriptCorrectionItem as LocalTranscriptCorrectionItem,
+};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::transcript_corrections::{

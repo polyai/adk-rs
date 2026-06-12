@@ -1,13 +1,9 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_parse::{
-    NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
-    duplicate_names, non_empty_map,
-};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
-use serde::Deserialize;
+use crate::translations::local::{TranslationsFile, parse_translations_file};
 use serde_yaml_ng::Value;
-use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Validation parity: implemented against Python Translation.validate().
@@ -65,63 +61,8 @@ impl ParseLocalResource for Translation {
     type Parsed = TranslationsFile;
 
     fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
-        let raw = deserialize_yaml::<TranslationsFileUnchecked>(path, yaml)?;
-        TranslationsFile::try_from_unchecked(path, raw)
+        parse_translations_file(path, yaml)
     }
-}
-
-#[derive(Debug)]
-pub(crate) struct TranslationsFile {
-    pub(crate) translations: Vec<TranslationItem>,
-}
-
-impl TranslationsFile {
-    fn try_from_unchecked(path: &str, raw: TranslationsFileUnchecked) -> ResourceParseResult<Self> {
-        let mut errors = ResourceParseErrors::new();
-        for duplicate in duplicate_names(raw.translations.iter().map(|item| item.name.as_str())) {
-            errors.push(
-                &format!("{path}/translations/{duplicate}"),
-                format!("duplicate translation name '{duplicate}'."),
-            );
-        }
-        if errors.is_empty() {
-            Ok(Self {
-                translations: raw.translations,
-            })
-        } else {
-            Err(errors)
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct TranslationsFileUnchecked {
-    #[serde(default)]
-    translations: Vec<TranslationItem>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct TranslationItem {
-    name: NonEmptyString,
-    #[serde(deserialize_with = "translation_values")]
-    translations: BTreeMap<String, String>,
-}
-
-impl TranslationItem {
-    pub(crate) fn name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    pub(crate) fn translations(&self) -> &BTreeMap<String, String> {
-        &self.translations
-    }
-}
-
-fn translation_values<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    non_empty_map(deserializer, "Translations cannot be empty.")
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
-use super::discovery::PronunciationItem as LocalPronunciationItem;
 use crate::ids::stable_resource_id;
 use crate::local_parse::ParseLocalResource;
+use crate::pronunciations::local::PronunciationItem as LocalPronunciationItem;
 use crate::push_command;
 use crate::push_command_inputs::{
     SimpleLifecycleCommands, json_bool, json_i32, json_str, resource_yaml,

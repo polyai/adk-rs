@@ -1,9 +1,9 @@
-use super::discovery::TranslationItem as LocalTranslationItem;
 use crate::ids::stable_resource_id;
 use crate::local_parse::ParseLocalResource;
 use crate::push_command;
 use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};
 use crate::specs::TRANSLATIONS;
+use crate::translations::local::TranslationItem as LocalTranslationItem;
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::translations::{

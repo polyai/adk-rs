@@ -1,5 +1,5 @@
-use super::discovery::KeyphraseItem as LocalKeyphraseItem;
 use crate::ids::stable_resource_id;
+use crate::keyphrase_boosting::local::KeyphraseItem as LocalKeyphraseItem;
 use crate::local_parse::ParseLocalResource;
 use crate::push_command;
 use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};

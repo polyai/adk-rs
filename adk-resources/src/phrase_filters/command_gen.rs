@@ -9,9 +9,9 @@
 //! This module emits per-family command groups; `build_push_commands` applies the global
 //! delete/create/update ordering across all resource-family modules.
 
-use super::discovery::PhraseFilterItem as LocalPhraseFilterItem;
 use crate::ids::stable_resource_id;
 use crate::local_parse::ParseLocalResource;
+use crate::phrase_filters::local::PhraseFilterItem as LocalPhraseFilterItem;
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::stop_keywords::{

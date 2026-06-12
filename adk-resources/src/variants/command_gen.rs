@@ -1,11 +1,11 @@
-use super::discovery::{
-    VariantAttributeItem as LocalVariantAttributeItem, VariantItem as LocalVariantItem,
-    parse_variant_attributes_file,
-};
 use crate::ids::stable_resource_id;
 use crate::push_command;
 use crate::push_command_inputs::{json_bool, json_str, resource_yaml};
 use crate::specs::{VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS};
+use crate::variants::local::{
+    VariantAttributeItem as LocalVariantAttributeItem, VariantItem as LocalVariantItem,
+    parse_variant_attributes_file,
+};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::variant::{
