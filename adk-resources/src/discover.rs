@@ -60,7 +60,12 @@ pub(crate) trait DiscoverResources {
     /// Logical paths relative to `base_path`, `/`-separated, matching Python logical paths.
     fn discover_resources<Fs: FileSystem>(fs: &Fs, base_path: &Path) -> Vec<String>;
 
-    fn validate_local_yaml(_path: &str, _yaml: &Value, _errors: &mut Vec<String>) {}
+    /// Append errors for resources owned by this discovery entry.
+    ///
+    /// For resource-scoped rules, prefer delegating to `ParseLocalResource` so
+    /// YAML is parsed into typed values before invariants are checked. Keep
+    /// broad reference checks in `adk-core`.
+    fn append_local_resource_errors(_path: &str, _yaml: &Value, _errors: &mut Vec<String>) {}
 }
 
 pub struct DiscoverDispatchEntry {
@@ -93,14 +98,14 @@ macro_rules! discover_resources {
             map
         }
 
-        pub fn validate_semantic_resource(
+        pub fn append_semantic_resource_errors(
             path: &str,
             yaml: &Value,
             errors: &mut Vec<String>,
         ) {
             $(
                 if <$resource as DiscoverResources>::LOCAL_PATH.owns_yaml_path(path) {
-                    <$resource as DiscoverResources>::validate_local_yaml(path, yaml, errors);
+                    <$resource as DiscoverResources>::append_local_resource_errors(path, yaml, errors);
                 }
             )+
         }

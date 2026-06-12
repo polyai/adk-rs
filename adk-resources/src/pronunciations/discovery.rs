@@ -39,8 +39,8 @@ impl DiscoverResources for Pronunciation {
         out
     }
 
-    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        <Self as ParseLocalResource>::validate_local_yaml(
+    fn append_local_resource_errors(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(
             Self::LOCAL_PATH.primary_path().expect("local file path"),
             yaml,
             errors,
@@ -49,11 +49,11 @@ impl DiscoverResources for Pronunciation {
 }
 
 #[cfg(test)]
-pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
+pub(crate) fn append_parse_errors(yaml: &Value, errors: &mut Vec<String>) {
     let path = Pronunciation::LOCAL_PATH
         .primary_path()
         .expect("local file path");
-    <Pronunciation as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+    <Pronunciation as ParseLocalResource>::append_parse_errors(path, yaml, errors);
 }
 
 impl ParseLocalResource for Pronunciation {
@@ -94,7 +94,7 @@ pronunciations:
         .expect("pronunciation YAML");
         let mut errors = Vec::new();
 
-        validate_local_yaml(&yaml, &mut errors);
+        append_parse_errors(&yaml, &mut errors);
 
         assert!(errors.iter().any(|error| error.contains("cannot be empty")));
     }

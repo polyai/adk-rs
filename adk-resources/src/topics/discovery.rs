@@ -28,12 +28,12 @@ impl DiscoverResources for Topic {
         out
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(path, yaml, errors);
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        append_parse_errors(path, yaml, errors);
     }
 }
 
-pub(crate) fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+pub(crate) fn append_parse_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
     let name = yaml.get("name").and_then(Value::as_str).unwrap_or_default();
     if name.is_empty() {
         errors.push(format!(
@@ -64,7 +64,7 @@ mod tests {
     fn validation_errors(path: &str, yaml: &str) -> Vec<String> {
         let yaml = from_str::<Value>(yaml).expect("topic YAML");
         let mut errors = Vec::new();
-        validate_local_yaml(path, &yaml, &mut errors);
+        append_parse_errors(path, &yaml, &mut errors);
         errors
     }
 

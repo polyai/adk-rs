@@ -31,7 +31,7 @@ impl DiscoverResources for VoiceGreeting {
         vec![rel_under_root(base_path, &file_path.join("greeting"))]
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
         validate_channel_greeting_yaml(path, yaml, errors);
     }
 }
@@ -51,7 +51,7 @@ impl DiscoverResources for VoiceSafetyFilters {
         }
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
         crate::channels::validate_safety_filters_yaml(path, yaml, true, errors);
     }
 }
@@ -115,7 +115,7 @@ impl DiscoverResources for VoiceDisclaimerMessage {
         )]
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
         validate_voice_disclaimer_yaml(path, yaml, errors);
     }
 }
@@ -146,7 +146,7 @@ impl DiscoverResources for ChatGreeting {
         vec![rel_under_root(base_path, &file_path.join("greeting"))]
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
         validate_channel_greeting_yaml(path, yaml, errors);
     }
 }
@@ -166,7 +166,7 @@ impl DiscoverResources for ChatSafetyFilters {
         }
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
         crate::channels::validate_safety_filters_yaml(path, yaml, true, errors);
     }
 }

@@ -59,7 +59,8 @@ mod variants;
 
 pub use channels::validate_webchat_config_resources;
 pub use discover::{
-    DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources, validate_semantic_resource,
+    DISCOVER_DISPATCH, DiscoverDispatchEntry, append_semantic_resource_errors,
+    discover_local_resources,
 };
 pub use flows::validate_flow_resources;
 pub use functions::{

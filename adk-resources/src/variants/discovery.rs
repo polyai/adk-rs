@@ -48,8 +48,8 @@ impl DiscoverResources for Variant {
         out
     }
 
-    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        <Self as ParseLocalResource>::validate_local_yaml(
+    fn append_local_resource_errors(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(
             Self::LOCAL_PATH.primary_path().expect("local file path"),
             yaml,
             errors,
@@ -58,9 +58,9 @@ impl DiscoverResources for Variant {
 }
 
 #[cfg(test)]
-pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
+pub(crate) fn append_parse_errors(yaml: &Value, errors: &mut Vec<String>) {
     let path = Variant::LOCAL_PATH.primary_path().expect("local file path");
-    <Variant as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+    <Variant as ParseLocalResource>::append_parse_errors(path, yaml, errors);
 }
 
 /// Validation parity: implemented against Python VariantAttribute.validate() for local variant names.
@@ -100,8 +100,8 @@ impl DiscoverResources for VariantAttribute {
         out
     }
 
-    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        <Self as ParseLocalResource>::validate_local_yaml(
+    fn append_local_resource_errors(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(
             Self::LOCAL_PATH.primary_path().expect("local file path"),
             yaml,
             errors,
@@ -114,7 +114,7 @@ pub(crate) fn validate_attribute_local_yaml(yaml: &Value, errors: &mut Vec<Strin
     let path = VariantAttribute::LOCAL_PATH
         .primary_path()
         .expect("local file path");
-    <VariantAttribute as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+    <VariantAttribute as ParseLocalResource>::append_parse_errors(path, yaml, errors);
 }
 
 impl ParseLocalResource for Variant {
@@ -285,7 +285,7 @@ mod tests {
     fn validation_errors(yaml: &str) -> Vec<String> {
         let yaml = from_str::<Value>(yaml).expect("variant attributes YAML");
         let mut errors = Vec::new();
-        validate_local_yaml(&yaml, &mut errors);
+        append_parse_errors(&yaml, &mut errors);
         validate_attribute_local_yaml(&yaml, &mut errors);
         errors
     }

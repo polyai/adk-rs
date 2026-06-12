@@ -20,7 +20,7 @@ impl DiscoverResources for GeneralSafetyFilters {
         }
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
         crate::channels::validate_safety_filters_yaml(path, yaml, false, errors);
     }
 }

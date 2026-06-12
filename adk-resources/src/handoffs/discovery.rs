@@ -47,8 +47,8 @@ impl DiscoverResources for Handoff {
         out
     }
 
-    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        <Self as ParseLocalResource>::validate_local_yaml(
+    fn append_local_resource_errors(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(
             Self::LOCAL_PATH.primary_path().expect("local file path"),
             yaml,
             errors,
@@ -57,9 +57,9 @@ impl DiscoverResources for Handoff {
 }
 
 #[cfg(test)]
-pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
+pub(crate) fn append_parse_errors(yaml: &Value, errors: &mut Vec<String>) {
     let path = Handoff::LOCAL_PATH.primary_path().expect("local file path");
-    <Handoff as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+    <Handoff as ParseLocalResource>::append_parse_errors(path, yaml, errors);
 }
 
 impl ParseLocalResource for Handoff {
@@ -191,7 +191,7 @@ mod tests {
     fn validation_errors(yaml: &str) -> Vec<String> {
         let yaml = from_str::<Value>(yaml).expect("handoffs YAML");
         let mut errors = Vec::new();
-        validate_local_yaml(&yaml, &mut errors);
+        append_parse_errors(&yaml, &mut errors);
         errors
     }
 

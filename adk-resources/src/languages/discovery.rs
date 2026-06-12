@@ -30,7 +30,7 @@ impl DiscoverResources for DefaultLanguage {
         }
     }
 
-    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    fn append_local_resource_errors(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
         validate_languages_yaml(yaml, errors);
     }
 }

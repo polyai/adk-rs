@@ -45,6 +45,12 @@ pub(crate) type ResourceParseResult<T> = Result<T, ResourceParseErrors>;
 pub(crate) trait ParseLocalResource {
     type Parsed;
 
+    /// Parse a resource-owned YAML document into its typed local shape.
+    ///
+    /// Resource-scoped invariants should live in the parsed types, serde
+    /// adapters, or this parse step. The discovery/CLI layer may append these
+    /// failures to user-facing validation output, but new resource business
+    /// rules should not be written as ad hoc YAML traversal.
     fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed>;
 
     #[allow(dead_code)]
@@ -54,7 +60,7 @@ pub(crate) trait ParseLocalResource {
         Self::parse_local_yaml(path, &yaml)
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    fn append_parse_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
         if let Err(parse_errors) = Self::parse_local_yaml(path, yaml) {
             errors.extend(parse_errors.into_validation_errors());
         }

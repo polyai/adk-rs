@@ -1411,3 +1411,31 @@ fn every_registered_resource_has_validation_parity_marker() {
         );
     }
 }
+
+#[test]
+fn resource_parse_boundary_does_not_use_legacy_validate_yaml_name() {
+    #[allow(clippy::disallowed_methods)]
+    fn collect_rs_sources(dir: &std::path::Path, out: &mut String) {
+        for entry in std::fs::read_dir(dir).expect("read source dir") {
+            let path = entry.expect("source entry").path();
+            if path.is_dir() {
+                collect_rs_sources(&path, out);
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                out.push_str(&std::fs::read_to_string(&path).expect("read source file"));
+                out.push('\n');
+            }
+        }
+    }
+
+    let mut source = String::new();
+    collect_rs_sources(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut source,
+    );
+    let legacy_name = ["validate", "local", "yaml"].join("_");
+
+    assert!(
+        !source.contains(&legacy_name),
+        "resource-local parsing should use parse/error terminology, not {legacy_name}"
+    );
+}

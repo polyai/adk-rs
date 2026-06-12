@@ -22,14 +22,14 @@ impl DiscoverResources for AsrSettings {
         }
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        <Self as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(path, yaml, errors);
     }
 }
 
 #[cfg(test)]
-pub(crate) fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-    <AsrSettings as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+pub(crate) fn append_parse_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    <AsrSettings as ParseLocalResource>::append_parse_errors(path, yaml, errors);
 }
 
 impl ParseLocalResource for AsrSettings {
@@ -69,7 +69,7 @@ mod tests {
             .expect("ASR settings YAML");
         let mut errors = Vec::new();
 
-        validate_local_yaml(
+        append_parse_errors(
             "voice/speech_recognition/asr_settings.yaml",
             &yaml,
             &mut errors,

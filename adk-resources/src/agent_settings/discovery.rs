@@ -30,7 +30,7 @@ impl DiscoverResources for SettingsPersonality {
         }
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
         validate_personality_yaml(path, yaml, errors);
     }
 }
@@ -82,7 +82,7 @@ impl DiscoverResources for SettingsRole {
         }
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
         validate_role_yaml(path, yaml, errors);
     }
 }
