@@ -88,7 +88,7 @@ entities:
   - name: Bad type
     entity_type: unsupported
 "#,
-        "unknown variant `unsupported`",
+        "unsupported entity_type 'unsupported'",
     );
 
     assert_parse_error::<Variant>(

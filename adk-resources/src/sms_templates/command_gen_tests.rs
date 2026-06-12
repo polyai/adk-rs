@@ -95,7 +95,7 @@ fn sms_payload_summaries_cover_env_refs_and_update_defaults() {
 fn sms_create_derives_references_from_inline_text() {
     let sms_yaml = r#"
 name: Welcome
-text: hi {{vrbl:customer_name}} {{var:customer_alias}} {{tr:greeting}}
+text: hi {{vrbl:customer_name}} {{var:customer_alias}} {{tn:greeting}}
 env_phone_numbers:
   sandbox: ""
   pre_release: ""
@@ -145,7 +145,7 @@ env_phone_numbers:
         Some(CommandPayload::SmsCreateTemplate(message)) => {
             assert_eq!(
                 message.text,
-                "hi {{vrbl:VARIABLE-customer_name}} {{var:VARIABLE-customer_alias}} {{tr:TRANSLATION-greeting}}"
+                "hi {{vrbl:VARIABLE-customer_name}} {{var:VARIABLE-customer_alias}} {{tn:TRANSLATION-greeting}}"
             );
             let refs = message.references.as_ref().expect("references");
             assert!(refs.topics.is_empty());

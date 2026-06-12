@@ -67,8 +67,17 @@ impl ParseLocalResource for Entity {
     type Parsed = EntitiesFile;
 
     fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
-        let raw = deserialize_yaml::<EntitiesFileUnchecked>(path, yaml)?;
-        EntitiesFile::try_from_unchecked(path, raw)
+        let mut errors = duplicate_entity_name_errors(path, yaml);
+        match deserialize_entities_file(path, yaml) {
+            Ok(raw) if errors.is_empty() => Ok(EntitiesFile {
+                entities: raw.entities,
+            }),
+            Ok(_) => Err(errors),
+            Err(parse_errors) => {
+                errors.extend(parse_errors);
+                Err(errors)
+            }
+        }
     }
 }
 
@@ -78,23 +87,36 @@ pub(crate) struct EntitiesFile {
     entities: Vec<EntityItem>,
 }
 
-impl EntitiesFile {
-    fn try_from_unchecked(path: &str, raw: EntitiesFileUnchecked) -> ResourceParseResult<Self> {
-        let mut errors = ResourceParseErrors::new();
-        for duplicate in duplicate_names(raw.entities.iter().map(EntityItem::name)) {
-            errors.push(
-                &format!("{path}/entities/{duplicate}"),
-                format!("duplicate entity name '{duplicate}'."),
-            );
-        }
-        if errors.is_empty() {
-            Ok(Self {
-                entities: raw.entities,
-            })
-        } else {
-            Err(errors)
-        }
+fn duplicate_entity_name_errors(path: &str, yaml: &Value) -> ResourceParseErrors {
+    let mut errors = ResourceParseErrors::new();
+    let Ok(raw) = deserialize_yaml::<EntityNamesFile>(path, yaml) else {
+        return errors;
+    };
+    for duplicate in duplicate_names(raw.entities.iter().filter_map(EntityName::name)) {
+        errors.push(
+            &format!("{path}/entities/{duplicate}"),
+            format!("duplicate entity name '{duplicate}'."),
+        );
     }
+    errors
+}
+
+fn deserialize_entities_file(
+    path: &str,
+    yaml: &Value,
+) -> ResourceParseResult<EntitiesFileUnchecked> {
+    serde_yaml_ng::from_value(yaml.clone()).map_err(|error| {
+        ResourceParseErrors::single(path, normalize_entity_deserialize_error(error.to_string()))
+    })
+}
+
+fn normalize_entity_deserialize_error(error: String) -> String {
+    if let Some((_, tail)) = error.split_once("unknown variant `")
+        && let Some((entity_type, _)) = tail.split_once('`')
+    {
+        return format!("unsupported entity_type '{entity_type}'");
+    }
+    error
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,7 +126,25 @@ struct EntitiesFileUnchecked {
 }
 
 #[derive(Debug, Deserialize)]
+struct EntityNamesFile {
+    #[serde(default)]
+    entities: Vec<EntityName>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EntityName {
+    name: Option<String>,
+}
+
+impl EntityName {
+    fn name(&self) -> Option<&str> {
+        self.name.as_deref().filter(|name| !name.is_empty())
+    }
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(tag = "entity_type", rename_all = "snake_case")]
+#[allow(dead_code)]
 enum EntityItem {
     Numeric(EntityWithConfig<NumericConfig>),
     Alphanumeric(EntityWithConfig<AlphanumericConfig>),
@@ -116,22 +156,6 @@ enum EntityItem {
     Address(EntityWithoutConfig),
     FreeText(EntityWithoutConfig),
     NameConfig(EntityWithoutConfig),
-}
-
-impl EntityItem {
-    fn name(&self) -> &str {
-        match self {
-            Self::Numeric(entity) => entity.name.as_str(),
-            Self::Alphanumeric(entity) => entity.name.as_str(),
-            Self::Enum(entity) => entity.name.as_str(),
-            Self::Date(entity) => entity.name.as_str(),
-            Self::PhoneNumber(entity) => entity.name.as_str(),
-            Self::Time(entity) => entity.name.as_str(),
-            Self::Address(entity) | Self::FreeText(entity) | Self::NameConfig(entity) => {
-                entity.name.as_str()
-            }
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -233,7 +257,27 @@ entities:
         assert!(
             bad_type
                 .iter()
-                .any(|error| error.contains("unknown variant `unsupported`"))
+                .any(|error| error.contains("unsupported entity_type 'unsupported'"))
+        );
+
+        let duplicate_and_bad_type = validation_errors(
+            r#"
+entities:
+  - name: customer
+    entity_type: unsupported
+  - name: customer
+    entity_type: enum
+"#,
+        );
+        assert!(
+            duplicate_and_bad_type
+                .iter()
+                .any(|error| error.contains("duplicate entity name 'customer'"))
+        );
+        assert!(
+            duplicate_and_bad_type
+                .iter()
+                .any(|error| error.contains("unsupported entity_type 'unsupported'"))
         );
 
         let padded_description = validation_errors(

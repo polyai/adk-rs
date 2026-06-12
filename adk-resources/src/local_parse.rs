@@ -31,8 +31,16 @@ impl ResourceParseErrors {
             .push(format!("Validation error in {path}: {detail}"));
     }
 
+    pub(crate) fn push_validation(&mut self, detail: impl fmt::Display) {
+        self.errors.push(format!("Validation error: {detail}"));
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.errors.is_empty()
+    }
+
+    pub(crate) fn extend(&mut self, errors: Self) {
+        self.errors.extend(errors.errors);
     }
 
     pub(crate) fn into_validation_errors(self) -> Vec<String> {

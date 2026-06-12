@@ -168,7 +168,7 @@ fn sms_references_from_text(text: &str) -> SmsTemplateReferences {
         topics: HashMap::new(),
         flow_steps: HashMap::new(),
         variables,
-        translations: extract_template_references(text, "tr"),
+        translations: extract_template_references(text, "tn"),
     }
 }
 

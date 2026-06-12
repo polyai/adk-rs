@@ -160,8 +160,7 @@ impl VariantDefinitionsFile {
             .map(|variant| variant.name.as_str().to_string())
             .collect::<Vec<_>>();
         if default_names.len() != 1 {
-            errors.push(
-                path,
+            errors.push_validation(
                 format!(
                     "Multiple or zero default variants detected: [{}]. One variant must be set as default.",
                     quoted_set(&default_names)

@@ -144,12 +144,12 @@ pub(crate) fn rules_references_from_behaviour(behaviour: &str) -> Option<RulesRe
     let mut variables = extract_template_references(behaviour, "vrbl");
     variables.extend(extract_template_references(behaviour, "var"));
     let refs = RulesReferences {
-        sms: extract_template_references(behaviour, "sms"),
+        sms: extract_template_references(behaviour, "twilio_sms"),
         handoff: extract_template_references(behaviour, "ho"),
         attributes: extract_template_references(behaviour, "attr"),
         global_functions: extract_template_references(behaviour, "fn"),
         variables,
-        translations: HashMap::new(),
+        translations: extract_template_references(behaviour, "tn"),
     };
     if refs.sms.is_empty()
         && refs.handoff.is_empty()

@@ -121,6 +121,38 @@ pub(crate) fn prompt_reference_maps_from_projection(projection: &Value) -> Promp
         }
     }
 
+    for (id, sms) in projection_entity_values(projection, &["sms", "templates"]) {
+        if !sms.get("active").and_then(Value::as_bool).unwrap_or(true) {
+            continue;
+        }
+        let name = sms
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(id.as_str());
+        maps.insert_global("twilio_sms", &id, name);
+        if let Some(resource_id) = sms.get("id").and_then(Value::as_str) {
+            maps.insert_global("twilio_sms", resource_id, name);
+        }
+    }
+
+    for (id, handoff) in projection_entity_values(projection, &["handoff", "handoffs"]) {
+        if !handoff
+            .get("active")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        let name = handoff
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(id.as_str());
+        maps.insert_global("ho", &id, name);
+        if let Some(resource_id) = handoff.get("id").and_then(Value::as_str) {
+            maps.insert_global("ho", resource_id, name);
+        }
+    }
+
     for (id, variable) in projection_entity_values(projection, &["variables", "variables"]) {
         if variable
             .get("archived")
@@ -141,6 +173,24 @@ pub(crate) fn prompt_reference_maps_from_projection(projection: &Value) -> Promp
         }
     }
 
+    for (id, entity) in projection_entity_values(projection, &["entities", "entities"]) {
+        if entity
+            .get("archived")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let name = entity
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(id.as_str());
+        maps.insert_global("entity", &id, name);
+        if let Some(resource_id) = entity.get("id").and_then(Value::as_str) {
+            maps.insert_global("entity", resource_id, name);
+        }
+    }
+
     let translations = projection_entity_values(projection, &["translations", "translations"]);
     for (id, translation) in translations {
         if translation
@@ -156,9 +206,9 @@ pub(crate) fn prompt_reference_maps_from_projection(projection: &Value) -> Promp
             .or_else(|| translation.get("name"))
             .and_then(Value::as_str)
             .unwrap_or(id.as_str());
-        maps.insert_global("tr", &id, name);
+        maps.insert_global("tn", &id, name);
         if let Some(resource_id) = translation.get("id").and_then(Value::as_str) {
-            maps.insert_global("tr", resource_id, name);
+            maps.insert_global("tn", resource_id, name);
         }
     }
 
@@ -369,4 +419,164 @@ pub(crate) fn replace_flow_import_names_with_ids(
         );
     }
     normalized
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prompt_reference_maps_round_trip_python_reference_prefixes() {
+        let projection = serde_json::json!({
+            "functions": {
+                "functions": {
+                    "entities": {
+                        "FUNCTION-start_verification": {
+                            "id": "FUNCTION-start_verification",
+                            "name": "start_verification",
+                            "archived": false
+                        }
+                    }
+                }
+            },
+            "sms": {
+                "templates": {
+                    "entities": {
+                        "SMS_TEMPLATE-123": {
+                            "id": "SMS_TEMPLATE-123",
+                            "name": "test_template",
+                            "active": true
+                        }
+                    }
+                }
+            },
+            "handoff": {
+                "handoffs": {
+                    "entities": {
+                        "handoff-1": {
+                            "id": "handoff-1",
+                            "name": "default",
+                            "active": true
+                        }
+                    }
+                }
+            },
+            "variantManagement": {
+                "attributes": {
+                    "entities": {
+                        "attr-customer-name": {
+                            "id": "attr-customer-name",
+                            "name": "customer-name",
+                            "archived": false
+                        }
+                    }
+                }
+            },
+            "entities": {
+                "entities": {
+                    "entities": {
+                        "ENTITY-customer_name": {
+                            "id": "ENTITY-customer_name",
+                            "name": "customer_name"
+                        }
+                    }
+                }
+            },
+            "variables": {
+                "variables": {
+                    "entities": {
+                        "VAR-customer_name": {
+                            "id": "VAR-customer_name",
+                            "name": "customer_name"
+                        }
+                    }
+                }
+            },
+            "translations": {
+                "translations": {
+                    "entities": {
+                        "translation-1": {
+                            "id": "translation-1",
+                            "translationKey": "greeting"
+                        }
+                    }
+                }
+            },
+            "flows": {
+                "flows": {
+                    "entities": {
+                        "FLOW-address": {
+                            "id": "FLOW-address",
+                            "name": "Address Flow",
+                            "transitionFunctions": {
+                                "entities": {
+                                    "FUNCTION-determine_language": {
+                                        "id": "FUNCTION-determine_language",
+                                        "name": "determine_language",
+                                        "archived": false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let maps = prompt_reference_maps_from_projection(&projection);
+        let cases = [
+            ("fn", "FUNCTION-start_verification", "start_verification"),
+            ("twilio_sms", "SMS_TEMPLATE-123", "test_template"),
+            ("ho", "handoff-1", "default"),
+            ("attr", "attr-customer-name", "customer-name"),
+            ("ft", "FUNCTION-determine_language", "determine_language"),
+            ("entity", "ENTITY-customer_name", "customer_name"),
+            ("vrbl", "VAR-customer_name", "customer_name"),
+            ("tn", "translation-1", "greeting"),
+        ];
+        let id_prompt = cases
+            .iter()
+            .map(|(prefix, id, _)| format!("{{{{{prefix}:{id}}}}}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let named_prompt = cases
+            .iter()
+            .map(|(prefix, _, name)| format!("{{{{{prefix}:{name}}}}}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        assert_eq!(
+            replace_resource_ids_with_names(&id_prompt, &maps, Some("address_flow")),
+            named_prompt
+        );
+        assert_eq!(
+            replace_resource_names_with_ids(&named_prompt, &maps, Some("address_flow")),
+            id_prompt
+        );
+    }
+
+    #[test]
+    fn prompt_reference_maps_preserve_variable_alias() {
+        let projection = serde_json::json!({
+            "variables": {
+                "variables": {
+                    "entities": {
+                        "VAR-customer_name": {
+                            "id": "VAR-customer_name",
+                            "name": "customer_name"
+                        }
+                    }
+                }
+            }
+        });
+        let maps = prompt_reference_maps_from_projection(&projection);
+
+        assert_eq!(
+            replace_resource_ids_with_names("{{var:VAR-customer_name}}", &maps, None),
+            "{{var:customer_name}}"
+        );
+        assert_eq!(
+            replace_resource_names_with_ids("{{var:customer_name}}", &maps, None),
+            "{{var:VAR-customer_name}}"
+        );
+    }
 }

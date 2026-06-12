@@ -68,8 +68,35 @@ impl ParseLocalResource for TranscriptCorrection {
     type Parsed = TranscriptCorrectionsFile;
 
     fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
-        let raw = deserialize_yaml::<TranscriptCorrectionsFileUnchecked>(path, yaml)?;
-        TranscriptCorrectionsFile::try_from_unchecked(path, raw)
+        let mut errors = transcript_correction_item_errors(path, yaml);
+        match deserialize_yaml::<TranscriptCorrectionsFileUnchecked>(path, yaml) {
+            Ok(raw) if errors.is_empty() => {
+                TranscriptCorrectionsFile::try_from_unchecked(path, raw)
+            }
+            Ok(raw) => {
+                if let Err(parse_errors) = TranscriptCorrectionsFile::try_from_unchecked(path, raw)
+                {
+                    errors.extend(parse_errors);
+                }
+                Err(errors)
+            }
+            Err(parse_errors) => {
+                if !errors.is_empty()
+                    && parse_errors
+                        .clone()
+                        .into_validation_errors()
+                        .iter()
+                        .all(|error| {
+                            error.contains("At least one regular expression rule is required")
+                        })
+                {
+                    Err(errors)
+                } else {
+                    errors.extend(parse_errors);
+                    Err(errors)
+                }
+            }
+        }
     }
 }
 
@@ -105,6 +132,39 @@ impl TranscriptCorrectionsFile {
 struct TranscriptCorrectionsFileUnchecked {
     #[serde(default)]
     corrections: Vec<TranscriptCorrectionItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TranscriptCorrectionItemsUnchecked {
+    #[serde(default)]
+    corrections: Vec<TranscriptCorrectionItemUnchecked>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TranscriptCorrectionItemUnchecked {
+    name: Option<String>,
+    regular_expressions: Option<Vec<Value>>,
+}
+
+fn transcript_correction_item_errors(path: &str, yaml: &Value) -> ResourceParseErrors {
+    let mut errors = ResourceParseErrors::new();
+    let Ok(raw) = deserialize_yaml::<TranscriptCorrectionItemsUnchecked>(path, yaml) else {
+        return errors;
+    };
+    for item in raw.corrections {
+        if item.regular_expressions.as_ref().is_some_and(Vec::is_empty) {
+            let item_path = item
+                .name
+                .filter(|name| !name.is_empty())
+                .map(|name| format!("{path}/corrections/{}", clean_name(&name, false)))
+                .unwrap_or_else(|| path.to_string());
+            errors.push(
+                &item_path,
+                "At least one regular expression rule is required",
+            );
+        }
+    }
+    errors
 }
 
 #[derive(Debug, Deserialize)]

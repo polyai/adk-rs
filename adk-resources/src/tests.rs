@@ -65,7 +65,7 @@ fn projection_materializes_named_prompt_references_like_python() {
                     "SMS-welcome": {
                         "id": "SMS-welcome",
                         "name": "Welcome SMS",
-                        "text": "Hi {{vrbl:VARIABLE-call_direction_prompt}} {{tr:TRANSLATION-greeting}}",
+                        "text": "Hi {{vrbl:VARIABLE-call_direction_prompt}} {{tn:TRANSLATION-greeting}}",
                         "envPhoneNumbers": {
                             "sandbox": "",
                             "preRelease": "",
@@ -158,7 +158,7 @@ fn projection_materializes_named_prompt_references_like_python() {
         .and_then(serde_json::Value::as_str)
         .expect("sms templates");
     assert!(sms.contains("{{vrbl:call_direction_prompt}}"));
-    assert!(sms.contains("{{tr:greeting}}"));
+    assert!(sms.contains("{{tn:greeting}}"));
     assert!(!sms.contains("VARIABLE-call_direction_prompt"));
     assert!(!sms.contains("TRANSLATION-greeting"));
     assert!(!sms.contains("references:"));
@@ -1416,6 +1416,32 @@ fn rules_references_from_projection_accepts_camel_and_snake_global_functions() {
         .is_none()
     );
     assert!(rules_references_from_projection(&serde_json::json!({})).is_none());
+}
+
+#[test]
+fn rules_references_from_behaviour_uses_python_prompt_prefixes() {
+    let refs = rules_references_from_behaviour(
+        "{{twilio_sms:sms-1}} {{ho:handoff-1}} {{attr:attr-1}} \
+         {{fn:function-1}} {{vrbl:variable-1}} {{tn:translation-1}}",
+    )
+    .expect("rules references");
+
+    assert!(refs.sms.get("sms-1").copied().unwrap_or(false));
+    assert!(refs.handoff.get("handoff-1").copied().unwrap_or(false));
+    assert!(refs.attributes.get("attr-1").copied().unwrap_or(false));
+    assert!(
+        refs.global_functions
+            .get("function-1")
+            .copied()
+            .unwrap_or(false)
+    );
+    assert!(refs.variables.get("variable-1").copied().unwrap_or(false));
+    assert!(
+        refs.translations
+            .get("translation-1")
+            .copied()
+            .unwrap_or(false)
+    );
 }
 
 #[test]
