@@ -1405,6 +1405,54 @@ fn projection_materializes_backend_incomplete_regex_collections_like_python() {
 }
 
 #[test]
+fn projection_materializes_api_integrations_through_typed_local_model() {
+    let projection = serde_json::json!({
+        "apiIntegrations": {
+            "apiIntegrations": {
+                "ids": ["api-1"],
+                "entities": {
+                    "api-1": {
+                        "id": "api-1",
+                        "name": "orders_api",
+                        "description": "",
+                        "environments": {
+                            "sandbox": {
+                                "baseUrl": "https://sandbox.example.test",
+                                "authType": "apiKey"
+                            }
+                        },
+                        "operations": {
+                            "ids": ["op-1"],
+                            "entities": {
+                                "op-1": {
+                                    "id": "op-1",
+                                    "name": "get_order",
+                                    "method": "get",
+                                    "resource": "/orders/{id}"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let map = projection_to_resource_map(&projection).expect("map");
+    let api_integrations = map
+        .get("config/api_integrations.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("api integrations");
+    assert!(api_integrations.contains("name: orders_api"));
+    assert!(api_integrations.contains("pre-release:"));
+    assert!(api_integrations.contains("auth_type: none"));
+    assert!(api_integrations.contains("method: GET"));
+    assert!(api_integrations.contains("resource: /orders/{id}"));
+    assert!(!api_integrations.contains("id: op-1"));
+}
+
+#[test]
 fn rules_references_from_projection_accepts_camel_and_snake_global_functions() {
     let cases = [
         (

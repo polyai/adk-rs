@@ -1,5 +1,9 @@
 use crate::CommandGenError;
-use crate::materialization::insert_yaml_resource;
+use crate::api_integrations::local::{
+    ApiIntegrationConfig, ApiIntegrationEnvironments, ApiIntegrationItem, ApiIntegrationsFile,
+    ApiOperation,
+};
+use crate::materialization::to_yaml_string;
 use crate::projection::projection_entity_values_at;
 use crate::specs::API_INTEGRATIONS;
 use adk_types::ResourceMap;
@@ -9,67 +13,71 @@ pub(crate) fn insert_api_integration_resources(
     map: &mut ResourceMap,
     projection: &Value,
 ) -> Result<(), CommandGenError> {
-    if let Some(value) = api_integrations_yaml(projection) {
-        insert_yaml_resource(
-            map,
-            API_INTEGRATIONS.file.file_path,
-            API_INTEGRATIONS.file.resource_id,
-            API_INTEGRATIONS.file.name,
-            value,
-        )?;
+    let integrations = api_integration_items(projection)?;
+    if integrations.is_empty() {
+        return Ok(());
     }
 
-    Ok(())
+    let content = to_yaml_string(&ApiIntegrationsFile::new(integrations))
+        .map_err(|error| CommandGenError::InvalidData(error.to_string()))?;
+    crate::materialization::insert_content_resource(
+        map,
+        API_INTEGRATIONS.file.file_path,
+        API_INTEGRATIONS.file.resource_id,
+        API_INTEGRATIONS.file.name,
+        content,
+    )
 }
 
-fn api_integrations_yaml(projection: &Value) -> Option<Value> {
-    let integrations = API_INTEGRATIONS.owned_entries(projection);
-    if integrations.is_empty() {
-        return None;
-    }
-    let integrations = integrations
+fn api_integration_items(projection: &Value) -> Result<Vec<ApiIntegrationItem>, CommandGenError> {
+    API_INTEGRATIONS
+        .owned_entries(projection)
         .iter()
         .filter_map(|(_, integration)| {
-            let name = integration.get("name")?.as_str()?;
-            Some(serde_json::json!({
-                "name": name,
-                "description": integration.get("description").and_then(Value::as_str).unwrap_or(""),
-                "environments": api_integration_environments_yaml(integration),
-                "operations": api_integration_operations_yaml(integration),
-            }))
+            local_api_integration_from_projection(integration).transpose()
         })
-        .collect::<Vec<_>>();
-    Some(serde_json::json!({ "api_integrations": integrations }))
+        .collect()
 }
 
-fn api_integration_environments_yaml(integration: &Value) -> Value {
-    let mut out = serde_json::Map::new();
-    for (yaml_key, source_keys) in [
-        ("sandbox", &["sandbox"][..]),
-        (
-            "pre-release",
-            &["pre-release", "preRelease", "pre_release"][..],
-        ),
-        ("live", &["live"][..]),
-    ] {
-        if let Some(env) = source_keys.iter().find_map(|key| {
-            integration
-                .get("environments")
-                .and_then(|envs| envs.get(*key))
-        }) {
-            out.insert(
-                yaml_key.to_string(),
-                serde_json::json!({
-                    "base_url": env.get("baseUrl").or_else(|| env.get("base_url")).and_then(Value::as_str).unwrap_or(""),
-                    "auth_type": env.get("authType").or_else(|| env.get("auth_type")).and_then(Value::as_str).unwrap_or(""),
-                }),
-            );
-        }
-    }
-    Value::Object(out)
+fn local_api_integration_from_projection(
+    integration: &Value,
+) -> Result<Option<ApiIntegrationItem>, CommandGenError> {
+    let Some(name) = integration.get("name").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    ApiIntegrationItem::from_projection(
+        name.to_string(),
+        json_str(integration, &["description"]),
+        api_integration_environments_from_projection(integration),
+        api_integration_operations_from_projection(integration)?,
+    )
+    .map(Some)
+    .map_err(invalid_api_integration_projection)
 }
 
-fn api_integration_operations_yaml(integration: &Value) -> Value {
+fn api_integration_environments_from_projection(integration: &Value) -> ApiIntegrationEnvironments {
+    let envs = integration.get("environments");
+    ApiIntegrationEnvironments::new(
+        environment_config(envs, &["sandbox"]),
+        environment_config(envs, &["pre-release", "preRelease", "pre_release"]),
+        environment_config(envs, &["live"]),
+    )
+}
+
+fn environment_config(envs: Option<&Value>, keys: &[&str]) -> Option<ApiIntegrationConfig> {
+    keys.iter()
+        .find_map(|key| envs.and_then(|envs| envs.get(*key)))
+        .map(|env| {
+            ApiIntegrationConfig::new(
+                json_str(env, &["baseUrl", "base_url"]),
+                json_str(env, &["authType", "auth_type"]),
+            )
+        })
+}
+
+fn api_integration_operations_from_projection(
+    integration: &Value,
+) -> Result<Vec<ApiOperation>, CommandGenError> {
     let operations = integration
         .get("operations")
         .map(projection_entity_values_at)
@@ -90,17 +98,36 @@ fn api_integration_operations_yaml(integration: &Value) -> Value {
     } else {
         operations
     };
-    Value::Array(
-        operations
-            .into_iter()
-            .filter_map(|(_, operation)| {
-                let name = operation.get("name")?.as_str()?;
-                Some(serde_json::json!({
-                    "name": name,
-                    "method": operation.get("method").and_then(Value::as_str).unwrap_or(""),
-                    "resource": operation.get("resource").and_then(Value::as_str).unwrap_or(""),
-                }))
-            })
-            .collect(),
+    operations
+        .into_iter()
+        .filter_map(|(id, operation)| local_operation_from_projection(id, &operation).transpose())
+        .collect()
+}
+
+fn local_operation_from_projection(
+    id: String,
+    operation: &Value,
+) -> Result<Option<ApiOperation>, CommandGenError> {
+    let Some(name) = operation.get("name").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    ApiOperation::from_projection(
+        id,
+        name.to_string(),
+        json_str(operation, &["method"]),
+        json_str(operation, &["resource"]),
     )
+    .map(Some)
+    .map_err(invalid_api_integration_projection)
+}
+
+fn json_str(value: &Value, keys: &[&str]) -> String {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_str))
+        .unwrap_or("")
+        .to_string()
+}
+
+fn invalid_api_integration_projection(error: String) -> CommandGenError {
+    CommandGenError::InvalidData(format!("Invalid API integration projection: {error}"))
 }

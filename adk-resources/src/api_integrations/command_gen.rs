@@ -1,17 +1,18 @@
 use crate::ids::{stable_resource_id, stable_resource_uuid};
-use crate::push_command_inputs::{json_str, resource_yaml, yaml_sequence};
+use crate::local_parse::ParseLocalResource;
+use crate::push_command_inputs::{json_str, resource_yaml};
 use crate::specs::API_INTEGRATIONS;
-use crate::{push_command, yaml_str};
+use crate::{api_integrations::local::ApiIntegrationItem as LocalApiIntegrationItem, push_command};
 use adk_protobuf::Metadata;
 use adk_protobuf::api_integrations::{
-    ApiIntegrationConfig, ApiIntegrationConfigUpdate, ApiIntegrationCreate, ApiIntegrationDelete,
-    ApiIntegrationOperationCreate, ApiIntegrationOperationDelete, ApiIntegrationOperationUpdate,
-    ApiIntegrationUpdate, Environments,
+    ApiIntegrationConfig as ProtoApiIntegrationConfig, ApiIntegrationConfigUpdate,
+    ApiIntegrationCreate, ApiIntegrationDelete, ApiIntegrationOperationCreate,
+    ApiIntegrationOperationDelete, ApiIntegrationOperationUpdate, ApiIntegrationUpdate,
+    Environments,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue, json};
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -224,23 +225,49 @@ pub(crate) fn api_integration_lifecycle_commands(
     commands
 }
 
-fn local_api_integration_items(yaml: &YamlValue) -> Vec<ApiIntegrationItem> {
-    yaml_sequence(yaml, API_INTEGRATIONS.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let name = yaml_str(item, "name");
-            if name.is_empty() {
-                return None;
-            }
-            Some(ApiIntegrationItem {
-                id: String::new(),
-                name,
-                description: yaml_str(item, "description"),
-                environments: api_environment_items_from_yaml(item),
-                operations: api_operations_from_yaml(item),
-            })
-        })
+fn local_api_integration_items(yaml: &serde_yaml_ng::Value) -> Vec<ApiIntegrationItem> {
+    let Ok(file) = crate::api_integrations::ApiIntegration::parse_local_yaml(
+        API_INTEGRATIONS.file.file_path,
+        yaml,
+    ) else {
+        return Vec::new();
+    };
+    file.api_integrations
+        .iter()
+        .map(local_api_integration_item)
         .collect()
+}
+
+fn local_api_integration_item(item: &LocalApiIntegrationItem) -> ApiIntegrationItem {
+    ApiIntegrationItem {
+        id: String::new(),
+        name: item.name().to_string(),
+        description: item.description().to_string(),
+        environments: item
+            .environments()
+            .entries()
+            .into_iter()
+            .map(|(name, config)| {
+                (
+                    name.to_string(),
+                    ApiEnvironmentItem {
+                        base_url: config.base_url().to_string(),
+                        auth_type: config.auth_type().to_string(),
+                    },
+                )
+            })
+            .collect(),
+        operations: item
+            .operations()
+            .iter()
+            .map(|operation| ApiOperationItem {
+                id: operation.id().to_string(),
+                name: operation.name().to_string(),
+                method: operation.method(),
+                resource: operation.resource().to_string(),
+            })
+            .collect(),
+    }
 }
 
 fn remote_api_integration_items(projection: &JsonValue) -> Vec<ApiIntegrationItem> {
@@ -261,33 +288,6 @@ fn remote_api_integration_items(projection: &JsonValue) -> Vec<ApiIntegrationIte
             })
         })
         .collect()
-}
-
-fn api_environment_items_from_yaml(integration: &YamlValue) -> HashMap<String, ApiEnvironmentItem> {
-    let Some(envs) = integration
-        .get("environments")
-        .and_then(YamlValue::as_mapping)
-    else {
-        return HashMap::new();
-    };
-    let mut out = HashMap::new();
-    for (source_key, normalized_key) in [
-        ("sandbox", "sandbox"),
-        ("pre-release", "pre_release"),
-        ("pre_release", "pre_release"),
-        ("live", "live"),
-    ] {
-        if let Some(env) = envs.get(YamlValue::String(source_key.to_string())) {
-            out.insert(
-                normalized_key.to_string(),
-                ApiEnvironmentItem {
-                    base_url: yaml_str(env, "base_url"),
-                    auth_type: yaml_str(env, "auth_type"),
-                },
-            );
-        }
-    }
-    out
 }
 
 fn api_environment_items_from_projection(value: &JsonValue) -> HashMap<String, ApiEnvironmentItem> {
@@ -313,24 +313,6 @@ fn api_environment_items_from_projection(value: &JsonValue) -> HashMap<String, A
         }
     }
     out
-}
-
-fn api_operations_from_yaml(integration: &YamlValue) -> Vec<ApiOperationItem> {
-    yaml_sequence(integration, "operations")
-        .into_iter()
-        .filter_map(|item| {
-            let name = yaml_str(item, "name");
-            if name.is_empty() {
-                return None;
-            }
-            Some(ApiOperationItem {
-                id: String::new(),
-                name,
-                method: yaml_str(item, "method"),
-                resource: yaml_str(item, "resource"),
-            })
-        })
-        .collect()
 }
 
 fn api_operations_from_projection(integration: &JsonValue) -> Vec<ApiOperationItem> {
@@ -397,8 +379,8 @@ fn environments_from_items(items: &HashMap<String, ApiEnvironmentItem>) -> Envir
     }
 }
 
-fn api_config_from_item(item: &ApiEnvironmentItem) -> ApiIntegrationConfig {
-    ApiIntegrationConfig {
+fn api_config_from_item(item: &ApiEnvironmentItem) -> ProtoApiIntegrationConfig {
+    ProtoApiIntegrationConfig {
         base_url: item.base_url.clone(),
         auth_type: item.auth_type.clone(),
     }
@@ -447,9 +429,98 @@ pub(crate) fn environments_json(environments: Option<&Environments>) -> JsonValu
     JsonValue::Object(value)
 }
 
-fn api_integration_config_json(config: &ApiIntegrationConfig) -> JsonValue {
+fn api_integration_config_json(config: &ProtoApiIntegrationConfig) -> JsonValue {
     json!({
         "base_url": config.base_url,
         "auth_type": config.auth_type,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_types::Resource;
+
+    #[test]
+    fn api_integration_commands_parse_local_yaml_through_typed_model() {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            API_INTEGRATIONS.file.file_path.to_string(),
+            Resource {
+                resource_id: API_INTEGRATIONS.file.resource_id.to_string(),
+                name: API_INTEGRATIONS.file.name.to_string(),
+                file_path: API_INTEGRATIONS.file.file_path.to_string(),
+                payload: json!({
+                    "content": r#"
+api_integrations:
+  - name: orders_api
+    description: Order lookup API.
+    environments:
+      sandbox:
+        base_url: https://sandbox.example.test
+        auth_type: apiKey
+      pre-release:
+        base_url: ""
+        auth_type: none
+      live:
+        base_url: ""
+        auth_type: none
+    operations:
+      - name: get_order
+        method: get
+        resource: /orders/{id}
+"#,
+                }),
+            },
+        );
+        let projection = json!({
+            "apiIntegrations": {
+                "apiIntegrations": {
+                    "ids": ["api-1"],
+                    "entities": {
+                        "api-1": {
+                            "id": "api-1",
+                            "name": "orders_api",
+                            "description": "Order lookup API.",
+                            "environments": {
+                                "sandbox": {
+                                    "baseUrl": "https://sandbox.example.test",
+                                    "authType": "apiKey"
+                                },
+                                "preRelease": {
+                                    "baseUrl": "",
+                                    "authType": "none"
+                                },
+                                "live": {
+                                    "baseUrl": "",
+                                    "authType": "none"
+                                }
+                            },
+                            "operations": {
+                                "ids": ["op-1"],
+                                "entities": {
+                                    "op-1": {
+                                        "id": "op-1",
+                                        "name": "get_order",
+                                        "method": "GET",
+                                        "resource": "/orders/{id}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let commands = api_integration_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.integration_deletes.is_empty());
+        assert!(commands.operation_deletes.is_empty());
+        assert!(commands.integration_creates.is_empty());
+        assert!(commands.operation_creates.is_empty());
+        assert!(commands.integration_updates.is_empty());
+        assert!(commands.operation_updates.is_empty());
+        assert!(commands.config_updates.is_empty());
+    }
 }
