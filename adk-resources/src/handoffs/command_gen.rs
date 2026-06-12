@@ -1,3 +1,4 @@
+use crate::handoffs::local::{HANDOFFS_FILE_PATH, HandoffItem, parse_handoff_items_content};
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
@@ -9,7 +10,6 @@ use adk_protobuf::handoff::{
 use adk_protobuf::{Command, Metadata};
 use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue};
-use serde_yaml_ng::{Value as YamlValue, from_str};
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn handoff_command_groups(
@@ -23,6 +23,7 @@ pub(crate) fn handoff_command_groups(
     let mut updates = Vec::new();
     let mut local_names = HashSet::new();
     let mut changed_names = HashSet::new();
+    let local_handoffs = local_handoff_resources(resources);
 
     {
         let mut queue = HandoffItemQueue {
@@ -34,34 +35,9 @@ pub(crate) fn handoff_command_groups(
             updates: &mut updates,
         };
 
-        for resource in resources.values() {
-            let path = resource.file_path.as_str();
-            let content = resource
-                .payload
-                .get("content")
-                .and_then(JsonValue::as_str)
-                .unwrap_or_default();
-
-            if path == "config/handoffs.yaml" {
-                if let Ok(yaml) = from_str::<YamlValue>(content)
-                    && let Some(items) = yaml.get("handoffs").and_then(YamlValue::as_sequence)
-                {
-                    for item in items {
-                        if let Some(name) = queue.queue(item, "local") {
-                            changed_names.insert(name);
-                        }
-                    }
-                }
-                continue;
-            }
-
-            if path.starts_with("config/handoffs.yaml/handoffs/") {
-                let Ok(yaml) = from_str::<YamlValue>(content) else {
-                    continue;
-                };
-                if let Some(name) = queue.queue(&yaml, &resource.resource_id) {
-                    changed_names.insert(name);
-                }
+        for local in &local_handoffs {
+            if let Some(name) = queue.queue(&local.item, &local.resource_id) {
+                changed_names.insert(name);
             }
         }
     }
@@ -78,47 +54,16 @@ pub(crate) fn handoff_command_groups(
     }
 
     let mut defaults: Vec<Command> = Vec::new();
-    for resource in resources.values() {
-        let path = resource.file_path.as_str();
-        let content = resource
-            .payload
-            .get("content")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default();
-
-        if path == "config/handoffs.yaml" {
-            if let Ok(yaml) = from_str::<YamlValue>(content)
-                && let Some(items) = yaml.get("handoffs").and_then(YamlValue::as_sequence)
-            {
-                for item in items {
-                    queue_handoff_default_item(
-                        item,
-                        "local",
-                        projection,
-                        &remote,
-                        &changed_names,
-                        metadata,
-                        &mut defaults,
-                    );
-                }
-            }
-            continue;
-        }
-
-        if path.starts_with("config/handoffs.yaml/handoffs/") {
-            let Ok(yaml) = from_str::<YamlValue>(content) else {
-                continue;
-            };
-            queue_handoff_default_item(
-                &yaml,
-                &resource.resource_id,
-                projection,
-                &remote,
-                &changed_names,
-                metadata,
-                &mut defaults,
-            );
-        }
+    for local in &local_handoffs {
+        queue_handoff_default_item(
+            &local.item,
+            &local.resource_id,
+            projection,
+            &remote,
+            &changed_names,
+            metadata,
+            &mut defaults,
+        );
     }
 
     CommandGroups {
@@ -129,6 +74,36 @@ pub(crate) fn handoff_command_groups(
         cleanup_deletes: Vec::new(),
         post_deletes: Vec::new(),
     }
+}
+
+struct LocalHandoffResource {
+    resource_id: String,
+    item: HandoffItem,
+}
+
+fn local_handoff_resources(resources: &ResourceMap) -> Vec<LocalHandoffResource> {
+    let mut handoffs = Vec::new();
+    for resource in resources.values() {
+        let path = resource.file_path.as_str();
+        let content = resource
+            .payload
+            .get("content")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default();
+        let Ok(items) = parse_handoff_items_content(path, content) else {
+            continue;
+        };
+        let resource_id = if path == HANDOFFS_FILE_PATH {
+            "local"
+        } else {
+            resource.resource_id.as_str()
+        };
+        handoffs.extend(items.into_iter().map(|item| LocalHandoffResource {
+            resource_id: resource_id.to_string(),
+            item,
+        }));
+    }
+    handoffs
 }
 
 fn remote_handoffs(projection: &JsonValue) -> HashMap<String, String> {
@@ -152,65 +127,12 @@ fn remote_handoffs(projection: &JsonValue) -> HashMap<String, String> {
     handoffs
 }
 
-fn yaml_str(yaml: &YamlValue, key: &str) -> String {
-    yaml.get(key)
-        .and_then(YamlValue::as_str)
-        .unwrap_or("")
-        .to_string()
-}
-
 fn json_str(value: &JsonValue, key: &str) -> String {
     value
         .get(key)
         .and_then(JsonValue::as_str)
         .unwrap_or("")
         .to_string()
-}
-
-fn handoff_sip_config(yaml: &YamlValue) -> SipConfig {
-    let config = match yaml.get("sip_config").or_else(|| yaml.get("sipConfig")) {
-        Some(value) => value,
-        None => {
-            return SipConfig {
-                config: Some(sip_config::Config::Bye(SipByeHandoffConfig {})),
-            };
-        }
-    };
-    let method = config
-        .get("method")
-        .and_then(YamlValue::as_str)
-        .unwrap_or("bye");
-    let config = match method {
-        "invite" => sip_config::Config::Invite(SipInviteHandoffConfig {
-            phone_number: yaml_str(config, "phone_number"),
-            outbound_endpoint: yaml_str(config, "outbound_endpoint"),
-            outbound_encryption: yaml_str(config, "outbound_encryption"),
-        }),
-        "refer" => sip_config::Config::Refer(SipReferHandoffConfig {
-            phone_number: yaml_str(config, "phone_number"),
-        }),
-        _ => sip_config::Config::Bye(SipByeHandoffConfig {}),
-    };
-    SipConfig {
-        config: Some(config),
-    }
-}
-
-fn sip_headers_from_yaml(yaml: &YamlValue) -> Option<SipHeaders> {
-    let headers = yaml
-        .get("sip_headers")
-        .or_else(|| yaml.get("sipHeaders"))?
-        .as_sequence()?;
-    let headers = headers
-        .iter()
-        .filter_map(|row| {
-            Some(SipHeader {
-                key: row.get("key")?.as_str()?.to_string(),
-                value: row.get("value")?.as_str()?.to_string(),
-            })
-        })
-        .collect::<Vec<_>>();
-    (!headers.is_empty()).then_some(SipHeaders { headers })
 }
 
 struct HandoffItemQueue<'a> {
@@ -223,11 +145,8 @@ struct HandoffItemQueue<'a> {
 }
 
 impl HandoffItemQueue<'_> {
-    fn queue(&mut self, yaml: &YamlValue, resource_id: &str) -> Option<String> {
-        let name = yaml_str(yaml, "name");
-        if name.is_empty() {
-            return None;
-        }
+    fn queue(&mut self, item: &HandoffItem, resource_id: &str) -> Option<String> {
+        let name = item.name().to_string();
         self.local_names.insert(name.clone());
         let id = self
             .remote
@@ -236,16 +155,16 @@ impl HandoffItemQueue<'_> {
             .or_else(|| {
                 (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
             })
-            .unwrap_or_else(|| stable_resource_id("HANDOFFS", &name, "config/handoffs.yaml"));
-        let description = yaml_str(yaml, "description");
-        let sip_config = handoff_sip_config(yaml);
-        let sip_headers = sip_headers_from_yaml(yaml);
+            .unwrap_or_else(|| stable_resource_id("HANDOFFS", &name, HANDOFFS_FILE_PATH));
+        let description = item.description().to_string();
+        let sip_config = item.sip_config_proto();
+        let sip_headers = item.sip_headers_proto();
         if self.remote.contains_key(&name) {
             if let Some(remote) = self.remote.get(&name).and_then(|id| {
                 extract_entities_map(self.projection, &["handoff", "handoffs", "entities"])
                     .get(id)
                     .cloned()
-            }) && handoff_matches_remote(yaml, &remote)
+            }) && handoff_matches_remote(item, &remote)
             {
                 return None;
             }
@@ -285,7 +204,7 @@ impl HandoffItemQueue<'_> {
 }
 
 fn queue_handoff_default_item(
-    yaml: &YamlValue,
+    item: &HandoffItem,
     resource_id: &str,
     projection: &JsonValue,
     remote_handoffs: &HashMap<String, String>,
@@ -293,19 +212,11 @@ fn queue_handoff_default_item(
     metadata: &Option<Metadata>,
     defaults: &mut Vec<Command>,
 ) {
-    let is_default = yaml
-        .get("is_default")
-        .or_else(|| yaml.get("isDefault"))
-        .and_then(YamlValue::as_bool)
-        .unwrap_or(false);
-    if !is_default {
+    if !item.is_default() {
         return;
     }
-    let name = yaml_str(yaml, "name");
-    if name.is_empty() {
-        return;
-    }
-    if let Some(remote_id) = remote_handoffs.get(&name)
+    let name = item.name();
+    if let Some(remote_id) = remote_handoffs.get(name)
         && let Some(remote) = extract_entities_map(projection, &["handoff", "handoffs", "entities"])
             .get(remote_id)
             .cloned()
@@ -314,17 +225,17 @@ fn queue_handoff_default_item(
             .or_else(|| remote.get("is_default"))
             .and_then(JsonValue::as_bool)
             .unwrap_or(false)
-        && !changed_names.contains(&name)
+        && !changed_names.contains(name)
     {
         return;
     }
     let id = remote_handoffs
-        .get(&name)
+        .get(name)
         .cloned()
         .or_else(|| {
             (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
         })
-        .unwrap_or_else(|| stable_resource_id("HANDOFFS", &name, "config/handoffs.yaml"));
+        .unwrap_or_else(|| stable_resource_id("HANDOFFS", name, HANDOFFS_FILE_PATH));
     push_command(
         defaults,
         metadata,
@@ -333,15 +244,15 @@ fn queue_handoff_default_item(
     );
 }
 
-fn handoff_matches_remote(local: &YamlValue, remote: &JsonValue) -> bool {
-    yaml_str(local, "name") == remote.get("name").and_then(JsonValue::as_str).unwrap_or("")
-        && yaml_str(local, "description")
+fn handoff_matches_remote(local: &HandoffItem, remote: &JsonValue) -> bool {
+    local.name() == remote.get("name").and_then(JsonValue::as_str).unwrap_or("")
+        && local.description()
             == remote
                 .get("description")
                 .and_then(JsonValue::as_str)
                 .unwrap_or("")
-        && handoff_sip_config(local) == handoff_sip_config_from_remote(remote)
-        && sip_headers_from_yaml(local) == sip_headers_from_remote(remote)
+        && local.sip_config_proto() == handoff_sip_config_from_remote(remote)
+        && local.sip_headers_proto() == sip_headers_from_remote(remote)
 }
 
 fn handoff_sip_config_from_remote(remote: &JsonValue) -> SipConfig {

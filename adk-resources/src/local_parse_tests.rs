@@ -37,7 +37,7 @@ handoffs:
     sip_config:
       method: transfer
 "#,
-        "unknown variant `transfer`",
+        "Invalid SIP method 'transfer'",
     );
     assert_parse_error::<Handoff>(
         "config/handoffs.yaml",
