@@ -134,8 +134,31 @@ pub(crate) fn prompt_reference_maps_from_projection(projection: &Value) -> Promp
             .and_then(Value::as_str)
             .unwrap_or(id.as_str());
         maps.insert_global("vrbl", &id, name);
+        maps.insert_global("var", &id, name);
         if let Some(resource_id) = variable.get("id").and_then(Value::as_str) {
             maps.insert_global("vrbl", resource_id, name);
+            maps.insert_global("var", resource_id, name);
+        }
+    }
+
+    let translations = projection_entity_values(projection, &["translations", "translations"]);
+    for (id, translation) in translations {
+        if translation
+            .get("archived")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let name = translation
+            .get("translationKey")
+            .or_else(|| translation.get("translation_key"))
+            .or_else(|| translation.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or(id.as_str());
+        maps.insert_global("tr", &id, name);
+        if let Some(resource_id) = translation.get("id").and_then(Value::as_str) {
+            maps.insert_global("tr", resource_id, name);
         }
     }
 
@@ -269,6 +292,7 @@ pub(crate) fn rewrite_materialized_prompt_references(
 
 fn materialized_prompt_reference_file(file_path: &str) -> bool {
     file_path == AGENT_RULES_FILE.file_path
+        || file_path == "config/sms_templates.yaml"
         || (file_path.starts_with("topics/") && file_path.ends_with(".yaml"))
         || (file_path.starts_with("flows/")
             && file_path.contains("/steps/")

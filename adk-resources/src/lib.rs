@@ -164,7 +164,7 @@ pub(crate) fn rules_references_from_behaviour(behaviour: &str) -> Option<RulesRe
     }
 }
 
-fn extract_template_references(behaviour: &str, prefix: &str) -> HashMap<String, bool> {
+pub(crate) fn extract_template_references(behaviour: &str, prefix: &str) -> HashMap<String, bool> {
     let marker = format!("{{{{{prefix}:");
     let mut out = HashMap::new();
     let mut start = 0;

@@ -27,6 +27,16 @@ fn projection_materializes_named_prompt_references_like_python() {
                 }
             }
         },
+        "translations": {
+            "translations": {
+                "entities": {
+                    "TRANSLATION-greeting": {
+                        "id": "TRANSLATION-greeting",
+                        "translationKey": "greeting"
+                    }
+                }
+            }
+        },
         "variantManagement": {
             "variants": {
                 "entities": {
@@ -47,6 +57,23 @@ fn projection_materializes_named_prompt_references_like_python() {
             },
             "variantAttributeValues": {
                 "entities": {}
+            }
+        },
+        "sms": {
+            "templates": {
+                "entities": {
+                    "SMS-welcome": {
+                        "id": "SMS-welcome",
+                        "name": "Welcome SMS",
+                        "text": "Hi {{vrbl:VARIABLE-call_direction_prompt}} {{tr:TRANSLATION-greeting}}",
+                        "envPhoneNumbers": {
+                            "sandbox": "",
+                            "preRelease": "",
+                            "live": ""
+                        },
+                        "active": true
+                    }
+                }
             }
         },
         "knowledgeBase": {
@@ -124,6 +151,17 @@ fn projection_materializes_named_prompt_references_like_python() {
     assert!(topic.contains("{{attr:site_name}}"));
     assert!(topic.contains("{{vrbl:call_direction_prompt}}"));
     assert!(!topic.contains("FUNCTION-start_verification"));
+
+    let sms = resources
+        .get("config/sms_templates.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("sms templates");
+    assert!(sms.contains("{{vrbl:call_direction_prompt}}"));
+    assert!(sms.contains("{{tr:greeting}}"));
+    assert!(!sms.contains("VARIABLE-call_direction_prompt"));
+    assert!(!sms.contains("TRANSLATION-greeting"));
+    assert!(!sms.contains("references:"));
 
     let step = resources
         .get("flows/address_flow/steps/determine_language.yaml")

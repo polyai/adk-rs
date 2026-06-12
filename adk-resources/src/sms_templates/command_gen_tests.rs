@@ -92,23 +92,14 @@ fn sms_payload_summaries_cover_env_refs_and_update_defaults() {
 }
 
 #[test]
-fn sms_create_populates_references_from_yaml() {
+fn sms_create_derives_references_from_inline_text() {
     let sms_yaml = r#"
 name: Welcome
-text: hi
+text: hi {{vrbl:customer_name}} {{var:customer_alias}} {{tr:greeting}}
 env_phone_numbers:
   sandbox: ""
   pre_release: ""
   live: ""
-references:
-  topics:
-    topic-1: true
-  flow_steps:
-    flow-1: true
-  variables:
-    var-1: true
-  translations:
-    tr-1: true
 "#;
     let resources = map_with(vec![(
         "config/sms_templates.yaml/sms_templates/Welcome".into(),
@@ -119,7 +110,32 @@ references:
             payload: serde_json::json!({ "content": sms_yaml }),
         },
     )]);
-    let projection = serde_json::json!({});
+    let projection = serde_json::json!({
+        "variables": {
+            "variables": {
+                "entities": {
+                    "VARIABLE-customer_name": {
+                        "id": "VARIABLE-customer_name",
+                        "name": "customer_name"
+                    },
+                    "VARIABLE-customer_alias": {
+                        "id": "VARIABLE-customer_alias",
+                        "name": "customer_alias"
+                    }
+                }
+            }
+        },
+        "translations": {
+            "translations": {
+                "entities": {
+                    "TRANSLATION-greeting": {
+                        "id": "TRANSLATION-greeting",
+                        "translationKey": "greeting"
+                    }
+                }
+            }
+        }
+    });
     let commands = flatten(sms_template_command_groups(&resources, &projection, &None));
     let create = commands
         .iter()
@@ -127,11 +143,31 @@ references:
         .expect("sms create command");
     match &create.payload {
         Some(CommandPayload::SmsCreateTemplate(message)) => {
+            assert_eq!(
+                message.text,
+                "hi {{vrbl:VARIABLE-customer_name}} {{var:VARIABLE-customer_alias}} {{tr:TRANSLATION-greeting}}"
+            );
             let refs = message.references.as_ref().expect("references");
-            assert!(refs.topics.get("topic-1").copied().unwrap_or(false));
-            assert!(refs.flow_steps.get("flow-1").copied().unwrap_or(false));
-            assert!(refs.variables.get("var-1").copied().unwrap_or(false));
-            assert!(refs.translations.get("tr-1").copied().unwrap_or(false));
+            assert!(refs.topics.is_empty());
+            assert!(refs.flow_steps.is_empty());
+            assert!(
+                refs.variables
+                    .get("VARIABLE-customer_name")
+                    .copied()
+                    .unwrap_or(false)
+            );
+            assert!(
+                refs.variables
+                    .get("VARIABLE-customer_alias")
+                    .copied()
+                    .unwrap_or(false)
+            );
+            assert!(
+                refs.translations
+                    .get("TRANSLATION-greeting")
+                    .copied()
+                    .unwrap_or(false)
+            );
         }
         _ => panic!("unexpected payload variant for SMS create command"),
     }

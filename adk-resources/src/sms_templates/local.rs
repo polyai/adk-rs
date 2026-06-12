@@ -1,10 +1,9 @@
 use crate::local_parse::{
     NonEmptyString, ResourceParseErrors, ResourceParseResult, deserialize_yaml, duplicate_names,
 };
-use adk_protobuf::sms::{SmsEnvPhoneNumbers, SmsTemplateReferences, UpdateSmsEnvPhoneNumbers};
+use adk_protobuf::sms::{SmsEnvPhoneNumbers, UpdateSmsEnvPhoneNumbers};
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
-use std::collections::HashMap;
 
 pub(crate) const SMS_TEMPLATES_FILE_PATH: &str = "config/sms_templates.yaml";
 pub(crate) const SMS_TEMPLATE_ITEM_PREFIX: &str = "config/sms_templates.yaml/sms_templates/";
@@ -79,12 +78,6 @@ pub(crate) struct SmsTemplate {
     text: NonEmptyString,
     #[serde(alias = "envPhoneNumbers")]
     env_phone_numbers: EnvPhoneNumbers,
-    #[serde(
-        default,
-        alias = "refs",
-        skip_serializing_if = "SmsReferences::is_empty"
-    )]
-    references: SmsReferences,
 }
 
 impl SmsTemplate {
@@ -97,7 +90,6 @@ impl SmsTemplate {
             name: NonEmptyString::new(name)?,
             text: NonEmptyString::new(text)?,
             env_phone_numbers,
-            references: SmsReferences::default(),
         })
     }
 
@@ -119,10 +111,6 @@ impl SmsTemplate {
 
     pub(super) fn env_phone_numbers(&self) -> &EnvPhoneNumbers {
         &self.env_phone_numbers
-    }
-
-    pub(crate) fn references_proto(&self) -> Option<SmsTemplateReferences> {
-        self.references.to_proto()
     }
 }
 
@@ -164,56 +152,4 @@ impl EnvPhoneNumbers {
             live: Some(self.live.clone()),
         }
     }
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-struct SmsReferences {
-    #[serde(default, deserialize_with = "reference_map")]
-    topics: HashMap<String, bool>,
-    #[serde(default, deserialize_with = "reference_map")]
-    flow_steps: HashMap<String, bool>,
-    #[serde(default, deserialize_with = "reference_map")]
-    variables: HashMap<String, bool>,
-    #[serde(default, deserialize_with = "reference_map")]
-    translations: HashMap<String, bool>,
-}
-
-impl SmsReferences {
-    fn is_empty(&self) -> bool {
-        self.topics.is_empty()
-            && self.flow_steps.is_empty()
-            && self.variables.is_empty()
-            && self.translations.is_empty()
-    }
-
-    fn to_proto(&self) -> Option<SmsTemplateReferences> {
-        (!self.is_empty()).then(|| SmsTemplateReferences {
-            topics: self.topics.clone(),
-            flow_steps: self.flow_steps.clone(),
-            variables: self.variables.clone(),
-            translations: self.translations.clone(),
-        })
-    }
-}
-
-fn reference_map<'de, D>(deserializer: D) -> Result<HashMap<String, bool>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<Value>::deserialize(deserializer)?.unwrap_or(Value::Null);
-    if let Some(items) = value.as_sequence() {
-        return Ok(items
-            .iter()
-            .filter_map(|value| value.as_str().map(|key| (key.to_string(), true)))
-            .collect());
-    }
-    if let Some(items) = value.as_mapping() {
-        return Ok(items
-            .iter()
-            .filter_map(|(key, value)| {
-                Some((key.as_str()?.to_string(), value.as_bool().unwrap_or(true)))
-            })
-            .collect());
-    }
-    Ok(HashMap::new())
 }

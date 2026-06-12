@@ -3,7 +3,11 @@ use crate::push_commands::CommandGroups;
 use crate::sms_templates::local::{
     SMS_TEMPLATES_FILE_PATH, SmsTemplate, parse_sms_templates_content,
 };
-use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
+use crate::{
+    PromptReferenceMaps, extract_entities_map, extract_template_references,
+    is_synthetic_local_resource_id, prompt_reference_maps_from_projection, push_command,
+    replace_resource_names_with_ids,
+};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::sms::{
     SmsCreateTemplate, SmsDeleteTemplate, SmsEnvPhoneNumbers, SmsTemplateReferences,
@@ -25,10 +29,12 @@ pub(crate) fn sms_template_command_groups(
     let mut updates = Vec::new();
     let mut local_names = HashSet::new();
     let local_templates = local_sms_template_resources(resources);
+    let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
 
     {
         let mut queue = SmsItemQueue {
             projection,
+            prompt_reference_maps: &prompt_reference_maps,
             remote: &remote,
             metadata,
             local_names: &mut local_names,
@@ -121,11 +127,11 @@ fn non_empty(left: String, right: String) -> String {
     if left.is_empty() { right } else { left }
 }
 
-fn sms_matches_remote(local: &SmsTemplate, remote: &JsonValue) -> bool {
+fn sms_matches_remote(local: &SmsTemplate, text: &str, remote: &JsonValue) -> bool {
     if local.name() != remote.get("name").and_then(JsonValue::as_str).unwrap_or("") {
         return false;
     }
-    if local.text() != remote.get("text").and_then(JsonValue::as_str).unwrap_or("") {
+    if text != remote.get("text").and_then(JsonValue::as_str).unwrap_or("") {
         return false;
     }
     let local_env = local.env_phone_numbers();
@@ -155,38 +161,20 @@ fn sms_matches_remote(local: &SmsTemplate, remote: &JsonValue) -> bool {
                 .unwrap_or("")
 }
 
-fn json_reference_map(value: Option<&JsonValue>) -> HashMap<String, bool> {
-    value
-        .and_then(JsonValue::as_object)
-        .map(|object| {
-            object
-                .iter()
-                .map(|(key, value)| (key.clone(), value.as_bool().unwrap_or(true)))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn sms_references_from_remote(remote: Option<&JsonValue>) -> Option<SmsTemplateReferences> {
-    let refs = remote.and_then(|value| value.get("references"))?;
-    let topics = json_reference_map(refs.get("topics"));
-    let flow_steps = json_reference_map(refs.get("flowSteps").or_else(|| refs.get("flow_steps")));
-    let variables = json_reference_map(refs.get("variables"));
-    let translations = json_reference_map(refs.get("translations"));
-    if topics.is_empty() && flow_steps.is_empty() && variables.is_empty() && translations.is_empty()
-    {
-        return None;
-    }
-    Some(SmsTemplateReferences {
-        topics,
-        flow_steps,
+fn sms_references_from_text(text: &str) -> SmsTemplateReferences {
+    let mut variables = extract_template_references(text, "vrbl");
+    variables.extend(extract_template_references(text, "var"));
+    SmsTemplateReferences {
+        topics: HashMap::new(),
+        flow_steps: HashMap::new(),
         variables,
-        translations,
-    })
+        translations: extract_template_references(text, "tr"),
+    }
 }
 
 struct SmsItemQueue<'a> {
     projection: &'a JsonValue,
+    prompt_reference_maps: &'a PromptReferenceMaps,
     remote: &'a HashMap<String, String>,
     metadata: &'a Option<Metadata>,
     local_names: &'a mut HashSet<String>,
@@ -206,19 +194,18 @@ impl SmsItemQueue<'_> {
                 (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
             })
             .unwrap_or_else(|| stable_resource_id("SMS_TEMPLATES", &name, SMS_TEMPLATES_FILE_PATH));
-        let text = template.text().to_string();
+        let text =
+            replace_resource_names_with_ids(template.text(), self.prompt_reference_maps, None);
         let env_create = template.env_phone_numbers_proto();
         let env_update = template.env_phone_numbers_update_proto();
-        let local_refs = template.references_proto();
+        let references = sms_references_from_text(&text);
         if self.remote.contains_key(&name) {
             let sms_entities =
                 extract_entities_map(self.projection, &["sms", "templates", "entities"]);
-            let mut remote_template: Option<&JsonValue> = None;
             if let Some(remote_id) = self.remote.get(&name)
                 && let Some(remote) = sms_entities.get(remote_id.as_str())
             {
-                remote_template = Some(remote);
-                if sms_matches_remote(template, remote) {
+                if sms_matches_remote(template, &text, remote) {
                     return;
                 }
             }
@@ -231,9 +218,7 @@ impl SmsItemQueue<'_> {
                     name: Some(name.clone()),
                     text: Some(text),
                     env_phone_numbers: Some(env_update),
-                    references: local_refs
-                        .clone()
-                        .or_else(|| sms_references_from_remote(remote_template)),
+                    references: Some(references),
                     active: Some(true),
                 }),
             );
@@ -247,7 +232,7 @@ impl SmsItemQueue<'_> {
                     name: name.clone(),
                     text,
                     env_phone_numbers: Some(env_create),
-                    references: local_refs,
+                    references: Some(references),
                     active: true,
                 }),
             );
