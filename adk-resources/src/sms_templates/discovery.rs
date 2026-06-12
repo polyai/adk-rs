@@ -1,11 +1,10 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_parse::{
-    NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
-    duplicate_names,
-};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
-use serde::Deserialize;
+use crate::sms_templates::local::{
+    SMS_TEMPLATES_FILE_PATH, SmsTemplatesFile, parse_sms_templates_file,
+};
 use serde_yaml_ng::Value;
 use std::path::Path;
 
@@ -14,7 +13,7 @@ use std::path::Path;
 pub(crate) struct SMSTemplate;
 impl DiscoverResources for SMSTemplate {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
-        path: "config/sms_templates.yaml",
+        path: SMS_TEMPLATES_FILE_PATH,
         yaml_path: &["sms_templates"],
     };
 
@@ -65,62 +64,11 @@ pub(crate) fn append_parse_errors(yaml: &Value, errors: &mut Vec<String>) {
 }
 
 impl ParseLocalResource for SMSTemplate {
-    type Parsed = SMSTemplatesFile;
+    type Parsed = SmsTemplatesFile;
 
     fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
-        let raw = deserialize_yaml::<SMSTemplatesFileUnchecked>(path, yaml)?;
-        SMSTemplatesFile::try_from_unchecked(path, raw)
+        parse_sms_templates_file(path, yaml)
     }
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-pub(crate) struct SMSTemplatesFile {
-    sms_templates: Vec<SMSTemplateItem>,
-}
-
-impl SMSTemplatesFile {
-    fn try_from_unchecked(path: &str, raw: SMSTemplatesFileUnchecked) -> ResourceParseResult<Self> {
-        let mut errors = ResourceParseErrors::new();
-        for duplicate in duplicate_names(raw.sms_templates.iter().map(|item| item.name.as_str())) {
-            errors.push(
-                &format!("{path}/sms_templates/{duplicate}"),
-                format!("duplicate SMS template name '{duplicate}'."),
-            );
-        }
-        if errors.is_empty() {
-            Ok(Self {
-                sms_templates: raw.sms_templates,
-            })
-        } else {
-            Err(errors)
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct SMSTemplatesFileUnchecked {
-    #[serde(default)]
-    sms_templates: Vec<SMSTemplateItem>,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct SMSTemplateItem {
-    name: NonEmptyString,
-    text: NonEmptyString,
-    env_phone_numbers: EnvPhoneNumbers,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[allow(dead_code)]
-struct EnvPhoneNumbers {
-    #[serde(default)]
-    sandbox: String,
-    #[serde(default, alias = "preRelease")]
-    pre_release: String,
-    #[serde(default)]
-    live: String,
 }
 
 #[cfg(test)]

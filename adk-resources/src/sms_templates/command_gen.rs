@@ -1,5 +1,8 @@
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
+use crate::sms_templates::local::{
+    SMS_TEMPLATES_FILE_PATH, SmsTemplate, parse_sms_templates_content,
+};
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::sms::{
@@ -9,7 +12,6 @@ use adk_protobuf::sms::{
 use adk_protobuf::{Command, Metadata};
 use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue};
-use serde_yaml_ng::{Value as YamlValue, from_str};
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn sms_template_command_groups(
@@ -22,6 +24,7 @@ pub(crate) fn sms_template_command_groups(
     let mut creates = Vec::new();
     let mut updates = Vec::new();
     let mut local_names = HashSet::new();
+    let local_templates = local_sms_template_resources(resources);
 
     {
         let mut queue = SmsItemQueue {
@@ -33,30 +36,8 @@ pub(crate) fn sms_template_command_groups(
             updates: &mut updates,
         };
 
-        for resource in resources.values() {
-            let path = resource.file_path.as_str();
-            let content = resource
-                .payload
-                .get("content")
-                .and_then(JsonValue::as_str)
-                .unwrap_or_default();
-
-            if path == "config/sms_templates.yaml" {
-                if let Ok(yaml) = from_str::<YamlValue>(content)
-                    && let Some(items) = yaml.get("sms_templates").and_then(YamlValue::as_sequence)
-                {
-                    for item in items {
-                        queue.queue(item, "local");
-                    }
-                }
-                continue;
-            }
-
-            if path.starts_with("config/sms_templates.yaml/sms_templates/")
-                && let Ok(yaml) = from_str::<YamlValue>(content)
-            {
-                queue.queue(&yaml, &resource.resource_id);
-            }
+        for local in &local_templates {
+            queue.queue(&local.template, &local.resource_id);
         }
     }
 
@@ -81,6 +62,40 @@ pub(crate) fn sms_template_command_groups(
     }
 }
 
+struct LocalSmsTemplateResource {
+    resource_id: String,
+    template: SmsTemplate,
+}
+
+fn local_sms_template_resources(resources: &ResourceMap) -> Vec<LocalSmsTemplateResource> {
+    let mut templates = Vec::new();
+    for resource in resources.values() {
+        let path = resource.file_path.as_str();
+        let content = resource
+            .payload
+            .get("content")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default();
+        let Ok(parsed_templates) = parse_sms_templates_content(path, content) else {
+            continue;
+        };
+        let resource_id = if path == SMS_TEMPLATES_FILE_PATH {
+            "local"
+        } else {
+            resource.resource_id.as_str()
+        };
+        templates.extend(
+            parsed_templates
+                .into_iter()
+                .map(|template| LocalSmsTemplateResource {
+                    resource_id: resource_id.to_string(),
+                    template,
+                }),
+        );
+    }
+    templates
+}
+
 fn remote_sms(projection: &JsonValue) -> HashMap<String, String> {
     let entities = extract_entities_map(projection, &["sms", "templates", "entities"]);
     let mut sms = HashMap::new();
@@ -102,88 +117,19 @@ fn remote_sms(projection: &JsonValue) -> HashMap<String, String> {
     sms
 }
 
-fn yaml_str(yaml: &YamlValue, key: &str) -> String {
-    yaml.get(key)
-        .and_then(YamlValue::as_str)
-        .unwrap_or("")
-        .to_string()
-}
-
-fn sms_env_phone_numbers(yaml: &YamlValue) -> SmsEnvPhoneNumbers {
-    let env = yaml
-        .get("env_phone_numbers")
-        .or_else(|| yaml.get("envPhoneNumbers"));
-    let env = match env {
-        Some(value) => value,
-        None => {
-            return SmsEnvPhoneNumbers {
-                sandbox: String::new(),
-                pre_release: String::new(),
-                live: String::new(),
-            };
-        }
-    };
-    let pre_release = non_empty(yaml_str(env, "pre_release"), yaml_str(env, "preRelease"));
-    SmsEnvPhoneNumbers {
-        sandbox: yaml_str(env, "sandbox"),
-        pre_release,
-        live: yaml_str(env, "live"),
-    }
-}
-
-fn sms_env_update(yaml: &YamlValue) -> UpdateSmsEnvPhoneNumbers {
-    let env = yaml
-        .get("env_phone_numbers")
-        .or_else(|| yaml.get("envPhoneNumbers"));
-    let env = match env {
-        Some(value) => value,
-        None => {
-            return UpdateSmsEnvPhoneNumbers {
-                sandbox: None,
-                pre_release: None,
-                live: None,
-            };
-        }
-    };
-    let pre_release = non_empty(yaml_str(env, "pre_release"), yaml_str(env, "preRelease"));
-    UpdateSmsEnvPhoneNumbers {
-        sandbox: Some(yaml_str(env, "sandbox")),
-        pre_release: Some(pre_release),
-        live: Some(yaml_str(env, "live")),
-    }
-}
-
 fn non_empty(left: String, right: String) -> String {
     if left.is_empty() { right } else { left }
 }
 
-fn sms_matches_remote(local: &YamlValue, remote: &JsonValue) -> bool {
-    if local.get("name").and_then(|v| v.as_str()).unwrap_or("")
-        != remote.get("name").and_then(JsonValue::as_str).unwrap_or("")
-    {
+fn sms_matches_remote(local: &SmsTemplate, remote: &JsonValue) -> bool {
+    if local.name() != remote.get("name").and_then(JsonValue::as_str).unwrap_or("") {
         return false;
     }
-    if local.get("text").and_then(|v| v.as_str()).unwrap_or("")
-        != remote.get("text").and_then(JsonValue::as_str).unwrap_or("")
-    {
+    if local.text() != remote.get("text").and_then(JsonValue::as_str).unwrap_or("") {
         return false;
     }
-    let local_env = local
-        .get("env_phone_numbers")
-        .or_else(|| local.get("envPhoneNumbers"));
+    let local_env = local.env_phone_numbers();
     let remote_env = remote.get("envPhoneNumbers");
-    let local_pre = non_empty(
-        local_env
-            .and_then(|env| env.get("pre_release"))
-            .and_then(YamlValue::as_str)
-            .unwrap_or("")
-            .to_string(),
-        local_env
-            .and_then(|env| env.get("preRelease"))
-            .and_then(YamlValue::as_str)
-            .unwrap_or("")
-            .to_string(),
-    );
     let remote_pre = non_empty(
         remote_env
             .and_then(|env| env.get("preRelease"))
@@ -196,44 +142,17 @@ fn sms_matches_remote(local: &YamlValue, remote: &JsonValue) -> bool {
             .unwrap_or("")
             .to_string(),
     );
-    local_env
-        .and_then(|env| env.get("sandbox"))
-        .and_then(YamlValue::as_str)
-        .unwrap_or("")
+    local_env.sandbox()
         == remote_env
             .and_then(|env| env.get("sandbox"))
             .and_then(JsonValue::as_str)
             .unwrap_or("")
-        && local_pre == remote_pre
-        && local_env
-            .and_then(|env| env.get("live"))
-            .and_then(YamlValue::as_str)
-            .unwrap_or("")
+        && local_env.pre_release() == remote_pre
+        && local_env.live()
             == remote_env
                 .and_then(|env| env.get("live"))
                 .and_then(JsonValue::as_str)
                 .unwrap_or("")
-}
-
-fn yaml_reference_map(yaml: Option<&YamlValue>) -> HashMap<String, bool> {
-    let Some(yaml) = yaml else {
-        return HashMap::new();
-    };
-    if let Some(items) = yaml.as_sequence() {
-        return items
-            .iter()
-            .filter_map(|value| value.as_str().map(|key| (key.to_string(), true)))
-            .collect();
-    }
-    if let Some(items) = yaml.as_mapping() {
-        return items
-            .iter()
-            .filter_map(|(key, value)| {
-                Some((key.as_str()?.to_string(), value.as_bool().unwrap_or(true)))
-            })
-            .collect();
-    }
-    HashMap::new()
 }
 
 fn json_reference_map(value: Option<&JsonValue>) -> HashMap<String, bool> {
@@ -246,24 +165,6 @@ fn json_reference_map(value: Option<&JsonValue>) -> HashMap<String, bool> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-fn sms_references_from_yaml(yaml: &YamlValue) -> Option<SmsTemplateReferences> {
-    let refs = yaml.get("references").or_else(|| yaml.get("refs"));
-    let topics = yaml_reference_map(refs.and_then(|refs| refs.get("topics")));
-    let flow_steps = yaml_reference_map(refs.and_then(|refs| refs.get("flow_steps")));
-    let variables = yaml_reference_map(refs.and_then(|refs| refs.get("variables")));
-    let translations = yaml_reference_map(refs.and_then(|refs| refs.get("translations")));
-    if topics.is_empty() && flow_steps.is_empty() && variables.is_empty() && translations.is_empty()
-    {
-        return None;
-    }
-    Some(SmsTemplateReferences {
-        topics,
-        flow_steps,
-        variables,
-        translations,
-    })
 }
 
 fn sms_references_from_remote(remote: Option<&JsonValue>) -> Option<SmsTemplateReferences> {
@@ -294,11 +195,8 @@ struct SmsItemQueue<'a> {
 }
 
 impl SmsItemQueue<'_> {
-    fn queue(&mut self, yaml: &YamlValue, resource_id: &str) {
-        let name = yaml_str(yaml, "name");
-        if name.is_empty() {
-            return;
-        }
+    fn queue(&mut self, template: &SmsTemplate, resource_id: &str) {
+        let name = template.name().to_string();
         self.local_names.insert(name.clone());
         let id = self
             .remote
@@ -307,13 +205,11 @@ impl SmsItemQueue<'_> {
             .or_else(|| {
                 (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
             })
-            .unwrap_or_else(|| {
-                stable_resource_id("SMS_TEMPLATES", &name, "config/sms_templates.yaml")
-            });
-        let text = yaml_str(yaml, "text");
-        let env_create = sms_env_phone_numbers(yaml);
-        let env_update = sms_env_update(yaml);
-        let local_refs = sms_references_from_yaml(yaml);
+            .unwrap_or_else(|| stable_resource_id("SMS_TEMPLATES", &name, SMS_TEMPLATES_FILE_PATH));
+        let text = template.text().to_string();
+        let env_create = template.env_phone_numbers_proto();
+        let env_update = template.env_phone_numbers_update_proto();
+        let local_refs = template.references_proto();
         if self.remote.contains_key(&name) {
             let sms_entities =
                 extract_entities_map(self.projection, &["sms", "templates", "entities"]);
@@ -322,7 +218,7 @@ impl SmsItemQueue<'_> {
                 && let Some(remote) = sms_entities.get(remote_id.as_str())
             {
                 remote_template = Some(remote);
-                if sms_matches_remote(yaml, remote) {
+                if sms_matches_remote(template, remote) {
                     return;
                 }
             }

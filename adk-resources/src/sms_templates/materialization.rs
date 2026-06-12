@@ -1,27 +1,10 @@
 use crate::materialization::to_yaml_string;
+use crate::sms_templates::local::{
+    EnvPhoneNumbers, SMS_TEMPLATES_FILE_PATH, SmsTemplate, SmsTemplatesFile,
+};
 use crate::{CommandGenError, extract_entities_vec};
 use adk_types::ResourceMap;
-use serde::Serialize;
 use serde_json::Value;
-
-#[derive(Serialize)]
-struct SmsTemplatesYaml {
-    sms_templates: Vec<SmsTemplateYaml>,
-}
-
-#[derive(Serialize)]
-struct SmsTemplateYaml {
-    name: String,
-    text: String,
-    env_phone_numbers: EnvPhoneNumbersYaml,
-}
-
-#[derive(Serialize)]
-struct EnvPhoneNumbersYaml {
-    sandbox: String,
-    pre_release: String,
-    live: String,
-}
 
 pub(crate) fn insert_sms_template_resources(
     map: &mut ResourceMap,
@@ -32,48 +15,17 @@ pub(crate) fn insert_sms_template_resources(
         if !sms.get("active").and_then(Value::as_bool).unwrap_or(true) {
             continue;
         }
-        sms_templates.push(SmsTemplateYaml {
-            name: sms
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            text: sms
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            env_phone_numbers: EnvPhoneNumbersYaml {
-                sandbox: sms
-                    .get("envPhoneNumbers")
-                    .and_then(|value| value.get("sandbox"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                pre_release: sms
-                    .get("envPhoneNumbers")
-                    .and_then(|value| value.get("preRelease"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                live: sms
-                    .get("envPhoneNumbers")
-                    .and_then(|value| value.get("live"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-            },
-        });
+        sms_templates.push(local_sms_template_from_projection(&sms)?);
     }
     if sms_templates.is_empty() {
         return Ok(());
     }
 
-    let content = to_yaml_string(&SmsTemplatesYaml { sms_templates })
+    let content = to_yaml_string(&SmsTemplatesFile::new(sms_templates))
         .map_err(|e| CommandGenError::InvalidData(e.to_string()))?;
     crate::materialization::insert_content_resource(
         map,
-        "config/sms_templates.yaml",
+        SMS_TEMPLATES_FILE_PATH,
         "sms_templates",
         "sms_templates",
         content,
@@ -82,4 +34,38 @@ pub(crate) fn insert_sms_template_resources(
 
 fn sms_entries_vec(projection: &Value) -> Vec<(String, Value)> {
     extract_entities_vec(projection, &["sms", "templates", "entities"])
+}
+
+fn local_sms_template_from_projection(sms: &Value) -> Result<SmsTemplate, CommandGenError> {
+    SmsTemplate::new(
+        json_str(sms, "name"),
+        json_str(sms, "text"),
+        EnvPhoneNumbers {
+            sandbox: sms
+                .get("envPhoneNumbers")
+                .map(|env| json_str(env, "sandbox"))
+                .unwrap_or_default(),
+            pre_release: sms
+                .get("envPhoneNumbers")
+                .map(|env| json_str(env, "preRelease"))
+                .unwrap_or_default(),
+            live: sms
+                .get("envPhoneNumbers")
+                .map(|env| json_str(env, "live"))
+                .unwrap_or_default(),
+        },
+    )
+    .map_err(invalid_sms_template_projection)
+}
+
+fn json_str(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn invalid_sms_template_projection(error: String) -> CommandGenError {
+    CommandGenError::InvalidData(format!("Invalid SMS template projection: {error}"))
 }

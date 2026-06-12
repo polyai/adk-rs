@@ -96,6 +96,10 @@ fn sms_create_populates_references_from_yaml() {
     let sms_yaml = r#"
 name: Welcome
 text: hi
+env_phone_numbers:
+  sandbox: ""
+  pre_release: ""
+  live: ""
 references:
   topics:
     topic-1: true
