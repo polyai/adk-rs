@@ -2,7 +2,7 @@ use crate::local_parse::{
     NonEmptyString, ResourceParseErrors, ResourceParseResult, deserialize_yaml, duplicate_names,
 };
 use crate::resource_utils::clean_name;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 use std::collections::BTreeSet;
 
@@ -121,12 +121,21 @@ pub(crate) fn parse_variant_attribute_definitions_file(
     VariantAttributeDefinitionsFile::try_from_file(path, raw)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct VariantAttributesFile {
     #[serde(default)]
     pub(crate) variants: Vec<VariantItem>,
     #[serde(default)]
     pub(crate) attributes: Vec<VariantAttributeItem>,
+}
+
+impl VariantAttributesFile {
+    pub(crate) fn new(variants: Vec<VariantItem>, attributes: Vec<VariantAttributeItem>) -> Self {
+        Self {
+            variants,
+            attributes,
+        }
+    }
 }
 
 pub(crate) fn parse_variant_attributes_file(
@@ -136,14 +145,21 @@ pub(crate) fn parse_variant_attributes_file(
     deserialize_yaml(path, yaml)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct VariantItem {
     name: NonEmptyString,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     is_default: bool,
 }
 
 impl VariantItem {
+    pub(crate) fn new(name: String, is_default: bool) -> Result<Self, String> {
+        Ok(Self {
+            name: NonEmptyString::new(name)?,
+            is_default,
+        })
+    }
+
     pub(crate) fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -153,7 +169,7 @@ impl VariantItem {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct VariantAttributeItem {
     name: NonEmptyString,
     #[serde(default)]
@@ -161,6 +177,16 @@ pub(crate) struct VariantAttributeItem {
 }
 
 impl VariantAttributeItem {
+    pub(crate) fn new(
+        name: String,
+        values: std::collections::BTreeMap<String, String>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            name: NonEmptyString::new(name)?,
+            values,
+        })
+    }
+
     pub(crate) fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -176,4 +202,8 @@ fn quoted_set(values: &[String]) -> String {
         .map(|value| format!("'{value}'"))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }

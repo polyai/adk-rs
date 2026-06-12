@@ -2,16 +2,20 @@ use crate::local_parse::{
     NonEmptyString, ResourceParseErrors, ResourceParseResult, deserialize_yaml, duplicate_names,
     non_empty_map,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 use std::collections::BTreeMap;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct TranslationsFile {
     pub(crate) translations: Vec<TranslationItem>,
 }
 
 impl TranslationsFile {
+    pub(crate) fn new(translations: Vec<TranslationItem>) -> Self {
+        Self { translations }
+    }
+
     fn try_from_raw(path: &str, raw: RawTranslationsFile) -> ResourceParseResult<Self> {
         let mut errors = ResourceParseErrors::new();
         for duplicate in duplicate_names(raw.translations.iter().map(|item| item.name.as_str())) {
@@ -44,7 +48,7 @@ struct RawTranslationsFile {
     translations: Vec<TranslationItem>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct TranslationItem {
     name: NonEmptyString,
     #[serde(deserialize_with = "translation_values")]
@@ -52,6 +56,16 @@ pub(crate) struct TranslationItem {
 }
 
 impl TranslationItem {
+    pub(crate) fn from_projection(
+        name: String,
+        translations: BTreeMap<String, String>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            name: NonEmptyString::new(name)?,
+            translations,
+        })
+    }
+
     pub(crate) fn name(&self) -> &str {
         self.name.as_str()
     }

@@ -1,11 +1,17 @@
 use crate::local_parse::{NonEmptyString, ResourceParseResult, deserialize_yaml};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct PronunciationsFile {
     #[serde(default)]
     pub(crate) pronunciations: Vec<PronunciationItem>,
+}
+
+impl PronunciationsFile {
+    pub(crate) fn new(pronunciations: Vec<PronunciationItem>) -> Self {
+        Self { pronunciations }
+    }
 }
 
 pub(crate) fn parse_pronunciations_file(
@@ -15,22 +21,44 @@ pub(crate) fn parse_pronunciations_file(
     deserialize_yaml(path, yaml)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct PronunciationItem {
     regex: NonEmptyString,
     #[serde(default)]
     replacement: String,
     #[serde(default)]
     case_sensitive: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     language_code: String,
-    #[serde(default, deserialize_with = "deserialize_trimmed_string")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_trimmed_string",
+        skip_serializing_if = "String::is_empty"
+    )]
     description: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     name: String,
 }
 
 impl PronunciationItem {
+    pub(crate) fn new(
+        regex: String,
+        replacement: String,
+        case_sensitive: bool,
+        language_code: String,
+        description: String,
+        name: String,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            regex: NonEmptyString::new(regex)?,
+            replacement,
+            case_sensitive,
+            language_code,
+            description: description.trim().to_string(),
+            name,
+        })
+    }
+
     pub(crate) fn regex(&self) -> &str {
         self.regex.as_str()
     }

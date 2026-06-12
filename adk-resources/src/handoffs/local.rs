@@ -151,7 +151,7 @@ impl Handoff {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(tag = "method", rename_all = "lowercase")]
 pub(super) enum SipConfig {
     Invite {
@@ -162,13 +162,8 @@ pub(super) enum SipConfig {
     Refer {
         phone_number: String,
     },
+    #[default]
     Bye,
-}
-
-impl Default for SipConfig {
-    fn default() -> Self {
-        Self::Bye
-    }
 }
 
 impl<'de> Deserialize<'de> for SipConfig {

@@ -1,11 +1,17 @@
 use crate::local_parse::{NonEmptyString, ResourceParseResult, deserialize_yaml};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct KeyphraseBoostingFile {
     #[serde(default)]
     pub(crate) keyphrases: Vec<KeyphraseItem>,
+}
+
+impl KeyphraseBoostingFile {
+    pub(crate) fn new(keyphrases: Vec<KeyphraseItem>) -> Self {
+        Self { keyphrases }
+    }
 }
 
 pub(crate) fn parse_keyphrase_boosting_file(
@@ -15,7 +21,7 @@ pub(crate) fn parse_keyphrase_boosting_file(
     deserialize_yaml(path, yaml)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct KeyphraseItem {
     keyphrase: NonEmptyString,
     #[serde(default)]
@@ -23,6 +29,13 @@ pub(crate) struct KeyphraseItem {
 }
 
 impl KeyphraseItem {
+    pub(crate) fn new(keyphrase: String, level: String) -> Result<Self, String> {
+        Ok(Self {
+            keyphrase: NonEmptyString::new(keyphrase)?,
+            level: KeyphraseLevel::from_projection_level(&level),
+        })
+    }
+
     pub(crate) fn keyphrase(&self) -> &str {
         self.keyphrase.as_str()
     }
@@ -32,11 +45,14 @@ impl KeyphraseItem {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 enum KeyphraseLevel {
     #[default]
+    #[serde(rename = "default")]
     Default,
+    #[serde(rename = "boosted")]
     Boosted,
+    #[serde(rename = "maximum")]
     Maximum,
 }
 
@@ -58,6 +74,14 @@ impl<'de> Deserialize<'de> for KeyphraseLevel {
 }
 
 impl KeyphraseLevel {
+    fn from_projection_level(value: &str) -> Self {
+        match value.to_lowercase().as_str() {
+            "boosted" => Self::Boosted,
+            "maximum" => Self::Maximum,
+            _ => Self::Default,
+        }
+    }
+
     fn as_str(&self) -> &'static str {
         match self {
             Self::Default => "default",

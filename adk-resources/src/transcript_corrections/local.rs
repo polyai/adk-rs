@@ -3,15 +3,19 @@ use crate::local_parse::{
     non_empty_vec,
 };
 use crate::resource_utils::clean_name;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct TranscriptCorrectionsFile {
     pub(crate) corrections: Vec<TranscriptCorrectionItem>,
 }
 
 impl TranscriptCorrectionsFile {
+    pub(crate) fn new(corrections: Vec<TranscriptCorrectionItem>) -> Self {
+        Self { corrections }
+    }
+
     fn try_from_raw(path: &str, raw: RawTranscriptCorrectionsFile) -> ResourceParseResult<Self> {
         let mut errors = ResourceParseErrors::new();
         for duplicate in duplicate_names(raw.corrections.iter().map(|item| item.name.as_str())) {
@@ -99,16 +103,35 @@ fn transcript_correction_item_errors(path: &str, yaml: &Value) -> ResourceParseE
     errors
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct TranscriptCorrectionItem {
     name: NonEmptyString,
-    #[serde(default, deserialize_with = "deserialize_trimmed_string")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_trimmed_string",
+        skip_serializing_if = "String::is_empty"
+    )]
     description: String,
     #[serde(deserialize_with = "regular_expression_rules")]
     regular_expressions: Vec<RegularExpressionRule>,
 }
 
 impl TranscriptCorrectionItem {
+    pub(crate) fn new(
+        name: String,
+        description: String,
+        regular_expressions: Vec<RegularExpressionRule>,
+    ) -> Result<Self, String> {
+        if regular_expressions.is_empty() {
+            return Err("At least one regular expression rule is required".to_string());
+        }
+        Ok(Self {
+            name: NonEmptyString::new(name)?,
+            description: description.trim().to_string(),
+            regular_expressions,
+        })
+    }
+
     pub(crate) fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -132,7 +155,7 @@ where
     )
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct RegularExpressionRule {
     regular_expression: NonEmptyString,
     #[serde(default)]
@@ -142,6 +165,18 @@ pub(crate) struct RegularExpressionRule {
 }
 
 impl RegularExpressionRule {
+    pub(crate) fn new(
+        regular_expression: String,
+        replacement: String,
+        replacement_type: String,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            regular_expression: NonEmptyString::new(regular_expression)?,
+            replacement,
+            replacement_type: ReplacementType::from_backend_value(&replacement_type),
+        })
+    }
+
     pub(crate) fn regular_expression(&self) -> &str {
         self.regular_expression.as_str()
     }
@@ -155,7 +190,7 @@ impl RegularExpressionRule {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum ReplacementType {
     #[default]
@@ -165,6 +200,14 @@ enum ReplacementType {
 }
 
 impl ReplacementType {
+    fn from_backend_value(value: &str) -> Self {
+        match value {
+            "partial" => Self::Partial,
+            "substring" => Self::Substring,
+            _ => Self::Full,
+        }
+    }
+
     fn backend_str(&self) -> &'static str {
         match self {
             Self::Full => "full",

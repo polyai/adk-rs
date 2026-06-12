@@ -204,10 +204,9 @@ impl SmsItemQueue<'_> {
                 extract_entities_map(self.projection, &["sms", "templates", "entities"]);
             if let Some(remote_id) = self.remote.get(&name)
                 && let Some(remote) = sms_entities.get(remote_id.as_str())
+                && sms_matches_remote(template, &text, remote)
             {
-                if sms_matches_remote(template, &text, remote) {
-                    return;
-                }
+                return;
             }
             push_command(
                 self.updates,

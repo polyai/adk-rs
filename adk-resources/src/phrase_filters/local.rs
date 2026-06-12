@@ -1,11 +1,17 @@
 use crate::local_parse::{NonEmptyString, ResourceParseResult, deserialize_yaml, non_empty_vec};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct PhraseFiltersFile {
     #[serde(default)]
     pub(crate) phrase_filtering: Vec<PhraseFilterItem>,
+}
+
+impl PhraseFiltersFile {
+    pub(crate) fn new(phrase_filtering: Vec<PhraseFilterItem>) -> Self {
+        Self { phrase_filtering }
+    }
 }
 
 pub(crate) fn parse_phrase_filters_file(
@@ -15,22 +21,47 @@ pub(crate) fn parse_phrase_filters_file(
     deserialize_yaml(path, yaml)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct PhraseFilterItem {
     name: NonEmptyString,
-    #[serde(default, deserialize_with = "deserialize_trimmed_string")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_trimmed_string",
+        skip_serializing_if = "String::is_empty"
+    )]
     description: String,
     #[serde(deserialize_with = "regular_expressions")]
     regular_expressions: Vec<String>,
     #[serde(default)]
     say_phrase: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     language_code: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "option_string_is_empty")]
     function: Option<String>,
 }
 
 impl PhraseFilterItem {
+    pub(crate) fn new(
+        name: String,
+        description: String,
+        regular_expressions: Vec<String>,
+        say_phrase: bool,
+        language_code: String,
+        function: Option<String>,
+    ) -> Result<Self, String> {
+        if regular_expressions.is_empty() {
+            return Err("At least one regular expression is required".to_string());
+        }
+        Ok(Self {
+            name: NonEmptyString::new(name)?,
+            description: description.trim().to_string(),
+            regular_expressions,
+            say_phrase,
+            language_code,
+            function,
+        })
+    }
+
     pub(crate) fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -73,4 +104,8 @@ where
         .unwrap_or_default()
         .trim()
         .to_string())
+}
+
+fn option_string_is_empty(value: &Option<String>) -> bool {
+    value.as_deref().is_none_or(str::is_empty)
 }
