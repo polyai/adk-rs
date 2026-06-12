@@ -1,4 +1,4 @@
-use crate::handoffs::local::{HANDOFFS_FILE_PATH, Handoff, HandoffsFile};
+use crate::handoffs::local::{HANDOFFS_FILE_PATH, Handoff, HandoffsFile, SipConfig};
 use crate::materialization::to_yaml_string;
 use crate::{CommandGenError, extract_entities_vec};
 use adk_types::ResourceMap;
@@ -46,7 +46,13 @@ fn local_handoff_from_projection(handoff: &Value) -> Result<Handoff, CommandGenE
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let sip_headers = handoff_sip_headers(handoff);
+    let sip_config = handoff_sip_config(handoff);
 
+    Handoff::new(name, description, is_default, sip_config, sip_headers)
+        .map_err(invalid_handoff_projection)
+}
+
+fn handoff_sip_config(handoff: &Value) -> SipConfig {
     let sip_config = handoff.get("sipConfig");
     let config = sip_config
         .and_then(|v| v.get("config"))
@@ -55,50 +61,33 @@ fn local_handoff_from_projection(handoff: &Value) -> Result<Handoff, CommandGenE
         .unwrap_or_else(|| serde_json::json!({}));
     if let Some(case) = config.get("$case").and_then(Value::as_str) {
         let value = config.get("value").unwrap_or(&Value::Null);
-        return (match case {
-            "invite" => Handoff::invite(
-                name,
-                description,
-                is_default,
-                json_str(value, "phoneNumber"),
-                json_str(value, "outboundEndpoint"),
-                json_str(value, "outboundEncryption"),
-                sip_headers,
-            ),
-            "refer" => Handoff::refer(
-                name,
-                description,
-                is_default,
-                json_str(value, "phoneNumber"),
-                sip_headers,
-            ),
-            _ => Handoff::bye(name, description, is_default, sip_headers),
-        })
-        .map_err(invalid_handoff_projection);
+        return match case {
+            "invite" => invite_sip_config(value),
+            "refer" => refer_sip_config(value),
+            _ => SipConfig::Bye,
+        };
     }
     if let Some(invite) = config.get("invite") {
-        return Handoff::invite(
-            name,
-            description,
-            is_default,
-            json_str(invite, "phoneNumber"),
-            json_str(invite, "outboundEndpoint"),
-            json_str(invite, "outboundEncryption"),
-            sip_headers,
-        )
-        .map_err(invalid_handoff_projection);
+        return invite_sip_config(invite);
     }
     if let Some(refer) = config.get("refer") {
-        return Handoff::refer(
-            name,
-            description,
-            is_default,
-            json_str(refer, "phoneNumber"),
-            sip_headers,
-        )
-        .map_err(invalid_handoff_projection);
+        return refer_sip_config(refer);
     }
-    Handoff::bye(name, description, is_default, sip_headers).map_err(invalid_handoff_projection)
+    SipConfig::Bye
+}
+
+fn invite_sip_config(value: &Value) -> SipConfig {
+    SipConfig::Invite {
+        phone_number: json_str(value, "phoneNumber"),
+        outbound_endpoint: json_str(value, "outboundEndpoint"),
+        outbound_encryption: json_str(value, "outboundEncryption"),
+    }
+}
+
+fn refer_sip_config(value: &Value) -> SipConfig {
+    SipConfig::Refer {
+        phone_number: json_str(value, "phoneNumber"),
+    }
 }
 
 fn handoff_sip_headers(handoff: &Value) -> Vec<(String, String)> {

@@ -103,50 +103,7 @@ pub(crate) struct Handoff {
 }
 
 impl Handoff {
-    pub(crate) fn bye(
-        name: String,
-        description: String,
-        is_default: bool,
-        sip_headers: Vec<(String, String)>,
-    ) -> Result<Self, String> {
-        Self::from_parts(name, description, is_default, SipConfig::bye(), sip_headers)
-    }
-
-    pub(crate) fn invite(
-        name: String,
-        description: String,
-        is_default: bool,
-        phone_number: String,
-        outbound_endpoint: String,
-        outbound_encryption: String,
-        sip_headers: Vec<(String, String)>,
-    ) -> Result<Self, String> {
-        Self::from_parts(
-            name,
-            description,
-            is_default,
-            SipConfig::invite(phone_number, outbound_endpoint, outbound_encryption),
-            sip_headers,
-        )
-    }
-
-    pub(crate) fn refer(
-        name: String,
-        description: String,
-        is_default: bool,
-        phone_number: String,
-        sip_headers: Vec<(String, String)>,
-    ) -> Result<Self, String> {
-        Self::from_parts(
-            name,
-            description,
-            is_default,
-            SipConfig::refer(phone_number),
-            sip_headers,
-        )
-    }
-
-    fn from_parts(
+    pub(super) fn new(
         name: String,
         description: String,
         is_default: bool,
@@ -196,7 +153,7 @@ impl Handoff {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "method", rename_all = "lowercase")]
-enum SipConfig {
+pub(super) enum SipConfig {
     Invite {
         phone_number: String,
         outbound_endpoint: String,
@@ -226,26 +183,6 @@ impl<'de> Deserialize<'de> for SipConfig {
 }
 
 impl SipConfig {
-    fn bye() -> Self {
-        Self::Bye
-    }
-
-    fn invite(
-        phone_number: String,
-        outbound_endpoint: String,
-        outbound_encryption: String,
-    ) -> Self {
-        Self::Invite {
-            phone_number,
-            outbound_endpoint,
-            outbound_encryption,
-        }
-    }
-
-    fn refer(phone_number: String) -> Self {
-        Self::Refer { phone_number }
-    }
-
     fn to_proto(&self) -> ProtoSipConfig {
         let config = match self {
             Self::Invite {
