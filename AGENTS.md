@@ -29,6 +29,10 @@
 - Preserve clean diffs for ADK-maintained project files. Users check these files into Git and
   rely on `pull`/`push` to inspect meaningful backend sync changes, so our code should minimize
   semantically irrelevant YAML rewrites, key reordering, scalar restyling, and formatting churn.
+- Keep backend reference maps abstracted away from user-authored resources unless the Python ADK
+  explicitly serializes them. Users should express references through the same readable fields that
+  Python exposes, such as inline `{{...}}` tokens or resource-family-specific fields; command
+  generation should derive backend `references` payloads from those fields.
 
 ## Quality expectations
 
