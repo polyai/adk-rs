@@ -1,7 +1,11 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
+use crate::local_parse::{ParseLocalResource, ResourceParseErrors, deserialize_yaml};
 use crate::local_resources::is_file;
 use crate::resource_utils::rel_under_root;
+use serde::Deserialize;
+use serde::de::{Error as DeError, Visitor};
 use serde_yaml_ng::Value;
+use std::fmt;
 use std::path::Path;
 
 // poly/resources/asr_settings.py
@@ -21,22 +25,72 @@ impl DiscoverResources for AsrSettings {
     }
 
     fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(path, yaml, errors);
+        <Self as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-    let interaction_style = yaml
-        .get("interaction_style")
-        .and_then(Value::as_str)
-        .unwrap_or("balanced");
-    if !matches!(
-        interaction_style,
-        "balanced" | "precise" | "swift" | "sonic" | "turbo"
-    ) {
-        errors.push(format!(
-            "Validation error in {path}: Invalid interaction_style '{interaction_style}'. Must be one of: balanced, precise, swift, sonic, turbo"
-        ));
+    <AsrSettings as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+}
+
+impl ParseLocalResource for AsrSettings {
+    type Parsed = AsrSettingsFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> Result<Self::Parsed, ResourceParseErrors> {
+        deserialize_yaml(path, yaml)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub(crate) struct AsrSettingsFile {
+    #[serde(default)]
+    interaction_style: InteractionStyle,
+}
+
+#[derive(Debug, Default)]
+enum InteractionStyle {
+    #[default]
+    Balanced,
+    Precise,
+    Swift,
+    Sonic,
+    Turbo,
+}
+
+impl<'de> Deserialize<'de> for InteractionStyle {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct InteractionStyleVisitor;
+
+        impl Visitor<'_> for InteractionStyleVisitor {
+            type Value = InteractionStyle;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a valid ASR interaction style")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                match value {
+                    "balanced" => Ok(InteractionStyle::Balanced),
+                    "precise" => Ok(InteractionStyle::Precise),
+                    "swift" => Ok(InteractionStyle::Swift),
+                    "sonic" => Ok(InteractionStyle::Sonic),
+                    "turbo" => Ok(InteractionStyle::Turbo),
+                    _ => Err(E::custom(format!(
+                        "Invalid interaction_style '{value}'. Must be one of: balanced, precise, swift, sonic, turbo"
+                    ))),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(InteractionStyleVisitor)
     }
 }
 

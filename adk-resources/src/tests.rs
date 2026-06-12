@@ -1380,6 +1380,7 @@ fn rules_references_from_projection_accepts_camel_and_snake_global_functions() {
 
 #[test]
 fn every_registered_resource_has_validation_parity_marker() {
+    #[allow(clippy::disallowed_methods)]
     fn collect_rs_sources(dir: &std::path::Path, out: &mut String) {
         for entry in std::fs::read_dir(dir).expect("read source dir") {
             let path = entry.expect("source entry").path();

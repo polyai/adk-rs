@@ -78,10 +78,38 @@ Avoid no-op defaults that look like success. A new resource family should fail a
 local parity audit until it chooses one of these states and, when implemented,
 points at resource-local validation code.
 
-### 2. Typed Local Resource Views
+### 2. Typed Local Resource Parsing
 
-Build typed local views for validation from the same discovered resource mapping
-data used by `validate_project` in Python:
+Build typed local resource parsers from the same discovered resource mapping
+data used by `validate_project` in Python. Resource-family parsing should sit
+behind a standard trait, currently shaped as:
+
+```rust
+trait ParseLocalResource {
+    type Parsed;
+
+    fn parse_local_yaml(path: &str, yaml: &serde_yaml_ng::Value)
+        -> Result<Self::Parsed, ResourceParseErrors>;
+}
+```
+
+The parser should return a typed resource-family value whose fields encode as
+many resource-local invariants as practical. Prefer deserializing newtypes and
+enums over post-parse `Value` traversal:
+
+- `NonEmptyString` for required non-empty names and regex strings;
+- `NoEdgeWhitespace` for Python's description whitespace checks;
+- Rust enums for allowed string values such as SIP methods, replacement types,
+  entity types, and ASR interaction styles;
+- collection wrappers or parse constructors for duplicate names, exactly-one
+  default resources, and complete variant coverage.
+
+Only use raw intermediary structs when the Python authoring shape has defaults
+or compatibility behavior that cannot be expressed cleanly in the final type.
+The raw type should be private to the resource family and immediately converted
+into the parsed type.
+
+The parser inputs include:
 
 - singletons such as role, personality, ASR settings, channel configuration,
   and safety filters;
@@ -89,10 +117,14 @@ data used by `validate_project` in Python:
   keyphrases, pronunciations, and transcript corrections;
 - per-resource files such as topics, functions, flow configs, and flow steps.
 
-The typed view should preserve the local authoring semantics that Python uses:
+Typed parsing should preserve the local authoring semantics that Python uses:
 resource names are converted to IDs before validation, flow-scoped resources
 know their flow ID/name, and aggregate entries are validated as individual
 resources before collection checks run.
+
+`DiscoverResources::validate_local_yaml` should become a thin compatibility
+adapter over typed parsing while the migration is in progress. It should not be
+the place where resource-family business rules are authored.
 
 ### 3. Shared Reference Validation
 
@@ -165,9 +197,9 @@ resource validation error.
 - Reuse existing discovery facts instead of adding validation-only discovery.
 - Add helper APIs for resolving names to IDs and validating reference sets.
 
-### Phase 3: Port Collection and Simple Resource Validators
+### Phase 3: Port Collection and Simple Resource Parsers
 
-Start with low-dependency validators to exercise the architecture:
+Start with low-dependency parsers to exercise the architecture:
 
 - handoffs;
 - keyphrase boosting;
@@ -178,6 +210,11 @@ Start with low-dependency validators to exercise the architecture:
 
 These validate mostly one file or one aggregate collection and should give quick
 coverage without depending heavily on prompt reference resolution.
+
+Add a curated parse matrix for this phase. Each row should feed one invalid
+fixture through `ParseLocalResource::parse_local_content` and assert the
+specific invariant that fails. Prefer one invariant per fixture so the tests
+survive implementation changes from YAML traversal to typed parsing.
 
 ### Phase 4: Port Reference-Aware Validators
 

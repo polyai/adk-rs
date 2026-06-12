@@ -1,7 +1,14 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_resources::{is_file, read_yaml_mapping, validate_named_sequence};
+use crate::local_parse::{
+    NoEdgeWhitespace, NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult,
+    deserialize_yaml, duplicate_names,
+};
+use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
+use serde::Deserialize;
+use serde::de::{Error as DeError, Visitor};
 use serde_yaml_ng::Value;
+use std::fmt;
 use std::path::Path;
 
 // poly/resources/entities.py
@@ -44,131 +51,251 @@ impl DiscoverResources for Entity {
     }
 
     fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(yaml, errors);
+        <Self as ParseLocalResource>::validate_local_yaml(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     let path = Entity::LOCAL_PATH.primary_path().expect("local file path");
-    validate_named_sequence(path, yaml, "entities", "entity", errors);
-    let Some(items) = yaml.get("entities").and_then(Value::as_sequence) else {
-        return;
-    };
-    let allowed = [
-        "numeric",
-        "alphanumeric",
-        "enum",
-        "date",
-        "phone_number",
-        "time",
-        "address",
-        "free_text",
-        "name_config",
-    ];
-    for item in items {
-        let name = item
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or("<missing>");
-        let Some(entity_type) = item.get("entity_type").and_then(Value::as_str) else {
-            errors.push(format!(
-                "Validation error in {path}/entities/{name}: entity_type is required."
-            ));
-            continue;
-        };
-        if !allowed.contains(&entity_type) {
-            errors.push(format!(
-                "Validation error in {path}/entities/{name}: unsupported entity_type '{entity_type}'."
-            ));
-            continue;
-        }
-        if let Some(description) = item.get("description").and_then(Value::as_str)
-            && description != description.trim()
-        {
-            errors.push(format!(
-                "Validation error in {path}/entities/{name}: Description cannot contain leading or trailing whitespace."
-            ));
-        }
-        validate_entity_config(path, name, entity_type, item.get("config"), errors);
+    <Entity as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+}
+
+impl ParseLocalResource for Entity {
+    type Parsed = EntitiesFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        let raw = deserialize_yaml::<EntitiesFileUnchecked>(path, yaml)?;
+        EntitiesFile::try_from_unchecked(path, raw)
     }
 }
 
-fn validate_entity_config(
-    path: &str,
-    name: &str,
-    entity_type: &str,
-    config: Option<&Value>,
-    errors: &mut Vec<String>,
-) {
-    let Some(config) = config.and_then(Value::as_mapping) else {
-        return;
-    };
-    for (field, expected) in expected_config_fields(entity_type) {
-        let Some(value) = config.get(Value::String(field.to_string())) else {
-            continue;
-        };
-        if !expected.matches(value) {
-            errors.push(format!(
-                "Validation error in {path}/entities/{name}/config/{field}: Config field '{field}' should be of type '{}' for entity type '{entity_type}'.",
-                expected.python_name()
-            ));
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) struct EntitiesFile {
+    entities: Vec<EntityItem>,
+}
+
+impl EntitiesFile {
+    fn try_from_unchecked(path: &str, raw: EntitiesFileUnchecked) -> ResourceParseResult<Self> {
+        let mut errors = ResourceParseErrors::new();
+        for duplicate in duplicate_names(raw.entities.iter().map(EntityItem::name)) {
+            errors.push(
+                &format!("{path}/entities/{duplicate}"),
+                format!("duplicate entity name '{duplicate}'."),
+            );
+        }
+        if errors.is_empty() {
+            Ok(Self {
+                entities: raw.entities,
+            })
+        } else {
+            Err(errors)
         }
     }
 }
 
-#[derive(Clone, Copy)]
-enum ExpectedConfigType {
-    Bool,
-    Number,
-    String,
-    List,
+#[derive(Debug, Deserialize)]
+struct EntitiesFileUnchecked {
+    #[serde(default)]
+    entities: Vec<EntityItem>,
 }
 
-impl ExpectedConfigType {
-    fn matches(self, value: &Value) -> bool {
+#[derive(Debug, Deserialize)]
+#[serde(try_from = "EntityItemUnchecked")]
+enum EntityItem {
+    Numeric(EntityWithConfig<NumericConfig>),
+    Alphanumeric(EntityWithConfig<AlphanumericConfig>),
+    Enum(EntityWithConfig<EnumConfig>),
+    Date(EntityWithConfig<DateConfig>),
+    PhoneNumber(EntityWithConfig<PhoneNumberConfig>),
+    Time(EntityWithConfig<TimeConfig>),
+    Address(EntityWithoutConfig),
+    FreeText(EntityWithoutConfig),
+    NameConfig(EntityWithoutConfig),
+}
+
+impl EntityItem {
+    fn name(&self) -> &str {
         match self {
-            Self::Bool => value.as_bool().is_some(),
-            Self::Number => value.as_i64().is_some() || value.as_f64().is_some(),
-            Self::String => value.as_str().is_some(),
-            Self::List => value.as_sequence().is_some(),
-        }
-    }
-
-    fn python_name(self) -> &'static str {
-        match self {
-            Self::Bool => "bool",
-            Self::Number => "float or int",
-            Self::String => "str",
-            Self::List => "list",
+            Self::Numeric(entity) => entity.name.as_str(),
+            Self::Alphanumeric(entity) => entity.name.as_str(),
+            Self::Enum(entity) => entity.name.as_str(),
+            Self::Date(entity) => entity.name.as_str(),
+            Self::PhoneNumber(entity) => entity.name.as_str(),
+            Self::Time(entity) => entity.name.as_str(),
+            Self::Address(entity) | Self::FreeText(entity) | Self::NameConfig(entity) => {
+                entity.name.as_str()
+            }
         }
     }
 }
 
-fn expected_config_fields(entity_type: &str) -> &'static [(&'static str, ExpectedConfigType)] {
-    use ExpectedConfigType::{Bool, List, Number, String};
-    match entity_type {
-        "numeric" => &[
-            ("has_decimal", Bool),
-            ("has_range", Bool),
-            ("min", Number),
-            ("max", Number),
-        ],
-        "alphanumeric" => &[
-            ("enabled", Bool),
-            ("validation_type", String),
-            ("regular_expression", String),
-        ],
-        "enum" => &[("options", List)],
-        "date" => &[("relative_date", Bool)],
-        "phone_number" => &[("enabled", Bool), ("country_codes", List)],
-        "time" => &[
-            ("enabled", Bool),
-            ("start_time", String),
-            ("end_time", String),
-        ],
-        "address" | "free_text" | "name_config" => &[],
-        _ => &[],
+#[derive(Debug, Deserialize)]
+struct EntityItemUnchecked {
+    name: NonEmptyString,
+    entity_type: EntityType,
+    #[serde(default)]
+    description: Option<NoEdgeWhitespace>,
+    #[serde(default)]
+    config: Value,
+}
+
+impl TryFrom<EntityItemUnchecked> for EntityItem {
+    type Error = String;
+
+    fn try_from(raw: EntityItemUnchecked) -> Result<Self, Self::Error> {
+        match raw.entity_type {
+            EntityType::Numeric => parse_entity_config(raw, EntityItem::Numeric),
+            EntityType::Alphanumeric => parse_entity_config(raw, EntityItem::Alphanumeric),
+            EntityType::Enum => parse_entity_config(raw, EntityItem::Enum),
+            EntityType::Date => parse_entity_config(raw, EntityItem::Date),
+            EntityType::PhoneNumber => parse_entity_config(raw, EntityItem::PhoneNumber),
+            EntityType::Time => parse_entity_config(raw, EntityItem::Time),
+            EntityType::Address => Ok(EntityItem::Address(EntityWithoutConfig {
+                name: raw.name,
+                description: raw.description,
+            })),
+            EntityType::FreeText => Ok(EntityItem::FreeText(EntityWithoutConfig {
+                name: raw.name,
+                description: raw.description,
+            })),
+            EntityType::NameConfig => Ok(EntityItem::NameConfig(EntityWithoutConfig {
+                name: raw.name,
+                description: raw.description,
+            })),
+        }
     }
+}
+
+fn parse_entity_config<T, F>(raw: EntityItemUnchecked, build: F) -> Result<EntityItem, String>
+where
+    T: Default + for<'de> Deserialize<'de>,
+    F: FnOnce(EntityWithConfig<T>) -> EntityItem,
+{
+    let config = if matches!(raw.config, Value::Null) {
+        T::default()
+    } else {
+        serde_yaml_ng::from_value::<T>(raw.config).map_err(|error| error.to_string())?
+    };
+    Ok(build(EntityWithConfig {
+        name: raw.name,
+        description: raw.description,
+        config,
+    }))
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct EntityWithConfig<T> {
+    name: NonEmptyString,
+    description: Option<NoEdgeWhitespace>,
+    config: T,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct EntityWithoutConfig {
+    name: NonEmptyString,
+    description: Option<NoEdgeWhitespace>,
+}
+
+#[derive(Debug)]
+enum EntityType {
+    Numeric,
+    Alphanumeric,
+    Enum,
+    Date,
+    PhoneNumber,
+    Time,
+    Address,
+    FreeText,
+    NameConfig,
+}
+
+impl<'de> Deserialize<'de> for EntityType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct EntityTypeVisitor;
+
+        impl Visitor<'_> for EntityTypeVisitor {
+            type Value = EntityType;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a supported entity_type")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                match value {
+                    "numeric" => Ok(EntityType::Numeric),
+                    "alphanumeric" => Ok(EntityType::Alphanumeric),
+                    "enum" => Ok(EntityType::Enum),
+                    "date" => Ok(EntityType::Date),
+                    "phone_number" => Ok(EntityType::PhoneNumber),
+                    "time" => Ok(EntityType::Time),
+                    "address" => Ok(EntityType::Address),
+                    "free_text" => Ok(EntityType::FreeText),
+                    "name_config" => Ok(EntityType::NameConfig),
+                    _ => Err(E::custom(format!("unsupported entity_type '{value}'."))),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(EntityTypeVisitor)
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[allow(dead_code)]
+struct NumericConfig {
+    has_decimal: Option<bool>,
+    has_range: Option<bool>,
+    min: Option<f64>,
+    max: Option<f64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[allow(dead_code)]
+struct AlphanumericConfig {
+    enabled: Option<bool>,
+    validation_type: Option<String>,
+    regular_expression: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[allow(dead_code)]
+struct EnumConfig {
+    options: Option<Vec<String>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[allow(dead_code)]
+struct DateConfig {
+    relative_date: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[allow(dead_code)]
+struct PhoneNumberConfig {
+    enabled: Option<bool>,
+    country_codes: Option<Vec<String>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[allow(dead_code)]
+struct TimeConfig {
+    enabled: Option<bool>,
+    start_time: Option<String>,
+    end_time: Option<String>,
 }
 
 #[cfg(test)]
@@ -185,52 +312,72 @@ mod tests {
 
     #[test]
     fn validates_python_entity_type_description_and_config_rules() {
-        let errors = validation_errors(
+        let missing_type = validation_errors(
             r#"
 entities:
   - name: Missing type
+"#,
+        );
+        assert!(
+            missing_type
+                .iter()
+                .any(|error| error.contains("missing field `entity_type`"))
+        );
+
+        let bad_type = validation_errors(
+            r#"
+entities:
   - name: Bad type
     entity_type: unsupported
+"#,
+        );
+        assert!(
+            bad_type
+                .iter()
+                .any(|error| error.contains("unsupported entity_type 'unsupported'"))
+        );
+
+        let padded_description = validation_errors(
+            r#"
+entities:
   - name: Amount
     entity_type: numeric
     description: " has padding "
+"#,
+        );
+        assert!(padded_description.iter().any(|error| {
+            error.contains("Description cannot contain leading or trailing whitespace")
+        }));
+
+        let bad_numeric_config = validation_errors(
+            r#"
+entities:
+  - name: Amount
+    entity_type: numeric
     config:
       has_decimal: "yes"
       min: low
+"#,
+        );
+        assert!(
+            bad_numeric_config
+                .iter()
+                .any(|error| error.contains("invalid type: string \"yes\", expected a boolean"))
+        );
+
+        let bad_enum_config = validation_errors(
+            r#"
+entities:
   - name: Options
     entity_type: enum
     config:
       options: one
 "#,
         );
-
         assert!(
-            errors
+            bad_enum_config
                 .iter()
-                .any(|error| error.contains("entity_type is required"))
-        );
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("unsupported entity_type 'unsupported'"))
-        );
-        assert!(errors.iter().any(|error| {
-            error.contains("Description cannot contain leading or trailing whitespace")
-        }));
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("Config field 'has_decimal' should be of type 'bool'"))
-        );
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("Config field 'min' should be of type 'float or int'"))
-        );
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("Config field 'options' should be of type 'list'"))
+                .any(|error| error.contains("invalid type: string \"one\", expected a sequence"))
         );
     }
 }

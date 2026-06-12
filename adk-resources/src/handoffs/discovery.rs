@@ -1,7 +1,14 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_resources::{is_file, read_yaml_mapping, validate_named_sequence};
+use crate::local_parse::{
+    NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
+    duplicate_names,
+};
+use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
+use serde::Deserialize;
+use serde::de::{Error as DeError, Visitor};
 use serde_yaml_ng::Value;
+use std::fmt;
 use std::path::Path;
 
 // poly/resources/handoff.py
@@ -43,59 +50,192 @@ impl DiscoverResources for Handoff {
     }
 
     fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(yaml, errors);
+        <Self as ParseLocalResource>::validate_local_yaml(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     let path = Handoff::LOCAL_PATH.primary_path().expect("local file path");
-    validate_named_sequence(path, yaml, "handoffs", "handoff", errors);
-    let Some(handoffs) = yaml.get("handoffs").and_then(Value::as_sequence) else {
-        return;
-    };
-    let mut default_names = Vec::new();
-    for handoff in handoffs {
-        let name = handoff
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if handoff
-            .get("is_default")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            default_names.push(name.to_string());
+    <Handoff as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+}
+
+impl ParseLocalResource for Handoff {
+    type Parsed = HandoffsFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        let raw = deserialize_yaml::<HandoffsFileUnchecked>(path, yaml)?;
+        HandoffsFile::try_from_unchecked(path, raw)
+    }
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) struct HandoffsFile {
+    handoffs: Vec<HandoffItem>,
+}
+
+impl HandoffsFile {
+    fn try_from_unchecked(path: &str, raw: HandoffsFileUnchecked) -> ResourceParseResult<Self> {
+        let mut errors = ResourceParseErrors::new();
+        for duplicate in duplicate_names(raw.handoffs.iter().map(|handoff| handoff.name.as_str())) {
+            errors.push(
+                &format!("{path}/handoffs/{duplicate}"),
+                format!("duplicate handoff name '{duplicate}'."),
+            );
         }
-        let Some(sip_config) = handoff.get("sip_config") else {
-            continue;
-        };
-        let method = sip_config
-            .get("method")
-            .and_then(Value::as_str)
-            .unwrap_or("bye");
-        if !matches!(method, "invite" | "refer" | "bye") {
-            errors.push(format!(
-                "Validation error in {path}/handoffs/{name}: Invalid SIP method '{method}'. Must be one of: invite, refer, bye"
-            ));
-            continue;
+        let default_names = raw
+            .handoffs
+            .iter()
+            .filter(|handoff| handoff.is_default)
+            .map(|handoff| handoff.name.as_str().to_string())
+            .collect::<Vec<_>>();
+        if default_names.len() != 1 {
+            errors.push(
+                path,
+                format!(
+                    "Multiple or zero default handoffs detected: [{}]. One handoff must be set as default.",
+                    python_string_list(&default_names)
+                ),
+            );
         }
-        if method == "invite" {
-            let encryption = sip_config
-                .get("outbound_encryption")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            if !matches!(encryption, "TLS/SRTP" | "UDP/RTP") {
-                errors.push(format!(
-                    "Validation error in {path}/handoffs/{name}: Invalid encryption method '{encryption}'. Must be one of: TLS/SRTP, UDP/RTP"
-                ));
-            }
+        if errors.is_empty() {
+            Ok(Self {
+                handoffs: raw.handoffs,
+            })
+        } else {
+            Err(errors)
         }
     }
-    if default_names.len() != 1 {
-        errors.push(format!(
-            "Validation error: Multiple or zero default handoffs detected: [{}]. One handoff must be set as default.",
-            python_string_list(&default_names)
-        ));
+}
+
+#[derive(Debug, Deserialize)]
+struct HandoffsFileUnchecked {
+    #[serde(default)]
+    handoffs: Vec<HandoffItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct HandoffItem {
+    name: NonEmptyString,
+    #[serde(default)]
+    is_default: bool,
+    #[serde(default)]
+    sip_config: Option<SipConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(try_from = "SipConfigUnchecked")]
+#[allow(dead_code)]
+struct SipConfig {
+    method: SipMethod,
+    outbound_encryption: Option<InviteEncryption>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SipConfigUnchecked {
+    #[serde(default)]
+    method: SipMethod,
+    outbound_encryption: Option<InviteEncryption>,
+}
+
+impl TryFrom<SipConfigUnchecked> for SipConfig {
+    type Error = String;
+
+    fn try_from(raw: SipConfigUnchecked) -> Result<Self, Self::Error> {
+        if matches!(raw.method, SipMethod::Invite) && raw.outbound_encryption.is_none() {
+            return Err(
+                "Invalid encryption method ''. Must be one of: TLS/SRTP, UDP/RTP".to_string(),
+            );
+        }
+        Ok(Self {
+            method: raw.method,
+            outbound_encryption: raw.outbound_encryption,
+        })
+    }
+}
+
+#[derive(Debug, Default)]
+enum SipMethod {
+    Invite,
+    Refer,
+    #[default]
+    Bye,
+}
+
+impl<'de> Deserialize<'de> for SipMethod {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct SipMethodVisitor;
+
+        impl Visitor<'_> for SipMethodVisitor {
+            type Value = SipMethod;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("invite, refer, or bye")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                match value {
+                    "invite" => Ok(SipMethod::Invite),
+                    "refer" => Ok(SipMethod::Refer),
+                    "bye" => Ok(SipMethod::Bye),
+                    _ => Err(E::custom(format!(
+                        "Invalid SIP method '{value}'. Must be one of: invite, refer, bye"
+                    ))),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(SipMethodVisitor)
+    }
+}
+
+#[derive(Debug)]
+enum InviteEncryption {
+    TlsSrtp,
+    UdpRtp,
+}
+
+impl<'de> Deserialize<'de> for InviteEncryption {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct InviteEncryptionVisitor;
+
+        impl Visitor<'_> for InviteEncryptionVisitor {
+            type Value = InviteEncryption;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("TLS/SRTP or UDP/RTP")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                match value {
+                    "TLS/SRTP" => Ok(InviteEncryption::TlsSrtp),
+                    "UDP/RTP" => Ok(InviteEncryption::UdpRtp),
+                    _ => Err(E::custom(format!(
+                        "Invalid encryption method '{value}'. Must be one of: TLS/SRTP, UDP/RTP"
+                    ))),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(InviteEncryptionVisitor)
     }
 }
 
@@ -121,33 +261,46 @@ mod tests {
 
     #[test]
     fn validates_python_handoff_sip_rules_and_default_collection() {
-        let errors = validation_errors(
+        let invalid_method = validation_errors(
             r#"
 handoffs:
   - name: Primary
-    is_default: false
+    is_default: true
     sip_config:
       method: transfer
+"#,
+        );
+        assert!(
+            invalid_method
+                .iter()
+                .any(|error| error.contains("Invalid SIP method 'transfer'"))
+        );
+
+        let invalid_encryption = validation_errors(
+            r#"
+handoffs:
   - name: Backup
-    is_default: false
+    is_default: true
     sip_config:
       method: invite
       outbound_encryption: plaintext
 "#,
         );
-
         assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("Invalid SIP method 'transfer'"))
-        );
-        assert!(
-            errors
+            invalid_encryption
                 .iter()
                 .any(|error| error.contains("Invalid encryption method 'plaintext'"))
         );
+
+        let missing_default = validation_errors(
+            r#"
+handoffs:
+  - name: Primary
+    is_default: false
+"#,
+        );
         assert!(
-            errors
+            missing_default
                 .iter()
                 .any(|error| error.contains("Multiple or zero default handoffs detected: []"))
         );

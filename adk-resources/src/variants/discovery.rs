@@ -1,6 +1,11 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_resources::{is_file, read_yaml_mapping, validate_duplicate_names};
+use crate::local_parse::{
+    NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
+    duplicate_names,
+};
+use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
+use serde::Deserialize;
 use serde_yaml_ng::Value;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -44,36 +49,18 @@ impl DiscoverResources for Variant {
     }
 
     fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(yaml, errors);
+        <Self as ParseLocalResource>::validate_local_yaml(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     let path = Variant::LOCAL_PATH.primary_path().expect("local file path");
-    let Some(variants) = yaml.get("variants").and_then(Value::as_sequence) else {
-        return;
-    };
-    validate_duplicate_names(path, "variants", "variant", variants, errors);
-    let default_names = variants
-        .iter()
-        .filter(|variant| {
-            variant
-                .get("is_default")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        })
-        .filter_map(|variant| variant.get("name").and_then(Value::as_str))
-        .collect::<Vec<_>>();
-    if default_names.len() != 1 {
-        let names = default_names
-            .iter()
-            .map(|name| format!("'{name}'"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        errors.push(format!(
-            "Validation error: Multiple or zero default variants detected: [{names}]. One variant must be set as default."
-        ));
-    }
+    <Variant as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
 }
 
 /// Validation parity: implemented against Python VariantAttribute.validate() for local variant names.
@@ -114,82 +101,183 @@ impl DiscoverResources for VariantAttribute {
     }
 
     fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_attribute_local_yaml(yaml, errors);
+        <Self as ParseLocalResource>::validate_local_yaml(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_attribute_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
     let path = VariantAttribute::LOCAL_PATH
         .primary_path()
         .expect("local file path");
-    let known_variants = yaml
-        .get("variants")
-        .and_then(Value::as_sequence)
-        .map(|variants| {
-            variants
-                .iter()
-                .filter_map(|variant| variant.get("name").and_then(Value::as_str))
-                .filter(|name| !name.is_empty())
-                .map(str::to_string)
-                .collect::<BTreeSet<_>>()
-        })
-        .unwrap_or_default();
-    let Some(attributes) = yaml.get("attributes").and_then(Value::as_sequence) else {
-        return;
-    };
-    for (attribute_idx, attribute) in attributes.iter().enumerate() {
-        let name = attribute.get("name").and_then(Value::as_str).unwrap_or("");
-        let error_path = if name.is_empty() {
-            format!("{path}/attributes/{attribute_idx}")
+    <VariantAttribute as ParseLocalResource>::validate_local_yaml(path, yaml, errors);
+}
+
+impl ParseLocalResource for Variant {
+    type Parsed = VariantDefinitionsFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        let raw = deserialize_yaml::<VariantAttributesFileUnchecked>(path, yaml)?;
+        VariantDefinitionsFile::try_from_unchecked(path, raw)
+    }
+}
+
+impl ParseLocalResource for VariantAttribute {
+    type Parsed = VariantAttributeDefinitionsFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        let raw = deserialize_yaml::<VariantAttributesFileUnchecked>(path, yaml)?;
+        VariantAttributeDefinitionsFile::try_from_unchecked(path, raw)
+    }
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) struct VariantDefinitionsFile {
+    variants: Vec<VariantItem>,
+}
+
+impl VariantDefinitionsFile {
+    fn try_from_unchecked(
+        path: &str,
+        raw: VariantAttributesFileUnchecked,
+    ) -> ResourceParseResult<Self> {
+        let mut errors = ResourceParseErrors::new();
+        for duplicate in duplicate_names(raw.variants.iter().map(|variant| variant.name.as_str())) {
+            errors.push(
+                &format!("{path}/variants/{duplicate}"),
+                format!("duplicate variant name '{duplicate}'."),
+            );
+        }
+        let default_names = raw
+            .variants
+            .iter()
+            .filter(|variant| variant.is_default)
+            .map(|variant| variant.name.as_str().to_string())
+            .collect::<Vec<_>>();
+        if default_names.len() != 1 {
+            errors.push(
+                path,
+                format!(
+                    "Multiple or zero default variants detected: [{}]. One variant must be set as default.",
+                    quoted_set(&default_names)
+                ),
+            );
+        }
+        if errors.is_empty() {
+            Ok(Self {
+                variants: raw.variants,
+            })
         } else {
-            format!("{path}/attributes/{}", clean_name(name, false))
-        };
-        if name.is_empty() {
-            errors.push(format!(
-                "Validation error in {error_path}: Name is required"
-            ));
+            Err(errors)
         }
-        let Some(values) = attribute.get("values").and_then(Value::as_mapping) else {
-            errors.push(format!(
-                "Validation error in {error_path}: Mappings are required"
-            ));
-            continue;
-        };
-        if values.is_empty() {
-            errors.push(format!(
-                "Validation error in {error_path}: Mappings are required"
-            ));
-            continue;
-        }
-        let attribute_variants = values
-            .keys()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
+    }
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) struct VariantAttributeDefinitionsFile {
+    attributes: Vec<VariantAttributeItem>,
+}
+
+impl VariantAttributeDefinitionsFile {
+    fn try_from_unchecked(
+        path: &str,
+        raw: VariantAttributesFileUnchecked,
+    ) -> ResourceParseResult<Self> {
+        let mut errors = ResourceParseErrors::new();
+        let known_variants = raw
+            .variants
+            .iter()
+            .map(|variant| variant.name.as_str().to_string())
             .collect::<BTreeSet<_>>();
-        let additional_variants = attribute_variants
-            .difference(&known_variants)
-            .cloned()
-            .collect::<Vec<_>>();
-        if !additional_variants.is_empty() {
-            errors.push(format!(
-                "Validation error in {error_path}: Additional variants found for attribute: {{{}}}",
-                quoted_set(&additional_variants)
-            ));
+        for attribute in &raw.attributes {
+            let error_path = format!(
+                "{path}/attributes/{}",
+                clean_name(attribute.name.as_str(), false)
+            );
+            let attribute_variants = attribute.values.keys().cloned().collect::<BTreeSet<_>>();
+            let additional_variants = attribute_variants
+                .difference(&known_variants)
+                .cloned()
+                .collect::<Vec<_>>();
+            if !additional_variants.is_empty() {
+                errors.push(
+                    &error_path,
+                    format!(
+                        "Additional variants found for attribute: {{{}}}",
+                        quoted_set(&additional_variants)
+                    ),
+                );
+            }
+            let missing_variants = known_variants
+                .difference(&attribute_variants)
+                .cloned()
+                .collect::<Vec<_>>();
+            if !missing_variants.is_empty() {
+                errors.push(
+                    &error_path,
+                    format!(
+                        "Missing variants for variant attribute: [{}]",
+                        quoted_set(&missing_variants)
+                    ),
+                );
+            }
         }
-        let missing_variants = known_variants
-            .difference(&attribute_variants)
-            .cloned()
-            .collect::<Vec<_>>();
-        if !missing_variants.is_empty() {
-            errors.push(format!(
-                "Validation error in {error_path}: Missing variants for variant attribute: [{}]",
-                missing_variants
-                    .iter()
-                    .map(|name| format!("'{name}'"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+        if errors.is_empty() {
+            Ok(Self {
+                attributes: raw.attributes,
+            })
+        } else {
+            Err(errors)
         }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct VariantAttributesFileUnchecked {
+    #[serde(default)]
+    variants: Vec<VariantItem>,
+    #[serde(default)]
+    attributes: Vec<VariantAttributeItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct VariantItem {
+    name: NonEmptyString,
+    #[serde(default)]
+    is_default: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(try_from = "VariantAttributeItemUnchecked")]
+struct VariantAttributeItem {
+    name: NonEmptyString,
+    values: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct VariantAttributeItemUnchecked {
+    name: NonEmptyString,
+    #[serde(default)]
+    values: std::collections::BTreeMap<String, String>,
+}
+
+impl TryFrom<VariantAttributeItemUnchecked> for VariantAttributeItem {
+    type Error = String;
+
+    fn try_from(raw: VariantAttributeItemUnchecked) -> Result<Self, Self::Error> {
+        if raw.values.is_empty() {
+            return Err("Mappings are required".to_string());
+        }
+        Ok(Self {
+            name: raw.name,
+            values: raw.values,
+        })
     }
 }
 
@@ -216,7 +304,7 @@ mod tests {
 
     #[test]
     fn validates_python_variant_default_and_attribute_mapping_rules() {
-        let errors = validation_errors(
+        let missing_default = validation_errors(
             r#"
 variants:
   - name: Control
@@ -225,36 +313,67 @@ attributes:
   - name: Channel
     values:
       Control: primary
-      Ghost: secondary
-  - values:
-      Control: only
-  - name: Empty
-    values: {}
+      Treatment: secondary
 "#,
         );
-
         assert!(
-            errors
+            missing_default
                 .iter()
                 .any(|error| error.contains("Multiple or zero default variants detected"))
         );
+
+        let attribute_coverage = validation_errors(
+            r#"
+variants:
+  - name: Control
+    is_default: true
+  - name: Treatment
+attributes:
+  - name: Channel
+    values:
+      Control: primary
+      Ghost: secondary
+"#,
+        );
         assert!(
-            errors
+            attribute_coverage
                 .iter()
                 .any(|error| error.contains("Additional variants found for attribute"))
         );
         assert!(
-            errors
+            attribute_coverage
                 .iter()
                 .any(|error| error.contains("Missing variants for variant attribute"))
         );
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("Name is required"))
+
+        let missing_name = validation_errors(
+            r#"
+variants:
+  - name: Control
+    is_default: true
+attributes:
+  - values:
+      Control: primary
+"#,
         );
         assert!(
-            errors
+            missing_name
+                .iter()
+                .any(|error| error.contains("missing field `name`"))
+        );
+
+        let empty_values = validation_errors(
+            r#"
+variants:
+  - name: Control
+    is_default: true
+attributes:
+  - name: Empty
+    values: {}
+"#,
+        );
+        assert!(
+            empty_values
                 .iter()
                 .any(|error| error.contains("Mappings are required"))
         );

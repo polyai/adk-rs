@@ -31,6 +31,9 @@ mod handoffs;
 pub mod ids;
 mod keyphrase_boosting;
 mod languages;
+mod local_parse;
+#[cfg(test)]
+mod local_parse_tests;
 mod local_resources;
 mod materialization;
 mod materialization_reference_handling;
