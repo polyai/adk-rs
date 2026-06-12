@@ -6,20 +6,24 @@ use adk_protobuf::handoff::{
     SipByeHandoffConfig, SipConfig as ProtoSipConfig, SipHeader, SipHeaders,
     SipInviteHandoffConfig, SipReferHandoffConfig, sip_config,
 };
-use serde::Deserialize;
 use serde::de::Error as DeError;
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 
 pub(crate) const HANDOFFS_FILE_PATH: &str = "config/handoffs.yaml";
 pub(crate) const HANDOFF_ITEM_PREFIX: &str = "config/handoffs.yaml/handoffs/";
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct HandoffsFile {
     handoffs: Vec<Handoff>,
 }
 
 impl HandoffsFile {
+    pub(crate) fn new(handoffs: Vec<Handoff>) -> Self {
+        Self { handoffs }
+    }
+
     fn try_from_raw(path: &str, raw: RawHandoffsFile) -> ResourceParseResult<Self> {
         let mut errors = ResourceParseErrors::new();
         for duplicate in duplicate_names(raw.handoffs.iter().map(|handoff| handoff.name())) {
@@ -85,7 +89,7 @@ impl RawHandoffsFile {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct Handoff {
     name: NonEmptyString,
     #[serde(default, deserialize_with = "string_or_default")]
@@ -99,6 +103,71 @@ pub(crate) struct Handoff {
 }
 
 impl Handoff {
+    pub(crate) fn bye(
+        name: String,
+        description: String,
+        is_default: bool,
+        sip_headers: Vec<(String, String)>,
+    ) -> Result<Self, String> {
+        Self::from_parts(name, description, is_default, SipConfig::bye(), sip_headers)
+    }
+
+    pub(crate) fn invite(
+        name: String,
+        description: String,
+        is_default: bool,
+        phone_number: String,
+        outbound_endpoint: String,
+        outbound_encryption: String,
+        sip_headers: Vec<(String, String)>,
+    ) -> Result<Self, String> {
+        Self::from_parts(
+            name,
+            description,
+            is_default,
+            SipConfig::invite(phone_number, outbound_endpoint, outbound_encryption),
+            sip_headers,
+        )
+    }
+
+    pub(crate) fn refer(
+        name: String,
+        description: String,
+        is_default: bool,
+        phone_number: String,
+        sip_headers: Vec<(String, String)>,
+    ) -> Result<Self, String> {
+        Self::from_parts(
+            name,
+            description,
+            is_default,
+            SipConfig::refer(phone_number),
+            sip_headers,
+        )
+    }
+
+    fn from_parts(
+        name: String,
+        description: String,
+        is_default: bool,
+        sip_config: SipConfig,
+        sip_headers: Vec<(String, String)>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            name: NonEmptyString::new(name)?,
+            description,
+            is_default,
+            sip_config,
+            sip_headers: sip_headers
+                .into_iter()
+                .map(|(key, value)| LocalSipHeader {
+                    key: Some(key),
+                    value: Some(value),
+                })
+                .collect(),
+        })
+    }
+
     pub(crate) fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -125,32 +194,73 @@ impl Handoff {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(try_from = "RawSipConfig")]
-struct SipConfig {
-    method: SipMethod,
-    phone_number: String,
-    outbound_endpoint: String,
-    outbound_encryption: Option<InviteEncryption>,
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "method", rename_all = "lowercase")]
+enum SipConfig {
+    Invite {
+        phone_number: String,
+        outbound_endpoint: String,
+        outbound_encryption: String,
+    },
+    Refer {
+        phone_number: String,
+    },
+    Bye,
+}
+
+impl Default for SipConfig {
+    fn default() -> Self {
+        Self::Bye
+    }
+}
+
+impl<'de> Deserialize<'de> for SipConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        RawSipConfig::deserialize(deserializer)?
+            .try_into()
+            .map_err(D::Error::custom)
+    }
 }
 
 impl SipConfig {
+    fn bye() -> Self {
+        Self::Bye
+    }
+
+    fn invite(
+        phone_number: String,
+        outbound_endpoint: String,
+        outbound_encryption: String,
+    ) -> Self {
+        Self::Invite {
+            phone_number,
+            outbound_endpoint,
+            outbound_encryption,
+        }
+    }
+
+    fn refer(phone_number: String) -> Self {
+        Self::Refer { phone_number }
+    }
+
     fn to_proto(&self) -> ProtoSipConfig {
-        let config = match self.method {
-            SipMethod::Invite => sip_config::Config::Invite(SipInviteHandoffConfig {
-                phone_number: self.phone_number.clone(),
-                outbound_endpoint: self.outbound_endpoint.clone(),
-                outbound_encryption: self
-                    .outbound_encryption
-                    .as_ref()
-                    .map(InviteEncryption::as_str)
-                    .unwrap_or("")
-                    .to_string(),
+        let config = match self {
+            Self::Invite {
+                phone_number,
+                outbound_endpoint,
+                outbound_encryption,
+            } => sip_config::Config::Invite(SipInviteHandoffConfig {
+                phone_number: phone_number.clone(),
+                outbound_endpoint: outbound_endpoint.clone(),
+                outbound_encryption: outbound_encryption.clone(),
             }),
-            SipMethod::Refer => sip_config::Config::Refer(SipReferHandoffConfig {
-                phone_number: self.phone_number.clone(),
+            Self::Refer { phone_number } => sip_config::Config::Refer(SipReferHandoffConfig {
+                phone_number: phone_number.clone(),
             }),
-            SipMethod::Bye => sip_config::Config::Bye(SipByeHandoffConfig {}),
+            Self::Bye => sip_config::Config::Bye(SipByeHandoffConfig {}),
         };
         ProtoSipConfig {
             config: Some(config),
@@ -166,25 +276,33 @@ struct RawSipConfig {
     phone_number: String,
     #[serde(default, deserialize_with = "string_or_default")]
     outbound_endpoint: String,
-    #[serde(default)]
-    outbound_encryption: Option<InviteEncryption>,
+    #[serde(default, deserialize_with = "string_or_default")]
+    outbound_encryption: String,
 }
 
 impl TryFrom<RawSipConfig> for SipConfig {
     type Error = String;
 
     fn try_from(raw: RawSipConfig) -> Result<Self, Self::Error> {
-        if matches!(raw.method, SipMethod::Invite) && raw.outbound_encryption.is_none() {
-            return Err(
-                "Invalid encryption method ''. Must be one of: TLS/SRTP, UDP/RTP".to_string(),
-            );
+        match raw.method {
+            SipMethod::Invite => {
+                if !is_valid_invite_encryption(&raw.outbound_encryption) {
+                    return Err(format!(
+                        "Invalid encryption method '{}'. Must be one of: TLS/SRTP, UDP/RTP",
+                        raw.outbound_encryption
+                    ));
+                }
+                Ok(Self::Invite {
+                    phone_number: raw.phone_number,
+                    outbound_endpoint: raw.outbound_endpoint,
+                    outbound_encryption: raw.outbound_encryption,
+                })
+            }
+            SipMethod::Refer => Ok(Self::Refer {
+                phone_number: raw.phone_number,
+            }),
+            SipMethod::Bye => Ok(Self::Bye),
         }
-        Ok(Self {
-            method: raw.method,
-            phone_number: raw.phone_number,
-            outbound_endpoint: raw.outbound_endpoint,
-            outbound_encryption: raw.outbound_encryption,
-        })
     }
 }
 
@@ -213,35 +331,8 @@ impl<'de> Deserialize<'de> for SipMethod {
     }
 }
 
-#[derive(Debug, Clone)]
-enum InviteEncryption {
-    TlsSrtp,
-    UdpRtp,
-}
-
-impl InviteEncryption {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::TlsSrtp => "TLS/SRTP",
-            Self::UdpRtp => "UDP/RTP",
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for InviteEncryption {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        match value.as_str() {
-            "TLS/SRTP" => Ok(Self::TlsSrtp),
-            "UDP/RTP" => Ok(Self::UdpRtp),
-            _ => Err(D::Error::custom(format!(
-                "Invalid encryption method '{value}'. Must be one of: TLS/SRTP, UDP/RTP"
-            ))),
-        }
-    }
+fn is_valid_invite_encryption(value: &str) -> bool {
+    matches!(value, "TLS/SRTP" | "UDP/RTP")
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -262,6 +353,18 @@ impl LocalSipHeader {
             key: key.clone(),
             value: self.value.clone()?,
         })
+    }
+}
+
+impl Serialize for LocalSipHeader {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("LocalSipHeader", 2)?;
+        state.serialize_field("key", self.key.as_deref().unwrap_or(""))?;
+        state.serialize_field("value", self.value.as_deref().unwrap_or(""))?;
+        state.end()
     }
 }
 

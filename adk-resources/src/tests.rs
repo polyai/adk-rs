@@ -1231,6 +1231,8 @@ fn projection_to_resource_map_includes_singleton_and_aggregate_files() {
         .unwrap_or("");
     assert!(handoff_content.contains("method: invite"));
     assert!(handoff_content.contains("phone_number: '+1555'"));
+    assert!(handoff_content.contains("outbound_endpoint: trunk"));
+    assert!(handoff_content.contains("outbound_encryption: tls"));
     assert!(handoff_content.contains("key: X-Test"));
 
     let chat_content = map

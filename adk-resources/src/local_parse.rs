@@ -4,8 +4,8 @@
 //! module defines the narrower boundary for converting a resource-owned file
 //! into typed Rust values whose constructors encode resource-local invariants.
 
-use serde::Deserialize;
 use serde::de::{DeserializeOwned, Error as DeError};
+use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -120,8 +120,25 @@ where
 pub(crate) struct NonEmptyString(String);
 
 impl NonEmptyString {
+    pub(crate) fn new(value: String) -> Result<Self, String> {
+        if value.is_empty() {
+            Err("cannot be empty".to_string())
+        } else {
+            Ok(Self(value))
+        }
+    }
+
     pub(crate) fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl Serialize for NonEmptyString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0)
     }
 }
 
