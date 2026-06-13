@@ -16,13 +16,6 @@ pub(crate) fn resource_yaml(resources: &ResourceMap, path: &str) -> Option<YamlV
     from_str(content).ok()
 }
 
-pub(crate) fn first_yaml_mapping(value: &YamlValue) -> Option<&YamlValue> {
-    value
-        .as_sequence()?
-        .iter()
-        .find(|item| item.as_mapping().is_some())
-}
-
 pub(crate) fn resource_changed(local: &ResourceMap, remote: &ResourceMap, path: &str) -> bool {
     let Some(local_content) = local
         .get(path)

@@ -1,4 +1,5 @@
 use crate::CommandGenError;
+use crate::channels::local::ChannelConfiguration;
 use crate::materialization::insert_yaml_resource;
 use crate::safety_filters::SafetyFilters;
 use crate::specs::{
@@ -35,7 +36,7 @@ pub(crate) fn insert_channel_resources(
             VOICE_CONFIGURATION_FILE.file_path,
             VOICE_CONFIGURATION_FILE.resource_id,
             VOICE_CONFIGURATION_FILE.name,
-            channel_configuration_yaml(
+            ChannelConfiguration::from_projection(
                 voice_greeting.as_ref(),
                 voice_style_prompt.as_ref(),
                 voice_disclaimer.as_ref(),
@@ -56,7 +57,7 @@ pub(crate) fn insert_channel_resources(
                 CHAT_CONFIGURATION_FILE.file_path,
                 CHAT_CONFIGURATION_FILE.resource_id,
                 CHAT_CONFIGURATION_FILE.name,
-                channel_configuration_yaml(
+                ChannelConfiguration::from_projection(
                     chat_greeting.as_ref(),
                     chat_style_prompt.as_ref(),
                     None,
@@ -92,76 +93,6 @@ fn web_chat_channel_is_created(channel: Option<&Value>) -> bool {
         Some(Value::Null) | None => false,
         Some(_) => true,
     }
-}
-
-fn channel_configuration_yaml(
-    greeting: Option<&Value>,
-    style_prompt: Option<&Value>,
-    disclaimer: Option<&Value>,
-) -> Value {
-    let mut value = serde_json::Map::new();
-    value.insert(
-        "greeting".to_string(),
-        greeting
-            .map(channel_greeting_yaml)
-            .unwrap_or_else(|| serde_json::json!({})),
-    );
-    value.insert(
-        "style_prompt".to_string(),
-        style_prompt
-            .map(channel_style_prompt_yaml)
-            .unwrap_or_else(|| serde_json::json!({})),
-    );
-    if let Some(disclaimer) = disclaimer {
-        value.insert(
-            "disclaimer_messages".to_string(),
-            channel_disclaimer_yaml(disclaimer),
-        );
-    }
-    Value::Object(value)
-}
-
-fn channel_greeting_yaml(greeting: &Value) -> Value {
-    serde_json::json!({
-        "welcome_message": greeting
-            .get("welcomeMessage")
-            .or_else(|| greeting.get("welcome_message"))
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-        "language_code": greeting
-            .get("languageCode")
-            .or_else(|| greeting.get("language_code"))
-            .and_then(Value::as_str)
-            .unwrap_or("en-GB"),
-    })
-}
-
-fn channel_style_prompt_yaml(style_prompt: &Value) -> Value {
-    serde_json::json!({
-        "prompt": style_prompt
-            .get("prompt")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-    })
-}
-
-fn channel_disclaimer_yaml(disclaimer: &Value) -> Value {
-    serde_json::json!({
-        "message": disclaimer
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-        "enabled": disclaimer
-            .get("isEnabled")
-            .or_else(|| disclaimer.get("enabled"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        "language_code": disclaimer
-            .get("languageCode")
-            .or_else(|| disclaimer.get("language_code"))
-            .and_then(Value::as_str)
-            .unwrap_or("en-GB"),
-    })
 }
 
 #[cfg(test)]

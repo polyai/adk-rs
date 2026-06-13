@@ -355,6 +355,24 @@ style_prompt:
             },
             _ => panic!("unexpected payload variant for webchat channel status command"),
         }
+
+        let voice_disclaimer = commands
+            .iter()
+            .find(|command| command.r#type == "voice_channel_update_disclaimer")
+            .expect("voice disclaimer update");
+        match &voice_disclaimer.payload {
+            Some(CommandPayload::VoiceChannelUpdateDisclaimer(payload)) => {
+                let disclaimer = payload.disclaimer.as_ref().expect("voice disclaimer");
+                assert_eq!(
+                    disclaimer.message.as_deref(),
+                    Some("This call may be recorded.")
+                );
+                assert_eq!(disclaimer.is_enabled, Some(true));
+                assert_eq!(disclaimer.language_code, "en-US");
+                assert!(disclaimer.references.is_none());
+            }
+            _ => panic!("unexpected payload variant for voice disclaimer command"),
+        }
     }
 
     #[test]

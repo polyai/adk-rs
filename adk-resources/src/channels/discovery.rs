@@ -1,3 +1,7 @@
+use crate::channels::local::{
+    ChannelConfiguration, parse_channel_configuration, validate_channel_greeting,
+    validate_voice_disclaimers,
+};
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_file, read_yaml_mapping};
@@ -34,7 +38,17 @@ impl DiscoverResources for VoiceGreeting {
     }
 
     fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_channel_greeting_yaml(path, yaml, errors);
+        if let Err(parse_errors) = validate_channel_greeting(path, yaml) {
+            errors.extend(parse_errors.into_validation_errors());
+        }
+    }
+}
+
+impl ParseLocalResource for VoiceGreeting {
+    type Parsed = ChannelConfiguration;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_channel_configuration(path, yaml)
     }
 }
 
@@ -93,6 +107,14 @@ impl DiscoverResources for VoiceStylePrompt {
     }
 }
 
+impl ParseLocalResource for VoiceStylePrompt {
+    type Parsed = ChannelConfiguration;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_channel_configuration(path, yaml)
+    }
+}
+
 /// Validation parity: TODO(DEVP-319) audit Python VoiceDisclaimerMessage.validate().
 pub(crate) struct VoiceDisclaimerMessage;
 impl DiscoverResources for VoiceDisclaimerMessage {
@@ -126,7 +148,17 @@ impl DiscoverResources for VoiceDisclaimerMessage {
     }
 
     fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_voice_disclaimer_yaml(path, yaml, errors);
+        if let Err(parse_errors) = validate_voice_disclaimers(path, yaml) {
+            errors.extend(parse_errors.into_validation_errors());
+        }
+    }
+}
+
+impl ParseLocalResource for VoiceDisclaimerMessage {
+    type Parsed = ChannelConfiguration;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_channel_configuration(path, yaml)
     }
 }
 
@@ -157,7 +189,17 @@ impl DiscoverResources for ChatGreeting {
     }
 
     fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_channel_greeting_yaml(path, yaml, errors);
+        if let Err(parse_errors) = validate_channel_greeting(path, yaml) {
+            errors.extend(parse_errors.into_validation_errors());
+        }
+    }
+}
+
+impl ParseLocalResource for ChatGreeting {
+    type Parsed = ChannelConfiguration;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_channel_configuration(path, yaml)
     }
 }
 
@@ -216,59 +258,11 @@ impl DiscoverResources for ChatStylePrompt {
     }
 }
 
-fn validate_channel_greeting_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-    let Some(greeting) = yaml.get("greeting") else {
-        return;
-    };
-    if greeting
-        .get("welcome_message")
-        .and_then(Value::as_str)
-        .is_none_or(str::is_empty)
-    {
-        errors.push(format!(
-            "Validation error in {path}/greeting/welcome_message: Welcome message cannot be empty."
-        ));
-    }
-    if greeting
-        .get("language_code")
-        .and_then(Value::as_str)
-        .is_none_or(str::is_empty)
-    {
-        errors.push(format!(
-            "Validation error in {path}/greeting/language_code: Language code cannot be empty."
-        ));
-    }
-}
+impl ParseLocalResource for ChatStylePrompt {
+    type Parsed = ChannelConfiguration;
 
-fn validate_voice_disclaimer_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-    let Some(disclaimers) = yaml.get("disclaimer_messages") else {
-        return;
-    };
-    match disclaimers {
-        Value::Sequence(items) => {
-            for (idx, disclaimer) in items.iter().enumerate() {
-                validate_disclaimer_language(path, disclaimer, &idx.to_string(), errors);
-            }
-        }
-        Value::Mapping(_) => validate_disclaimer_language(path, disclaimers, "0", errors),
-        _ => {}
-    }
-}
-
-fn validate_disclaimer_language(
-    path: &str,
-    disclaimer: &Value,
-    key: &str,
-    errors: &mut Vec<String>,
-) {
-    if disclaimer
-        .get("language_code")
-        .and_then(Value::as_str)
-        .is_none_or(str::is_empty)
-    {
-        errors.push(format!(
-            "Validation error in {path}/disclaimer_messages/{key}/language_code: Language code cannot be empty."
-        ));
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_channel_configuration(path, yaml)
     }
 }
 
@@ -277,11 +271,15 @@ mod tests {
     use super::*;
     use serde_yaml_ng::from_str;
 
-    fn validation_errors(yaml: &str, validator: fn(&str, &Value, &mut Vec<String>)) -> Vec<String> {
+    fn validation_errors(
+        yaml: &str,
+        validator: fn(&str, &Value) -> crate::local_parse::ResourceParseResult<()>,
+    ) -> Vec<String> {
         let yaml = from_str::<Value>(yaml).expect("channel YAML");
-        let mut errors = Vec::new();
-        validator("voice/configuration.yaml", &yaml, &mut errors);
-        errors
+        validator("voice/configuration.yaml", &yaml)
+            .err()
+            .map(crate::local_parse::ResourceParseErrors::into_validation_errors)
+            .unwrap_or_default()
     }
 
     #[test]
@@ -292,7 +290,7 @@ greeting:
   welcome_message: ""
   language_code: ""
 "#,
-            validate_channel_greeting_yaml,
+            validate_channel_greeting,
         );
 
         assert!(
@@ -315,7 +313,7 @@ disclaimer_messages:
   message: Hello
   language_code: ""
 "#,
-            validate_voice_disclaimer_yaml,
+            validate_voice_disclaimers,
         );
 
         assert!(
