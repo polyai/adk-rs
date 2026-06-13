@@ -179,7 +179,7 @@ mod tests {
             local_resource(
                 "agent_settings/personality.yaml",
                 "personality",
-                "adjectives:\n  Curious: true\ncustom: Recording parity custom personality.\n",
+                "adjectives:\n  Polite: true\ncustom: Recording parity custom personality.\n",
             ),
         );
         resources.insert(
@@ -195,7 +195,7 @@ mod tests {
             local_resource(
                 "agent_settings/safety_filters.yaml",
                 "safety_filters",
-                "enabled: true\ncategories:\n  violence:\n    enabled: true\n    level: medium\n",
+                "categories:\n  violence:\n    enabled: true\n    level: medium\n  hate:\n    enabled: false\n    level: medium\n  sexual:\n    enabled: false\n    level: lenient\n  self_harm:\n    enabled: false\n    level: strict\n",
             ),
         );
         resources.insert(
@@ -229,7 +229,7 @@ disclaimer_messages:
             local_resource(
                 "voice/safety_filters.yaml",
                 "voice_safety_filters",
-                "enabled: true\ncategories:\n  violence:\n    enabled: true\n    level: medium\n",
+                "enabled: true\ncategories:\n  violence:\n    enabled: true\n    level: medium\n  hate:\n    enabled: false\n    level: medium\n  sexual:\n    enabled: false\n    level: lenient\n  self_harm:\n    enabled: false\n    level: strict\n",
             ),
         );
         resources.insert(
@@ -251,7 +251,7 @@ style_prompt:
             local_resource(
                 "chat/safety_filters.yaml",
                 "chat_safety_filters",
-                "enabled: true\ncategories:\n  hate:\n    enabled: true\n    level: medium\n",
+                "enabled: true\ncategories:\n  violence:\n    enabled: false\n    level: medium\n  hate:\n    enabled: true\n    level: medium\n  sexual:\n    enabled: false\n    level: lenient\n  self_harm:\n    enabled: false\n    level: strict\n",
             ),
         );
 
@@ -354,6 +354,24 @@ style_prompt:
                 _ => panic!("unexpected channel status payload"),
             },
             _ => panic!("unexpected payload variant for webchat channel status command"),
+        }
+
+        let voice_disclaimer = commands
+            .iter()
+            .find(|command| command.r#type == "voice_channel_update_disclaimer")
+            .expect("voice disclaimer update");
+        match &voice_disclaimer.payload {
+            Some(CommandPayload::VoiceChannelUpdateDisclaimer(payload)) => {
+                let disclaimer = payload.disclaimer.as_ref().expect("voice disclaimer");
+                assert_eq!(
+                    disclaimer.message.as_deref(),
+                    Some("This call may be recorded.")
+                );
+                assert_eq!(disclaimer.is_enabled, Some(true));
+                assert_eq!(disclaimer.language_code, "en-US");
+                assert!(disclaimer.references.is_none());
+            }
+            _ => panic!("unexpected payload variant for voice disclaimer command"),
         }
     }
 

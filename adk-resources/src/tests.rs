@@ -27,6 +27,16 @@ fn projection_materializes_named_prompt_references_like_python() {
                 }
             }
         },
+        "translations": {
+            "translations": {
+                "entities": {
+                    "TRANSLATION-greeting": {
+                        "id": "TRANSLATION-greeting",
+                        "translationKey": "greeting"
+                    }
+                }
+            }
+        },
         "variantManagement": {
             "variants": {
                 "entities": {
@@ -47,6 +57,23 @@ fn projection_materializes_named_prompt_references_like_python() {
             },
             "variantAttributeValues": {
                 "entities": {}
+            }
+        },
+        "sms": {
+            "templates": {
+                "entities": {
+                    "SMS-welcome": {
+                        "id": "SMS-welcome",
+                        "name": "Welcome SMS",
+                        "text": "Hi {{vrbl:VARIABLE-call_direction_prompt}} {{tn:TRANSLATION-greeting}}",
+                        "envPhoneNumbers": {
+                            "sandbox": "",
+                            "preRelease": "",
+                            "live": ""
+                        },
+                        "active": true
+                    }
+                }
             }
         },
         "knowledgeBase": {
@@ -124,6 +151,17 @@ fn projection_materializes_named_prompt_references_like_python() {
     assert!(topic.contains("{{attr:site_name}}"));
     assert!(topic.contains("{{vrbl:call_direction_prompt}}"));
     assert!(!topic.contains("FUNCTION-start_verification"));
+
+    let sms = resources
+        .get("config/sms_templates.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("sms templates");
+    assert!(sms.contains("{{vrbl:call_direction_prompt}}"));
+    assert!(sms.contains("{{tn:greeting}}"));
+    assert!(!sms.contains("VARIABLE-call_direction_prompt"));
+    assert!(!sms.contains("TRANSLATION-greeting"));
+    assert!(!sms.contains("references:"));
 
     let step = resources
         .get("flows/address_flow/steps/determine_language.yaml")
@@ -1231,6 +1269,8 @@ fn projection_to_resource_map_includes_singleton_and_aggregate_files() {
         .unwrap_or("");
     assert!(handoff_content.contains("method: invite"));
     assert!(handoff_content.contains("phone_number: '+1555'"));
+    assert!(handoff_content.contains("outbound_endpoint: trunk"));
+    assert!(handoff_content.contains("outbound_encryption: tls"));
     assert!(handoff_content.contains("key: X-Test"));
 
     let chat_content = map
@@ -1326,6 +1366,93 @@ fn projection_materializes_broad_resources_without_python_omitted_metadata() {
 }
 
 #[test]
+fn projection_materializes_backend_incomplete_regex_collections_like_python() {
+    let projection = serde_json::json!({
+        "transcriptCorrections": {"transcriptCorrections": {"entities": {
+            "correction-empty": {
+                "name": "Empty correction",
+                "description": "",
+                "regularExpressions": []
+            }
+        }}},
+        "stopKeywords": {"filters": {"entities": {
+            "stop-empty": {
+                "title": "Empty stop keyword",
+                "description": "",
+                "regularExpressions": [],
+                "sayPhrase": false,
+                "languageCode": ""
+            }
+        }}}
+    });
+
+    let map = projection_to_resource_map(&projection).expect("map");
+    let transcript_corrections = map
+        .get("voice/speech_recognition/transcript_corrections.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("transcript corrections");
+    assert!(transcript_corrections.contains("name: Empty correction"));
+    assert!(transcript_corrections.contains("regular_expressions: []"));
+
+    let phrase_filtering = map
+        .get("voice/response_control/phrase_filtering.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("phrase filtering");
+    assert!(phrase_filtering.contains("name: Empty stop keyword"));
+    assert!(phrase_filtering.contains("regular_expressions: []"));
+}
+
+#[test]
+fn projection_materializes_api_integrations_through_typed_local_model() {
+    let projection = serde_json::json!({
+        "apiIntegrations": {
+            "apiIntegrations": {
+                "ids": ["api-1"],
+                "entities": {
+                    "api-1": {
+                        "id": "api-1",
+                        "name": "orders_api",
+                        "description": "",
+                        "environments": {
+                            "sandbox": {
+                                "baseUrl": "https://sandbox.example.test",
+                                "authType": "apiKey"
+                            }
+                        },
+                        "operations": {
+                            "ids": ["op-1"],
+                            "entities": {
+                                "op-1": {
+                                    "id": "op-1",
+                                    "name": "get_order",
+                                    "method": "get",
+                                    "resource": "/orders/{id}"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let map = projection_to_resource_map(&projection).expect("map");
+    let api_integrations = map
+        .get("config/api_integrations.yaml")
+        .and_then(|r| r.payload.get("content"))
+        .and_then(Value::as_str)
+        .expect("api integrations");
+    assert!(api_integrations.contains("name: orders_api"));
+    assert!(api_integrations.contains("pre-release:"));
+    assert!(api_integrations.contains("auth_type: none"));
+    assert!(api_integrations.contains("method: GET"));
+    assert!(api_integrations.contains("resource: /orders/{id}"));
+    assert!(!api_integrations.contains("id: op-1"));
+}
+
+#[test]
 fn rules_references_from_projection_accepts_camel_and_snake_global_functions() {
     let cases = [
         (
@@ -1376,4 +1503,92 @@ fn rules_references_from_projection_accepts_camel_and_snake_global_functions() {
         .is_none()
     );
     assert!(rules_references_from_projection(&serde_json::json!({})).is_none());
+}
+
+#[test]
+fn rules_references_from_behaviour_uses_python_prompt_prefixes() {
+    let refs = rules_references_from_behaviour(
+        "{{twilio_sms:sms-1}} {{ho:handoff-1}} {{attr:attr-1}} \
+         {{fn:function-1}} {{vrbl:variable-1}} {{tn:translation-1}}",
+    )
+    .expect("rules references");
+
+    assert!(refs.sms.get("sms-1").copied().unwrap_or(false));
+    assert!(refs.handoff.get("handoff-1").copied().unwrap_or(false));
+    assert!(refs.attributes.get("attr-1").copied().unwrap_or(false));
+    assert!(
+        refs.global_functions
+            .get("function-1")
+            .copied()
+            .unwrap_or(false)
+    );
+    assert!(refs.variables.get("variable-1").copied().unwrap_or(false));
+    assert!(
+        refs.translations
+            .get("translation-1")
+            .copied()
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn every_registered_resource_has_validation_parity_marker() {
+    #[allow(clippy::disallowed_methods)]
+    fn collect_rs_sources(dir: &std::path::Path, out: &mut String) {
+        for entry in std::fs::read_dir(dir).expect("read source dir") {
+            let path = entry.expect("source entry").path();
+            if path.is_dir() {
+                collect_rs_sources(&path, out);
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                out.push_str(&std::fs::read_to_string(&path).expect("read source file"));
+                out.push('\n');
+            }
+        }
+    }
+
+    let mut source = String::new();
+    collect_rs_sources(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut source,
+    );
+
+    for descriptor in adk_types::RESOURCE_TYPE_REGISTRY {
+        let marker = format!("Python {}.validate()", descriptor.type_name);
+        let has_marker = source
+            .lines()
+            .any(|line| line.contains("Validation parity:") && line.contains(&marker));
+        assert!(
+            has_marker,
+            "missing validation parity marker for {}",
+            descriptor.type_name
+        );
+    }
+}
+
+#[test]
+fn resource_parse_boundary_does_not_use_legacy_validate_yaml_name() {
+    #[allow(clippy::disallowed_methods)]
+    fn collect_rs_sources(dir: &std::path::Path, out: &mut String) {
+        for entry in std::fs::read_dir(dir).expect("read source dir") {
+            let path = entry.expect("source entry").path();
+            if path.is_dir() {
+                collect_rs_sources(&path, out);
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                out.push_str(&std::fs::read_to_string(&path).expect("read source file"));
+                out.push('\n');
+            }
+        }
+    }
+
+    let mut source = String::new();
+    collect_rs_sources(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut source,
+    );
+    let legacy_name = ["validate", "local", "yaml"].join("_");
+
+    assert!(
+        !source.contains(&legacy_name),
+        "resource-local parsing should use parse/error terminology, not {legacy_name}"
+    );
 }

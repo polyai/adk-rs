@@ -1,11 +1,13 @@
-use crate::agent_settings::discovery::allowed_personality_adjective;
+use crate::agent_settings::GeneralSafetyFilters;
+use crate::agent_settings::discovery::{SettingsPersonality, SettingsRole};
+use crate::local_parse::ParseLocalResource;
 use crate::push_command_inputs::{resource_changed, resource_yaml};
 use crate::specs::{
     AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_RULES_FILE, AGENT_SAFETY_FILTERS_FILE,
 };
 use crate::{
     prompt_reference_maps_from_projection, push_command, replace_resource_names_with_ids,
-    rules_references_from_behaviour, rules_references_from_projection, yaml_str,
+    rules_references_from_behaviour, rules_references_from_projection,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::agent::{
@@ -18,8 +20,6 @@ use adk_protobuf::content_filter_settings::{
 };
 use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue, json};
-use serde_yaml_ng::{Mapping, Value as YamlValue};
-use std::collections::HashMap;
 
 #[cfg(test)]
 #[path = "command_gen_tests.rs"]
@@ -84,28 +84,18 @@ fn append_personality_update(
         remote_resources,
         AGENT_PERSONALITY_FILE.file_path,
     ) && let Some(yaml) = resource_yaml(resources, AGENT_PERSONALITY_FILE.file_path)
+        && let Ok(personality) =
+            SettingsPersonality::parse_local_yaml(AGENT_PERSONALITY_FILE.file_path, &yaml)
     {
-        let values = yaml
-            .get("adjectives")
-            .and_then(YamlValue::as_mapping)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|(key, value)| {
-                        let key = key.as_str()?;
-                        let enabled = value.as_bool()?;
-                        allowed_personality_adjective(key).then(|| (key.to_string(), enabled))
-                    })
-                    .collect::<HashMap<_, _>>()
-            })
-            .unwrap_or_default();
         push_command(
             commands,
             metadata,
             "update_personality",
             CommandPayload::UpdatePersonality(PersonalityUpdatePersonality {
-                adjectives: Some(Adjectives { values }),
-                custom: Some(yaml_str(&yaml, "custom")),
+                adjectives: Some(Adjectives {
+                    values: personality.allowed_adjective_values(),
+                }),
+                custom: Some(personality.custom().to_string()),
                 references: None,
             }),
         );
@@ -120,15 +110,16 @@ fn append_role_update(
 ) {
     if resource_changed(resources, remote_resources, AGENT_ROLE_FILE.file_path)
         && let Some(yaml) = resource_yaml(resources, AGENT_ROLE_FILE.file_path)
+        && let Ok(role) = SettingsRole::parse_local_yaml(AGENT_ROLE_FILE.file_path, &yaml)
     {
         push_command(
             commands,
             metadata,
             "update_role",
             CommandPayload::UpdateRole(RoleUpdateRole {
-                value: Some(yaml_str(&yaml, "value")),
-                additional_info: Some(yaml_str(&yaml, "additional_info")),
-                custom: Some(yaml_str(&yaml, "custom")),
+                value: Some(role.value().to_string()),
+                additional_info: Some(role.additional_info().to_string()),
+                custom: Some(role.custom().to_string()),
                 references: None,
             }),
         );
@@ -146,49 +137,16 @@ fn append_safety_filter_update(
         remote_resources,
         AGENT_SAFETY_FILTERS_FILE.file_path,
     ) && let Some(yaml) = resource_yaml(resources, AGENT_SAFETY_FILTERS_FILE.file_path)
+        && let Ok(safety_filters) =
+            GeneralSafetyFilters::parse_local_yaml(AGENT_SAFETY_FILTERS_FILE.file_path, &yaml)
     {
         push_command(
             commands,
             metadata,
             "update_content_filter_settings",
-            CommandPayload::UpdateContentFilterSettings(content_filter_settings_from_yaml(&yaml)),
+            CommandPayload::UpdateContentFilterSettings(safety_filters.to_update_proto()),
         );
     }
-}
-
-fn content_filter_settings_from_yaml(
-    yaml: &YamlValue,
-) -> ContentFilterSettingsUpdateContentFilterSettings {
-    let categories = yaml.get("categories").and_then(YamlValue::as_mapping);
-    ContentFilterSettingsUpdateContentFilterSettings {
-        r#type: Some("azure".to_string()),
-        disabled: Some(
-            !yaml
-                .get("enabled")
-                .and_then(YamlValue::as_bool)
-                .unwrap_or(true),
-        ),
-        azure_config: Some(AzureContentFilter {
-            violence: content_filter_category_from_yaml(categories, "violence"),
-            hate: content_filter_category_from_yaml(categories, "hate"),
-            sexual: content_filter_category_from_yaml(categories, "sexual"),
-            self_harm: content_filter_category_from_yaml(categories, "self_harm"),
-        }),
-    }
-}
-
-fn content_filter_category_from_yaml(
-    categories: Option<&Mapping>,
-    name: &str,
-) -> Option<AzureContentFilterCategory> {
-    let category = categories?.get(YamlValue::String(name.to_string()))?;
-    Some(AzureContentFilterCategory {
-        is_active: category
-            .get("enabled")
-            .and_then(YamlValue::as_bool)
-            .unwrap_or(false),
-        precision: yaml_str(category, "level").to_ascii_uppercase(),
-    })
 }
 
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {

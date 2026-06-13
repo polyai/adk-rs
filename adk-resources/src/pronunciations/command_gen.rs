@@ -1,9 +1,11 @@
 use crate::ids::stable_resource_id;
+use crate::local_parse::ParseLocalResource;
+use crate::pronunciations::local::PronunciationItem as LocalPronunciationItem;
+use crate::push_command;
 use crate::push_command_inputs::{
-    SimpleLifecycleCommands, json_bool, json_i32, json_str, resource_yaml, yaml_bool, yaml_sequence,
+    SimpleLifecycleCommands, json_bool, json_i32, json_str, resource_yaml,
 };
 use crate::specs::PRONUNCIATIONS;
-use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::pronunciations::{
@@ -111,30 +113,29 @@ pub(crate) fn pronunciation_lifecycle_commands(
 }
 
 fn local_pronunciation_items(yaml: &YamlValue) -> Vec<PronunciationItem> {
-    yaml_sequence(yaml, PRONUNCIATIONS.yaml_key)
-        .into_iter()
+    let Ok(file) =
+        crate::pronunciations::Pronunciation::parse_local_yaml(PRONUNCIATIONS.file.file_path, yaml)
+    else {
+        return Vec::new();
+    };
+    file.pronunciations
+        .iter()
         .enumerate()
-        .filter_map(|(idx, item)| {
-            let regex = yaml_str(item, "regex");
-            if regex.is_empty() {
-                return None;
-            }
-            Some(PronunciationItem {
-                id: String::new(),
-                regex,
-                replacement: yaml_str(item, "replacement"),
-                case_sensitive: yaml_bool(item, "case_sensitive"),
-                language_code: yaml_str(item, "language_code"),
-                description: yaml_str(item, "description"),
-                position: item
-                    .get("position")
-                    .and_then(YamlValue::as_i64)
-                    .and_then(|value| i32::try_from(value).ok())
-                    .unwrap_or(idx as i32),
-                name: yaml_str(item, "name"),
-            })
-        })
+        .map(local_pronunciation_item)
         .collect()
+}
+
+fn local_pronunciation_item((idx, item): (usize, &LocalPronunciationItem)) -> PronunciationItem {
+    PronunciationItem {
+        id: String::new(),
+        regex: item.regex().to_string(),
+        replacement: item.replacement().to_string(),
+        case_sensitive: item.case_sensitive(),
+        language_code: item.language_code().to_string(),
+        description: item.description().to_string(),
+        position: idx as i32,
+        name: item.name().to_string(),
+    }
 }
 
 fn remote_pronunciation_items(projection: &JsonValue) -> Vec<PronunciationItem> {
@@ -167,4 +168,31 @@ fn pronunciation_item_needs_update(local: &PronunciationItem, remote: &Pronuncia
         || local.language_code != remote.language_code
         || local.description != remote.description
         || local.position != remote.position
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_pronunciation_items_use_typed_python_position_and_description_rules() {
+        let yaml = serde_yaml_ng::from_str(
+            r#"
+pronunciations:
+  - regex: first
+    replacement: one
+    description: "  trimmed  "
+    position: 42
+  - regex: second
+    replacement: two
+"#,
+        )
+        .expect("pronunciation yaml");
+
+        let items = local_pronunciation_items(&yaml);
+
+        assert_eq!(items[0].position, 0);
+        assert_eq!(items[0].description, "trimmed");
+        assert_eq!(items[1].position, 1);
+    }
 }

@@ -1,7 +1,9 @@
 use crate::ids::stable_resource_id;
-use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
+use crate::keyphrase_boosting::local::KeyphraseItem as LocalKeyphraseItem;
+use crate::local_parse::ParseLocalResource;
+use crate::push_command;
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};
 use crate::specs::KEYPHRASE_BOOSTING;
-use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::keyphrase_boosting::{
@@ -88,20 +90,21 @@ pub(crate) fn keyphrase_lifecycle_commands(
 }
 
 fn local_keyphrase_items(yaml: &YamlValue) -> Vec<KeyphraseItem> {
-    yaml_sequence(yaml, KEYPHRASE_BOOSTING.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let keyphrase = yaml_str(item, "keyphrase");
-            if keyphrase.is_empty() {
-                return None;
-            }
-            Some(KeyphraseItem {
-                id: String::new(),
-                keyphrase,
-                level: yaml_str(item, "level"),
-            })
-        })
-        .collect()
+    let Ok(file) = crate::keyphrase_boosting::KeyphraseBoosting::parse_local_yaml(
+        KEYPHRASE_BOOSTING.file.file_path,
+        yaml,
+    ) else {
+        return Vec::new();
+    };
+    file.keyphrases.iter().map(local_keyphrase_item).collect()
+}
+
+fn local_keyphrase_item(item: &LocalKeyphraseItem) -> KeyphraseItem {
+    KeyphraseItem {
+        id: String::new(),
+        keyphrase: item.keyphrase().to_string(),
+        level: item.level().to_string(),
+    }
 }
 
 fn remote_keyphrase_items(projection: &JsonValue) -> Vec<KeyphraseItem> {
@@ -120,4 +123,32 @@ fn remote_keyphrase_items(projection: &JsonValue) -> Vec<KeyphraseItem> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_keyphrase_items_use_typed_python_defaults() {
+        let yaml = serde_yaml_ng::from_str(
+            r#"
+keyphrases:
+  - keyphrase: Defaulted
+  - keyphrase: Loud
+    level: BOOSTED
+"#,
+        )
+        .expect("keyphrase yaml");
+
+        let items = local_keyphrase_items(&yaml);
+
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| (item.keyphrase.as_str(), item.level.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("Defaulted", "default"), ("Loud", "boosted")]
+        );
+    }
 }

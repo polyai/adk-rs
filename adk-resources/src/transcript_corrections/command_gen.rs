@@ -1,7 +1,12 @@
 use crate::ids::stable_resource_id;
-use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
+use crate::local_parse::ParseLocalResource;
+use crate::push_command;
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};
 use crate::specs::TRANSCRIPT_CORRECTIONS;
-use crate::{push_command, yaml_str};
+use crate::transcript_corrections::local::{
+    RegularExpressionRule as LocalRegularExpressionRule,
+    TranscriptCorrectionItem as LocalTranscriptCorrectionItem,
+};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::transcript_corrections::{
@@ -105,21 +110,26 @@ pub(crate) fn transcript_lifecycle_commands(
 }
 
 fn local_transcript_items(yaml: &YamlValue) -> Vec<TranscriptItem> {
-    yaml_sequence(yaml, TRANSCRIPT_CORRECTIONS.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let name = yaml_str(item, "name");
-            if name.is_empty() {
-                return None;
-            }
-            Some(TranscriptItem {
-                id: String::new(),
-                name,
-                description: yaml_str(item, "description"),
-                regular_expressions: regexes_from_yaml(item),
-            })
-        })
-        .collect()
+    let Ok(file) = crate::transcript_corrections::TranscriptCorrection::parse_local_yaml(
+        TRANSCRIPT_CORRECTIONS.file.file_path,
+        yaml,
+    ) else {
+        return Vec::new();
+    };
+    file.corrections.iter().map(local_transcript_item).collect()
+}
+
+fn local_transcript_item(item: &LocalTranscriptCorrectionItem) -> TranscriptItem {
+    TranscriptItem {
+        id: String::new(),
+        name: item.name().to_string(),
+        description: item.description().to_string(),
+        regular_expressions: item
+            .regular_expressions()
+            .iter()
+            .map(regex_from_local_rule)
+            .collect(),
+    }
 }
 
 fn remote_transcript_items(projection: &JsonValue) -> Vec<TranscriptItem> {
@@ -141,16 +151,13 @@ fn remote_transcript_items(projection: &JsonValue) -> Vec<TranscriptItem> {
         .collect()
 }
 
-fn regexes_from_yaml(item: &YamlValue) -> Vec<RegularExpression> {
-    yaml_sequence(item, "regular_expressions")
-        .into_iter()
-        .map(|regex| RegularExpression {
-            id: yaml_str(regex, "id"),
-            regular_expression: yaml_str(regex, "regular_expression"),
-            replacement: yaml_str(regex, "replacement"),
-            replacement_type: yaml_str(regex, "replacement_type"),
-        })
-        .collect()
+fn regex_from_local_rule(rule: &LocalRegularExpressionRule) -> RegularExpression {
+    RegularExpression {
+        id: String::new(),
+        regular_expression: rule.regular_expression().to_string(),
+        replacement: rule.replacement().to_string(),
+        replacement_type: rule.backend_replacement_type().to_string(),
+    }
 }
 
 fn regexes_from_projection(item: &JsonValue) -> Vec<RegularExpression> {
@@ -231,4 +238,30 @@ pub(crate) fn transcript_correction_json(correction: &TranscriptCorrection) -> J
         "description": correction.description,
         "regular_expressions": correction.regular_expressions.iter().map(regular_expression_json).collect::<Vec<_>>(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_transcript_items_use_typed_python_normalization() {
+        let yaml = serde_yaml_ng::from_str(
+            r#"
+corrections:
+  - name: Fix alpha
+    description: "  trim me  "
+    regular_expressions:
+      - regular_expression: alfa
+        replacement: alpha
+        replacement_type: substring
+"#,
+        )
+        .expect("transcript corrections yaml");
+
+        let items = local_transcript_items(&yaml);
+
+        assert_eq!(items[0].description, "trim me");
+        assert_eq!(items[0].regular_expressions[0].replacement_type, "partial");
+    }
 }

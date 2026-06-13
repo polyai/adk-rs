@@ -1,9 +1,11 @@
 use crate::ids::stable_resource_id;
-use crate::push_command_inputs::{
-    json_bool, json_str, resource_yaml, yaml_bool, yaml_sequence, yaml_string_map,
-};
+use crate::push_command;
+use crate::push_command_inputs::{json_bool, json_str, resource_yaml};
 use crate::specs::{VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS};
-use crate::{push_command, yaml_str};
+use crate::variants::local::{
+    VariantAttributeItem as LocalVariantAttributeItem, VariantItem as LocalVariantItem,
+    parse_variant_attributes_file,
+};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::variant::{
@@ -191,20 +193,18 @@ pub(crate) fn variant_lifecycle_commands(
 }
 
 fn local_variant_items(yaml: &YamlValue) -> Vec<VariantItem> {
-    yaml_sequence(yaml, VARIANTS.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let name = yaml_str(item, "name");
-            if name.is_empty() {
-                return None;
-            }
-            Some(VariantItem {
-                id: String::new(),
-                name,
-                is_default: yaml_bool(item, "is_default"),
-            })
-        })
-        .collect()
+    let Ok(file) = parse_variant_attributes_file(VARIANTS.file.file_path, yaml) else {
+        return Vec::new();
+    };
+    file.variants.iter().map(local_variant_item).collect()
+}
+
+fn local_variant_item(item: &LocalVariantItem) -> VariantItem {
+    VariantItem {
+        id: String::new(),
+        name: item.name().to_string(),
+        is_default: item.is_default(),
+    }
 }
 
 fn remote_variant_items(projection: &JsonValue) -> Vec<VariantItem> {
@@ -226,20 +226,21 @@ fn remote_variant_items(projection: &JsonValue) -> Vec<VariantItem> {
 }
 
 fn local_variant_attribute_items(yaml: &YamlValue) -> Vec<VariantAttributeItem> {
-    yaml_sequence(yaml, VARIANT_ATTRIBUTES.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let name = yaml_str(item, "name");
-            if name.is_empty() {
-                return None;
-            }
-            Some(VariantAttributeItem {
-                id: String::new(),
-                name,
-                values: yaml_string_map(item.get("values")),
-            })
-        })
+    let Ok(file) = parse_variant_attributes_file(VARIANTS.file.file_path, yaml) else {
+        return Vec::new();
+    };
+    file.attributes
+        .iter()
+        .map(local_variant_attribute_item)
         .collect()
+}
+
+fn local_variant_attribute_item(item: &LocalVariantAttributeItem) -> VariantAttributeItem {
+    VariantAttributeItem {
+        id: String::new(),
+        name: item.name().to_string(),
+        values: item.values().clone().into_iter().collect(),
+    }
 }
 
 fn remote_variant_attribute_items(projection: &JsonValue) -> Vec<VariantAttributeItem> {
@@ -340,4 +341,38 @@ pub(crate) fn attribute_references_json(references: Option<&AttributeReferences>
         value.insert("no_code_steps".to_string(), json!(references.no_code_steps));
     }
     JsonValue::Object(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_variant_items_use_typed_file_model() {
+        let yaml = serde_yaml_ng::from_str(
+            r#"
+variants:
+  - name: Control
+    is_default: true
+  - name: Treatment
+attributes:
+  - name: Channel
+    values:
+      Control: primary
+      Treatment: secondary
+"#,
+        )
+        .expect("variant attributes yaml");
+
+        let variants = local_variant_items(&yaml);
+        let attributes = local_variant_attribute_items(&yaml);
+
+        assert_eq!(variants[0].name, "Control");
+        assert!(variants[0].is_default);
+        assert_eq!(attributes[0].name, "Channel");
+        assert_eq!(
+            attributes[0].values.get("Treatment"),
+            Some(&"secondary".to_string())
+        );
+    }
 }

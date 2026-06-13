@@ -1,24 +1,22 @@
-use crate::push_command_inputs::{first_yaml_mapping, resource_changed, resource_yaml};
+use crate::channels::local::parse_channel_configuration;
+use crate::channels::{ChatSafetyFilters, VoiceSafetyFilters};
+use crate::local_parse::ParseLocalResource;
+use crate::push_command;
+use crate::push_command_inputs::{resource_changed, resource_yaml};
 use crate::specs::{
     CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
     VOICE_SAFETY_FILTERS_FILE,
 };
-use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
-use adk_protobuf::agent::{DisclaimerMessageUpdateDisclaimerMessage, GreetingUpdateGreeting};
 use adk_protobuf::channels::channel_update_status::ChannelStatus as ChannelUpdateStatusKind;
 use adk_protobuf::channels::{
     ChannelStatus, ChannelType, ChannelUpdateGreeting, ChannelUpdateSafetyFilters,
-    ChannelUpdateStatus, ChannelUpdateStylePrompt, StylePromptUpdateStylePrompt,
-    VoiceChannelUpdateDisclaimer, WebChatChannelUpdateStatus,
+    ChannelUpdateStatus, ChannelUpdateStylePrompt, VoiceChannelUpdateDisclaimer,
+    WebChatChannelUpdateStatus,
 };
 use adk_protobuf::command::Payload as CommandPayload;
-use adk_protobuf::content_filter_settings::{
-    AzureContentFilter, AzureContentFilterCategory,
-    ContentFilterSettingsUpdateContentFilterSettings,
-};
 use adk_types::ResourceMap;
-use serde_yaml_ng::{Mapping, Value as YamlValue};
+use serde_yaml_ng::Value as YamlValue;
 
 pub(crate) fn append_channel_settings_updates(
     commands: &mut Vec<adk_protobuf::Command>,
@@ -40,66 +38,50 @@ pub(crate) fn append_channel_settings_updates(
         remote_resources,
         VOICE_CONFIGURATION_FILE.file_path,
     ) && let Some(yaml) = resource_yaml(resources, VOICE_CONFIGURATION_FILE.file_path)
+        && let Ok(config) = parse_channel_configuration(VOICE_CONFIGURATION_FILE.file_path, &yaml)
     {
-        if let Some(greeting) = yaml.get("greeting") {
+        if let Some(greeting) = config.greeting() {
             push_command(
                 commands,
                 metadata,
                 "channel_update_greeting",
                 CommandPayload::ChannelUpdateGreeting(ChannelUpdateGreeting {
                     channel_type: ChannelType::Voice as i32,
-                    greeting: Some(GreetingUpdateGreeting {
-                        welcome_message: Some(yaml_str(greeting, "welcome_message")),
-                        references: None,
-                        language_code: yaml_str(greeting, "language_code"),
-                    }),
+                    greeting: Some(greeting.to_update_proto()),
                 }),
             );
         }
-        if let Some(style_prompt) = yaml.get("style_prompt") {
+        if let Some(style_prompt) = config.style_prompt() {
             push_command(
                 commands,
                 metadata,
                 "channel_update_style_prompt",
                 CommandPayload::ChannelUpdateStylePrompt(ChannelUpdateStylePrompt {
                     channel_type: ChannelType::Voice as i32,
-                    style_prompt: Some(StylePromptUpdateStylePrompt {
-                        prompt: yaml_str(style_prompt, "prompt"),
-                    }),
+                    style_prompt: Some(style_prompt.to_update_proto()),
                 }),
             );
         }
-        if let Some(disclaimer) = yaml.get("disclaimer_messages") {
-            let disclaimer = first_yaml_mapping(disclaimer).unwrap_or(disclaimer);
+        if let Some(disclaimer) = config.disclaimer() {
             push_command(
                 commands,
                 metadata,
                 "voice_channel_update_disclaimer",
                 CommandPayload::VoiceChannelUpdateDisclaimer(VoiceChannelUpdateDisclaimer {
-                    disclaimer: Some(DisclaimerMessageUpdateDisclaimerMessage {
-                        message: Some(yaml_str(disclaimer, "message")),
-                        is_enabled: Some(
-                            disclaimer
-                                .get("enabled")
-                                .or_else(|| disclaimer.get("is_enabled"))
-                                .and_then(YamlValue::as_bool)
-                                .unwrap_or(false),
-                        ),
-                        ringing_tone: None,
-                        language_code: yaml_str(disclaimer, "language_code"),
-                        references: None,
-                    }),
+                    disclaimer: Some(disclaimer.to_update_proto()),
                 }),
             );
         }
     }
 
-    let chat_configuration_yaml = if resource_changed(
+    let chat_configuration = if resource_changed(
         resources,
         remote_resources,
         CHAT_CONFIGURATION_FILE.file_path,
     ) {
-        resource_yaml(resources, CHAT_CONFIGURATION_FILE.file_path)
+        resource_yaml(resources, CHAT_CONFIGURATION_FILE.file_path).and_then(|yaml| {
+            parse_channel_configuration(CHAT_CONFIGURATION_FILE.file_path, &yaml).ok()
+        })
     } else {
         None
     };
@@ -108,8 +90,8 @@ pub(crate) fn append_channel_settings_updates(
         push_webchat_channel_status_update(commands, metadata, true);
     }
 
-    if let Some(yaml) = chat_configuration_yaml.as_ref()
-        && let Some(greeting) = yaml.get("greeting")
+    if let Some(config) = chat_configuration.as_ref()
+        && let Some(greeting) = config.greeting()
     {
         push_command(
             commands,
@@ -117,11 +99,7 @@ pub(crate) fn append_channel_settings_updates(
             "channel_update_greeting",
             CommandPayload::ChannelUpdateGreeting(ChannelUpdateGreeting {
                 channel_type: ChannelType::WebChat as i32,
-                greeting: Some(GreetingUpdateGreeting {
-                    welcome_message: Some(yaml_str(greeting, "welcome_message")),
-                    references: None,
-                    language_code: yaml_str(greeting, "language_code"),
-                }),
+                greeting: Some(greeting.to_update_proto()),
             }),
         );
     }
@@ -135,8 +113,8 @@ pub(crate) fn append_channel_settings_updates(
         push_channel_safety_filters_update(commands, metadata, ChannelType::WebChat, &yaml);
     }
 
-    if let Some(yaml) = chat_configuration_yaml.as_ref()
-        && let Some(style_prompt) = yaml.get("style_prompt")
+    if let Some(config) = chat_configuration.as_ref()
+        && let Some(style_prompt) = config.style_prompt()
     {
         push_command(
             commands,
@@ -144,9 +122,7 @@ pub(crate) fn append_channel_settings_updates(
             "channel_update_style_prompt",
             CommandPayload::ChannelUpdateStylePrompt(ChannelUpdateStylePrompt {
                 channel_type: ChannelType::WebChat as i32,
-                style_prompt: Some(StylePromptUpdateStylePrompt {
-                    prompt: yaml_str(style_prompt, "prompt"),
-                }),
+                style_prompt: Some(style_prompt.to_update_proto()),
             }),
         );
     }
@@ -194,48 +170,24 @@ fn push_channel_safety_filters_update(
     channel_type: ChannelType,
     yaml: &YamlValue,
 ) {
+    let parsed = match channel_type {
+        ChannelType::Voice => {
+            VoiceSafetyFilters::parse_local_yaml(VOICE_SAFETY_FILTERS_FILE.file_path, yaml)
+        }
+        ChannelType::WebChat => {
+            ChatSafetyFilters::parse_local_yaml(CHAT_SAFETY_FILTERS_FILE.file_path, yaml)
+        }
+    };
+    let Ok(safety_filters) = parsed else {
+        return;
+    };
     push_command(
         commands,
         metadata,
         "channel_update_safety_filters",
         CommandPayload::ChannelUpdateSafetyFilters(ChannelUpdateSafetyFilters {
             channel_type: channel_type as i32,
-            safety_filters: Some(content_filter_settings_from_yaml(yaml)),
+            safety_filters: Some(safety_filters.to_update_proto()),
         }),
     );
-}
-
-fn content_filter_settings_from_yaml(
-    yaml: &YamlValue,
-) -> ContentFilterSettingsUpdateContentFilterSettings {
-    let categories = yaml.get("categories").and_then(YamlValue::as_mapping);
-    ContentFilterSettingsUpdateContentFilterSettings {
-        r#type: Some("azure".to_string()),
-        disabled: Some(
-            !yaml
-                .get("enabled")
-                .and_then(YamlValue::as_bool)
-                .unwrap_or(true),
-        ),
-        azure_config: Some(AzureContentFilter {
-            violence: content_filter_category_from_yaml(categories, "violence"),
-            hate: content_filter_category_from_yaml(categories, "hate"),
-            sexual: content_filter_category_from_yaml(categories, "sexual"),
-            self_harm: content_filter_category_from_yaml(categories, "self_harm"),
-        }),
-    }
-}
-
-fn content_filter_category_from_yaml(
-    categories: Option<&Mapping>,
-    name: &str,
-) -> Option<AzureContentFilterCategory> {
-    let category = categories?.get(YamlValue::String(name.to_string()))?;
-    Some(AzureContentFilterCategory {
-        is_active: category
-            .get("enabled")
-            .and_then(YamlValue::as_bool)
-            .unwrap_or(false),
-        precision: yaml_str(category, "level").to_ascii_uppercase(),
-    })
 }

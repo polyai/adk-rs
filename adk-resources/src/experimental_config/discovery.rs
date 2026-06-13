@@ -4,6 +4,7 @@ use crate::resource_utils::rel_under_root;
 use std::path::Path;
 
 // poly/resources/experimental_config.py
+/// Validation parity: TODO(DEVP-319) audit Python ExperimentalConfig.validate().
 pub(crate) struct ExperimentalConfig;
 impl DiscoverResources for ExperimentalConfig {
     const LOCAL_PATH: LocalResourcePath =

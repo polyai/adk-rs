@@ -1,5 +1,7 @@
 use crate::CommandGenError;
+use crate::channels::local::ChannelConfiguration;
 use crate::materialization::insert_yaml_resource;
+use crate::safety_filters::SafetyFilters;
 use crate::specs::{
     CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
     VOICE_SAFETY_FILTERS_FILE,
@@ -17,7 +19,7 @@ pub(crate) fn insert_channel_resources(
             VOICE_SAFETY_FILTERS_FILE.file_path,
             VOICE_SAFETY_FILTERS_FILE.resource_id,
             VOICE_SAFETY_FILTERS_FILE.name,
-            safety_filters_yaml(voice_safety_filters, true),
+            SafetyFilters::from_projection(voice_safety_filters, true),
         )?;
     }
 
@@ -34,7 +36,7 @@ pub(crate) fn insert_channel_resources(
             VOICE_CONFIGURATION_FILE.file_path,
             VOICE_CONFIGURATION_FILE.resource_id,
             VOICE_CONFIGURATION_FILE.name,
-            channel_configuration_yaml(
+            ChannelConfiguration::from_projection(
                 voice_greeting.as_ref(),
                 voice_style_prompt.as_ref(),
                 voice_disclaimer.as_ref(),
@@ -55,7 +57,7 @@ pub(crate) fn insert_channel_resources(
                 CHAT_CONFIGURATION_FILE.file_path,
                 CHAT_CONFIGURATION_FILE.resource_id,
                 CHAT_CONFIGURATION_FILE.name,
-                channel_configuration_yaml(
+                ChannelConfiguration::from_projection(
                     chat_greeting.as_ref(),
                     chat_style_prompt.as_ref(),
                     None,
@@ -70,7 +72,7 @@ pub(crate) fn insert_channel_resources(
                 CHAT_SAFETY_FILTERS_FILE.file_path,
                 CHAT_SAFETY_FILTERS_FILE.resource_id,
                 CHAT_SAFETY_FILTERS_FILE.name,
-                safety_filters_yaml(chat_safety_filters, true),
+                SafetyFilters::from_projection(chat_safety_filters, true),
             )?;
         }
     }
@@ -91,136 +93,6 @@ fn web_chat_channel_is_created(channel: Option<&Value>) -> bool {
         Some(Value::Null) | None => false,
         Some(_) => true,
     }
-}
-
-fn safety_filters_yaml(settings: &Value, include_enabled: bool) -> Value {
-    let azure_config = settings
-        .get("azureConfig")
-        .or_else(|| settings.get("azure_config"))
-        .unwrap_or(&Value::Null);
-    let mut categories = serde_json::Map::new();
-    for (yaml_key, backend_keys) in [
-        ("violence", ["violence", "violence"]),
-        ("hate", ["hate", "hate"]),
-        ("sexual", ["sexual", "sexual"]),
-        ("self_harm", ["selfHarm", "self_harm"]),
-    ] {
-        let category = backend_keys
-            .iter()
-            .find_map(|key| azure_config.get(*key))
-            .map(safety_filter_category_yaml)
-            .unwrap_or_else(|| serde_json::json!({}));
-        categories.insert(yaml_key.to_string(), category);
-    }
-
-    let mut value = serde_json::Map::new();
-    if include_enabled {
-        value.insert(
-            "enabled".to_string(),
-            Value::Bool(
-                !settings
-                    .get("disabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            ),
-        );
-    }
-    value.insert("categories".to_string(), Value::Object(categories));
-    Value::Object(value)
-}
-
-fn safety_filter_category_yaml(category: &Value) -> Value {
-    serde_json::json!({
-        "enabled": category
-            .get("isActive")
-            .or_else(|| category.get("is_active"))
-            .and_then(Value::as_bool),
-        "level": safety_filter_precision_level(
-            category
-                .get("precision")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-        ),
-    })
-}
-
-fn safety_filter_precision_level(precision: &str) -> String {
-    match precision {
-        "LOOSE" => "lenient".to_string(),
-        "MEDIUM" => "medium".to_string(),
-        "STRICT" => "strict".to_string(),
-        value => value.to_ascii_lowercase(),
-    }
-}
-
-fn channel_configuration_yaml(
-    greeting: Option<&Value>,
-    style_prompt: Option<&Value>,
-    disclaimer: Option<&Value>,
-) -> Value {
-    let mut value = serde_json::Map::new();
-    value.insert(
-        "greeting".to_string(),
-        greeting
-            .map(channel_greeting_yaml)
-            .unwrap_or_else(|| serde_json::json!({})),
-    );
-    value.insert(
-        "style_prompt".to_string(),
-        style_prompt
-            .map(channel_style_prompt_yaml)
-            .unwrap_or_else(|| serde_json::json!({})),
-    );
-    if let Some(disclaimer) = disclaimer {
-        value.insert(
-            "disclaimer_messages".to_string(),
-            channel_disclaimer_yaml(disclaimer),
-        );
-    }
-    Value::Object(value)
-}
-
-fn channel_greeting_yaml(greeting: &Value) -> Value {
-    serde_json::json!({
-        "welcome_message": greeting
-            .get("welcomeMessage")
-            .or_else(|| greeting.get("welcome_message"))
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-        "language_code": greeting
-            .get("languageCode")
-            .or_else(|| greeting.get("language_code"))
-            .and_then(Value::as_str)
-            .unwrap_or("en-GB"),
-    })
-}
-
-fn channel_style_prompt_yaml(style_prompt: &Value) -> Value {
-    serde_json::json!({
-        "prompt": style_prompt
-            .get("prompt")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-    })
-}
-
-fn channel_disclaimer_yaml(disclaimer: &Value) -> Value {
-    serde_json::json!({
-        "message": disclaimer
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-        "enabled": disclaimer
-            .get("isEnabled")
-            .or_else(|| disclaimer.get("enabled"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        "language_code": disclaimer
-            .get("languageCode")
-            .or_else(|| disclaimer.get("language_code"))
-            .and_then(Value::as_str)
-            .unwrap_or("en-GB"),
-    })
 }
 
 #[cfg(test)]

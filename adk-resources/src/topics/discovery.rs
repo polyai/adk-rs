@@ -1,10 +1,11 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_resources::{is_dir, sorted_read_dir};
-use crate::resource_utils::rel_under_root;
+use crate::resource_utils::{clean_name, rel_under_root};
 use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/topic.py
+/// Validation parity: TODO(DEVP-319) audit Python Topic.validate().
 pub(crate) struct Topic;
 impl DiscoverResources for Topic {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::Directory("topics");
@@ -27,19 +28,86 @@ impl DiscoverResources for Topic {
         out
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(path, yaml, errors);
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        append_parse_errors(path, yaml, errors);
     }
 }
 
-pub(crate) fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-    if yaml
-        .get("name")
-        .and_then(Value::as_str)
-        .is_none_or(str::is_empty)
-    {
+pub(crate) fn append_parse_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+    let name = yaml.get("name").and_then(Value::as_str).unwrap_or_default();
+    if name.is_empty() {
         errors.push(format!(
             "Validation error in {path}: topic name is required."
         ));
+    } else if let Some(file_stem) = Path::new(path).file_stem().and_then(|stem| stem.to_str()) {
+        let expected_file_name = clean_name(name, true);
+        if file_stem != expected_file_name {
+            errors.push(format!(
+                "Validation error in {path}: Topic name '{name}' in file {file_stem}.yaml does not match expected filename: {expected_file_name}.yaml"
+            ));
+        }
+    }
+    if let Some(example_queries) = yaml.get("example_queries").and_then(Value::as_sequence)
+        && example_queries.len() > 20
+    {
+        errors.push(format!(
+            "Validation error in {path}: Example queries must be less than 20"
+        ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_yaml_ng::from_str;
+
+    fn validation_errors(path: &str, yaml: &str) -> Vec<String> {
+        let yaml = from_str::<Value>(yaml).expect("topic YAML");
+        let mut errors = Vec::new();
+        append_parse_errors(path, &yaml, &mut errors);
+        errors
+    }
+
+    #[test]
+    fn validates_python_topic_filename_and_example_query_rules() {
+        let errors = validation_errors(
+            "topics/not_the_topic.yaml",
+            r#"
+name: Support Topic!
+example_queries:
+  - q01
+  - q02
+  - q03
+  - q04
+  - q05
+  - q06
+  - q07
+  - q08
+  - q09
+  - q10
+  - q11
+  - q12
+  - q13
+  - q14
+  - q15
+  - q16
+  - q17
+  - q18
+  - q19
+  - q20
+  - q21
+"#,
+        );
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("does not match expected filename: support_topic.yaml"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("Example queries must be less than 20"))
+        );
     }
 }

@@ -124,6 +124,82 @@ sip_headers: []
 }
 
 #[test]
+fn handoff_commands_parse_in_file_yaml_through_typed_model() {
+    let handoffs_yaml = r#"
+handoffs:
+  - name: Sales
+    description: "to sales"
+    is_default: true
+    sip_config:
+      method: invite
+      phone_number: "+1555"
+      outbound_endpoint: "sip.example.com"
+      outbound_encryption: "TLS/SRTP"
+    sip_headers:
+      - key: X-Team
+        value: sales
+  - name: Support
+    description: "to support"
+    is_default: false
+    sip_config:
+      method: refer
+      phone_number: "+1666"
+    sip_headers: []
+"#;
+    let resources = map_with(vec![(
+        "config/handoffs.yaml".into(),
+        Resource {
+            resource_id: "local".into(),
+            name: "handoffs".into(),
+            file_path: "config/handoffs.yaml".into(),
+            payload: serde_json::json!({ "content": handoffs_yaml }),
+        },
+    )]);
+    let projection = serde_json::json!({});
+    let commands = flatten(handoff_command_groups(&resources, &projection, &None));
+    let summaries = commands
+        .iter()
+        .filter_map(|command| command.payload.as_ref())
+        .filter_map(payload_json_summary)
+        .collect::<Vec<_>>();
+
+    assert!(summaries.iter().any(|(key, value)| {
+        *key == "handoff_set_default"
+            && value
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+    }));
+    assert!(summaries.iter().any(|(key, value)| {
+        *key == "handoff_create"
+            && value.get("name") == Some(&serde_json::json!("Sales"))
+            && value.get("description") == Some(&serde_json::json!("to sales"))
+            && value.get("sip_config")
+                == Some(&serde_json::json!({
+                    "invite": {
+                        "phone_number": "+1555",
+                        "outbound_endpoint": "sip.example.com",
+                        "outbound_encryption": "TLS/SRTP",
+                    }
+                }))
+            && value.get("sip_headers")
+                == Some(&serde_json::json!({
+                    "headers": [{"key": "X-Team", "value": "sales"}]
+                }))
+    }));
+    assert!(summaries.iter().any(|(key, value)| {
+        *key == "handoff_create"
+            && value.get("name") == Some(&serde_json::json!("Support"))
+            && value.get("sip_config")
+                == Some(&serde_json::json!({
+                    "refer": {
+                        "phone_number": "+1666",
+                    }
+                }))
+    }));
+}
+
+#[test]
 fn remote_handoff_without_active_field_is_treated_as_active() {
     let resources = map_with(vec![(
         "config/handoffs.yaml/handoffs/Sales".into(),

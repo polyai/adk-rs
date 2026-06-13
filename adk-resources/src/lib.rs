@@ -31,6 +31,9 @@ mod handoffs;
 pub mod ids;
 mod keyphrase_boosting;
 mod languages;
+mod local_parse;
+#[cfg(test)]
+mod local_parse_tests;
 mod local_resources;
 mod materialization;
 mod materialization_reference_handling;
@@ -43,6 +46,7 @@ mod push_command_summary;
 mod push_commands;
 mod resource_lifecycle;
 pub mod resource_utils;
+mod safety_filters;
 mod sms_templates;
 pub mod specs;
 pub mod status_snapshot;
@@ -56,7 +60,8 @@ mod variants;
 
 pub use channels::validate_webchat_config_resources;
 pub use discover::{
-    DISCOVER_DISPATCH, DiscoverDispatchEntry, discover_local_resources, validate_semantic_resource,
+    DISCOVER_DISPATCH, DiscoverDispatchEntry, append_semantic_resource_errors,
+    discover_local_resources,
 };
 pub use flows::validate_flow_resources;
 pub use functions::{
@@ -140,12 +145,12 @@ pub(crate) fn rules_references_from_behaviour(behaviour: &str) -> Option<RulesRe
     let mut variables = extract_template_references(behaviour, "vrbl");
     variables.extend(extract_template_references(behaviour, "var"));
     let refs = RulesReferences {
-        sms: extract_template_references(behaviour, "sms"),
+        sms: extract_template_references(behaviour, "twilio_sms"),
         handoff: extract_template_references(behaviour, "ho"),
         attributes: extract_template_references(behaviour, "attr"),
         global_functions: extract_template_references(behaviour, "fn"),
         variables,
-        translations: HashMap::new(),
+        translations: extract_template_references(behaviour, "tn"),
     };
     if refs.sms.is_empty()
         && refs.handoff.is_empty()
@@ -160,7 +165,7 @@ pub(crate) fn rules_references_from_behaviour(behaviour: &str) -> Option<RulesRe
     }
 }
 
-fn extract_template_references(behaviour: &str, prefix: &str) -> HashMap<String, bool> {
+pub(crate) fn extract_template_references(behaviour: &str, prefix: &str) -> HashMap<String, bool> {
     let marker = format!("{{{{{prefix}:");
     let mut out = HashMap::new();
     let mut start = 0;
