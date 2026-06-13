@@ -179,7 +179,7 @@ mod tests {
             local_resource(
                 "agent_settings/personality.yaml",
                 "personality",
-                "adjectives:\n  Curious: true\ncustom: Recording parity custom personality.\n",
+                "adjectives:\n  Polite: true\ncustom: Recording parity custom personality.\n",
             ),
         );
         resources.insert(

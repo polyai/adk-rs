@@ -1,4 +1,5 @@
 use crate::CommandGenError;
+use crate::agent_settings::local::{PersonalitySettings, RoleSettings};
 use crate::materialization::{insert_content_resource, insert_yaml_resource};
 use crate::specs::{
     AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_RULES_FILE, AGENT_SAFETY_FILTERS_FILE,
@@ -16,7 +17,7 @@ pub(crate) fn insert_profile_and_safety_resources(
             AGENT_PERSONALITY_FILE.file_path,
             AGENT_PERSONALITY_FILE.resource_id,
             AGENT_PERSONALITY_FILE.name,
-            personality_yaml(personality),
+            PersonalitySettings::from_projection(personality),
         )?;
     }
 
@@ -26,7 +27,7 @@ pub(crate) fn insert_profile_and_safety_resources(
             AGENT_ROLE_FILE.file_path,
             AGENT_ROLE_FILE.resource_id,
             AGENT_ROLE_FILE.name,
-            role_yaml(role),
+            RoleSettings::from_projection(role),
         )?;
     }
 
@@ -61,39 +62,6 @@ pub(crate) fn insert_rules_resource(
     }
 
     Ok(())
-}
-
-fn personality_yaml(personality: &Value) -> Value {
-    let adjectives = personality
-        .pointer("/adjectives/values")
-        .or_else(|| personality.get("adjectives"))
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
-    serde_json::json!({
-        "adjectives": adjectives,
-        "custom": personality
-            .get("custom")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-    })
-}
-
-fn role_yaml(role: &Value) -> Value {
-    serde_json::json!({
-        "value": role
-            .get("value")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-        "additional_info": role
-            .get("additionalInfo")
-            .or_else(|| role.get("additional_info"))
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-        "custom": role
-            .get("custom")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-    })
 }
 
 fn safety_filters_yaml(settings: &Value, include_enabled: bool) -> Value {
