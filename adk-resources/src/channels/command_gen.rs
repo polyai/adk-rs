@@ -1,3 +1,5 @@
+use crate::channels::{ChatSafetyFilters, VoiceSafetyFilters};
+use crate::local_parse::ParseLocalResource;
 use crate::push_command_inputs::{first_yaml_mapping, resource_changed, resource_yaml};
 use crate::specs::{
     CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
@@ -13,12 +15,8 @@ use adk_protobuf::channels::{
     VoiceChannelUpdateDisclaimer, WebChatChannelUpdateStatus,
 };
 use adk_protobuf::command::Payload as CommandPayload;
-use adk_protobuf::content_filter_settings::{
-    AzureContentFilter, AzureContentFilterCategory,
-    ContentFilterSettingsUpdateContentFilterSettings,
-};
 use adk_types::ResourceMap;
-use serde_yaml_ng::{Mapping, Value as YamlValue};
+use serde_yaml_ng::Value as YamlValue;
 
 pub(crate) fn append_channel_settings_updates(
     commands: &mut Vec<adk_protobuf::Command>,
@@ -194,48 +192,24 @@ fn push_channel_safety_filters_update(
     channel_type: ChannelType,
     yaml: &YamlValue,
 ) {
+    let parsed = match channel_type {
+        ChannelType::Voice => {
+            VoiceSafetyFilters::parse_local_yaml(VOICE_SAFETY_FILTERS_FILE.file_path, yaml)
+        }
+        ChannelType::WebChat => {
+            ChatSafetyFilters::parse_local_yaml(CHAT_SAFETY_FILTERS_FILE.file_path, yaml)
+        }
+    };
+    let Ok(safety_filters) = parsed else {
+        return;
+    };
     push_command(
         commands,
         metadata,
         "channel_update_safety_filters",
         CommandPayload::ChannelUpdateSafetyFilters(ChannelUpdateSafetyFilters {
             channel_type: channel_type as i32,
-            safety_filters: Some(content_filter_settings_from_yaml(yaml)),
+            safety_filters: Some(safety_filters.to_update_proto()),
         }),
     );
-}
-
-fn content_filter_settings_from_yaml(
-    yaml: &YamlValue,
-) -> ContentFilterSettingsUpdateContentFilterSettings {
-    let categories = yaml.get("categories").and_then(YamlValue::as_mapping);
-    ContentFilterSettingsUpdateContentFilterSettings {
-        r#type: Some("azure".to_string()),
-        disabled: Some(
-            !yaml
-                .get("enabled")
-                .and_then(YamlValue::as_bool)
-                .unwrap_or(true),
-        ),
-        azure_config: Some(AzureContentFilter {
-            violence: content_filter_category_from_yaml(categories, "violence"),
-            hate: content_filter_category_from_yaml(categories, "hate"),
-            sexual: content_filter_category_from_yaml(categories, "sexual"),
-            self_harm: content_filter_category_from_yaml(categories, "self_harm"),
-        }),
-    }
-}
-
-fn content_filter_category_from_yaml(
-    categories: Option<&Mapping>,
-    name: &str,
-) -> Option<AzureContentFilterCategory> {
-    let category = categories?.get(YamlValue::String(name.to_string()))?;
-    Some(AzureContentFilterCategory {
-        is_active: category
-            .get("enabled")
-            .and_then(YamlValue::as_bool)
-            .unwrap_or(false),
-        precision: yaml_str(category, "level").to_ascii_uppercase(),
-    })
 }

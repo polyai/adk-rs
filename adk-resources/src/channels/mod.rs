@@ -11,5 +11,4 @@ pub(crate) use discovery::{
 };
 pub(crate) use materialization::insert_channel_resources;
 pub(crate) use summary::payload_json_summary;
-pub(crate) use validation::validate_safety_filters_yaml;
 pub use validation::validate_webchat_config_resources;

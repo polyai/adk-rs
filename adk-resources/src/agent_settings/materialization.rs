@@ -1,6 +1,7 @@
 use crate::CommandGenError;
 use crate::agent_settings::local::{PersonalitySettings, RoleSettings};
 use crate::materialization::{insert_content_resource, insert_yaml_resource};
+use crate::safety_filters::SafetyFilters;
 use crate::specs::{
     AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_RULES_FILE, AGENT_SAFETY_FILTERS_FILE,
 };
@@ -37,7 +38,7 @@ pub(crate) fn insert_profile_and_safety_resources(
             AGENT_SAFETY_FILTERS_FILE.file_path,
             AGENT_SAFETY_FILTERS_FILE.resource_id,
             AGENT_SAFETY_FILTERS_FILE.name,
-            safety_filters_yaml(safety_filters, false),
+            SafetyFilters::from_projection(safety_filters, false),
         )?;
     }
 
@@ -62,66 +63,6 @@ pub(crate) fn insert_rules_resource(
     }
 
     Ok(())
-}
-
-fn safety_filters_yaml(settings: &Value, include_enabled: bool) -> Value {
-    let azure_config = settings
-        .get("azureConfig")
-        .or_else(|| settings.get("azure_config"))
-        .unwrap_or(&Value::Null);
-    let mut categories = serde_json::Map::new();
-    for (yaml_key, backend_keys) in [
-        ("violence", ["violence", "violence"]),
-        ("hate", ["hate", "hate"]),
-        ("sexual", ["sexual", "sexual"]),
-        ("self_harm", ["selfHarm", "self_harm"]),
-    ] {
-        let category = backend_keys
-            .iter()
-            .find_map(|key| azure_config.get(*key))
-            .map(safety_filter_category_yaml)
-            .unwrap_or_else(|| serde_json::json!({}));
-        categories.insert(yaml_key.to_string(), category);
-    }
-
-    let mut value = serde_json::Map::new();
-    if include_enabled {
-        value.insert(
-            "enabled".to_string(),
-            Value::Bool(
-                !settings
-                    .get("disabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            ),
-        );
-    }
-    value.insert("categories".to_string(), Value::Object(categories));
-    Value::Object(value)
-}
-
-fn safety_filter_category_yaml(category: &Value) -> Value {
-    serde_json::json!({
-        "enabled": category
-            .get("isActive")
-            .or_else(|| category.get("is_active"))
-            .and_then(Value::as_bool),
-        "level": safety_filter_precision_level(
-            category
-                .get("precision")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-        ),
-    })
-}
-
-fn safety_filter_precision_level(precision: &str) -> String {
-    match precision {
-        "LOOSE" => "lenient".to_string(),
-        "MEDIUM" => "medium".to_string(),
-        "STRICT" => "strict".to_string(),
-        value => value.to_ascii_lowercase(),
-    }
 }
 
 #[cfg(test)]

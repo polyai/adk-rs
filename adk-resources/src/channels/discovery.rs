@@ -1,6 +1,8 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::rel_under_root;
+use crate::safety_filters::{SafetyFilterMode, SafetyFilters, parse_safety_filters};
 use serde_yaml_ng::Value;
 use std::path::Path;
 
@@ -52,7 +54,15 @@ impl DiscoverResources for VoiceSafetyFilters {
     }
 
     fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        crate::channels::validate_safety_filters_yaml(path, yaml, true, errors);
+        <Self as ParseLocalResource>::append_parse_errors(path, yaml, errors);
+    }
+}
+
+impl ParseLocalResource for VoiceSafetyFilters {
+    type Parsed = SafetyFilters;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_safety_filters(path, yaml, SafetyFilterMode::Channel)
     }
 }
 
@@ -167,7 +177,15 @@ impl DiscoverResources for ChatSafetyFilters {
     }
 
     fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        crate::channels::validate_safety_filters_yaml(path, yaml, true, errors);
+        <Self as ParseLocalResource>::append_parse_errors(path, yaml, errors);
+    }
+}
+
+impl ParseLocalResource for ChatSafetyFilters {
+    type Parsed = SafetyFilters;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_safety_filters(path, yaml, SafetyFilterMode::Channel)
     }
 }
 

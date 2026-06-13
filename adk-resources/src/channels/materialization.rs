@@ -1,5 +1,6 @@
 use crate::CommandGenError;
 use crate::materialization::insert_yaml_resource;
+use crate::safety_filters::SafetyFilters;
 use crate::specs::{
     CHAT_CONFIGURATION_FILE, CHAT_SAFETY_FILTERS_FILE, VOICE_CONFIGURATION_FILE,
     VOICE_SAFETY_FILTERS_FILE,
@@ -17,7 +18,7 @@ pub(crate) fn insert_channel_resources(
             VOICE_SAFETY_FILTERS_FILE.file_path,
             VOICE_SAFETY_FILTERS_FILE.resource_id,
             VOICE_SAFETY_FILTERS_FILE.name,
-            safety_filters_yaml(voice_safety_filters, true),
+            SafetyFilters::from_projection(voice_safety_filters, true),
         )?;
     }
 
@@ -70,7 +71,7 @@ pub(crate) fn insert_channel_resources(
                 CHAT_SAFETY_FILTERS_FILE.file_path,
                 CHAT_SAFETY_FILTERS_FILE.resource_id,
                 CHAT_SAFETY_FILTERS_FILE.name,
-                safety_filters_yaml(chat_safety_filters, true),
+                SafetyFilters::from_projection(chat_safety_filters, true),
             )?;
         }
     }
@@ -90,66 +91,6 @@ fn web_chat_channel_is_created(channel: Option<&Value>) -> bool {
         }
         Some(Value::Null) | None => false,
         Some(_) => true,
-    }
-}
-
-fn safety_filters_yaml(settings: &Value, include_enabled: bool) -> Value {
-    let azure_config = settings
-        .get("azureConfig")
-        .or_else(|| settings.get("azure_config"))
-        .unwrap_or(&Value::Null);
-    let mut categories = serde_json::Map::new();
-    for (yaml_key, backend_keys) in [
-        ("violence", ["violence", "violence"]),
-        ("hate", ["hate", "hate"]),
-        ("sexual", ["sexual", "sexual"]),
-        ("self_harm", ["selfHarm", "self_harm"]),
-    ] {
-        let category = backend_keys
-            .iter()
-            .find_map(|key| azure_config.get(*key))
-            .map(safety_filter_category_yaml)
-            .unwrap_or_else(|| serde_json::json!({}));
-        categories.insert(yaml_key.to_string(), category);
-    }
-
-    let mut value = serde_json::Map::new();
-    if include_enabled {
-        value.insert(
-            "enabled".to_string(),
-            Value::Bool(
-                !settings
-                    .get("disabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            ),
-        );
-    }
-    value.insert("categories".to_string(), Value::Object(categories));
-    Value::Object(value)
-}
-
-fn safety_filter_category_yaml(category: &Value) -> Value {
-    serde_json::json!({
-        "enabled": category
-            .get("isActive")
-            .or_else(|| category.get("is_active"))
-            .and_then(Value::as_bool),
-        "level": safety_filter_precision_level(
-            category
-                .get("precision")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-        ),
-    })
-}
-
-fn safety_filter_precision_level(precision: &str) -> String {
-    match precision {
-        "LOOSE" => "lenient".to_string(),
-        "MEDIUM" => "medium".to_string(),
-        "STRICT" => "strict".to_string(),
-        value => value.to_ascii_lowercase(),
     }
 }
 

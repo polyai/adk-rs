@@ -195,7 +195,7 @@ mod tests {
             local_resource(
                 "agent_settings/safety_filters.yaml",
                 "safety_filters",
-                "enabled: true\ncategories:\n  violence:\n    enabled: true\n    level: medium\n",
+                "categories:\n  violence:\n    enabled: true\n    level: medium\n  hate:\n    enabled: false\n    level: medium\n  sexual:\n    enabled: false\n    level: lenient\n  self_harm:\n    enabled: false\n    level: strict\n",
             ),
         );
         resources.insert(
@@ -229,7 +229,7 @@ disclaimer_messages:
             local_resource(
                 "voice/safety_filters.yaml",
                 "voice_safety_filters",
-                "enabled: true\ncategories:\n  violence:\n    enabled: true\n    level: medium\n",
+                "enabled: true\ncategories:\n  violence:\n    enabled: true\n    level: medium\n  hate:\n    enabled: false\n    level: medium\n  sexual:\n    enabled: false\n    level: lenient\n  self_harm:\n    enabled: false\n    level: strict\n",
             ),
         );
         resources.insert(
@@ -251,7 +251,7 @@ style_prompt:
             local_resource(
                 "chat/safety_filters.yaml",
                 "chat_safety_filters",
-                "enabled: true\ncategories:\n  hate:\n    enabled: true\n    level: medium\n",
+                "enabled: true\ncategories:\n  violence:\n    enabled: false\n    level: medium\n  hate:\n    enabled: true\n    level: medium\n  sexual:\n    enabled: false\n    level: lenient\n  self_harm:\n    enabled: false\n    level: strict\n",
             ),
         );
 
