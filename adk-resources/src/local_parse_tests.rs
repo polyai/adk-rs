@@ -3,6 +3,7 @@ use crate::entities::Entity;
 use crate::handoffs::HandoffResource;
 use crate::languages::DefaultLanguage;
 use crate::local_parse::ParseLocalResource;
+use crate::topics::Topic;
 use crate::transcript_corrections::TranscriptCorrection;
 use crate::variants::{Variant, VariantAttribute};
 
@@ -119,6 +120,17 @@ entities:
     entity_type: unsupported
 "#,
         "unsupported entity_type 'unsupported'",
+    );
+
+    assert_parse_error::<Topic>(
+        "topics/support.yaml",
+        r#"
+name: Support
+actions: Use {{entity:Account}}
+content: ""
+example_queries: []
+"#,
+        "Invalid reference type: entities is not a valid reference type",
     );
 
     assert_parse_error::<Variant>(

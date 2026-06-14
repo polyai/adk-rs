@@ -1,6 +1,8 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_dir, sorted_read_dir};
-use crate::resource_utils::{clean_name, rel_under_root};
+use crate::resource_utils::rel_under_root;
+use crate::topics::local::{LocalTopic, parse_topic_file};
 use serde_yaml_ng::Value;
 use std::path::Path;
 
@@ -29,30 +31,15 @@ impl DiscoverResources for Topic {
     }
 
     fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        append_parse_errors(path, yaml, errors);
+        <Self as ParseLocalResource>::append_parse_errors(path, yaml, errors);
     }
 }
 
-pub(crate) fn append_parse_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-    let name = yaml.get("name").and_then(Value::as_str).unwrap_or_default();
-    if name.is_empty() {
-        errors.push(format!(
-            "Validation error in {path}: topic name is required."
-        ));
-    } else if let Some(file_stem) = Path::new(path).file_stem().and_then(|stem| stem.to_str()) {
-        let expected_file_name = clean_name(name, true);
-        if file_stem != expected_file_name {
-            errors.push(format!(
-                "Validation error in {path}: Topic name '{name}' in file {file_stem}.yaml does not match expected filename: {expected_file_name}.yaml"
-            ));
-        }
-    }
-    if let Some(example_queries) = yaml.get("example_queries").and_then(Value::as_sequence)
-        && example_queries.len() > 20
-    {
-        errors.push(format!(
-            "Validation error in {path}: Example queries must be less than 20"
-        ));
+impl ParseLocalResource for Topic {
+    type Parsed = LocalTopic;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_topic_file(path, yaml)
     }
 }
 
@@ -64,7 +51,7 @@ mod tests {
     fn validation_errors(path: &str, yaml: &str) -> Vec<String> {
         let yaml = from_str::<Value>(yaml).expect("topic YAML");
         let mut errors = Vec::new();
-        append_parse_errors(path, &yaml, &mut errors);
+        Topic::append_local_resource_errors(path, &yaml, &mut errors);
         errors
     }
 
@@ -108,6 +95,31 @@ example_queries:
             errors
                 .iter()
                 .any(|error| error.contains("Example queries must be less than 20"))
+        );
+
+        let invalid_reference_type = validation_errors(
+            "topics/invalid_topic.yaml",
+            r#"
+name: Invalid Topic
+actions: Use {{ft:flow_function}}
+content: ""
+example_queries: []
+"#,
+        );
+        assert!(invalid_reference_type.iter().any(|error| error.contains(
+            "Invalid reference type: transition_functions is not a valid reference type"
+        )));
+
+        assert!(
+            validation_errors(
+                "topics/name_from_file.yaml",
+                r#"
+actions: ""
+content: ""
+example_queries: []
+"#
+            )
+            .is_empty()
         );
     }
 }

@@ -37,6 +37,102 @@ fn builds_create_topic_command_when_remote_missing() {
 }
 
 #[test]
+fn create_topic_parses_typed_local_yaml_and_derives_references() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "topics/support.yaml".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "support".to_string(),
+            file_path: "topics/support.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "name: support\nenabled: true\nactions: \"Call {{fn:start_verification}} and send {{twilio_sms:welcome}}\"\ncontent: \"Use {{vrbl:customer_name}} and {{tn:greeting}}\"\nexample_queries:\n  - help\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "FUNCTION-start-verification": {
+                        "name": "start_verification"
+                    }
+                }
+            }
+        },
+        "sms": {
+            "templates": {
+                "entities": {
+                    "SMS-welcome": {
+                        "name": "welcome",
+                        "active": true
+                    }
+                }
+            }
+        },
+        "variables": {
+            "variables": {
+                "entities": {
+                    "VARIABLE-customer-name": {
+                        "name": "customer_name"
+                    }
+                }
+            }
+        },
+        "translations": {
+            "translations": {
+                "entities": {
+                    "TRANSLATION-greeting": {
+                        "translationKey": "greeting"
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+    let create = commands
+        .iter()
+        .find_map(|command| match &command.payload {
+            Some(CommandPayload::CreateTopic(create)) => Some(create),
+            _ => None,
+        })
+        .expect("create topic command");
+
+    assert_eq!(
+        create.actions,
+        "Call {{fn:FUNCTION-start-verification}} and send {{twilio_sms:SMS-welcome}}"
+    );
+    assert_eq!(
+        create.content,
+        "Use {{vrbl:VARIABLE-customer-name}} and {{tn:TRANSLATION-greeting}}"
+    );
+    let references = create.references.as_ref().expect("topic references");
+    assert!(
+        references
+            .global_functions
+            .get("FUNCTION-start-verification")
+            .copied()
+            .unwrap_or(false)
+    );
+    assert!(references.sms.get("SMS-welcome").copied().unwrap_or(false));
+    assert!(
+        references
+            .variables
+            .get("VARIABLE-customer-name")
+            .copied()
+            .unwrap_or(false)
+    );
+    assert!(
+        references
+            .translations
+            .get("TRANSLATION-greeting")
+            .copied()
+            .unwrap_or(false)
+    );
+}
+
+#[test]
 fn create_topic_uses_local_resource_id_before_synthetic_fallback() {
     let mut resources = ResourceMap::new();
     resources.insert(

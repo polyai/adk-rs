@@ -2,6 +2,7 @@
 
 mod command_gen;
 mod discovery;
+mod local;
 mod materialization;
 
 pub(crate) use command_gen::{topic_entries, topic_resource_command_groups};
