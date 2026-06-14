@@ -119,6 +119,58 @@ function: fn-one
 }
 
 #[test]
+fn phrase_filter_aggregate_file_parses_through_typed_model() {
+    let pf_yaml = r#"
+phrase_filtering:
+  - name: HangUp
+    description: " end "
+    regular_expressions:
+      - "^bye$"
+    say_phrase: true
+    language_code: en-US
+    function: fn-one
+  - name: Pause
+    regular_expressions:
+      - "^wait$"
+"#;
+    let resources = map_with(vec![(
+        "voice/response_control/phrase_filtering.yaml".into(),
+        Resource {
+            resource_id: "phrase_filtering".into(),
+            name: "phrase_filtering".into(),
+            file_path: "voice/response_control/phrase_filtering.yaml".into(),
+            payload: serde_json::json!({ "content": pf_yaml }),
+        },
+    )]);
+    let projection = serde_json::json!({});
+    let commands = flatten(phrase_filter_command_groups(&resources, &projection, &None));
+    let creates = commands
+        .iter()
+        .filter_map(|command| match &command.payload {
+            Some(CommandPayload::StopKeywordsCreate(create)) => Some(create),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(creates.len(), 2);
+    let hangup = creates
+        .iter()
+        .find(|create| create.title == "HangUp")
+        .expect("HangUp create command");
+    assert_eq!(hangup.description, "end");
+    assert_eq!(hangup.regular_expressions, vec!["^bye$"]);
+    assert!(hangup.say_phrase);
+    assert_eq!(hangup.language_code, "en-US");
+    assert_eq!(
+        hangup
+            .references
+            .as_ref()
+            .and_then(|refs| refs.global_functions.get("fn-one")),
+        Some(&true)
+    );
+}
+
+#[test]
 fn stop_keywords_create() {
     let pf_yaml = r#"
 name: HangUp

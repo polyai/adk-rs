@@ -1,7 +1,9 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
 use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_file, read_yaml_mapping};
-use crate::phrase_filters::local::{PhraseFiltersFile, parse_phrase_filters_file};
+use crate::phrase_filters::local::{
+    PHRASE_FILTERS_FILE_PATH, PhraseFiltersFile, parse_phrase_filters_file,
+};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde_yaml_ng::Value;
 use std::path::Path;
@@ -11,7 +13,7 @@ use std::path::Path;
 pub(crate) struct PhraseFilter;
 impl DiscoverResources for PhraseFilter {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
-        path: "voice/response_control/phrase_filtering.yaml",
+        path: PHRASE_FILTERS_FILE_PATH,
         yaml_path: &["phrase_filtering"],
     };
 
@@ -86,7 +88,7 @@ mod tests {
         assert_eq!(
             PhraseFilter::LOCAL_PATH,
             LocalResourcePath::InFile {
-                path: "voice/response_control/phrase_filtering.yaml",
+                path: PHRASE_FILTERS_FILE_PATH,
                 yaml_path: &["phrase_filtering"],
             }
         );

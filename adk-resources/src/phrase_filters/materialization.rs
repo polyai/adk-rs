@@ -1,6 +1,6 @@
 use crate::functions;
 use crate::materialization::to_yaml_string;
-use crate::phrase_filters::local::{PhraseFilterItem, PhraseFiltersFile};
+use crate::phrase_filters::local::{PHRASE_FILTERS_FILE_PATH, PhraseFilterItem, PhraseFiltersFile};
 use crate::{CommandGenError, extract_entities_vec};
 use adk_types::ResourceMap;
 use serde_json::Value;
@@ -49,7 +49,7 @@ pub(crate) fn insert_phrase_filter_resources(
         .map_err(|error| CommandGenError::InvalidData(error.to_string()))?;
     crate::materialization::insert_content_resource(
         map,
-        "voice/response_control/phrase_filtering.yaml",
+        PHRASE_FILTERS_FILE_PATH,
         "phrase_filtering",
         "phrase_filtering",
         content,

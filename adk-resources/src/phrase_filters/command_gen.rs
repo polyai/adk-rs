@@ -10,8 +10,10 @@
 //! delete/create/update ordering across all resource-family modules.
 
 use crate::ids::stable_resource_id;
-use crate::local_parse::ParseLocalResource;
-use crate::phrase_filters::local::PhraseFilterItem as LocalPhraseFilterItem;
+use crate::phrase_filters::local::{
+    PHRASE_FILTERS_FILE_PATH, PhraseFilterItem as LocalPhraseFilterItem,
+    parse_phrase_filters_content,
+};
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::stop_keywords::{
@@ -20,7 +22,6 @@ use adk_protobuf::stop_keywords::{
 use adk_protobuf::{Command, Metadata};
 use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue};
-use serde_yaml_ng::{Value as YamlValue, from_str};
 use std::collections::{HashMap, HashSet};
 
 use crate::push_commands::CommandGroups;
@@ -71,11 +72,7 @@ impl PhraseFilterItemQueue<'_> {
                 (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
             })
             .unwrap_or_else(|| {
-                stable_resource_id(
-                    "PHRASE_FILTERING",
-                    &title,
-                    "voice/response_control/phrase_filtering.yaml",
-                )
+                stable_resource_id("PHRASE_FILTERING", &title, PHRASE_FILTERS_FILE_PATH)
             });
         let description = item.description().to_string();
         let say_phrase = item.say_phrase();
@@ -175,6 +172,7 @@ pub(crate) fn phrase_filter_command_groups(
     let rpf = remote_phrase_filters(projection);
 
     let mut local_pf_titles = HashSet::new();
+    let local_phrase_filters = local_phrase_filter_resources(resources);
 
     {
         let mut phrase_filter_queue = PhraseFilterItemQueue {
@@ -186,45 +184,8 @@ pub(crate) fn phrase_filter_command_groups(
             updates: &mut sk_update,
         };
 
-        for resource in resources.values() {
-            let path = resource.file_path.as_str();
-            let content = resource
-                .payload
-                .get("content")
-                .and_then(JsonValue::as_str)
-                .unwrap_or_default();
-
-            if path == "voice/response_control/phrase_filtering.yaml" {
-                if let Ok(yaml) = from_str::<YamlValue>(content)
-                    && let Ok(file) = crate::phrase_filters::PhraseFilter::parse_local_yaml(
-                        "voice/response_control/phrase_filtering.yaml",
-                        &yaml,
-                    )
-                {
-                    for item in &file.phrase_filtering {
-                        phrase_filter_queue.queue(item, "local");
-                    }
-                }
-                continue;
-            }
-
-            if path.starts_with("voice/response_control/phrase_filtering.yaml/phrase_filtering/") {
-                if let Ok(yaml) = from_str::<YamlValue>(content) {
-                    let wrapped = serde_yaml_ng::Mapping::from_iter([(
-                        YamlValue::String("phrase_filtering".to_string()),
-                        YamlValue::Sequence(vec![yaml]),
-                    )]);
-                    if let Ok(file) = crate::phrase_filters::PhraseFilter::parse_local_yaml(
-                        path,
-                        &YamlValue::Mapping(wrapped),
-                    ) {
-                        for item in &file.phrase_filtering {
-                            phrase_filter_queue.queue(item, &resource.resource_id);
-                        }
-                    }
-                }
-                continue;
-            }
+        for local in &local_phrase_filters {
+            phrase_filter_queue.queue(&local.item, &local.resource_id);
         }
     }
 
@@ -244,6 +205,36 @@ pub(crate) fn phrase_filter_command_groups(
     groups.creates.extend(sk_create);
     groups.updates.extend(sk_update);
     groups
+}
+
+struct LocalPhraseFilterResource {
+    resource_id: String,
+    item: LocalPhraseFilterItem,
+}
+
+fn local_phrase_filter_resources(resources: &ResourceMap) -> Vec<LocalPhraseFilterResource> {
+    let mut phrase_filters = Vec::new();
+    for resource in resources.values() {
+        let path = resource.file_path.as_str();
+        let content = resource
+            .payload
+            .get("content")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default();
+        let Ok(items) = parse_phrase_filters_content(path, content) else {
+            continue;
+        };
+        let resource_id = if path == PHRASE_FILTERS_FILE_PATH {
+            "local"
+        } else {
+            resource.resource_id.as_str()
+        };
+        phrase_filters.extend(items.into_iter().map(|item| LocalPhraseFilterResource {
+            resource_id: resource_id.to_string(),
+            item,
+        }));
+    }
+    phrase_filters
 }
 
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {

@@ -1,6 +1,12 @@
-use crate::local_parse::{NonEmptyString, ResourceParseResult, deserialize_yaml, non_empty_vec};
+use crate::local_parse::{
+    NonEmptyString, ResourceParseErrors, ResourceParseResult, deserialize_yaml, non_empty_vec,
+};
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
+
+pub(crate) const PHRASE_FILTERS_FILE_PATH: &str = "voice/response_control/phrase_filtering.yaml";
+pub(crate) const PHRASE_FILTER_ITEM_PREFIX: &str =
+    "voice/response_control/phrase_filtering.yaml/phrase_filtering/";
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct PhraseFiltersFile {
@@ -19,6 +25,22 @@ pub(crate) fn parse_phrase_filters_file(
     yaml: &Value,
 ) -> ResourceParseResult<PhraseFiltersFile> {
     deserialize_yaml(path, yaml)
+}
+
+pub(crate) fn parse_phrase_filters_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<Vec<PhraseFilterItem>> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    if path == PHRASE_FILTERS_FILE_PATH {
+        return deserialize_yaml::<PhraseFiltersFile>(path, &yaml)
+            .map(|file| file.phrase_filtering);
+    }
+    if path.starts_with(PHRASE_FILTER_ITEM_PREFIX) {
+        return deserialize_yaml::<PhraseFilterItem>(path, &yaml).map(|item| vec![item]);
+    }
+    Ok(Vec::new())
 }
 
 #[derive(Debug, Deserialize, Serialize)]
