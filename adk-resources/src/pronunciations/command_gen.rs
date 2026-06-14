@@ -1,10 +1,9 @@
 use crate::ids::stable_resource_id;
-use crate::local_parse::ParseLocalResource;
-use crate::pronunciations::local::PronunciationItem as LocalPronunciationItem;
-use crate::push_command;
-use crate::push_command_inputs::{
-    SimpleLifecycleCommands, json_bool, json_i32, json_str, resource_yaml,
+use crate::pronunciations::local::{
+    PronunciationItem as LocalPronunciationItem, parse_pronunciations_content,
 };
+use crate::push_command;
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_bool, json_i32, json_str};
 use crate::specs::PRONUNCIATIONS;
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -14,7 +13,6 @@ use adk_protobuf::pronunciations::{
 };
 use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,10 +32,14 @@ pub(crate) fn pronunciation_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, PRONUNCIATIONS.file.file_path) else {
+    let Some(content) = resources
+        .get(PRONUNCIATIONS.file.file_path)
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(JsonValue::as_str)
+    else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_pronunciation_items(&yaml);
+    let local_items = local_pronunciation_items(content);
     let remote_items = remote_pronunciation_items(projection);
     let local_positions = local_items
         .iter()
@@ -112,10 +114,8 @@ pub(crate) fn pronunciation_lifecycle_commands(
     commands
 }
 
-fn local_pronunciation_items(yaml: &YamlValue) -> Vec<PronunciationItem> {
-    let Ok(file) =
-        crate::pronunciations::Pronunciation::parse_local_yaml(PRONUNCIATIONS.file.file_path, yaml)
-    else {
+fn local_pronunciation_items(content: &str) -> Vec<PronunciationItem> {
+    let Ok(file) = parse_pronunciations_content(PRONUNCIATIONS.file.file_path, content) else {
         return Vec::new();
     };
     file.pronunciations
@@ -176,8 +176,7 @@ mod tests {
 
     #[test]
     fn local_pronunciation_items_use_typed_python_position_and_description_rules() {
-        let yaml = serde_yaml_ng::from_str(
-            r#"
+        let content = r#"
 pronunciations:
   - regex: first
     replacement: one
@@ -185,11 +184,9 @@ pronunciations:
     position: 42
   - regex: second
     replacement: two
-"#,
-        )
-        .expect("pronunciation yaml");
+"#;
 
-        let items = local_pronunciation_items(&yaml);
+        let items = local_pronunciation_items(content);
 
         assert_eq!(items[0].position, 0);
         assert_eq!(items[0].description, "trimmed");

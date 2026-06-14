@@ -1,4 +1,6 @@
-use crate::local_parse::{NonEmptyString, ResourceParseResult, deserialize_yaml};
+use crate::local_parse::{
+    NonEmptyString, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
+};
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 
@@ -19,6 +21,15 @@ pub(crate) fn parse_pronunciations_file(
     yaml: &Value,
 ) -> ResourceParseResult<PronunciationsFile> {
     deserialize_yaml(path, yaml)
+}
+
+pub(crate) fn parse_pronunciations_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<PronunciationsFile> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_pronunciations_file(path, &yaml)
 }
 
 #[derive(Debug, Deserialize, Serialize)]
