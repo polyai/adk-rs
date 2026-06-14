@@ -1,13 +1,13 @@
+use crate::asr_settings::local::parse_asr_settings;
+use crate::push_command;
 use crate::push_command_inputs::{resource_changed, resource_yaml};
 use crate::specs::ASR_SETTINGS_FILE;
-use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
-use adk_protobuf::asr_settings::{AsrSettingsUpdateAsrSettings, LatencyConfig};
+use adk_protobuf::asr_settings::AsrSettingsUpdateAsrSettings;
 use adk_protobuf::channels::VoiceChannelUpdateAsrSettings;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue, json};
-use serde_yaml_ng::Value as YamlValue;
 
 pub(crate) fn append_asr_settings_update(
     commands: &mut Vec<adk_protobuf::Command>,
@@ -17,22 +17,14 @@ pub(crate) fn append_asr_settings_update(
 ) {
     if resource_changed(resources, remote_resources, ASR_SETTINGS_FILE.file_path)
         && let Some(yaml) = resource_yaml(resources, ASR_SETTINGS_FILE.file_path)
+        && let Ok(asr_settings) = parse_asr_settings(ASR_SETTINGS_FILE.file_path, &yaml)
     {
         push_command(
             commands,
             metadata,
             "voice_channel_update_asr_settings",
             CommandPayload::VoiceChannelUpdateAsrSettings(VoiceChannelUpdateAsrSettings {
-                asr_settings: Some(AsrSettingsUpdateAsrSettings {
-                    barge_in: Some(
-                        yaml.get("barge_in")
-                            .and_then(YamlValue::as_bool)
-                            .unwrap_or(false),
-                    ),
-                    latency_config: Some(LatencyConfig {
-                        interaction_style: yaml_str(&yaml, "interaction_style"),
-                    }),
-                }),
+                asr_settings: Some(asr_settings.to_update_proto()),
             }),
         );
     }

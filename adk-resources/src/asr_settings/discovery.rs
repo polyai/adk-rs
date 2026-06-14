@@ -1,8 +1,8 @@
+use crate::asr_settings::local::{AsrSettingsFile, parse_asr_settings};
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_parse::{ParseLocalResource, ResourceParseErrors, deserialize_yaml};
+use crate::local_parse::{ParseLocalResource, ResourceParseErrors};
 use crate::local_resources::is_file;
 use crate::resource_utils::rel_under_root;
-use serde::Deserialize;
 use serde_yaml_ng::Value;
 use std::path::Path;
 
@@ -36,26 +36,8 @@ impl ParseLocalResource for AsrSettings {
     type Parsed = AsrSettingsFile;
 
     fn parse_local_yaml(path: &str, yaml: &Value) -> Result<Self::Parsed, ResourceParseErrors> {
-        deserialize_yaml(path, yaml)
+        parse_asr_settings(path, yaml)
     }
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct AsrSettingsFile {
-    #[serde(default)]
-    interaction_style: InteractionStyle,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum InteractionStyle {
-    #[default]
-    Balanced,
-    Precise,
-    Swift,
-    Sonic,
-    Turbo,
 }
 
 #[cfg(test)]

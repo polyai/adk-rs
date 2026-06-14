@@ -1,5 +1,6 @@
 mod command_gen;
 mod discovery;
+mod local;
 mod materialization;
 
 pub(crate) use command_gen::{append_asr_settings_update, payload_json_summary};
