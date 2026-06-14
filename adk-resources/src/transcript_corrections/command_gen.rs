@@ -1,11 +1,11 @@
 use crate::ids::stable_resource_id;
-use crate::local_parse::ParseLocalResource;
 use crate::push_command;
-use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str};
 use crate::specs::TRANSCRIPT_CORRECTIONS;
 use crate::transcript_corrections::local::{
     RegularExpressionRule as LocalRegularExpressionRule,
     TranscriptCorrectionItem as LocalTranscriptCorrectionItem,
+    parse_transcript_corrections_content,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -16,7 +16,6 @@ use adk_protobuf::transcript_corrections::{
 };
 use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue, json};
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::HashSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,10 +31,14 @@ pub(crate) fn transcript_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, TRANSCRIPT_CORRECTIONS.file.file_path) else {
+    let Some(content) = resources
+        .get(TRANSCRIPT_CORRECTIONS.file.file_path)
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(JsonValue::as_str)
+    else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_transcript_items(&yaml);
+    let local_items = local_transcript_items(content);
     let remote_items = remote_transcript_items(projection);
     let local_names = local_items
         .iter()
@@ -109,11 +112,10 @@ pub(crate) fn transcript_lifecycle_commands(
     commands
 }
 
-fn local_transcript_items(yaml: &YamlValue) -> Vec<TranscriptItem> {
-    let Ok(file) = crate::transcript_corrections::TranscriptCorrection::parse_local_yaml(
-        TRANSCRIPT_CORRECTIONS.file.file_path,
-        yaml,
-    ) else {
+fn local_transcript_items(content: &str) -> Vec<TranscriptItem> {
+    let Ok(file) =
+        parse_transcript_corrections_content(TRANSCRIPT_CORRECTIONS.file.file_path, content)
+    else {
         return Vec::new();
     };
     file.corrections.iter().map(local_transcript_item).collect()
@@ -246,8 +248,7 @@ mod tests {
 
     #[test]
     fn local_transcript_items_use_typed_python_normalization() {
-        let yaml = serde_yaml_ng::from_str(
-            r#"
+        let content = r#"
 corrections:
   - name: Fix alpha
     description: "  trim me  "
@@ -255,11 +256,9 @@ corrections:
       - regular_expression: alfa
         replacement: alpha
         replacement_type: substring
-"#,
-        )
-        .expect("transcript corrections yaml");
+"#;
 
-        let items = local_transcript_items(&yaml);
+        let items = local_transcript_items(content);
 
         assert_eq!(items[0].description, "trim me");
         assert_eq!(items[0].regular_expressions[0].replacement_type, "partial");

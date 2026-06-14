@@ -64,6 +64,15 @@ pub(crate) fn parse_transcript_corrections_file(
     }
 }
 
+pub(crate) fn parse_transcript_corrections_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<TranscriptCorrectionsFile> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_transcript_corrections_file(path, &yaml)
+}
+
 #[derive(Debug, Deserialize)]
 struct RawTranscriptCorrectionsFile {
     #[serde(default)]
