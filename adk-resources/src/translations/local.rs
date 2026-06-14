@@ -42,6 +42,15 @@ pub(crate) fn parse_translations_file(
     TranslationsFile::try_from_raw(path, raw)
 }
 
+pub(crate) fn parse_translations_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<TranslationsFile> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_translations_file(path, &yaml)
+}
+
 #[derive(Debug, Deserialize)]
 struct RawTranslationsFile {
     #[serde(default)]

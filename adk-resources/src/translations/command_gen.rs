@@ -1,9 +1,10 @@
 use crate::ids::stable_resource_id;
-use crate::local_parse::ParseLocalResource;
 use crate::push_command;
-use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str};
 use crate::specs::TRANSLATIONS;
-use crate::translations::local::TranslationItem as LocalTranslationItem;
+use crate::translations::local::{
+    TranslationItem as LocalTranslationItem, parse_translations_content,
+};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::translations::{
@@ -12,7 +13,6 @@ use adk_protobuf::translations::{
 };
 use adk_types::ResourceMap;
 use serde_json::{Value as JsonValue, json};
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,10 +27,14 @@ pub(crate) fn translation_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, TRANSLATIONS.file.file_path) else {
+    let Some(content) = resources
+        .get(TRANSLATIONS.file.file_path)
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(JsonValue::as_str)
+    else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_translation_items(&yaml);
+    let local_items = local_translation_items(content);
     let remote_items = remote_translation_items(projection);
     let local_keys = local_items
         .iter()
@@ -125,10 +129,8 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
     }
 }
 
-fn local_translation_items(yaml: &YamlValue) -> Vec<TranslationItem> {
-    let Ok(file) =
-        crate::translations::Translation::parse_local_yaml(TRANSLATIONS.file.file_path, yaml)
-    else {
+fn local_translation_items(content: &str) -> Vec<TranslationItem> {
+    let Ok(file) = parse_translations_content(TRANSLATIONS.file.file_path, content) else {
         return Vec::new();
     };
     file.translations
@@ -223,18 +225,15 @@ mod tests {
 
     #[test]
     fn local_translation_items_use_typed_file_model() {
-        let yaml = serde_yaml_ng::from_str(
-            r#"
+        let content = r#"
 translations:
   - name: greeting
     translations:
       fr-FR: Bonjour
       en-US: Hello
-"#,
-        )
-        .expect("translations yaml");
+"#;
 
-        let items = local_translation_items(&yaml);
+        let items = local_translation_items(content);
 
         assert_eq!(items[0].translation_key, "greeting");
         assert_eq!(
