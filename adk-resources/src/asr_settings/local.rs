@@ -79,6 +79,8 @@ impl InteractionStyle {
             Self::Precise => "precise",
             Self::Swift => "swift",
             Self::Sonic => "sonic",
+            // Python ADK compatibility: `turbo` appears in the frontend/YAML
+            // shape, but the backend update proto expects `sonic`.
             Self::Turbo => "sonic",
         }
     }
