@@ -32,7 +32,7 @@ pub(crate) fn sms_template_command_groups(
     let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
 
     {
-        let mut queue = SmsItemQueue {
+        let mut builder = SmsTemplateCommandBuilder {
             projection,
             prompt_reference_maps: &prompt_reference_maps,
             remote: &remote,
@@ -43,7 +43,7 @@ pub(crate) fn sms_template_command_groups(
         };
 
         for local in &local_templates {
-            queue.queue(&local.template, &local.resource_id);
+            builder.append_item(&local.template, &local.resource_id);
         }
     }
 
@@ -172,7 +172,7 @@ fn sms_references_from_text(text: &str) -> SmsTemplateReferences {
     }
 }
 
-struct SmsItemQueue<'a> {
+struct SmsTemplateCommandBuilder<'a> {
     projection: &'a JsonValue,
     prompt_reference_maps: &'a PromptReferenceMaps,
     remote: &'a HashMap<String, String>,
@@ -182,8 +182,8 @@ struct SmsItemQueue<'a> {
     updates: &'a mut Vec<Command>,
 }
 
-impl SmsItemQueue<'_> {
-    fn queue(&mut self, template: &SmsTemplate, resource_id: &str) {
+impl SmsTemplateCommandBuilder<'_> {
+    fn append_item(&mut self, template: &SmsTemplate, resource_id: &str) {
         let name = template.name().to_string();
         self.local_names.insert(name.clone());
         let id = self

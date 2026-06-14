@@ -51,7 +51,7 @@ fn phrase_refs(function_id: Option<&str>) -> Option<StopKeywordReferences> {
     Some(StopKeywordReferences { global_functions })
 }
 
-struct PhraseFilterItemQueue<'a> {
+struct PhraseFilterCommandBuilder<'a> {
     projection: &'a JsonValue,
     remote: &'a HashMap<String, String>,
     metadata: &'a Option<Metadata>,
@@ -60,8 +60,8 @@ struct PhraseFilterItemQueue<'a> {
     updates: &'a mut Vec<Command>,
 }
 
-impl PhraseFilterItemQueue<'_> {
-    fn queue(&mut self, item: &LocalPhraseFilterItem, resource_id: &str) {
+impl PhraseFilterCommandBuilder<'_> {
+    fn append_item(&mut self, item: &LocalPhraseFilterItem, resource_id: &str) {
         let title = item.name().to_string();
         self.local_titles.insert(title.clone());
         let id = self
@@ -175,7 +175,7 @@ pub(crate) fn phrase_filter_command_groups(
     let local_phrase_filters = local_phrase_filter_resources(resources);
 
     {
-        let mut phrase_filter_queue = PhraseFilterItemQueue {
+        let mut phrase_filter_builder = PhraseFilterCommandBuilder {
             projection,
             remote: &rpf,
             metadata,
@@ -185,7 +185,7 @@ pub(crate) fn phrase_filter_command_groups(
         };
 
         for local in &local_phrase_filters {
-            phrase_filter_queue.queue(&local.item, &local.resource_id);
+            phrase_filter_builder.append_item(&local.item, &local.resource_id);
         }
     }
 

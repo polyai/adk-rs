@@ -26,7 +26,7 @@ pub(crate) fn handoff_command_groups(
     let local_handoffs = local_handoff_resources(resources);
 
     {
-        let mut queue = HandoffQueue {
+        let mut builder = HandoffCommandBuilder {
             projection,
             remote: &remote,
             metadata,
@@ -36,7 +36,7 @@ pub(crate) fn handoff_command_groups(
         };
 
         for local in &local_handoffs {
-            if let Some(name) = queue.queue(&local.handoff, &local.resource_id) {
+            if let Some(name) = builder.append_item(&local.handoff, &local.resource_id) {
                 changed_names.insert(name);
             }
         }
@@ -139,7 +139,7 @@ fn json_str(value: &JsonValue, key: &str) -> String {
         .to_string()
 }
 
-struct HandoffQueue<'a> {
+struct HandoffCommandBuilder<'a> {
     projection: &'a JsonValue,
     remote: &'a HashMap<String, String>,
     metadata: &'a Option<Metadata>,
@@ -148,8 +148,8 @@ struct HandoffQueue<'a> {
     updates: &'a mut Vec<Command>,
 }
 
-impl HandoffQueue<'_> {
-    fn queue(&mut self, handoff: &Handoff, resource_id: &str) -> Option<String> {
+impl HandoffCommandBuilder<'_> {
+    fn append_item(&mut self, handoff: &Handoff, resource_id: &str) -> Option<String> {
         let name = handoff.name().to_string();
         self.local_names.insert(name.clone());
         let id = self
