@@ -1,8 +1,9 @@
 use crate::ids::stable_resource_id;
-use crate::keyphrase_boosting::local::KeyphraseItem as LocalKeyphraseItem;
-use crate::local_parse::ParseLocalResource;
+use crate::keyphrase_boosting::local::{
+    KeyphraseItem as LocalKeyphraseItem, parse_keyphrase_boosting_content,
+};
 use crate::push_command;
-use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str};
 use crate::specs::KEYPHRASE_BOOSTING;
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -12,7 +13,6 @@ use adk_protobuf::keyphrase_boosting::{
 };
 use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,10 +27,14 @@ pub(crate) fn keyphrase_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, KEYPHRASE_BOOSTING.file.file_path) else {
+    let Some(content) = resources
+        .get(KEYPHRASE_BOOSTING.file.file_path)
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(JsonValue::as_str)
+    else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_keyphrase_items(&yaml);
+    let local_items = local_keyphrase_items(content);
     let remote_items = remote_keyphrase_items(projection);
     let local_keyphrases = local_items
         .iter()
@@ -89,11 +93,9 @@ pub(crate) fn keyphrase_lifecycle_commands(
     commands
 }
 
-fn local_keyphrase_items(yaml: &YamlValue) -> Vec<KeyphraseItem> {
-    let Ok(file) = crate::keyphrase_boosting::KeyphraseBoosting::parse_local_yaml(
-        KEYPHRASE_BOOSTING.file.file_path,
-        yaml,
-    ) else {
+fn local_keyphrase_items(content: &str) -> Vec<KeyphraseItem> {
+    let Ok(file) = parse_keyphrase_boosting_content(KEYPHRASE_BOOSTING.file.file_path, content)
+    else {
         return Vec::new();
     };
     file.keyphrases.iter().map(local_keyphrase_item).collect()
@@ -131,17 +133,14 @@ mod tests {
 
     #[test]
     fn local_keyphrase_items_use_typed_python_defaults() {
-        let yaml = serde_yaml_ng::from_str(
-            r#"
+        let content = r#"
 keyphrases:
   - keyphrase: Defaulted
   - keyphrase: Loud
     level: BOOSTED
-"#,
-        )
-        .expect("keyphrase yaml");
+"#;
 
-        let items = local_keyphrase_items(&yaml);
+        let items = local_keyphrase_items(content);
 
         assert_eq!(
             items

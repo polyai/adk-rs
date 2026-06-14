@@ -1,4 +1,6 @@
-use crate::local_parse::{NonEmptyString, ResourceParseResult, deserialize_yaml};
+use crate::local_parse::{
+    NonEmptyString, ResourceParseErrors, ResourceParseResult, deserialize_yaml,
+};
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 
@@ -19,6 +21,15 @@ pub(crate) fn parse_keyphrase_boosting_file(
     yaml: &Value,
 ) -> ResourceParseResult<KeyphraseBoostingFile> {
     deserialize_yaml(path, yaml)
+}
+
+pub(crate) fn parse_keyphrase_boosting_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<KeyphraseBoostingFile> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_keyphrase_boosting_file(path, &yaml)
 }
 
 #[derive(Debug, Deserialize, Serialize)]
