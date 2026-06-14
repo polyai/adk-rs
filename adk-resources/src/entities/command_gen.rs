@@ -4,18 +4,21 @@
 //! generation semantics are specific to the entity resource family.
 
 use serde_json::{self, Value as JsonValue};
-use serde_yaml_ng::{Value as YamlValue, from_str, to_value};
+use serde_yaml_ng::{Value as YamlValue, from_str};
 
 use crate::push_commands::CommandGroups;
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::entities::{self, EntityCreate, EntityDelete, EntityReferences, EntityUpdate};
-use adk_types::{Resource, ResourceMap};
+use adk_types::ResourceMap;
 use std::collections::{HashMap, HashSet};
 
+use crate::entities::local::{
+    ENTITIES_FILE_PATH, EntityItem as LocalEntityItem, parse_entities_content,
+};
 use crate::ids::stable_resource_id;
 use crate::specs::{ENTITIES_FILE, ENTITY_ID_PREFIX};
-use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command, to_camel_case};
+use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
 
 pub(crate) fn entity_command_groups(
     resources: &ResourceMap,
@@ -33,82 +36,53 @@ pub(crate) fn entity_command_groups(
             (name, (id, entity))
         })
         .collect::<HashMap<_, _>>();
-    let local_entity_ids = local_entity_ids_by_name(resources, &remote_entities);
+    let local_entities = local_entity_resources(resources, &remote_entities);
+    let local_entity_ids = local_entities
+        .iter()
+        .map(|entity| (entity.item.name().to_string(), entity.id.clone()))
+        .collect::<HashMap<_, _>>();
     let local_entity_references = local_entity_references(resources, projection, &local_entity_ids);
     let mut local_entity_names = HashSet::new();
     let mut groups = CommandGroups::default();
-    for resource in resources.values() {
-        let path = resource.file_path.as_str();
-        let content = resource
-            .payload
-            .get("content")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default();
-
-        if path == ENTITIES_FILE.file_path
-            && let Ok(yaml) = from_str::<YamlValue>(content)
-            && let Some(items) = yaml.get("entities").and_then(YamlValue::as_sequence)
-        {
-            for item in items {
-                let name = item
-                    .get("name")
-                    .and_then(YamlValue::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                if name.is_empty() {
-                    continue;
-                }
-                local_entity_names.insert(name.clone());
-                let remote = remote_entities.get(&name);
-                let id = local_entity_id(resource, &name, remote);
-                let entity_type = item
-                    .get("entity_type")
-                    .and_then(YamlValue::as_str)
-                    .unwrap_or("free_text");
-                let description = item
-                    .get("description")
-                    .and_then(YamlValue::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                let config = item.get("config");
-                if let Some((_, remote_entity)) = remote {
-                    if entity_item_matches_remote(item, remote_entity) {
-                        continue;
-                    }
-                    push_command(
-                        &mut groups.updates,
-                        metadata,
-                        "entity_update",
-                        CommandPayload::EntityUpdate(EntityUpdate {
-                            id: id.clone(),
-                            name: name.clone(),
-                            r#type: to_camel_case(entity_type),
-                            description: description.clone(),
-                            references: None,
-                            config: build_entity_update_config(entity_type, config),
-                        }),
-                    );
-                } else {
-                    push_command(
-                        &mut groups.creates,
-                        metadata,
-                        "entity_create",
-                        CommandPayload::EntityCreate(EntityCreate {
-                            id: id.clone(),
-                            name: name.clone(),
-                            r#type: to_camel_case(entity_type),
-                            description: description.clone(),
-                            references: Some(
-                                local_entity_references
-                                    .get(&id)
-                                    .cloned()
-                                    .unwrap_or_default(),
-                            ),
-                            config: build_entity_create_config(entity_type, config),
-                        }),
-                    );
-                }
+    for local in &local_entities {
+        let name = local.item.name().to_string();
+        local_entity_names.insert(name.clone());
+        if let Some((remote_id, remote_entity)) = remote_entities.get(&name) {
+            if entity_item_matches_remote(&local.item, remote_id, remote_entity) {
+                continue;
             }
+            push_command(
+                &mut groups.updates,
+                metadata,
+                "entity_update",
+                CommandPayload::EntityUpdate(EntityUpdate {
+                    id: local.id.clone(),
+                    name: name.clone(),
+                    r#type: local.item.proto_type(),
+                    description: local.item.description().to_string(),
+                    references: None,
+                    config: Some(local.item.update_config()),
+                }),
+            );
+        } else {
+            push_command(
+                &mut groups.creates,
+                metadata,
+                "entity_create",
+                CommandPayload::EntityCreate(EntityCreate {
+                    id: local.id.clone(),
+                    name: name.clone(),
+                    r#type: local.item.proto_type(),
+                    description: local.item.description().to_string(),
+                    references: Some(
+                        local_entity_references
+                            .get(&local.id)
+                            .cloned()
+                            .unwrap_or_default(),
+                    ),
+                    config: Some(local.item.create_config()),
+                }),
+            );
         }
     }
 
@@ -130,53 +104,44 @@ fn entity_entries(projection: &JsonValue) -> HashMap<String, JsonValue> {
     extract_entities_map(projection, &["entities", "entities", "entities"])
 }
 
-fn local_entity_ids_by_name(
+struct LocalEntityResource {
+    id: String,
+    item: LocalEntityItem,
+}
+
+fn local_entity_resources(
     resources: &ResourceMap,
     remote_entities: &HashMap<String, (String, JsonValue)>,
-) -> HashMap<String, String> {
-    let mut ids = HashMap::new();
+) -> Vec<LocalEntityResource> {
+    let mut entities = Vec::new();
     for resource in resources.values() {
-        if resource.file_path.as_str() != ENTITIES_FILE.file_path {
-            continue;
-        }
+        let path = resource.file_path.as_str();
         let content = resource
             .payload
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(yaml) = from_str::<YamlValue>(content) else {
+        let Ok(items) = parse_entities_content(path, content) else {
             continue;
         };
-        let Some(items) = yaml.get("entities").and_then(YamlValue::as_sequence) else {
-            continue;
+        let resource_id = if path == ENTITIES_FILE_PATH {
+            "local"
+        } else {
+            resource.resource_id.as_str()
         };
         for item in items {
-            let name = item
-                .get("name")
-                .and_then(YamlValue::as_str)
-                .unwrap_or_default();
-            if name.is_empty() {
-                continue;
-            }
-            ids.insert(
-                name.to_string(),
-                local_entity_id(resource, name, remote_entities.get(name)),
-            );
+            let id = local_entity_id(resource_id, item.name(), remote_entities.get(item.name()));
+            entities.push(LocalEntityResource { id, item });
         }
     }
-    ids
+    entities
 }
 
-fn local_entity_id(
-    resource: &Resource,
-    name: &str,
-    remote: Option<&(String, JsonValue)>,
-) -> String {
+fn local_entity_id(resource_id: &str, name: &str, remote: Option<&(String, JsonValue)>) -> String {
     remote
         .map(|(id, _)| id.clone())
         .or_else(|| {
-            (!is_synthetic_local_resource_id(&resource.resource_id))
-                .then_some(resource.resource_id.clone())
+            (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
         })
         .unwrap_or_else(|| stable_resource_id(ENTITY_ID_PREFIX, name, ENTITIES_FILE.file_path))
 }
@@ -357,73 +322,15 @@ fn resolve_entity_reference(value: &str, local_entity_ids: &HashMap<String, Stri
         .unwrap_or_else(|| value.to_string())
 }
 
-fn entity_item_matches_remote(item: &YamlValue, remote: &JsonValue) -> bool {
-    let local_name = item
-        .get("name")
-        .and_then(YamlValue::as_str)
-        .unwrap_or_default();
-    let remote_name = remote
-        .get("name")
-        .and_then(JsonValue::as_str)
-        .unwrap_or_default();
-    if local_name != remote_name {
+fn entity_item_matches_remote(item: &LocalEntityItem, remote_id: &str, remote: &JsonValue) -> bool {
+    let Ok(Some(remote_item)) = LocalEntityItem::from_projection(remote_id, remote) else {
         return false;
-    }
-
-    let local_description = item
-        .get("description")
-        .and_then(YamlValue::as_str)
-        .unwrap_or_default();
-    let remote_description = remote
-        .get("description")
-        .and_then(JsonValue::as_str)
-        .unwrap_or_default();
-    if local_description != remote_description {
-        return false;
-    }
-
-    let local_type = normalize_entity_type(
-        item.get("entity_type")
-            .and_then(YamlValue::as_str)
-            .unwrap_or("free_text"),
-    );
-    let remote_type =
-        normalize_entity_type(remote.get("type").and_then(JsonValue::as_str).unwrap_or(""));
-    if local_type != remote_type {
-        return false;
-    }
-
-    let local_config = build_entity_update_config(&local_type, item.get("config"));
-    let remote_config_yaml = remote_entity_config_yaml(remote);
-    let remote_config = build_entity_update_config(&remote_type, Some(&remote_config_yaml));
-    entity_update_config_json(local_config.as_ref())
-        == entity_update_config_json(remote_config.as_ref())
-}
-
-fn remote_entity_config_yaml(remote: &JsonValue) -> YamlValue {
-    let config = remote
-        .pointer("/config/value")
-        .or_else(|| remote.get("config"))
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
-    to_value(config).unwrap_or(YamlValue::Mapping(Default::default()))
-}
-
-fn normalize_entity_type(value: &str) -> String {
-    let mut out = String::new();
-    for (index, ch) in value.chars().enumerate() {
-        if ch == '-' {
-            out.push('_');
-        } else if ch.is_ascii_uppercase() {
-            if index > 0 && !out.ends_with('_') {
-                out.push('_');
-            }
-            out.push(ch.to_ascii_lowercase());
-        } else {
-            out.push(ch);
-        }
-    }
-    out
+    };
+    item.name() == remote_item.name()
+        && item.description() == remote_item.description()
+        && item.entity_type() == remote_item.entity_type()
+        && entity_update_config_json(Some(&item.update_config()))
+            == entity_update_config_json(Some(&remote_item.update_config()))
 }
 
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {
@@ -470,139 +377,6 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
     }
 }
 
-fn build_entity_create_config(
-    entity_type: &str,
-    config: Option<&YamlValue>,
-) -> Option<entities::entity_create::Config> {
-    match entity_type {
-        "numeric" => Some(entities::entity_create::Config::Numeric(
-            entities::NumberConfig {
-                has_decimal: yaml_bool(config, "has_decimal", false),
-                has_range: yaml_bool(config, "has_range", false),
-                min: yaml_f32_opt(config, "min"),
-                max: yaml_f32_opt(config, "max"),
-            },
-        )),
-        "alphanumeric" => Some(entities::entity_create::Config::Alphanumeric(
-            entities::AlphanumericConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                validation_type: yaml_string(config, "validation_type"),
-                regular_expression: yaml_string(config, "regular_expression"),
-            },
-        )),
-        "enum" => Some(entities::entity_create::Config::Enum(
-            entities::MultipleOptionsConfig {
-                options: yaml_string_list(config, "options"),
-            },
-        )),
-        "date" => Some(entities::entity_create::Config::Date(
-            entities::DateConfig {
-                relative_date: yaml_bool(config, "relative_date", false),
-            },
-        )),
-        "phone_number" => Some(entities::entity_create::Config::PhoneNumber(
-            entities::PhoneNumberConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                country_codes: yaml_string_list(config, "country_codes"),
-            },
-        )),
-        "time" => Some(entities::entity_create::Config::Time(
-            entities::TimeConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                start_time: yaml_string(config, "start_time"),
-                end_time: yaml_string(config, "end_time"),
-            },
-        )),
-        "address" => Some(entities::entity_create::Config::Address(
-            entities::AddressConfig {},
-        )),
-        "free_text" => Some(entities::entity_create::Config::FreeText(
-            entities::FreeTextConfig {},
-        )),
-        "name_config" => Some(entities::entity_create::Config::NameConfig(
-            entities::NameConfig {},
-        )),
-        _ => None,
-    }
-}
-
-fn build_entity_update_config(
-    entity_type: &str,
-    config: Option<&YamlValue>,
-) -> Option<entities::entity_update::Config> {
-    match entity_type {
-        "numeric" => Some(entities::entity_update::Config::Numeric(
-            entities::NumberConfig {
-                has_decimal: yaml_bool(config, "has_decimal", false),
-                has_range: yaml_bool(config, "has_range", false),
-                min: yaml_f32_opt(config, "min"),
-                max: yaml_f32_opt(config, "max"),
-            },
-        )),
-        "alphanumeric" => Some(entities::entity_update::Config::Alphanumeric(
-            entities::AlphanumericConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                validation_type: yaml_string(config, "validation_type"),
-                regular_expression: yaml_string(config, "regular_expression"),
-            },
-        )),
-        "enum" => Some(entities::entity_update::Config::Enum(
-            entities::MultipleOptionsConfig {
-                options: yaml_string_list(config, "options"),
-            },
-        )),
-        "date" => Some(entities::entity_update::Config::Date(
-            entities::DateConfig {
-                relative_date: yaml_bool(config, "relative_date", false),
-            },
-        )),
-        "phone_number" => Some(entities::entity_update::Config::PhoneNumber(
-            entities::PhoneNumberConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                country_codes: yaml_string_list(config, "country_codes"),
-            },
-        )),
-        "time" => Some(entities::entity_update::Config::Time(
-            entities::TimeConfig {
-                enabled: yaml_bool(config, "enabled", true),
-                start_time: yaml_string(config, "start_time"),
-                end_time: yaml_string(config, "end_time"),
-            },
-        )),
-        "address" => Some(entities::entity_update::Config::Address(
-            entities::AddressConfig {},
-        )),
-        "free_text" => Some(entities::entity_update::Config::FreeText(
-            entities::FreeTextConfig {},
-        )),
-        "name_config" => Some(entities::entity_update::Config::NameConfig(
-            entities::NameConfig {},
-        )),
-        _ => None,
-    }
-}
-
-fn yaml_get<'a>(config: Option<&'a YamlValue>, key: &str) -> Option<&'a YamlValue> {
-    config.and_then(|c| c.get(key))
-}
-
-fn yaml_bool(config: Option<&YamlValue>, key: &str, default: bool) -> bool {
-    yaml_get(config, key)
-        .and_then(YamlValue::as_bool)
-        .unwrap_or(default)
-}
-
-fn yaml_string(config: Option<&YamlValue>, key: &str) -> String {
-    yaml_get(config, key)
-        .and_then(YamlValue::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn yaml_string_list(config: Option<&YamlValue>, key: &str) -> Vec<String> {
-    yaml_value_string_list(yaml_get(config, key))
-}
-
 fn yaml_value_string_list(value: Option<&YamlValue>) -> Vec<String> {
     value
         .and_then(YamlValue::as_sequence)
@@ -621,13 +395,6 @@ fn yaml_str_value(value: &YamlValue, key: &str) -> String {
         .and_then(YamlValue::as_str)
         .unwrap_or_default()
         .to_string()
-}
-
-fn yaml_f32_opt(config: Option<&YamlValue>, key: &str) -> Option<f32> {
-    yaml_get(config, key).and_then(|v| match v {
-        YamlValue::Number(n) => n.as_f64().map(|x| x as f32),
-        _ => None,
-    })
 }
 
 fn entity_create_config_json(

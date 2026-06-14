@@ -1,11 +1,8 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_parse::{
-    NoEdgeWhitespace, NonEmptyString, ParseLocalResource, ResourceParseErrors, ResourceParseResult,
-    default_if_null, deserialize_yaml, duplicate_names,
-};
+use crate::entities::local::{EntitiesFile, parse_entities_file};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
-use serde::Deserialize;
 use serde_yaml_ng::Value;
 use std::path::Path;
 
@@ -67,158 +64,8 @@ impl ParseLocalResource for Entity {
     type Parsed = EntitiesFile;
 
     fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
-        let mut errors = duplicate_entity_name_errors(path, yaml);
-        match deserialize_entities_file(path, yaml) {
-            Ok(raw) if errors.is_empty() => Ok(EntitiesFile {
-                entities: raw.entities,
-            }),
-            Ok(_) => Err(errors),
-            Err(parse_errors) => {
-                errors.extend(parse_errors);
-                Err(errors)
-            }
-        }
+        parse_entities_file(path, yaml)
     }
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-pub(crate) struct EntitiesFile {
-    entities: Vec<EntityItem>,
-}
-
-fn duplicate_entity_name_errors(path: &str, yaml: &Value) -> ResourceParseErrors {
-    let mut errors = ResourceParseErrors::new();
-    let Ok(raw) = deserialize_yaml::<EntityNamesFile>(path, yaml) else {
-        return errors;
-    };
-    for duplicate in duplicate_names(raw.entities.iter().filter_map(EntityName::name)) {
-        errors.push(
-            &format!("{path}/entities/{duplicate}"),
-            format!("duplicate entity name '{duplicate}'."),
-        );
-    }
-    errors
-}
-
-fn deserialize_entities_file(
-    path: &str,
-    yaml: &Value,
-) -> ResourceParseResult<EntitiesFileUnchecked> {
-    serde_yaml_ng::from_value(yaml.clone()).map_err(|error| {
-        ResourceParseErrors::single(path, normalize_entity_deserialize_error(error.to_string()))
-    })
-}
-
-fn normalize_entity_deserialize_error(error: String) -> String {
-    if let Some((_, tail)) = error.split_once("unknown variant `")
-        && let Some((entity_type, _)) = tail.split_once('`')
-    {
-        return format!("unsupported entity_type '{entity_type}'");
-    }
-    error
-}
-
-#[derive(Debug, Deserialize)]
-struct EntitiesFileUnchecked {
-    #[serde(default)]
-    entities: Vec<EntityItem>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EntityNamesFile {
-    #[serde(default)]
-    entities: Vec<EntityName>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EntityName {
-    name: Option<String>,
-}
-
-impl EntityName {
-    fn name(&self) -> Option<&str> {
-        self.name.as_deref().filter(|name| !name.is_empty())
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "entity_type", rename_all = "snake_case")]
-#[allow(dead_code)]
-enum EntityItem {
-    Numeric(EntityWithConfig<NumericConfig>),
-    Alphanumeric(EntityWithConfig<AlphanumericConfig>),
-    #[serde(rename = "enum")]
-    Enum(EntityWithConfig<EnumConfig>),
-    Date(EntityWithConfig<DateConfig>),
-    PhoneNumber(EntityWithConfig<PhoneNumberConfig>),
-    Time(EntityWithConfig<TimeConfig>),
-    Address(EntityWithoutConfig),
-    FreeText(EntityWithoutConfig),
-    NameConfig(EntityWithoutConfig),
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(bound(deserialize = "T: Default + Deserialize<'de>"))]
-#[allow(dead_code)]
-struct EntityWithConfig<T> {
-    name: NonEmptyString,
-    #[serde(default)]
-    description: Option<NoEdgeWhitespace>,
-    #[serde(default, deserialize_with = "default_if_null")]
-    config: T,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct EntityWithoutConfig {
-    name: NonEmptyString,
-    #[serde(default)]
-    description: Option<NoEdgeWhitespace>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[allow(dead_code)]
-struct NumericConfig {
-    has_decimal: Option<bool>,
-    has_range: Option<bool>,
-    min: Option<f64>,
-    max: Option<f64>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[allow(dead_code)]
-struct AlphanumericConfig {
-    enabled: Option<bool>,
-    validation_type: Option<String>,
-    regular_expression: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[allow(dead_code)]
-struct EnumConfig {
-    options: Option<Vec<String>>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[allow(dead_code)]
-struct DateConfig {
-    relative_date: Option<bool>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[allow(dead_code)]
-struct PhoneNumberConfig {
-    enabled: Option<bool>,
-    country_codes: Option<Vec<String>>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[allow(dead_code)]
-struct TimeConfig {
-    enabled: Option<bool>,
-    start_time: Option<String>,
-    end_time: Option<String>,
 }
 
 #[cfg(test)]

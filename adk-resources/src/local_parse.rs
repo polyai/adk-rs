@@ -164,25 +164,6 @@ impl<'de> Deserialize<'de> for NonEmptyString {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct NoEdgeWhitespace(String);
-
-impl<'de> Deserialize<'de> for NoEdgeWhitespace {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        if value != value.trim() {
-            Err(D::Error::custom(
-                "Description cannot contain leading or trailing whitespace.",
-            ))
-        } else {
-            Ok(Self(value))
-        }
-    }
-}
-
 pub(crate) fn duplicate_names<'a>(
     names: impl IntoIterator<Item = &'a str>,
 ) -> std::collections::BTreeSet<String> {

@@ -1,5 +1,6 @@
 mod command_gen;
 mod discovery;
+mod local;
 mod materialization;
 
 pub(crate) use command_gen::{entity_command_groups, payload_json_summary};
