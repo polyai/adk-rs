@@ -28,24 +28,27 @@ pub(crate) struct LocalTopic {
 }
 
 impl LocalTopic {
-    fn try_from_raw(path: &str, raw: RawTopic) -> ResourceParseResult<Self> {
-        let mut errors = ResourceParseErrors::new();
+    fn from_raw(path: &str, raw: RawTopic) -> Result<Self, String> {
         let name = raw
             .name
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| topic_name_from_path(path).unwrap_or_default());
-        let Ok(name) = NonEmptyString::new(name) else {
-            errors.push(path, "topic name is required.");
-            return Err(errors);
-        };
-
-        let topic = Self {
-            name,
+        Ok(Self {
+            name: NonEmptyString::new(name)?,
             enabled: raw.enabled,
             actions: raw.actions,
             content: raw.content,
             example_queries: raw.example_queries,
+        })
+    }
+
+    fn try_from_raw(path: &str, raw: RawTopic) -> ResourceParseResult<Self> {
+        let mut errors = ResourceParseErrors::new();
+        let Ok(topic) = Self::from_raw(path, raw) else {
+            errors.push(path, "topic name is required.");
+            return Err(errors);
         };
+
         topic.append_validation_errors(path, &mut errors);
         if errors.is_empty() {
             Ok(topic)
@@ -133,7 +136,7 @@ pub(crate) fn parse_topic_file(path: &str, yaml: &YamlValue) -> ResourceParseRes
     LocalTopic::try_from_raw(path, raw)
 }
 
-pub(crate) fn parse_topic_content(
+pub(crate) fn deserialize_topic_content(
     path: &str,
     content: &str,
 ) -> ResourceParseResult<Option<LocalTopic>> {
@@ -142,7 +145,10 @@ pub(crate) fn parse_topic_content(
     }
     let yaml = serde_yaml_ng::from_str::<YamlValue>(content)
         .map_err(|error| ResourceParseErrors::single(path, error))?;
-    parse_topic_file(path, &yaml).map(Some)
+    let raw = deserialize_yaml::<RawTopic>(path, &yaml)?;
+    LocalTopic::from_raw(path, raw)
+        .map(Some)
+        .map_err(|error| ResourceParseErrors::single(path, error))
 }
 
 pub(crate) fn topic_references(actions: &str, content: &str) -> TopicReferences {

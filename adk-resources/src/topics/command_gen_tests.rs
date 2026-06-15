@@ -133,6 +133,34 @@ fn create_topic_parses_typed_local_yaml_and_derives_references() {
 }
 
 #[test]
+fn create_topic_payload_parsing_does_not_enforce_validation_rules() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "topics/topic_1.yaml".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "topic_1".to_string(),
+            file_path: "topics/topic_1.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "# <<<<<<< ours\nname: Ours\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n# =======\n# >>>>>>> theirs\n"
+            }),
+        },
+    );
+
+    let commands = build_push_commands(&resources, &serde_json::json!({}));
+    let create = commands
+        .iter()
+        .find_map(|command| match &command.payload {
+            Some(CommandPayload::CreateTopic(create)) => Some(create),
+            _ => None,
+        })
+        .expect("create topic command");
+
+    assert_eq!(create.name, "Ours");
+    assert_eq!(create.content, "hello");
+}
+
+#[test]
 fn create_topic_uses_local_resource_id_before_synthetic_fallback() {
     let mut resources = ResourceMap::new();
     resources.insert(

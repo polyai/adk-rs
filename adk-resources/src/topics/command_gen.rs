@@ -4,7 +4,7 @@ use serde_json::Value as JsonValue;
 
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
-use crate::topics::local::{LocalTopic, parse_topic_content, topic_references};
+use crate::topics::local::{LocalTopic, deserialize_topic_content, topic_references};
 use crate::{
     extract_entities_map, is_synthetic_local_resource_id, prompt_reference_maps_from_projection,
     push_command, replace_resource_names_with_ids,
@@ -132,7 +132,7 @@ fn local_topic_resources(resources: &ResourceMap) -> Vec<LocalTopicResource> {
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(Some(topic)) = parse_topic_content(path, content) else {
+        let Ok(Some(topic)) = deserialize_topic_content(path, content) else {
             continue;
         };
         topics.push(LocalTopicResource {
