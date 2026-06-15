@@ -348,6 +348,7 @@ pub(crate) fn attribute_references_json(references: Option<&AttributeReferences>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adk_types::{Resource, ResourceMap};
 
     #[test]
     fn local_variant_items_use_typed_file_model() {
@@ -377,5 +378,64 @@ attributes:
             attributes[0].values.get("Treatment"),
             Some(&"secondary".to_string())
         );
+    }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_variants_or_attributes() {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            VARIANTS.file.file_path.to_string(),
+            Resource {
+                resource_id: VARIANTS.file.resource_id.to_string(),
+                name: VARIANTS.file.name.to_string(),
+                file_path: VARIANTS.file.file_path.to_string(),
+                payload: json!({
+                    "content": "variants: definitely not a list\nattributes: []\n",
+                }),
+            },
+        );
+        let projection = json!({
+            "variantManagement": {
+                "variants": {
+                    "ids": ["variant-control"],
+                    "entities": {
+                        "variant-control": {
+                            "id": "variant-control",
+                            "name": "Control",
+                            "isDefault": true
+                        }
+                    }
+                },
+                "attributes": {
+                    "ids": ["attr-channel"],
+                    "entities": {
+                        "attr-channel": {
+                            "id": "attr-channel",
+                            "name": "Channel",
+                            "archived": false
+                        }
+                    }
+                },
+                "variantAttributeValues": {
+                    "ids": ["variant-control"],
+                    "entities": {
+                        "variant-control": {
+                            "values": {
+                                "attr-channel": "primary"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let commands = variant_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.variant_deletes.is_empty());
+        assert!(commands.attribute_deletes.is_empty());
+        assert!(commands.variant_creates.is_empty());
+        assert!(commands.attribute_creates.is_empty());
+        assert!(commands.variant_updates.is_empty());
+        assert!(commands.attribute_updates.is_empty());
     }
 }

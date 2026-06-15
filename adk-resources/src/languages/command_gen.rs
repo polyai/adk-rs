@@ -190,4 +190,28 @@ additional_languages:
                 if code == "de-DE"
         ));
     }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_additional_languages() {
+        let resources = language_resource("additional_languages: definitely not a list\n");
+        let projection = json!({
+            "languages": {
+                "additionalLanguages": {
+                    "ids": ["fr-FR"],
+                    "entities": {
+                        "fr-FR": { "code": "fr-FR" }
+                    }
+                }
+            }
+        });
+
+        let mut updates = Vec::new();
+        append_default_language_update(&mut updates, &resources, &projection, &None);
+        let lifecycle = additional_language_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(updates.is_empty());
+        assert!(lifecycle.creates.is_empty());
+        assert!(lifecycle.deletes.is_empty());
+        assert!(lifecycle.updates.is_empty());
+    }
 }

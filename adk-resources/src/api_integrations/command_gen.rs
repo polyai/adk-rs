@@ -603,4 +603,56 @@ api_integrations:
 
         assert!(commands.config_updates.is_empty());
     }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_api_integrations() {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            API_INTEGRATIONS.file.file_path.to_string(),
+            Resource {
+                resource_id: API_INTEGRATIONS.file.resource_id.to_string(),
+                name: API_INTEGRATIONS.file.name.to_string(),
+                file_path: API_INTEGRATIONS.file.file_path.to_string(),
+                payload: json!({
+                    "content": "api_integrations: definitely not a list\n",
+                }),
+            },
+        );
+        let projection = json!({
+            "apiIntegrations": {
+                "apiIntegrations": {
+                    "ids": ["api-1"],
+                    "entities": {
+                        "api-1": {
+                            "id": "api-1",
+                            "name": "orders_api",
+                            "description": "Order lookup API.",
+                            "environments": {},
+                            "operations": {
+                                "ids": ["op-1"],
+                                "entities": {
+                                    "op-1": {
+                                        "id": "op-1",
+                                        "name": "get_order",
+                                        "method": "GET",
+                                        "resource": "/orders/{id}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let commands = api_integration_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.integration_deletes.is_empty());
+        assert!(commands.operation_deletes.is_empty());
+        assert!(commands.integration_creates.is_empty());
+        assert!(commands.operation_creates.is_empty());
+        assert!(commands.integration_updates.is_empty());
+        assert!(commands.operation_updates.is_empty());
+        assert!(commands.config_updates.is_empty());
+    }
 }
