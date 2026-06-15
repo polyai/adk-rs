@@ -88,9 +88,8 @@ pub(super) fn local_flows(
             let Some(folder) = flow_folder_from_path(path) else {
                 continue;
             };
-            let Ok(config) = parse_flow_config_content(path, resource_content(resource)) else {
-                continue;
-            };
+            let config = parse_flow_config_content(path, resource_content(resource))
+                .map_err(|error| invalid_flow_local_resource(path, error))?;
             let entry = flows.entry(folder.clone()).or_insert_with(|| LocalFlow {
                 folder,
                 config_path: path.to_string(),
@@ -105,9 +104,8 @@ pub(super) fn local_flows(
             let Some(folder) = flow_folder_from_path(path) else {
                 continue;
             };
-            let Ok(step) = parse_flow_step_content(path, resource_content(resource)) else {
-                continue;
-            };
+            let step = parse_flow_step_content(path, resource_content(resource))
+                .map_err(|error| invalid_flow_local_resource(path, error))?;
             let entry = flows.entry(folder.clone()).or_insert_with(|| LocalFlow {
                 folder: folder.clone(),
                 ..LocalFlow::default()
@@ -169,6 +167,10 @@ pub(super) fn local_flows(
         .collect::<Vec<_>>();
     flows.sort_by(|left, right| left.config_path.cmp(&right.config_path));
     Ok(flows)
+}
+
+fn invalid_flow_local_resource(path: &str, error: ResourceParseErrors) -> CommandGenError {
+    CommandGenError::InvalidData(format!("Invalid flow local resource {path}: {error:?}"))
 }
 
 pub(super) fn default_dtmf_config() -> StepDtmfConfig {

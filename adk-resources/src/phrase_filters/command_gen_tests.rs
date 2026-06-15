@@ -219,6 +219,39 @@ phrase_filtering:
 }
 
 #[test]
+fn phrase_filter_command_generation_fails_closed_when_local_aggregate_parse_fails() {
+    let resources = map_with(vec![(
+        "voice/response_control/phrase_filtering.yaml".into(),
+        Resource {
+            resource_id: "phrase_filtering".into(),
+            name: "phrase_filtering".into(),
+            file_path: "voice/response_control/phrase_filtering.yaml".into(),
+            payload: serde_json::json!({
+                "content": "phrase_filtering:\n  - name: HangUp\n    description: end\n    regular_expressions: '^bye$'\n    say_phrase: false\n    language_code: en-US\n"
+            }),
+        },
+    )]);
+    let projection = serde_json::json!({
+        "stopKeywords": {
+            "filters": {
+                "entities": {
+                    "sk-hangup": {
+                        "title": "HangUp",
+                        "description": "end",
+                        "regularExpressions": ["^bye$"],
+                        "sayPhrase": false,
+                        "languageCode": "en-US"
+                    }
+                }
+            }
+        }
+    });
+
+    let groups = phrase_filter_command_groups(&resources, &projection, &None);
+    assert!(flatten(groups).is_empty());
+}
+
+#[test]
 fn stop_keywords_create() {
     let pf_yaml = r#"
 name: HangUp

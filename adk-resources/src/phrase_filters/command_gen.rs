@@ -11,7 +11,7 @@
 
 use crate::ids::stable_resource_id;
 use crate::phrase_filters::local::{
-    PHRASE_FILTERS_FILE_PATH, PhraseFilterItem as LocalPhraseFilterItem,
+    PHRASE_FILTER_ITEM_PREFIX, PHRASE_FILTERS_FILE_PATH, PhraseFilterItem as LocalPhraseFilterItem,
     deserialize_phrase_filters_content,
 };
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
@@ -172,7 +172,9 @@ pub(crate) fn phrase_filter_command_groups(
     let rpf = remote_phrase_filters(projection);
 
     let mut local_pf_titles = HashSet::new();
-    let local_phrase_filters = local_phrase_filter_resources(resources);
+    let Some(local_phrase_filters) = local_phrase_filter_resources(resources) else {
+        return CommandGroups::default();
+    };
 
     {
         let mut phrase_filter_builder = PhraseFilterCommandBuilder {
@@ -212,18 +214,21 @@ struct LocalPhraseFilterResource {
     item: LocalPhraseFilterItem,
 }
 
-fn local_phrase_filter_resources(resources: &ResourceMap) -> Vec<LocalPhraseFilterResource> {
+fn local_phrase_filter_resources(
+    resources: &ResourceMap,
+) -> Option<Vec<LocalPhraseFilterResource>> {
     let mut phrase_filters = Vec::new();
     for resource in resources.values() {
         let path = resource.file_path.as_str();
+        if path != PHRASE_FILTERS_FILE_PATH && !path.starts_with(PHRASE_FILTER_ITEM_PREFIX) {
+            continue;
+        }
         let content = resource
             .payload
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(items) = deserialize_phrase_filters_content(path, content) else {
-            continue;
-        };
+        let items = deserialize_phrase_filters_content(path, content).ok()?;
         let resource_id = if path == PHRASE_FILTERS_FILE_PATH {
             "local"
         } else {
@@ -234,7 +239,7 @@ fn local_phrase_filter_resources(resources: &ResourceMap) -> Vec<LocalPhraseFilt
             item,
         }));
     }
-    phrase_filters
+    Some(phrase_filters)
 }
 
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {

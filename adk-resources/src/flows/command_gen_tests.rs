@@ -1,7 +1,7 @@
 use crate::test_support::local_resource;
 use crate::{
     build_push_commands, build_push_commands_for_changed_resources, flows::payload_json_summary,
-    projection_to_resource_map, resource_file_content,
+    projection_to_resource_map, resource_file_content, try_build_push_commands,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
@@ -17,6 +17,100 @@ use adk_protobuf::functions::{ErrorsUpdate, FunctionUpdateLatencyControl, Parame
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::HashMap;
+
+#[test]
+fn flow_command_generation_fails_closed_when_local_flow_config_parse_fails() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support/flow_config.yaml",
+            "support",
+            "name: support\ndescription:\n  - not a string\nstart_step: collect\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-support": {
+                        "id": "flow-support",
+                        "name": "support",
+                        "description": "Support flow",
+                        "startStepId": "step-collect",
+                        "steps": {"entities": {}, "ids": []},
+                        "transitionFunctions": {"entities": {}, "ids": []}
+                    }
+                }
+            }
+        }
+    });
+
+    let error = try_build_push_commands(&resources, &projection)
+        .expect_err("invalid flow YAML should abort command generation");
+    assert!(
+        error
+            .to_string()
+            .contains("Invalid flow local resource flows/support/flow_config.yaml"),
+        "{error}"
+    );
+}
+
+#[test]
+fn flow_command_generation_fails_closed_when_local_step_parse_fails() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "flows/support/flow_config.yaml".to_string(),
+        local_resource(
+            "flows/support/flow_config.yaml",
+            "support",
+            "name: support\ndescription: Support flow\nstart_step: collect\n",
+        ),
+    );
+    resources.insert(
+        "flows/support/steps/collect.yaml".to_string(),
+        local_resource(
+            "flows/support/steps/collect.yaml",
+            "collect",
+            "step_type: advanced_step\nname: collect\nprompt:\n  - not a string\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-support": {
+                        "id": "flow-support",
+                        "name": "support",
+                        "description": "Support flow",
+                        "startStepId": "step-collect",
+                        "steps": {
+                            "entities": {
+                                "step-collect": {
+                                    "id": "step-collect",
+                                    "name": "collect",
+                                    "type": "advanced_step",
+                                    "prompt": "Collect."
+                                }
+                            },
+                            "ids": ["step-collect"]
+                        },
+                        "transitionFunctions": {"entities": {}, "ids": []}
+                    }
+                }
+            }
+        }
+    });
+
+    let error = try_build_push_commands(&resources, &projection)
+        .expect_err("invalid flow step YAML should abort command generation");
+    assert!(
+        error
+            .to_string()
+            .contains("Invalid flow local resource flows/support/steps/collect.yaml"),
+        "{error}"
+    );
+}
 
 #[test]
 fn update_transition_function_sends_empty_parameters_to_delete_remote_parameters() {
