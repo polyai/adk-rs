@@ -146,6 +146,17 @@ fn topic_command_generation_fails_closed_when_local_topic_parse_fails() {
             }),
         },
     );
+    resources.insert(
+        "topics/good.yaml".to_string(),
+        Resource {
+            resource_id: "local-good".to_string(),
+            name: "good".to_string(),
+            file_path: "topics/good.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "name: good\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
+            }),
+        },
+    );
     let projection = serde_json::json!({
         "knowledgeBase": {
             "topics": {
@@ -164,8 +175,20 @@ fn topic_command_generation_fails_closed_when_local_topic_parse_fails() {
 
     let commands = build_push_commands(&resources, &projection);
     assert!(
-        commands.is_empty(),
-        "invalid local topic YAML should not queue deletes: {:?}",
+        commands
+            .iter()
+            .any(|command| command.r#type == "create_topic"),
+        "parseable local topic YAML should still queue creates: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        !commands
+            .iter()
+            .any(|command| command.r#type == "delete_topic"),
+        "invalid local topic YAML should suppress topic deletes: {:?}",
         commands
             .iter()
             .map(|command| command.r#type.as_str())

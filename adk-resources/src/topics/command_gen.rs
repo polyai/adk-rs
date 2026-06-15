@@ -50,13 +50,11 @@ pub(crate) fn topic_resource_command_groups(
             )
         })
         .collect::<HashMap<_, _>>();
-    let Some(local_topics) = local_topic_resources(resources) else {
-        return CommandGroups::default();
-    };
+    let local_topics = local_topic_resources(resources);
     let mut local_topic_names = HashSet::new();
     let mut groups = CommandGroups::default();
 
-    for local in &local_topics {
+    for local in &local_topics.topics {
         let name = local.topic.name().to_string();
         local_topic_names.insert(name.clone());
         let remote_topic = remote_topics.get(&name);
@@ -105,18 +103,25 @@ pub(crate) fn topic_resource_command_groups(
         }
     }
 
-    for (name, (id, _)) in remote_topics {
-        if !local_topic_names.contains(&name) {
-            push_command(
-                &mut groups.deletes,
-                metadata,
-                "delete_topic",
-                CommandPayload::DeleteTopic(KnowledgeBaseDeleteTopic { id }),
-            );
+    if !local_topics.had_parse_error {
+        for (name, (id, _)) in remote_topics {
+            if !local_topic_names.contains(&name) {
+                push_command(
+                    &mut groups.deletes,
+                    metadata,
+                    "delete_topic",
+                    CommandPayload::DeleteTopic(KnowledgeBaseDeleteTopic { id }),
+                );
+            }
         }
     }
 
     groups
+}
+
+struct LocalTopicResources {
+    topics: Vec<LocalTopicResource>,
+    had_parse_error: bool,
 }
 
 struct LocalTopicResource {
@@ -125,8 +130,9 @@ struct LocalTopicResource {
     topic: LocalTopic,
 }
 
-fn local_topic_resources(resources: &ResourceMap) -> Option<Vec<LocalTopicResource>> {
+fn local_topic_resources(resources: &ResourceMap) -> LocalTopicResources {
     let mut topics = Vec::new();
+    let mut had_parse_error = false;
     for resource in resources.values() {
         let path = resource.file_path.as_str();
         let content = resource
@@ -134,8 +140,13 @@ fn local_topic_resources(resources: &ResourceMap) -> Option<Vec<LocalTopicResour
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Some(topic) = deserialize_topic_content(path, content).ok()? else {
-            continue;
+        let topic = match deserialize_topic_content(path, content) {
+            Ok(Some(topic)) => topic,
+            Ok(None) => continue,
+            Err(_) => {
+                had_parse_error = true;
+                continue;
+            }
         };
         topics.push(LocalTopicResource {
             path: path.to_string(),
@@ -143,7 +154,10 @@ fn local_topic_resources(resources: &ResourceMap) -> Option<Vec<LocalTopicResour
             topic,
         });
     }
-    Some(topics)
+    LocalTopicResources {
+        topics,
+        had_parse_error,
+    }
 }
 
 fn local_topic_id(
