@@ -262,7 +262,7 @@ fn local_api_integration_items(file: &ApiIntegrationsFile) -> Vec<ApiIntegration
 fn local_api_integration_item(item: &LocalApiIntegrationItem) -> ApiIntegrationItem {
     ApiIntegrationItem {
         id: String::new(),
-        name: item.name().to_string(),
+        name: item.canonical_name(),
         description: item.description().to_string(),
         environments: item
             .environments()
@@ -474,7 +474,7 @@ mod tests {
                 payload: json!({
                     "content": r#"
 api_integrations:
-  - name: orders_api
+  - name: orders-api
     description: Order lookup API.
     environments:
       sandbox:

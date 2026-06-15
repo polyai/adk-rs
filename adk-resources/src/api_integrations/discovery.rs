@@ -87,6 +87,7 @@ mod tests {
             r#"
 api_integrations:
   - name: orders-api
+  - name: 123-api
     environments:
       sandbox:
         base_url: ftp://example.com
@@ -107,8 +108,11 @@ api_integrations:
 "#,
         );
 
-        assert!(errors.iter().any(|error| error.contains(
+        assert!(!errors.iter().any(|error| error.contains(
             "API integration name 'orders_api' must follow Python function naming convention"
+        )));
+        assert!(errors.iter().any(|error| error.contains(
+            "API integration name '123_api' must follow Python function naming convention"
         )));
         assert!(
             errors

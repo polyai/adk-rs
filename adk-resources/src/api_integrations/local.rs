@@ -106,8 +106,8 @@ impl ApiIntegrationItem {
         })
     }
 
-    pub(crate) fn name(&self) -> &str {
-        &self.name
+    pub(crate) fn canonical_name(&self) -> String {
+        clean_name(&self.name, false)
     }
 
     pub(crate) fn description(&self) -> &str {
@@ -134,7 +134,7 @@ impl ApiIntegrationItem {
                 &format!("{path}/api_integrations/{idx}"),
                 "Name cannot be empty.",
             );
-        } else if !is_python_function_name(&self.name) {
+        } else if !is_python_function_name(&cleaned_name) {
             errors.push(
                 &format!("{path}/api_integrations/{error_name}"),
                 format!(
