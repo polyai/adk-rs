@@ -59,10 +59,11 @@ ALLOWED_IMPORT_MODULES = frozenset(
         "enum",
         "pydantic",
         "re",
-        "requests",
         "typing",
     }
 )
+
+TYPE_ONLY_IMPORT_MODULES = frozenset({"requests"})
 
 
 @dataclass(frozen=True)
@@ -350,6 +351,11 @@ def is_allowed_import_module(module: str) -> bool:
     return module in ALLOWED_IMPORT_MODULES or root in ALLOWED_IMPORT_MODULES
 
 
+def is_type_only_import_module(module: str) -> bool:
+    root = module.split(".", 1)[0]
+    return module in TYPE_ONLY_IMPORT_MODULES or root in TYPE_ONLY_IMPORT_MODULES
+
+
 def relative_module_name(current_package: tuple[str, ...], target_parts: tuple[str, ...]) -> str:
     common = 0
     for current_part, target_part in zip(current_package, target_parts):
@@ -379,7 +385,7 @@ def import_from_line(module: str, names: list[ast.alias], current_package: tuple
     runtime_module = runtime_relative_module(module, current_package)
     if runtime_module is not None:
         module = runtime_module
-    elif not is_allowed_import_module(module):
+    elif not is_allowed_import_module(module) and not is_type_only_import_module(module):
         return None
 
     rendered_names = []
@@ -403,7 +409,7 @@ def collect_imports(tree: ast.Module, current_package: tuple[str, ...]) -> list[
                 if alias.name.startswith(("runtime.", "utils.")):
                     bound_name = alias.asname or alias.name.rsplit(".", 1)[-1]
                     imports.append(("module_alias", alias.name, bound_name))
-                elif is_allowed_import_module(alias.name):
+                elif is_allowed_import_module(alias.name) or is_type_only_import_module(alias.name):
                     imports.append(ast.unparse(ast.Import(names=[alias])))
         elif isinstance(stmt, ast.ImportFrom):
             if not stmt.module:
@@ -437,6 +443,7 @@ def expand_module_alias(
 
 def prune_imports(import_lines: list[str], body_text: str) -> list[str]:
     pruned: list[str] = []
+    type_checking: list[str] = []
     seen: set[str] = set()
     for line in import_lines:
         try:
@@ -446,10 +453,16 @@ def prune_imports(import_lines: list[str], body_text: str) -> list[str]:
 
         if isinstance(node, ast.Import):
             kept_aliases = []
+            kept_type_only_aliases = []
             for alias in node.names:
                 bound_name = alias.asname or alias.name.split(".", 1)[0]
                 if name_used_in(bound_name, body_text):
-                    kept_aliases.append(alias)
+                    if is_type_only_import_module(alias.name):
+                        kept_type_only_aliases.append(alias)
+                    else:
+                        kept_aliases.append(alias)
+            if kept_type_only_aliases:
+                type_checking.append(ast.unparse(ast.Import(names=kept_type_only_aliases)))
             if not kept_aliases:
                 continue
             rendered = ast.unparse(ast.Import(names=kept_aliases))
@@ -461,7 +474,12 @@ def prune_imports(import_lines: list[str], body_text: str) -> list[str]:
             ]
             if not kept_aliases:
                 continue
-            if node.module == "pydantic" and any(alias.name == "BaseModel" for alias in kept_aliases):
+            if node.module and is_type_only_import_module(node.module):
+                type_checking.append(
+                    ast.unparse(ast.ImportFrom(module=node.module, names=kept_aliases, level=node.level))
+                )
+                continue
+            elif node.module == "pydantic" and any(alias.name == "BaseModel" for alias in kept_aliases):
                 rendered = "\n".join(
                     [
                         "try:",
@@ -480,6 +498,12 @@ def prune_imports(import_lines: list[str], body_text: str) -> list[str]:
 
         if rendered not in seen:
             seen.add(rendered)
+            pruned.append(rendered)
+    if type_checking:
+        rendered = "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n" + "\n".join(
+            f"    {line}" for line in dict.fromkeys(type_checking)
+        )
+        if rendered not in seen:
             pruned.append(rendered)
     return pruned
 
@@ -589,7 +613,11 @@ def generated_module_name(path: Path) -> str:
     return ".".join(path.with_suffix("").parts)
 
 
-def generate_root_init(modules: list[GeneratedModule], decorator_exports: tuple[str, ...]) -> str:
+def generate_root_init(
+    modules: list[GeneratedModule],
+    decorator_exports: tuple[str, ...],
+    secret_vault_exports: tuple[str, ...],
+) -> str:
     export_entries: list[str] = []
     import_blocks: list[str] = []
 
@@ -609,6 +637,14 @@ def generate_root_init(modules: list[GeneratedModule], decorator_exports: tuple[
         export_entries.extend(decorator_exports)
         import_blocks.append("from _gen.decorators import " + ", ".join(decorator_exports))
 
+    if secret_vault_exports:
+        export_entries.extend(secret_vault_exports)
+        import_blocks.append(
+            "from _gen.secret_vault import (\n    "
+            + ", ".join(secret_vault_exports)
+            + "\n)"
+        )
+
     all_block = "__all__ = [\n"
     if export_entries:
         all_block += "    " + ",\n    ".join(f'"{name}"' for name in export_entries) + "\n"
@@ -624,8 +660,9 @@ def ensure_package_inits(output_dir: Path) -> None:
             init_path.write_text(STUB_HEADER + "\n__all__ = []\n", encoding="utf-8")
 
 
-def copy_local_overlays(template_dir: Path, generated_dir: Path) -> tuple[str, ...]:
+def copy_local_overlays(template_dir: Path, generated_dir: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
     decorator_exports: tuple[str, ...] = ()
+    secret_vault_exports: tuple[str, ...] = ()
     for rel in LOCAL_OVERLAY_FILES:
         source = template_dir / rel
         if not source.exists():
@@ -635,7 +672,9 @@ def copy_local_overlays(template_dir: Path, generated_dir: Path) -> tuple[str, .
         shutil.copyfile(source, dest)
         if rel == "decorators.py":
             decorator_exports = read_all_from_generated_stub(dest)
-    return decorator_exports
+        elif rel == "secret_vault.py":
+            secret_vault_exports = read_all_from_generated_stub(dest)
+    return decorator_exports, secret_vault_exports
 
 
 def generate_tree(runtime_path: Path, output_dir: Path, template_dir: Path) -> None:
@@ -677,8 +716,8 @@ def generate_tree(runtime_path: Path, output_dir: Path, template_dir: Path) -> N
         )
 
     ensure_package_inits(output_dir)
-    decorator_exports = copy_local_overlays(template_dir, output_dir)
-    root_init = generate_root_init(modules, decorator_exports)
+    decorator_exports, secret_vault_exports = copy_local_overlays(template_dir, output_dir)
+    root_init = generate_root_init(modules, decorator_exports, secret_vault_exports)
     (output_dir / "__init__.py").write_text(root_init, encoding="utf-8")
 
 

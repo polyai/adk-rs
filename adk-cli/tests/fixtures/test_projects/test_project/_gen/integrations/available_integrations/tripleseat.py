@@ -5,7 +5,10 @@
 from __future__ import annotations
 
 from ..integration import Integration
-import requests
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import requests
 
 __all__ = ["DEFAULT_PUBLIC_KEY", "Tripleseat"]
 

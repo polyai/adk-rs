@@ -4,8 +4,11 @@
 # type: ignore
 from __future__ import annotations
 
-import requests
 from ..integration import Integration
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import requests
 
 __all__ = ["BASE_OPENTABLE_API_URL", "V1_BASE_OPENTABLE_API_URL_SUFFIX", "V2_BASE_OPENTABLE_API_URL_SUFFIX", "OPENTABLE_AUTH_URL", "OPENTABLE_SECRET_NAME", "OpenTable"]
 

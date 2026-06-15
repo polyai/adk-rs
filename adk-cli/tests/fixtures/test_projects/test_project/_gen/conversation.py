@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Literal, NewType
-import requests
 from .external_events import GenericExternalEvent, SMSReceived
 from .agentic_dial import AgenticDialData
 from .entity_validator import EntityValidationResult
@@ -18,6 +17,10 @@ from .sms import OutgoingSMS, OutgoingSMSTemplate, SMSCredentials, SMSTemplate
 from .webchat import WebchatInterface
 from .api_connector import ApiIntegrations
 from .attachment import Attachment
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import requests
 
 __all__ = ["best_effort_substitute", "SMSIntegrationNotFound", "SMSMissingAssistantAccess", "MissingTemplate", "MissingHandoff", "TTSVoice", "CustomVoice", "ElevenLabsVoice", "RimeVoice", "EmotionKindValue", "EmotionIntensityValue", "EmotionKind", "EmotionIntensity", "Emotion", "CartesiaVoice", "PlayHTVoice", "MinimaxVoice", "HumeVoice", "GoogleVoice", "VoiceType", "SupportedLanguageCodes", "VoiceWeighting", "BackgroundTrack", "FlowTransition", "Variant", "Entities", "HandoffConfig", "Handoff", "ApiIntegrationData", "ASRBiasing", "State", "ReadOnlyDict", "TranslationReplacementProxy", "RealtimeConfig", "MetricEvent", "FunctionExecutor", "ApiExecutor", "Conversation", "retrieve_sms_credentials"]
 

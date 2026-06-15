@@ -118,7 +118,10 @@ __all__ = [
     "WebchatInterface",
     "func_parameter",
     "func_description",
-    "func_latency_control"
+    "func_latency_control",
+    "InvalidInput",
+    "MissingAccess",
+    "SecretNotFound"
 ]
 
 from _gen.agentic_dial import (
@@ -191,3 +194,6 @@ from _gen.webchat import (
     ChatCallAction, WebchatInterface
 )
 from _gen.decorators import func_parameter, func_description, func_latency_control
+from _gen.secret_vault import (
+    InvalidInput, MissingAccess, SecretNotFound
+)

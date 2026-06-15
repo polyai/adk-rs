@@ -4,7 +4,10 @@
 # type: ignore
 from __future__ import annotations
 
-import requests
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import requests
 
 __all__ = ["VALID_HTTP_METHODS", "US_PROXY_BASE_URL", "EU_PROXY_BASE_URL", "DEFAULT_REQUEST_TIMEOUT_SECONDS", "proxy_integration_request_to_paragon"]
 

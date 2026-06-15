@@ -4,10 +4,13 @@
 # type: ignore
 from __future__ import annotations
 
-import requests
 from .available_integrations.opentable import OpenTable
 from .available_integrations.tripleseat import Tripleseat
 from ..log_utils import ConversationLogger
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import requests
 
 __all__ = ["Integrations"]
 
