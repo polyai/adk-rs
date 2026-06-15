@@ -27,10 +27,7 @@ impl ApiIntegrationsFile {
         Self { api_integrations }
     }
 
-    fn try_from_unchecked(
-        path: &str,
-        raw: ApiIntegrationsFileUnchecked,
-    ) -> ResourceParseResult<Self> {
+    fn try_from_raw(path: &str, raw: RawApiIntegrationsFile) -> ResourceParseResult<Self> {
         let mut errors = ResourceParseErrors::new();
         for duplicate in duplicate_names(
             raw.api_integrations
@@ -60,14 +57,23 @@ pub(crate) fn parse_api_integrations_file(
     path: &str,
     yaml: &Value,
 ) -> ResourceParseResult<ApiIntegrationsFile> {
-    let raw = deserialize_yaml::<ApiIntegrationsFileUnchecked>(path, yaml)?;
-    ApiIntegrationsFile::try_from_unchecked(path, raw)
+    let raw = deserialize_yaml::<RawApiIntegrationsFile>(path, yaml)?;
+    ApiIntegrationsFile::try_from_raw(path, raw)
 }
 
 #[derive(Debug, Deserialize)]
-struct ApiIntegrationsFileUnchecked {
+struct RawApiIntegrationsFile {
     #[serde(default)]
     api_integrations: Vec<ApiIntegrationItem>,
+}
+
+pub(crate) fn parse_api_integrations_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<ApiIntegrationsFile> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_api_integrations_file(path, &yaml)
 }
 
 #[derive(Debug, Deserialize, Serialize)]

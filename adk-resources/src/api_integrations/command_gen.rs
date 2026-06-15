@@ -1,8 +1,13 @@
 use crate::ids::{stable_resource_id, stable_resource_uuid};
-use crate::local_parse::ParseLocalResource;
-use crate::push_command_inputs::{json_str, resource_yaml};
+use crate::push_command_inputs::json_str;
 use crate::specs::API_INTEGRATIONS;
-use crate::{api_integrations::local::ApiIntegrationItem as LocalApiIntegrationItem, push_command};
+use crate::{
+    api_integrations::local::{
+        ApiIntegrationItem as LocalApiIntegrationItem, ApiIntegrationsFile,
+        parse_api_integrations_content,
+    },
+    push_command,
+};
 use adk_protobuf::Metadata;
 use adk_protobuf::api_integrations::{
     ApiIntegrationConfig as ProtoApiIntegrationConfig, ApiIntegrationConfigUpdate,
@@ -54,11 +59,11 @@ pub(crate) fn api_integration_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> ApiIntegrationLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, API_INTEGRATIONS.file.file_path) else {
+    let Some(file) = local_api_integrations_file(resources) else {
         return ApiIntegrationLifecycleCommands::default();
     };
 
-    let local_integrations = local_api_integration_items(&yaml);
+    let local_integrations = local_api_integration_items(&file);
     let remote_integrations = remote_api_integration_items(projection);
     let local_names = local_integrations
         .iter()
@@ -225,13 +230,16 @@ pub(crate) fn api_integration_lifecycle_commands(
     commands
 }
 
-fn local_api_integration_items(yaml: &serde_yaml_ng::Value) -> Vec<ApiIntegrationItem> {
-    let Ok(file) = crate::api_integrations::ApiIntegration::parse_local_yaml(
-        API_INTEGRATIONS.file.file_path,
-        yaml,
-    ) else {
-        return Vec::new();
-    };
+fn local_api_integrations_file(resources: &ResourceMap) -> Option<ApiIntegrationsFile> {
+    let content = resources
+        .get(API_INTEGRATIONS.file.file_path)?
+        .payload
+        .get("content")?
+        .as_str()?;
+    parse_api_integrations_content(API_INTEGRATIONS.file.file_path, content).ok()
+}
+
+fn local_api_integration_items(file: &ApiIntegrationsFile) -> Vec<ApiIntegrationItem> {
     file.api_integrations
         .iter()
         .map(local_api_integration_item)
@@ -442,7 +450,7 @@ mod tests {
     use adk_types::Resource;
 
     #[test]
-    fn api_integration_commands_parse_local_yaml_through_typed_model() {
+    fn api_integration_commands_parse_local_content_through_typed_model() {
         let mut resources = ResourceMap::new();
         resources.insert(
             API_INTEGRATIONS.file.file_path.to_string(),
