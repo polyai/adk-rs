@@ -230,3 +230,36 @@ fn entity_create_populates_flow_reverse_references() {
         Some(&true)
     );
 }
+
+#[test]
+fn entity_command_generation_fails_closed_when_local_aggregate_parse_fails() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "config/entities.yaml".to_string(),
+        local_resource(
+            "config/entities.yaml",
+            "entities",
+            "entities:\n  - name: customer_id\n    entity_type: free_text\n    config: {}\n  - name: customer_id\n    entity_type: free_text\n    config: {}\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "entities": {
+            "entities": {
+                "entities": {
+                    "ent-customer-id": {
+                        "name": "customer_id",
+                        "type": "FreeText",
+                        "description": "Customer id",
+                        "active": true
+                    }
+                }
+            }
+        }
+    });
+
+    let groups = entity_command_groups(&resources, &projection, &None);
+    assert!(groups.deletes.is_empty());
+    assert!(groups.creates.is_empty());
+    assert!(groups.updates.is_empty());
+    assert!(groups.post_updates.is_empty());
+}

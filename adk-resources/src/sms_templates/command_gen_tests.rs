@@ -172,3 +172,34 @@ env_phone_numbers:
         _ => panic!("unexpected payload variant for SMS create command"),
     }
 }
+
+#[test]
+fn sms_command_generation_fails_closed_when_local_aggregate_parse_fails() {
+    let resources = map_with(vec![(
+        "config/sms_templates.yaml".into(),
+        Resource {
+            resource_id: "local".into(),
+            name: "sms_templates".into(),
+            file_path: "config/sms_templates.yaml".into(),
+            payload: serde_json::json!({
+                "content": "sms_templates:\n  - name: Welcome\n    text: ''\n    env_phone_numbers:\n      sandbox: ''\n      pre_release: ''\n      live: ''\n"
+            }),
+        },
+    )]);
+    let projection = serde_json::json!({
+        "sms": {
+            "templates": {
+                "entities": {
+                    "sms-welcome": {
+                        "name": "Welcome",
+                        "text": "Hi",
+                        "active": true
+                    }
+                }
+            }
+        }
+    });
+
+    let groups = sms_template_command_groups(&resources, &projection, &None);
+    assert!(flatten(groups).is_empty());
+}

@@ -246,6 +246,99 @@ handoffs:
 }
 
 #[test]
+fn handoff_remote_invite_encryption_shorthand_does_not_force_update() {
+    let handoff_yaml = r#"
+handoffs:
+  - name: Sales
+    description: "to sales"
+    is_default: true
+    sip_config:
+      method: invite
+      phone_number: "+1555"
+      outbound_endpoint: "sip.example.com"
+      outbound_encryption: "TLS/SRTP"
+    sip_headers: []
+"#;
+    let resources = map_with(vec![(
+        "config/handoffs.yaml".into(),
+        Resource {
+            resource_id: "local".into(),
+            name: "handoffs".into(),
+            file_path: "config/handoffs.yaml".into(),
+            payload: serde_json::json!({ "content": handoff_yaml }),
+        },
+    )]);
+    let projection = serde_json::json!({
+        "handoff": {
+            "handoffs": {
+                "entities": {
+                    "ho-sales": {
+                        "name": "Sales",
+                        "description": "to sales",
+                        "isDefault": true,
+                        "active": true,
+                        "sipConfig": {
+                            "config": {
+                                "$case": "invite",
+                                "value": {
+                                    "phoneNumber": "+1555",
+                                    "outboundEndpoint": "sip.example.com",
+                                    "outboundEncryption": "tls"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = flatten(handoff_command_groups(&resources, &projection, &None));
+    assert!(commands.is_empty());
+}
+
+#[test]
+fn handoff_command_generation_fails_closed_when_local_aggregate_parse_fails() {
+    let handoffs_yaml = r#"
+handoffs:
+  - name: Sales
+    description: "to sales"
+    is_default: true
+    sip_config:
+      method: invite
+      phone_number: "+1555"
+      outbound_endpoint: "sip.example.com"
+      outbound_encryption: unsupported
+    sip_headers: []
+"#;
+    let resources = map_with(vec![(
+        "config/handoffs.yaml".into(),
+        Resource {
+            resource_id: "local".into(),
+            name: "handoffs".into(),
+            file_path: "config/handoffs.yaml".into(),
+            payload: serde_json::json!({ "content": handoffs_yaml }),
+        },
+    )]);
+    let projection = serde_json::json!({
+        "handoff": {
+            "handoffs": {
+                "entities": {
+                    "ho-sales": {
+                        "name": "Sales",
+                        "description": "to sales",
+                        "active": true
+                    }
+                }
+            }
+        }
+    });
+
+    let groups = handoff_command_groups(&resources, &projection, &None);
+    assert!(flatten(groups).is_empty());
+}
+
+#[test]
 fn remote_handoff_without_active_field_is_treated_as_active() {
     let resources = map_with(vec![(
         "config/handoffs.yaml/handoffs/Sales".into(),

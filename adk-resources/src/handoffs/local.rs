@@ -265,7 +265,7 @@ impl<'de> Deserialize<'de> for SipMethod {
     }
 }
 
-fn normalize_invite_encryption(value: &str) -> Option<String> {
+pub(super) fn normalize_invite_encryption(value: &str) -> Option<String> {
     match value {
         "TLS/SRTP" | "tls" => Some("TLS/SRTP".to_string()),
         "UDP/RTP" | "udp" => Some("UDP/RTP".to_string()),

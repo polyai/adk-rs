@@ -36,7 +36,9 @@ pub(crate) fn entity_command_groups(
             (name, (id, entity))
         })
         .collect::<HashMap<_, _>>();
-    let local_entities = local_entity_resources(resources, &remote_entities);
+    let Some(local_entities) = local_entity_resources(resources, &remote_entities) else {
+        return CommandGroups::default();
+    };
     let local_entity_ids = local_entities
         .iter()
         .map(|entity| (entity.item.name().to_string(), entity.id.clone()))
@@ -112,7 +114,7 @@ struct LocalEntityResource {
 fn local_entity_resources(
     resources: &ResourceMap,
     remote_entities: &HashMap<String, (String, JsonValue)>,
-) -> Vec<LocalEntityResource> {
+) -> Option<Vec<LocalEntityResource>> {
     let mut entities = Vec::new();
     for resource in resources.values() {
         let path = resource.file_path.as_str();
@@ -121,9 +123,7 @@ fn local_entity_resources(
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(items) = parse_entities_content(path, content) else {
-            continue;
-        };
+        let items = parse_entities_content(path, content).ok()?;
         let resource_id = if path == ENTITIES_FILE_PATH {
             "local"
         } else {
@@ -134,7 +134,7 @@ fn local_entity_resources(
             entities.push(LocalEntityResource { id, item });
         }
     }
-    entities
+    Some(entities)
 }
 
 fn local_entity_id(resource_id: &str, name: &str, remote: Option<&(String, JsonValue)>) -> String {

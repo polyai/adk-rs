@@ -1,7 +1,7 @@
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
 use crate::sms_templates::local::{
-    SMS_TEMPLATES_FILE_PATH, SmsTemplate, parse_sms_templates_content,
+    SMS_TEMPLATE_ITEM_PREFIX, SMS_TEMPLATES_FILE_PATH, SmsTemplate, parse_sms_templates_content,
 };
 use crate::{
     PromptReferenceMaps, extract_entities_map, extract_template_references,
@@ -28,7 +28,9 @@ pub(crate) fn sms_template_command_groups(
     let mut creates = Vec::new();
     let mut updates = Vec::new();
     let mut local_names = HashSet::new();
-    let local_templates = local_sms_template_resources(resources);
+    let Some(local_templates) = local_sms_template_resources(resources) else {
+        return CommandGroups::default();
+    };
     let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
 
     {
@@ -73,18 +75,19 @@ struct LocalSmsTemplateResource {
     template: SmsTemplate,
 }
 
-fn local_sms_template_resources(resources: &ResourceMap) -> Vec<LocalSmsTemplateResource> {
+fn local_sms_template_resources(resources: &ResourceMap) -> Option<Vec<LocalSmsTemplateResource>> {
     let mut templates = Vec::new();
     for resource in resources.values() {
         let path = resource.file_path.as_str();
+        if path != SMS_TEMPLATES_FILE_PATH && !path.starts_with(SMS_TEMPLATE_ITEM_PREFIX) {
+            continue;
+        }
         let content = resource
             .payload
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(parsed_templates) = parse_sms_templates_content(path, content) else {
-            continue;
-        };
+        let parsed_templates = parse_sms_templates_content(path, content).ok()?;
         let resource_id = if path == SMS_TEMPLATES_FILE_PATH {
             "local"
         } else {
@@ -99,7 +102,7 @@ fn local_sms_template_resources(resources: &ResourceMap) -> Vec<LocalSmsTemplate
                 }),
         );
     }
-    templates
+    Some(templates)
 }
 
 fn remote_sms(projection: &JsonValue) -> HashMap<String, String> {

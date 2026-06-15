@@ -1,4 +1,7 @@
-use crate::handoffs::local::{HANDOFFS_FILE_PATH, Handoff, parse_handoffs_content};
+use crate::handoffs::local::{
+    HANDOFF_ITEM_PREFIX, HANDOFFS_FILE_PATH, Handoff, normalize_invite_encryption,
+    parse_handoffs_content,
+};
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
@@ -23,7 +26,9 @@ pub(crate) fn handoff_command_groups(
     let mut updates = Vec::new();
     let mut local_names = HashSet::new();
     let mut changed_names = HashSet::new();
-    let local_handoffs = local_handoff_resources(resources);
+    let Some(local_handoffs) = local_handoff_resources(resources) else {
+        return CommandGroups::default();
+    };
 
     {
         let mut builder = HandoffCommandBuilder {
@@ -81,18 +86,19 @@ struct LocalHandoffResource {
     handoff: Handoff,
 }
 
-fn local_handoff_resources(resources: &ResourceMap) -> Vec<LocalHandoffResource> {
+fn local_handoff_resources(resources: &ResourceMap) -> Option<Vec<LocalHandoffResource>> {
     let mut handoffs = Vec::new();
     for resource in resources.values() {
         let path = resource.file_path.as_str();
+        if path != HANDOFFS_FILE_PATH && !path.starts_with(HANDOFF_ITEM_PREFIX) {
+            continue;
+        }
         let content = resource
             .payload
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(parsed_handoffs) = parse_handoffs_content(path, content) else {
-            continue;
-        };
+        let parsed_handoffs = parse_handoffs_content(path, content).ok()?;
         let resource_id = if path == HANDOFFS_FILE_PATH {
             "local"
         } else {
@@ -107,7 +113,7 @@ fn local_handoff_resources(resources: &ResourceMap) -> Vec<LocalHandoffResource>
                 }),
         );
     }
-    handoffs
+    Some(handoffs)
 }
 
 fn remote_handoffs(projection: &JsonValue) -> HashMap<String, String> {
@@ -137,6 +143,11 @@ fn json_str(value: &JsonValue, key: &str) -> String {
         .and_then(JsonValue::as_str)
         .unwrap_or("")
         .to_string()
+}
+
+fn invite_encryption_from_remote(value: &JsonValue) -> String {
+    let encryption = json_str(value, "outboundEncryption");
+    normalize_invite_encryption(&encryption).unwrap_or(encryption)
 }
 
 struct HandoffCommandBuilder<'a> {
@@ -274,7 +285,7 @@ fn handoff_sip_config_from_remote(remote: &JsonValue) -> SipConfig {
             "invite" => sip_config::Config::Invite(SipInviteHandoffConfig {
                 phone_number: json_str(value, "phoneNumber"),
                 outbound_endpoint: json_str(value, "outboundEndpoint"),
-                outbound_encryption: json_str(value, "outboundEncryption"),
+                outbound_encryption: invite_encryption_from_remote(value),
             }),
             "refer" => sip_config::Config::Refer(SipReferHandoffConfig {
                 phone_number: json_str(value, "phoneNumber"),
@@ -290,7 +301,7 @@ fn handoff_sip_config_from_remote(remote: &JsonValue) -> SipConfig {
             config: Some(sip_config::Config::Invite(SipInviteHandoffConfig {
                 phone_number: json_str(invite, "phoneNumber"),
                 outbound_endpoint: json_str(invite, "outboundEndpoint"),
-                outbound_encryption: json_str(invite, "outboundEncryption"),
+                outbound_encryption: invite_encryption_from_remote(invite),
             })),
         };
     }
