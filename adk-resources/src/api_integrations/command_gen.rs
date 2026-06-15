@@ -385,7 +385,7 @@ fn api_operations_from_projection(integration: &JsonValue) -> Vec<ApiOperationIt
             Some(ApiOperationItem {
                 id,
                 name,
-                method: json_str(value, &["method"]),
+                method: json_str(value, &["method"]).to_ascii_uppercase(),
                 resource: json_str(value, &["resource"]),
             })
         })
@@ -523,7 +523,7 @@ api_integrations:
                                     "op-1": {
                                         "id": "op-1",
                                         "name": "get_order",
-                                        "method": "GET",
+                                        "method": "get",
                                         "resource": "/orders/{id}"
                                     }
                                 }
