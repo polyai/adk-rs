@@ -19,7 +19,7 @@ fn main() -> io::Result<()> {
 
     println!("cargo:rerun-if-changed={}", template_dir.display());
     let mut files = Vec::new();
-    collect_python_files(&template_dir, &template_dir, &mut files)?;
+    collect_python_template_files(&template_dir, &template_dir, &mut files)?;
     files.sort();
 
     let mut generated = String::new();
@@ -38,14 +38,21 @@ fn main() -> io::Result<()> {
     write_if_changed(&out_dir.join("python_gen_template_files.rs"), &generated)
 }
 
-fn collect_python_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+fn collect_python_template_files(
+    root: &Path,
+    dir: &Path,
+    files: &mut Vec<PathBuf>,
+) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         println!("cargo:rerun-if-changed={}", path.display());
         if path.is_dir() {
-            collect_python_files(root, &path, files)?;
-        } else if path.extension().is_some_and(|extension| extension == "py") {
+            collect_python_template_files(root, &path, files)?;
+        } else if path
+            .extension()
+            .is_some_and(|extension| matches!(extension.to_str(), Some("py" | "pyi")))
+        {
             files.push(
                 path.strip_prefix(root)
                     .expect("relative template")

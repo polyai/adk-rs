@@ -16,13 +16,15 @@ the runtime package API surface, with generated templates checked into this repo
 
 After the initial Python ADK generator landed in #184 and the relative-import
 fix landed in #187, upstream merged #188 to fix another `_gen` sync bug:
-`save_imports` still copied only top-level `poly.types/*.py` files, so the
-new `integrations/` package was omitted from generated project `_gen/` folders.
+`save_imports` still copied only top-level `poly.types/*.py` files, so the new
+`integrations/` package was omitted from generated project `_gen/` folders.
+Upstream then moved the generated type surface to `.pyi` files in #189, using
+mypy `stubgen` and `imports.json` as the public source manifest.
 
-The lesson for Rust ADK is that recursive package handling should be part of the
-initial design, not a later cleanup. A sync implementation must recursively
-generate, copy, embed, and write nested Python package files, including nested
-`__init__.py` files.
+The lesson for Rust ADK is that recursive package handling and `.pyi` handling
+should be part of the initial design, not later cleanup. A sync implementation
+must recursively generate, copy, embed, and write nested type stub files, while
+preserving the small real `.py` files that define the `_gen` import surface.
 
 ## Near-Term Baseline
 
@@ -33,11 +35,12 @@ First pass: `scripts/sync_runtime_gen_templates.py` can refresh
 Expected shape:
 
 - Input: path to `genai_lambda_runtime/python/runtime`.
-- Output: checked-in templates under `adk-core/python-gen-template`.
+- Output: checked-in `.pyi` templates under `adk-core/python-gen-template`.
 - Preserves local ADK helper shims such as `decorators.py`.
 - Generates `_gen/__init__.py` from exported names in generated stubs.
-- Copies nested packages recursively so APIs such as integrations work. This is a
-  known Python ADK follow-up bug from #188.
+- Generates support-only `.pyi` files for sibling runtime imports without
+  re-exporting those names from `_gen`.
+- Copies nested packages recursively so APIs such as integrations work.
 - Provides `--check` mode that regenerates into a temporary directory and fails
   when checked-in templates differ.
 - Documents the refresh command in `docs/development.md`.
@@ -54,9 +57,7 @@ Real-runtime smoke status:
 
 - Generated templates from `/home/ben/genai_lambda_runtime/python/runtime` into
   a temporary `_gen` package.
-- Verified `python3 -m compileall` succeeds on the generated package.
-- Verified importing `_gen`, `Conversation`, nested `Integrations`, and the
-  narrow generated `ApiIntegrations` stub succeeds.
+- Switched the generated runtime surface to `.pyi`, matching upstream #189.
 - Taught Rust embedding/writing paths to handle recursive template files.
 - Updated checked-in templates and the fixture `_gen` tree from the runtime.
 
@@ -79,8 +80,9 @@ Preferred design:
 - Generate `_gen/__init__.py` from every generated module's `__all__`, including
   nested modules.
 - Make the generated template directory the single source of truth for Rust
-  packaging by recursively embedding `python-gen-template/**/*.py` at build time,
-  instead of maintaining a hardcoded flat file list.
+  packaging by recursively embedding `python-gen-template/**/*.py` and
+  `python-gen-template/**/*.pyi` at build time, instead of maintaining a
+  hardcoded flat file list.
 
 ## Contract Snapshot
 

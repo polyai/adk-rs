@@ -363,9 +363,9 @@ fn init_and_pull_write_python_compatible_gen_package() {
     let decorators =
         fs::read_to_string(gen_dir.join("decorators.py")).expect("generated decorators");
     let conversation =
-        fs::read_to_string(gen_dir.join("conversation.py")).expect("generated conversation");
-    let value_extraction_types = fs::read_to_string(gen_dir.join("value_extraction_types.py"))
-        .expect("generated value extraction types");
+        fs::read_to_string(gen_dir.join("conversation.pyi")).expect("generated conversation");
+    let value_extraction = fs::read_to_string(gen_dir.join("value_extraction.pyi"))
+        .expect("generated value extraction");
 
     assert!(project_yaml.contains("project_id: test-project"));
     assert!(!project_yaml.contains("branch_id:"));
@@ -377,16 +377,15 @@ fn init_and_pull_write_python_compatible_gen_package() {
     assert!(!decorators.starts_with("# Copyright PolyAI Limited\n"));
     assert!(conversation.starts_with("# Copyright PolyAI Limited\n"));
     assert!(conversation.contains("class Conversation"));
-    assert!(conversation.contains("ANGER = cast('EmotionKindValue', 0)"));
-    assert!(value_extraction_types.contains("ADDRESS = 'address'"));
-    assert!(value_extraction_types.contains("FLOAT = 'float'"));
+    assert!(conversation.contains("EmotionKindValue: Any"));
+    assert!(value_extraction.contains("class Address"));
 
     fs::write(gen_dir.join("stale.pyi"), "class Stale: ...\n").expect("write stale pyi");
     service.pull(&root, true).expect("pull project");
 
     assert!(!gen_dir.join("stale.pyi").exists());
     assert!(gen_dir.join(".agent_studio_config").exists());
-    assert!(gen_dir.join("sms.py").exists());
+    assert!(gen_dir.join("sms.pyi").exists());
     let status = read_status_snapshot_json(&root);
     assert_eq!(
         status.get("region").and_then(|value| value.as_str()),

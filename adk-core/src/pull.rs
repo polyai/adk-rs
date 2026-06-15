@@ -264,26 +264,40 @@ fn sync_python_gen_package<Fs: FileSystem>(
     let gen_dir = root.join("_gen");
     fs.create_dir_all(&gen_dir)?;
     let mut cleaned_stubs = HashSet::new();
+    let template_files: HashSet<&str> = crate::workspace::PYTHON_GEN_TEMPLATE_FILES
+        .iter()
+        .map(|(file_name, _)| *file_name)
+        .collect();
     for path in recursive_file_paths(fs, &gen_dir)? {
-        if path.extension().is_some_and(|extension| extension == "pyi") {
-            // `_gen` itself may be a symlink to a user-chosen generated package
-            // location, but child symlinks inside it must not let stale-stub
-            // cleanup delete files outside that resolved package root. The
-            // canonical path also deduplicates aliases from internal symlinks.
-            let Some(canonical_path) = canonical_path_inside_root(fs, &gen_dir, &path) else {
-                continue;
-            };
-            if !cleaned_stubs.insert(canonical_path) {
-                continue;
-            }
-            fs.remove_file(&path)?;
-            let rel = path
-                .strip_prefix(root)
-                .unwrap_or(path.as_path())
-                .to_string_lossy()
-                .replace('\\', "/");
-            changes.push(FileChange::Delete { path: rel });
+        let rel_to_gen = path
+            .strip_prefix(&gen_dir)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let is_generated_stub = path
+            .extension()
+            .is_some_and(|extension| matches!(extension.to_str(), Some("py" | "pyi")));
+        if !is_generated_stub || template_files.contains(rel_to_gen.as_str()) {
+            continue;
         }
+
+        // `_gen` itself may be a symlink to a user-chosen generated package
+        // location, but child symlinks inside it must not let stale-stub
+        // cleanup delete files outside that resolved package root. The
+        // canonical path also deduplicates aliases from internal symlinks.
+        let Some(canonical_path) = canonical_path_inside_root(fs, &gen_dir, &path) else {
+            continue;
+        };
+        if !cleaned_stubs.insert(canonical_path) {
+            continue;
+        }
+        fs.remove_file(&path)?;
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        changes.push(FileChange::Delete { path: rel });
     }
 
     for (file_name, content) in crate::workspace::PYTHON_GEN_TEMPLATE_FILES {
