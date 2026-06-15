@@ -38,7 +38,9 @@ pub(crate) fn transcript_lifecycle_commands(
     else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_transcript_items(content);
+    let Some(local_items) = local_transcript_items(content) else {
+        return SimpleLifecycleCommands::default();
+    };
     let remote_items = remote_transcript_items(projection);
     let local_names = local_items
         .iter()
@@ -112,13 +114,13 @@ pub(crate) fn transcript_lifecycle_commands(
     commands
 }
 
-fn local_transcript_items(content: &str) -> Vec<TranscriptItem> {
+fn local_transcript_items(content: &str) -> Option<Vec<TranscriptItem>> {
     let Ok(file) =
         deserialize_transcript_corrections_content(TRANSCRIPT_CORRECTIONS.file.file_path, content)
     else {
-        return Vec::new();
+        return None;
     };
-    file.corrections.iter().map(local_transcript_item).collect()
+    Some(file.corrections.iter().map(local_transcript_item).collect())
 }
 
 fn local_transcript_item(item: &LocalTranscriptCorrectionItem) -> TranscriptItem {
@@ -258,7 +260,7 @@ corrections:
         replacement_type: substring
 "#;
 
-        let items = local_transcript_items(content);
+        let items = local_transcript_items(content).expect("valid transcript corrections");
 
         assert_eq!(items[0].description, "trim me");
         assert_eq!(items[0].regular_expressions[0].replacement_type, "partial");
@@ -301,6 +303,55 @@ corrections:
         assert!(
             commands.deletes.is_empty(),
             "pulled empty transcript correction should remain visible to command generation"
+        );
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
+    }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_transcript_corrections() {
+        let content = r#"
+corrections:
+  - name: Fix alpha
+    description: ""
+    regular_expressions: definitely not a list
+"#;
+        let mut resources = ResourceMap::default();
+        resources.insert(
+            TRANSCRIPT_CORRECTIONS.file.file_path.to_string(),
+            adk_types::Resource {
+                resource_id: TRANSCRIPT_CORRECTIONS.file.resource_id.to_string(),
+                name: TRANSCRIPT_CORRECTIONS.file.name.to_string(),
+                file_path: TRANSCRIPT_CORRECTIONS.file.file_path.to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+        let projection = serde_json::json!({
+            "transcriptCorrections": {
+                "transcriptCorrections": {
+                    "entities": {
+                        "tc-alpha": {
+                            "name": "Fix alpha",
+                            "description": "",
+                            "regularExpressions": [
+                                {
+                                    "id": "regex-alpha",
+                                    "regularExpression": "alfa",
+                                    "replacement": "alpha",
+                                    "replacementType": "full"
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        });
+
+        let commands = transcript_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(
+            commands.deletes.is_empty(),
+            "invalid local transcript correction YAML should not queue deletes"
         );
         assert!(commands.creates.is_empty());
         assert!(commands.updates.is_empty());
