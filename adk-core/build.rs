@@ -1,3 +1,8 @@
+// Keep the embedded Python `_gen` template package in sync with the checked-in
+// `python-gen-template` directory. Cargo requires `include_str!` paths to be
+// known at compile time, so this build script walks the template tree and writes
+// a small Rust source file into OUT_DIR with the recursive file list.
+//
 // Build scripts run before crate dependencies are available, so this cannot use
 // `adk-io` while generating Cargo OUT_DIR include metadata.
 #![allow(clippy::disallowed_methods)]
@@ -30,7 +35,7 @@ fn main() -> io::Result<()> {
     }
     generated.push_str("];\n");
 
-    fs::write(out_dir.join("python_gen_template_files.rs"), generated)
+    write_if_changed(&out_dir.join("python_gen_template_files.rs"), &generated)
 }
 
 fn collect_python_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
@@ -49,4 +54,11 @@ fn collect_python_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> io
         }
     }
     Ok(())
+}
+
+fn write_if_changed(path: &Path, contents: &str) -> io::Result<()> {
+    if fs::read_to_string(path).is_ok_and(|existing| existing == contents) {
+        return Ok(());
+    }
+    fs::write(path, contents)
 }
