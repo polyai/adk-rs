@@ -1,3 +1,11 @@
+//! Shared safety filter local model.
+//!
+//! Python ADK implements safety filters in one resource module, but the local
+//! files live under multiple owning resource areas: `agent_settings/`, `voice/`,
+//! and `chat/`. Keep the shared YAML/projection/proto shape here, while the
+//! concrete discovery and command-generation hooks stay with `agent_settings`
+//! and `channels`, where those files participate in lifecycle behavior.
+
 use crate::local_parse::{ResourceParseErrors, ResourceParseResult, deserialize_yaml};
 use adk_protobuf::content_filter_settings::{
     AzureContentFilter, AzureContentFilterCategory,
