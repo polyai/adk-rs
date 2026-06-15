@@ -200,6 +200,52 @@ handoffs:
 }
 
 #[test]
+fn handoff_invite_accepts_pulled_backend_encryption_spelling() {
+    let handoff_yaml = r#"
+handoffs:
+  - name: Sales
+    description: "to sales"
+    is_default: true
+    sip_config:
+      method: invite
+      phone_number: "+1555"
+      outbound_endpoint: "sip.example.com"
+      outbound_encryption: tls
+    sip_headers: []
+"#;
+    let resources = map_with(vec![(
+        "config/handoffs.yaml".into(),
+        Resource {
+            resource_id: "local".into(),
+            name: "handoffs".into(),
+            file_path: "config/handoffs.yaml".into(),
+            payload: serde_json::json!({ "content": handoff_yaml }),
+        },
+    )]);
+    let projection = serde_json::json!({});
+    let commands = flatten(handoff_command_groups(&resources, &projection, &None));
+    let create = commands
+        .iter()
+        .find_map(|command| match command.payload.as_ref() {
+            Some(CommandPayload::HandoffCreate(create)) => Some(create),
+            _ => None,
+        })
+        .expect("handoff create");
+
+    let Some(SipConfig {
+        config:
+            Some(sip_config::Config::Invite(SipInviteHandoffConfig {
+                outbound_encryption,
+                ..
+            })),
+    }) = create.sip_config.as_ref()
+    else {
+        panic!("invite SIP config");
+    };
+    assert_eq!(outbound_encryption, "TLS/SRTP");
+}
+
+#[test]
 fn remote_handoff_without_active_field_is_treated_as_active() {
     let resources = map_with(vec![(
         "config/handoffs.yaml/handoffs/Sales".into(),

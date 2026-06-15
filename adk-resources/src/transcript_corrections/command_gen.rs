@@ -5,7 +5,7 @@ use crate::specs::TRANSCRIPT_CORRECTIONS;
 use crate::transcript_corrections::local::{
     RegularExpressionRule as LocalRegularExpressionRule,
     TranscriptCorrectionItem as LocalTranscriptCorrectionItem,
-    parse_transcript_corrections_content,
+    deserialize_transcript_corrections_content,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -114,7 +114,7 @@ pub(crate) fn transcript_lifecycle_commands(
 
 fn local_transcript_items(content: &str) -> Vec<TranscriptItem> {
     let Ok(file) =
-        parse_transcript_corrections_content(TRANSCRIPT_CORRECTIONS.file.file_path, content)
+        deserialize_transcript_corrections_content(TRANSCRIPT_CORRECTIONS.file.file_path, content)
     else {
         return Vec::new();
     };
@@ -262,5 +262,47 @@ corrections:
 
         assert_eq!(items[0].description, "trim me");
         assert_eq!(items[0].regular_expressions[0].replacement_type, "partial");
+    }
+
+    #[test]
+    fn pulled_empty_transcript_correction_does_not_queue_delete() {
+        let content = r#"
+corrections:
+  - name: Empty correction
+    description: ""
+    regular_expressions: []
+"#;
+        let mut resources = ResourceMap::default();
+        resources.insert(
+            TRANSCRIPT_CORRECTIONS.file.file_path.to_string(),
+            adk_types::Resource {
+                resource_id: TRANSCRIPT_CORRECTIONS.file.resource_id.to_string(),
+                name: TRANSCRIPT_CORRECTIONS.file.name.to_string(),
+                file_path: TRANSCRIPT_CORRECTIONS.file.file_path.to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+        let projection = serde_json::json!({
+            "transcriptCorrections": {
+                "transcriptCorrections": {
+                    "entities": {
+                        "tc-empty": {
+                            "name": "Empty correction",
+                            "description": "",
+                            "regularExpressions": []
+                        }
+                    }
+                }
+            }
+        });
+
+        let commands = transcript_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(
+            commands.deletes.is_empty(),
+            "pulled empty transcript correction should remain visible to command generation"
+        );
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
     }
 }

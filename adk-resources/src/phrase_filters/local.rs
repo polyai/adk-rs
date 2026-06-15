@@ -27,18 +27,19 @@ pub(crate) fn parse_phrase_filters_file(
     deserialize_yaml(path, yaml)
 }
 
-pub(crate) fn parse_phrase_filters_content(
+pub(crate) fn deserialize_phrase_filters_content(
     path: &str,
     content: &str,
 ) -> ResourceParseResult<Vec<PhraseFilterItem>> {
     let yaml = serde_yaml_ng::from_str::<Value>(content)
         .map_err(|error| ResourceParseErrors::single(path, error))?;
     if path == PHRASE_FILTERS_FILE_PATH {
-        return deserialize_yaml::<PhraseFiltersFile>(path, &yaml)
-            .map(|file| file.phrase_filtering);
+        return deserialize_yaml::<LenientPhraseFiltersFile>(path, &yaml)
+            .map(|file| file.phrase_filtering.into_iter().map(Into::into).collect());
     }
     if path.starts_with(PHRASE_FILTER_ITEM_PREFIX) {
-        return deserialize_yaml::<PhraseFilterItem>(path, &yaml).map(|item| vec![item]);
+        return deserialize_yaml::<LenientPhraseFilterItem>(path, &yaml)
+            .map(|item| vec![item.into()]);
     }
     Ok(Vec::new())
 }
@@ -105,6 +106,40 @@ impl PhraseFilterItem {
         self.function
             .as_deref()
             .filter(|value| !value.trim().is_empty())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct LenientPhraseFiltersFile {
+    #[serde(default)]
+    phrase_filtering: Vec<LenientPhraseFilterItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LenientPhraseFilterItem {
+    name: NonEmptyString,
+    #[serde(default, deserialize_with = "deserialize_trimmed_string")]
+    description: String,
+    #[serde(default)]
+    regular_expressions: Vec<String>,
+    #[serde(default)]
+    say_phrase: bool,
+    #[serde(default)]
+    language_code: String,
+    #[serde(default)]
+    function: Option<String>,
+}
+
+impl From<LenientPhraseFilterItem> for PhraseFilterItem {
+    fn from(item: LenientPhraseFilterItem) -> Self {
+        Self {
+            name: item.name,
+            description: item.description,
+            regular_expressions: item.regular_expressions,
+            say_phrase: item.say_phrase,
+            language_code: item.language_code,
+            function: item.function,
+        }
     }
 }
 

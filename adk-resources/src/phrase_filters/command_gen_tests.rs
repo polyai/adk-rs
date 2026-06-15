@@ -171,6 +171,54 @@ phrase_filtering:
 }
 
 #[test]
+fn pulled_empty_phrase_filter_does_not_queue_delete() {
+    let pf_yaml = r#"
+phrase_filtering:
+  - name: Empty
+    description: ""
+    regular_expressions: []
+    say_phrase: false
+    language_code: ""
+"#;
+    let resources = map_with(vec![(
+        "voice/response_control/phrase_filtering.yaml".into(),
+        Resource {
+            resource_id: "phrase_filtering".into(),
+            name: "phrase_filtering".into(),
+            file_path: "voice/response_control/phrase_filtering.yaml".into(),
+            payload: serde_json::json!({ "content": pf_yaml }),
+        },
+    )]);
+    let projection = serde_json::json!({
+        "stopKeywords": {
+            "filters": {
+                "entities": {
+                    "sk-empty": {
+                        "title": "Empty",
+                        "description": "",
+                        "regularExpressions": [],
+                        "sayPhrase": false,
+                        "languageCode": ""
+                    }
+                }
+            }
+        }
+    });
+    let commands = flatten(phrase_filter_command_groups(&resources, &projection, &None));
+
+    assert!(
+        !commands
+            .iter()
+            .any(|command| command.r#type == "stop_keywords_delete"),
+        "pulled empty phrase filter should remain visible to command generation"
+    );
+    assert!(
+        commands.is_empty(),
+        "no-op pull/push should not queue commands"
+    );
+}
+
+#[test]
 fn stop_keywords_create() {
     let pf_yaml = r#"
 name: HangUp

@@ -12,7 +12,7 @@
 use crate::ids::stable_resource_id;
 use crate::phrase_filters::local::{
     PHRASE_FILTERS_FILE_PATH, PhraseFilterItem as LocalPhraseFilterItem,
-    parse_phrase_filters_content,
+    deserialize_phrase_filters_content,
 };
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
 use adk_protobuf::command::Payload as CommandPayload;
@@ -221,7 +221,7 @@ fn local_phrase_filter_resources(resources: &ResourceMap) -> Vec<LocalPhraseFilt
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(items) = parse_phrase_filters_content(path, content) else {
+        let Ok(items) = deserialize_phrase_filters_content(path, content) else {
             continue;
         };
         let resource_id = if path == PHRASE_FILTERS_FILE_PATH {

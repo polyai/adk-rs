@@ -64,13 +64,13 @@ pub(crate) fn parse_transcript_corrections_file(
     }
 }
 
-pub(crate) fn parse_transcript_corrections_content(
+pub(crate) fn deserialize_transcript_corrections_content(
     path: &str,
     content: &str,
 ) -> ResourceParseResult<TranscriptCorrectionsFile> {
     let yaml = serde_yaml_ng::from_str::<Value>(content)
         .map_err(|error| ResourceParseErrors::single(path, error))?;
-    parse_transcript_corrections_file(path, &yaml)
+    deserialize_yaml::<LenientTranscriptCorrectionsFile>(path, &yaml).map(Into::into)
 }
 
 #[derive(Debug, Deserialize)]
@@ -148,6 +148,39 @@ impl TranscriptCorrectionItem {
 
     pub(crate) fn regular_expressions(&self) -> &[RegularExpressionRule] {
         &self.regular_expressions
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct LenientTranscriptCorrectionsFile {
+    #[serde(default)]
+    corrections: Vec<LenientTranscriptCorrectionItem>,
+}
+
+impl From<LenientTranscriptCorrectionsFile> for TranscriptCorrectionsFile {
+    fn from(file: LenientTranscriptCorrectionsFile) -> Self {
+        Self {
+            corrections: file.corrections.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct LenientTranscriptCorrectionItem {
+    name: NonEmptyString,
+    #[serde(default, deserialize_with = "deserialize_trimmed_string")]
+    description: String,
+    #[serde(default)]
+    regular_expressions: Vec<RegularExpressionRule>,
+}
+
+impl From<LenientTranscriptCorrectionItem> for TranscriptCorrectionItem {
+    fn from(item: LenientTranscriptCorrectionItem) -> Self {
+        Self {
+            name: item.name,
+            description: item.description,
+            regular_expressions: item.regular_expressions,
+        }
     }
 }
 

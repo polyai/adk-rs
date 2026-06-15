@@ -114,6 +114,18 @@ handoffs:
                 .any(|error| error.contains("Invalid encryption method 'plaintext'"))
         );
 
+        let backend_encryption = validation_errors(
+            r#"
+handoffs:
+  - name: Primary
+    is_default: true
+    sip_config:
+      method: invite
+      outbound_encryption: tls
+"#,
+        );
+        assert!(backend_encryption.is_empty());
+
         let missing_default = validation_errors(
             r#"
 handoffs:

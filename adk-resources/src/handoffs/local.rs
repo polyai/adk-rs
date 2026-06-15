@@ -218,16 +218,18 @@ impl TryFrom<RawSipConfig> for SipConfig {
     fn try_from(raw: RawSipConfig) -> Result<Self, Self::Error> {
         match raw.method {
             SipMethod::Invite => {
-                if !is_valid_invite_encryption(&raw.outbound_encryption) {
+                let Some(outbound_encryption) =
+                    normalize_invite_encryption(&raw.outbound_encryption)
+                else {
                     return Err(format!(
                         "Invalid encryption method '{}'. Must be one of: TLS/SRTP, UDP/RTP",
                         raw.outbound_encryption
                     ));
-                }
+                };
                 Ok(Self::Invite {
                     phone_number: raw.phone_number,
                     outbound_endpoint: raw.outbound_endpoint,
-                    outbound_encryption: raw.outbound_encryption,
+                    outbound_encryption,
                 })
             }
             SipMethod::Refer => Ok(Self::Refer {
@@ -263,8 +265,12 @@ impl<'de> Deserialize<'de> for SipMethod {
     }
 }
 
-fn is_valid_invite_encryption(value: &str) -> bool {
-    matches!(value, "TLS/SRTP" | "UDP/RTP")
+fn normalize_invite_encryption(value: &str) -> Option<String> {
+    match value {
+        "TLS/SRTP" | "tls" => Some("TLS/SRTP".to_string()),
+        "UDP/RTP" | "udp" => Some("UDP/RTP".to_string()),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
