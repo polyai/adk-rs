@@ -1,7 +1,8 @@
-use crate::agent_settings::GeneralSafetyFilters;
-use crate::agent_settings::discovery::{SettingsPersonality, SettingsRole};
-use crate::local_parse::ParseLocalResource;
-use crate::push_command_inputs::{resource_changed, resource_yaml};
+use crate::agent_settings::local::{
+    parse_personality_settings_content, parse_role_settings_content,
+};
+use crate::push_command_inputs::resource_changed;
+use crate::safety_filters::{SafetyFilterMode, parse_safety_filters_content};
 use crate::specs::{
     AGENT_PERSONALITY_FILE, AGENT_ROLE_FILE, AGENT_RULES_FILE, AGENT_SAFETY_FILTERS_FILE,
 };
@@ -83,9 +84,9 @@ fn append_personality_update(
         resources,
         remote_resources,
         AGENT_PERSONALITY_FILE.file_path,
-    ) && let Some(yaml) = resource_yaml(resources, AGENT_PERSONALITY_FILE.file_path)
+    ) && let Some(content) = resource_content(resources, AGENT_PERSONALITY_FILE.file_path)
         && let Ok(personality) =
-            SettingsPersonality::parse_local_yaml(AGENT_PERSONALITY_FILE.file_path, &yaml)
+            parse_personality_settings_content(AGENT_PERSONALITY_FILE.file_path, content)
     {
         push_command(
             commands,
@@ -109,8 +110,8 @@ fn append_role_update(
     metadata: &Option<Metadata>,
 ) {
     if resource_changed(resources, remote_resources, AGENT_ROLE_FILE.file_path)
-        && let Some(yaml) = resource_yaml(resources, AGENT_ROLE_FILE.file_path)
-        && let Ok(role) = SettingsRole::parse_local_yaml(AGENT_ROLE_FILE.file_path, &yaml)
+        && let Some(content) = resource_content(resources, AGENT_ROLE_FILE.file_path)
+        && let Ok(role) = parse_role_settings_content(AGENT_ROLE_FILE.file_path, content)
     {
         push_command(
             commands,
@@ -136,9 +137,12 @@ fn append_safety_filter_update(
         resources,
         remote_resources,
         AGENT_SAFETY_FILTERS_FILE.file_path,
-    ) && let Some(yaml) = resource_yaml(resources, AGENT_SAFETY_FILTERS_FILE.file_path)
-        && let Ok(safety_filters) =
-            GeneralSafetyFilters::parse_local_yaml(AGENT_SAFETY_FILTERS_FILE.file_path, &yaml)
+    ) && let Some(content) = resource_content(resources, AGENT_SAFETY_FILTERS_FILE.file_path)
+        && let Ok(safety_filters) = parse_safety_filters_content(
+            AGENT_SAFETY_FILTERS_FILE.file_path,
+            content,
+            SafetyFilterMode::General,
+        )
     {
         push_command(
             commands,
@@ -147,6 +151,10 @@ fn append_safety_filter_update(
             CommandPayload::UpdateContentFilterSettings(safety_filters.to_update_proto()),
         );
     }
+}
+
+fn resource_content<'a>(resources: &'a ResourceMap, path: &str) -> Option<&'a str> {
+    resources.get(path)?.payload.get("content")?.as_str()
 }
 
 pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static str, JsonValue)> {

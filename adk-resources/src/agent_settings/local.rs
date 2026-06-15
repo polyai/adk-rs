@@ -147,11 +147,29 @@ pub(crate) fn parse_personality_settings(
     deserialize_yaml::<PersonalitySettings>(path, yaml)?.validate(path)
 }
 
+pub(crate) fn parse_personality_settings_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<PersonalitySettings> {
+    let yaml = serde_yaml_ng::from_str::<YamlValue>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_personality_settings(path, &yaml)
+}
+
 pub(crate) fn parse_role_settings(
     path: &str,
     yaml: &YamlValue,
 ) -> ResourceParseResult<RoleSettings> {
     deserialize_yaml::<RoleSettings>(path, yaml)?.validate(path)
+}
+
+pub(crate) fn parse_role_settings_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<RoleSettings> {
+    let yaml = serde_yaml_ng::from_str::<YamlValue>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_role_settings(path, &yaml)
 }
 
 fn allowed_personality_adjective(adjective: &str) -> bool {

@@ -314,6 +314,16 @@ pub(crate) fn parse_safety_filters(
     SafetyFilters::try_from_raw(path, raw, mode)
 }
 
+pub(crate) fn parse_safety_filters_content(
+    path: &str,
+    content: &str,
+    mode: SafetyFilterMode,
+) -> ResourceParseResult<SafetyFilters> {
+    let yaml = serde_yaml_ng::from_str::<YamlValue>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_safety_filters(path, &yaml, mode)
+}
+
 fn validate_category(
     path: &str,
     category_name: &str,
