@@ -77,6 +77,27 @@ CI uses pinned standalone Astral binaries for parity-sensitive formatting behavi
 - `ruff 0.14.2`
 - `ty 0.0.35`
 
+## Runtime Stub Templates
+
+Rust ADK vendors Python helper stubs under `adk-core/python-gen-template` so
+`poly init` and `poly pull` can populate project `_gen/` packages without a
+runtime dependency on Python ADK.
+
+To regenerate those templates from a local `genai_lambda_runtime` checkout:
+
+```bash
+python3 scripts/sync_runtime_gen_templates.py \
+  --runtime-path ../genai_lambda_runtime/python/runtime
+```
+
+To check for drift without rewriting files:
+
+```bash
+python3 scripts/sync_runtime_gen_templates.py \
+  --runtime-path ../genai_lambda_runtime/python/runtime \
+  --check
+```
+
 ## Releases
 
 Binary releases are managed with `cargo-dist`. Tagged versions such as `v0.0.1`

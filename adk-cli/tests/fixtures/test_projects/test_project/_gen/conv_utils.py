@@ -2,46 +2,34 @@
 # flake8: noqa
 # ruff: noqa
 # type: ignore
-from typing import Any, Literal
+from __future__ import annotations
 
+from typing import Literal
+from .value_extraction_types import EntityConfig
+from .history import AgentResponse, UserInput
 from .value_extraction import Address
 
-__all__ = ["Utils"]
+__all__ = ["PromptLLMCallLimitError", "Utils"]
 
+class PromptLLMCallLimitError(Exception):
+    """Raised when prompt_llm is called more times than allowed in a turn."""
 
 class Utils:
     """Utility class for the conv object."""
 
-    def __init__(
-        self,
-        account_id: str,
-        project_id: str,
-        client_env: str,
-        conversation_id: str,
-        turn_index: int,
-        language: str,
-        history: list[Any],
-        transcript_alternatives: list[str],
-        vpc_enabled: bool = ...,
-        correlation_id: str | None = ...,
-    ) -> None: ...
-    def extract_address(
-        self,
-        addresses: list[Address] | None = ...,
-        country: str = ...,
-    ) -> Address: ...
-    def extract_city(
-        self,
-        city_spellings: list[str] | None = ...,
-        states: list[str] | None = ...,
-        country: str = ...,
-    ) -> Address: ...
-    def prompt_llm(
-        self,
-        prompt: str,
-        *,
-        show_history: bool = ...,
-        return_json: bool = ...,
-        model: Literal["gpt-4o", "claude-sonnet-4"] = ...,
-    ) -> str | dict: ...
-    def get_secret(self, secret_name: str) -> str | dict: ...
+    def __init__(self, account_id: str, project_id: str, client_env: str, conversation_id: str, turn_index: int, language: str, history: list[UserInput | AgentResponse], transcript_alternatives: list[str], vpc_enabled: bool = ..., correlation_id: str | None = ...): ...
+    def extract_address(self, addresses: list[Address] | None = ..., country: str = ...) -> Address:
+        """[Opt-in Feature] 🚧"""
+        ...
+    def extract_city(self, city_spellings: list[str] | None = ..., states: list[str] | None = ..., country: str = ...) -> Address:
+        """[Opt-in Feature] 🚧"""
+        ...
+    def prompt_llm(self, prompt: str, *, show_history: bool = ..., return_json: bool = ..., model: Literal['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5-chat', 'claude-sonnet-4', 'claude-3.5-haiku'] = ...) -> str | dict:
+        """[Opt-in Feature] 🚧"""
+        ...
+    def validate_entity(self, value: str, entity_config: EntityConfig) -> _EntityValidationResponse:
+        """Validate an entity value against its configuration."""
+        ...
+    def get_secret(self, secret_name: str) -> str | dict:
+        """Get secret value"""
+        ...

@@ -260,7 +260,7 @@ fn sync_python_gen_package<Fs: FileSystem>(
 ) -> Result<(), CoreError> {
     let gen_dir = root.join("_gen");
     fs.create_dir_all(&gen_dir)?;
-    for path in fs.read_dir(&gen_dir)? {
+    for path in recursive_file_paths(fs, &gen_dir)? {
         if path.extension().is_some_and(|extension| extension == "pyi") {
             fs.remove_file(&path)?;
             let rel = path
@@ -280,7 +280,7 @@ fn sync_python_gen_package<Fs: FileSystem>(
         {
             continue;
         }
-        fs.write_string(&path, content)?;
+        write_file(fs, &path, content)?;
         changes.push(FileChange::Write {
             path: format!("_gen/{file_name}"),
             content: (*content).to_string(),

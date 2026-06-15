@@ -7,54 +7,7 @@ use adk_resources::local_resource_content;
 use adk_types::{ProjectConfig, Resource, ResourceMap};
 use std::path::Path;
 
-pub(crate) const PYTHON_GEN_TEMPLATE_FILES: &[(&str, &str)] = &[
-    (
-        "__init__.py",
-        include_str!("../python-gen-template/__init__.py"),
-    ),
-    (
-        "attachment.py",
-        include_str!("../python-gen-template/attachment.py"),
-    ),
-    (
-        "conv_utils.py",
-        include_str!("../python-gen-template/conv_utils.py"),
-    ),
-    (
-        "conversation.py",
-        include_str!("../python-gen-template/conversation.py"),
-    ),
-    (
-        "decorators.py",
-        include_str!("../python-gen-template/decorators.py"),
-    ),
-    (
-        "external_events.py",
-        include_str!("../python-gen-template/external_events.py"),
-    ),
-    ("flow.py", include_str!("../python-gen-template/flow.py")),
-    (
-        "history.py",
-        include_str!("../python-gen-template/history.py"),
-    ),
-    (
-        "log_utils.py",
-        include_str!("../python-gen-template/log_utils.py"),
-    ),
-    (
-        "memory.py",
-        include_str!("../python-gen-template/memory.py"),
-    ),
-    (
-        "secret_vault.py",
-        include_str!("../python-gen-template/secret_vault.py"),
-    ),
-    ("sms.py", include_str!("../python-gen-template/sms.py")),
-    (
-        "value_extraction.py",
-        include_str!("../python-gen-template/value_extraction.py"),
-    ),
-];
+include!(concat!(env!("OUT_DIR"), "/python_gen_template_files.rs"));
 
 /// Local project workspace operations that do not require a platform client.
 pub struct ProjectWorkspace<Fs> {
@@ -107,13 +60,17 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
     pub fn write_python_gen_package(&self, project_root: &Path) -> Result<(), CoreError> {
         let gen_dir = project_root.join("_gen");
         self.fs.create_dir_all(&gen_dir)?;
-        for path in self.fs.read_dir(&gen_dir)? {
+        for path in recursive_file_paths(&self.fs, &gen_dir)? {
             if path.extension().is_some_and(|extension| extension == "pyi") {
                 self.fs.remove_file(&path)?;
             }
         }
         for (file_name, contents) in PYTHON_GEN_TEMPLATE_FILES {
-            self.fs.write_string(&gen_dir.join(file_name), contents)?;
+            let path = gen_dir.join(file_name);
+            if let Some(parent) = path.parent() {
+                self.fs.create_dir_all(parent)?;
+            }
+            self.fs.write_string(&path, contents)?;
         }
         Ok(())
     }

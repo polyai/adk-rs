@@ -75,20 +75,35 @@ fn make_temp_project_dir() -> PathBuf {
     dir
 }
 
-fn regular_file_names(dir: &std::path::Path) -> Vec<String> {
-    let mut names = fs::read_dir(dir)
-        .expect("read directory")
-        .map(|entry| {
-            entry
-                .expect("directory entry")
+fn regular_file_paths(dir: &std::path::Path) -> Vec<String> {
+    fn visit(root: &std::path::Path, dir: &std::path::Path, paths: &mut Vec<String>) {
+        for entry in fs::read_dir(dir).expect("read directory") {
+            let path = entry.expect("directory entry").path();
+            let name = path
                 .file_name()
+                .expect("file name")
                 .to_string_lossy()
-                .to_string()
-        })
-        .filter(|name| !name.starts_with('.'))
-        .collect::<Vec<_>>();
-    names.sort();
-    names
+                .to_string();
+            if name.starts_with('.') || name == "__pycache__" {
+                continue;
+            }
+            if path.is_dir() {
+                visit(root, &path, paths);
+            } else if path.is_file() {
+                paths.push(
+                    path.strip_prefix(root)
+                        .expect("relative path")
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                );
+            }
+        }
+    }
+
+    let mut paths = Vec::new();
+    visit(dir, dir, &mut paths);
+    paths.sort();
+    paths
 }
 
 fn write_status_snapshot_from_discovered(
@@ -634,8 +649,8 @@ fn init_python_gen_package_matches_synced_fixture_files() {
 
     let actual_gen = base.join("test-account").join("test-project").join("_gen");
     let expected_gen = fixture_full_project().join("_gen");
-    let actual_names = regular_file_names(&actual_gen);
-    let expected_names = regular_file_names(&expected_gen);
+    let actual_names = regular_file_paths(&actual_gen);
+    let expected_names = regular_file_paths(&expected_gen);
     assert_eq!(actual_names, expected_names);
 
     for file_name in expected_names {
