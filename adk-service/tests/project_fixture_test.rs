@@ -75,6 +75,11 @@ fn make_temp_project_dir() -> PathBuf {
     dir
 }
 
+#[cfg(unix)]
+fn symlink_path(target: &std::path::Path, link: &std::path::Path) {
+    std::os::unix::fs::symlink(target, link).expect("create symlink");
+}
+
 fn regular_file_paths(dir: &std::path::Path) -> Vec<String> {
     fn visit(root: &std::path::Path, dir: &std::path::Path, paths: &mut Vec<String>) {
         for entry in fs::read_dir(dir).expect("read directory") {
@@ -417,6 +422,65 @@ fn init_and_pull_write_python_compatible_gen_package() {
             .get("migration_flags")
             .and_then(serde_json::Value::as_array)
             .is_some()
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn pull_does_not_clean_stale_python_stubs_through_gen_child_symlink() {
+    let service = service_offline();
+    let base = make_temp_project_dir();
+    service
+        .init_project(
+            &base,
+            "us-1".to_string(),
+            "test-account".to_string(),
+            "test-project".to_string(),
+        )
+        .expect("init project");
+
+    let root = base.join("test-account").join("test-project");
+    let gen_dir = root.join("_gen");
+    let outside_dir = base.join("outside-gen");
+    fs::create_dir_all(&outside_dir).expect("outside dir");
+    let escaped_stub = outside_dir.join("escaped.pyi");
+    fs::write(&escaped_stub, "class Escaped: ...\n").expect("escaped stub");
+    symlink_path(&outside_dir, &gen_dir.join("outside"));
+
+    service.pull(&root, true).expect("pull project");
+
+    assert!(
+        escaped_stub.exists(),
+        "stale-stub cleanup must not follow child symlinks outside _gen"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn init_allows_gen_directory_symlink_and_cleans_stubs_inside_target() {
+    let service = service_offline();
+    let base = make_temp_project_dir();
+    let root = base.join("test-account").join("test-project");
+    let shared_gen = base.join("shared-gen");
+    fs::create_dir_all(&root).expect("project root");
+    fs::create_dir_all(&shared_gen).expect("shared gen");
+    let stale_stub = shared_gen.join("stale.pyi");
+    fs::write(&stale_stub, "class Stale: ...\n").expect("stale stub");
+    symlink_path(&shared_gen, &root.join("_gen"));
+
+    service
+        .init_project(
+            &base,
+            "us-1".to_string(),
+            "test-account".to_string(),
+            "test-project".to_string(),
+        )
+        .expect("init project");
+
+    assert!(shared_gen.join("__init__.py").exists());
+    assert!(
+        !stale_stub.exists(),
+        "stale-stub cleanup should still operate inside a symlinked _gen target"
     );
 }
 

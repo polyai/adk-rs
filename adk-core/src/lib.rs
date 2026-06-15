@@ -229,6 +229,16 @@ pub fn recursive_file_paths<Fs: FileSystem>(
     recursive_file_paths_with_ancestors(fs, root, &HashSet::new())
 }
 
+pub(crate) fn is_path_inside_canonical_root<Fs: FileSystem>(
+    fs: &Fs,
+    root: &Path,
+    path: &Path,
+) -> bool {
+    let canonical_root = fs.canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let canonical_path = fs.canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    canonical_path.starts_with(canonical_root)
+}
+
 fn recursive_file_paths_with_ancestors<Fs: FileSystem>(
     fs: &Fs,
     root: &Path,

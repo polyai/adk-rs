@@ -1,4 +1,7 @@
-use crate::{CoreError, flatten_discovered_paths, is_status_metadata_path, recursive_file_paths};
+use crate::{
+    CoreError, flatten_discovered_paths, is_path_inside_canonical_root, is_status_metadata_path,
+    recursive_file_paths,
+};
 use adk_io::{FileSystem, parse_multi_resource_path};
 use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
@@ -262,6 +265,12 @@ fn sync_python_gen_package<Fs: FileSystem>(
     fs.create_dir_all(&gen_dir)?;
     for path in recursive_file_paths(fs, &gen_dir)? {
         if path.extension().is_some_and(|extension| extension == "pyi") {
+            // `_gen` itself may be a symlink to a user-chosen generated package
+            // location, but child symlinks inside it must not let stale-stub
+            // cleanup delete files outside that resolved package root.
+            if !is_path_inside_canonical_root(fs, &gen_dir, &path) {
+                continue;
+            }
             fs.remove_file(&path)?;
             let rel = path
                 .strip_prefix(root)

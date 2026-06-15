@@ -1,6 +1,6 @@
 use crate::{
     CoreError, DiscoveredResourceChanges, DiscoveredResourcePaths, PROJECT_CONFIG_FILE,
-    is_generated_path, project_config_yaml, recursive_file_paths,
+    is_generated_path, is_path_inside_canonical_root, project_config_yaml, recursive_file_paths,
 };
 use adk_io::FileSystem;
 use adk_resources::local_resource_content;
@@ -62,6 +62,12 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
         self.fs.create_dir_all(&gen_dir)?;
         for path in recursive_file_paths(&self.fs, &gen_dir)? {
             if path.extension().is_some_and(|extension| extension == "pyi") {
+                // `_gen` itself may be a symlink to a user-chosen generated package
+                // location, but child symlinks inside it must not let stale-stub
+                // cleanup delete files outside that resolved package root.
+                if !is_path_inside_canonical_root(&self.fs, &gen_dir, &path) {
+                    continue;
+                }
                 self.fs.remove_file(&path)?;
             }
         }
