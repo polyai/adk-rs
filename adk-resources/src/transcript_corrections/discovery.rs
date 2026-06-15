@@ -1,10 +1,15 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
+use crate::transcript_corrections::local::{
+    TranscriptCorrectionsFile, parse_transcript_corrections_file,
+};
 use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/transcript_correction.py
+/// Validation parity: implemented against Python TranscriptCorrection.validate() and TranscriptCorrection.validate_collection().
 pub(crate) struct TranscriptCorrection;
 impl DiscoverResources for TranscriptCorrection {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
@@ -41,32 +46,117 @@ impl DiscoverResources for TranscriptCorrection {
         out
     }
 
-    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(yaml, errors);
+    fn append_local_resource_errors(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
-pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
+#[cfg(test)]
+pub(crate) fn append_parse_errors(yaml: &Value, errors: &mut Vec<String>) {
     let path = TranscriptCorrection::LOCAL_PATH
         .primary_path()
         .expect("local file path");
-    let Some(corrections) = yaml.get("corrections").and_then(Value::as_sequence) else {
-        return;
-    };
-    for correction in corrections {
-        let Some(raw_name) = correction.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-        let regular_expression_count = correction
-            .get("regular_expressions")
-            .and_then(Value::as_sequence)
-            .map(Vec::len)
-            .unwrap_or(0);
-        if regular_expression_count == 0 {
-            let name = clean_name(raw_name, false);
-            errors.push(format!(
-                "Validation error in {path}/corrections/{name}: At least one regular expression rule is required"
-            ));
-        }
+    <TranscriptCorrection as ParseLocalResource>::append_parse_errors(path, yaml, errors);
+}
+
+impl ParseLocalResource for TranscriptCorrection {
+    type Parsed = TranscriptCorrectionsFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_transcript_corrections_file(path, yaml)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_yaml_ng::from_str;
+
+    fn validation_errors(yaml: &str) -> Vec<String> {
+        let yaml = from_str::<Value>(yaml).expect("transcript correction YAML");
+        let mut errors = Vec::new();
+        append_parse_errors(&yaml, &mut errors);
+        errors
+    }
+
+    #[test]
+    fn validates_python_transcript_correction_rule_fields_and_duplicates() {
+        let missing_regex = validation_errors(
+            r#"
+corrections:
+  - name: Fix alpha
+    regular_expressions:
+      - regular_expression: ""
+"#,
+        );
+        assert!(
+            missing_regex
+                .iter()
+                .any(|error| error.contains("cannot be empty"))
+        );
+
+        let invalid_replacement_type = validation_errors(
+            r#"
+corrections:
+  - name: Fix alpha
+    regular_expressions:
+      - regular_expression: abc
+        replacement_type: typo
+"#,
+        );
+        assert!(
+            invalid_replacement_type
+                .iter()
+                .any(|error| error.contains("unknown variant `typo`"))
+        );
+
+        let empty_rules = validation_errors(
+            r#"
+corrections:
+  - name: Fix alpha
+    regular_expressions: []
+"#,
+        );
+        assert!(
+            empty_rules
+                .iter()
+                .any(|error| error.contains("At least one regular expression rule is required"))
+        );
+
+        let duplicates = validation_errors(
+            r#"
+corrections:
+  - name: Fix alpha
+    regular_expressions:
+      - regular_expression: abc
+  - name: Fix alpha
+    regular_expressions:
+      - regular_expression: def
+"#,
+        );
+        assert!(
+            duplicates
+                .iter()
+                .any(|error| error.contains("Duplicate transcript correction names: ['Fix alpha']"))
+        );
+
+        let missing_name = validation_errors(
+            r#"
+corrections:
+  - description: Missing name
+    regular_expressions:
+      - regular_expression: abc
+        replacement: def
+"#,
+        );
+        assert!(
+            missing_name
+                .iter()
+                .any(|error| error.contains("missing field `name`"))
+        );
     }
 }

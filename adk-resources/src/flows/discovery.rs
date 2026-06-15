@@ -17,6 +17,7 @@ fn step_file_stem(path: &Path) -> Option<String> {
 }
 
 // poly/resources/flows.py
+/// Validation parity: TODO(DEVP-319) audit Python FlowStep.validate().
 pub(crate) struct FlowStep;
 impl DiscoverResources for FlowStep {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::GlobSet(&["flows/*/steps/*.yaml"]);
@@ -60,6 +61,7 @@ impl DiscoverResources for FlowStep {
     }
 }
 
+/// Validation parity: TODO(DEVP-319) audit Python FunctionStep.validate().
 pub(crate) struct FunctionStep;
 impl DiscoverResources for FunctionStep {
     const LOCAL_PATH: LocalResourcePath =
@@ -90,6 +92,7 @@ impl DiscoverResources for FunctionStep {
     }
 }
 
+/// Validation parity: implemented against Python FlowConfig.validate().
 pub(crate) struct FlowConfig;
 impl DiscoverResources for FlowConfig {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::GlobSet(&["flows/*/flow_config.yaml"]);

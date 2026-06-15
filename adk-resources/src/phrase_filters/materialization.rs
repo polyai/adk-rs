@@ -1,36 +1,10 @@
 use crate::functions;
 use crate::materialization::to_yaml_string;
+use crate::phrase_filters::local::{PHRASE_FILTERS_FILE_PATH, PhraseFilterItem, PhraseFiltersFile};
 use crate::{CommandGenError, extract_entities_vec};
 use adk_types::ResourceMap;
-use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
-
-fn is_empty(value: &str) -> bool {
-    value.is_empty()
-}
-
-fn is_none_or_empty(value: &Option<String>) -> bool {
-    value.as_deref().is_none_or(str::is_empty)
-}
-
-#[derive(Serialize)]
-struct PhraseFilteringYaml {
-    phrase_filtering: Vec<PhraseFilterYaml>,
-}
-
-#[derive(Serialize)]
-struct PhraseFilterYaml {
-    name: String,
-    #[serde(skip_serializing_if = "is_empty")]
-    description: String,
-    regular_expressions: Vec<Value>,
-    say_phrase: bool,
-    #[serde(skip_serializing_if = "is_empty")]
-    language_code: String,
-    #[serde(skip_serializing_if = "is_none_or_empty")]
-    function: Option<String>,
-}
 
 pub(crate) fn insert_phrase_filter_resources(
     map: &mut ResourceMap,
@@ -63,45 +37,19 @@ pub(crate) fn insert_phrase_filter_resources(
                     .cloned()
                     .unwrap_or_else(|| function_id.to_string())
             });
-        phrase_filters.push(PhraseFilterYaml {
-            name: phrase_filter
-                .get("title")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            description: phrase_filter
-                .get("description")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            regular_expressions: phrase_filter
-                .get("regularExpressions")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-            say_phrase: phrase_filter
-                .get("sayPhrase")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-            language_code: phrase_filter
-                .get("languageCode")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            function,
-        });
+        if let Some(item) = local_phrase_filter_from_projection(&phrase_filter, function)? {
+            phrase_filters.push(item);
+        }
     }
     if phrase_filters.is_empty() {
         return Ok(());
     }
 
-    let content = to_yaml_string(&PhraseFilteringYaml {
-        phrase_filtering: phrase_filters,
-    })
-    .map_err(|error| CommandGenError::InvalidData(error.to_string()))?;
+    let content = to_yaml_string(&PhraseFiltersFile::new(phrase_filters))
+        .map_err(|error| CommandGenError::InvalidData(error.to_string()))?;
     crate::materialization::insert_content_resource(
         map,
-        "voice/response_control/phrase_filtering.yaml",
+        PHRASE_FILTERS_FILE_PATH,
         "phrase_filtering",
         "phrase_filtering",
         content,
@@ -110,4 +58,45 @@ pub(crate) fn insert_phrase_filter_resources(
 
 fn phrase_filter_entries_vec(projection: &Value) -> Vec<(String, Value)> {
     extract_entities_vec(projection, &["stopKeywords", "filters", "entities"])
+}
+
+fn local_phrase_filter_from_projection(
+    phrase_filter: &Value,
+    function: Option<String>,
+) -> Result<Option<PhraseFilterItem>, CommandGenError> {
+    let Some(name) = phrase_filter.get("title").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    PhraseFilterItem::from_projection(
+        name.to_string(),
+        json_str(phrase_filter, "description"),
+        phrase_filter
+            .get("regularExpressions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(ToString::to_string)
+            .collect(),
+        phrase_filter
+            .get("sayPhrase")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        json_str(phrase_filter, "languageCode"),
+        function,
+    )
+    .map(Some)
+    .map_err(invalid_phrase_filter_projection)
+}
+
+fn json_str(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn invalid_phrase_filter_projection(error: String) -> CommandGenError {
+    CommandGenError::InvalidData(format!("Invalid phrase filter projection: {error}"))
 }

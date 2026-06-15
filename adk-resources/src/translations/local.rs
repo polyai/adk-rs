@@ -1,0 +1,128 @@
+use crate::local_parse::{
+    NonEmptyString, ResourceParseErrors, ResourceParseResult, deserialize_yaml, duplicate_names,
+    non_empty_map,
+};
+use serde::{Deserialize, Serialize};
+use serde_yaml_ng::Value;
+use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Debug, Serialize)]
+pub(crate) struct TranslationsFile {
+    pub(crate) translations: Vec<TranslationItem>,
+}
+
+impl TranslationsFile {
+    pub(crate) fn new(translations: Vec<TranslationItem>) -> Self {
+        Self { translations }
+    }
+
+    fn try_from_raw(path: &str, raw: RawTranslationsFile) -> ResourceParseResult<Self> {
+        let mut errors = ResourceParseErrors::new();
+        for duplicate in duplicate_names(raw.translations.iter().map(|item| item.name.as_str())) {
+            errors.push(
+                &format!("{path}/translations/{duplicate}"),
+                format!("duplicate translation name '{duplicate}'."),
+            );
+        }
+        if errors.is_empty() {
+            Ok(Self {
+                translations: raw.translations,
+            })
+        } else {
+            Err(errors)
+        }
+    }
+}
+
+pub(crate) fn parse_translations_file(
+    path: &str,
+    yaml: &Value,
+) -> ResourceParseResult<TranslationsFile> {
+    let raw = deserialize_yaml::<RawTranslationsFile>(path, yaml)?;
+    TranslationsFile::try_from_raw(path, raw)
+}
+
+pub(crate) fn parse_translations_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<TranslationsFile> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_translations_file(path, &yaml)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct TranslationLanguageCoverageFile {
+    #[serde(default)]
+    pub(crate) translations: Vec<TranslationLanguageCoverageItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct TranslationLanguageCoverageItem {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    translations: BTreeMap<String, Option<String>>,
+}
+
+impl TranslationLanguageCoverageItem {
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn translated_languages(&self) -> BTreeSet<String> {
+        self.translations
+            .iter()
+            .filter_map(|(code, value)| value.as_ref().map(|_| code.clone()))
+            .collect()
+    }
+}
+
+pub(crate) fn parse_translation_language_coverage_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<TranslationLanguageCoverageFile> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    deserialize_yaml(path, &yaml)
+}
+
+#[derive(Debug, Deserialize)]
+struct RawTranslationsFile {
+    #[serde(default)]
+    translations: Vec<TranslationItem>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct TranslationItem {
+    name: NonEmptyString,
+    #[serde(deserialize_with = "translation_values")]
+    translations: BTreeMap<String, String>,
+}
+
+impl TranslationItem {
+    pub(crate) fn from_projection(
+        name: String,
+        translations: BTreeMap<String, String>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            name: NonEmptyString::new(name)?,
+            translations,
+        })
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub(crate) fn translations(&self) -> &BTreeMap<String, String> {
+        &self.translations
+    }
+}
+
+fn translation_values<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    non_empty_map(deserializer, "Translations cannot be empty.")
+}

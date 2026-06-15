@@ -1,10 +1,12 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
+use crate::languages::local::{LanguagesFile, parse_languages_file};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_file, read_yaml_mapping};
-use crate::resource_utils::{is_valid_language_code, rel_under_root};
+use crate::resource_utils::rel_under_root;
 use serde_yaml_ng::Value;
-use std::collections::BTreeSet;
 use std::path::Path;
 
+/// Validation parity: implemented against Python DefaultLanguage.validate().
 pub(crate) struct DefaultLanguage;
 impl DiscoverResources for DefaultLanguage {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
@@ -29,11 +31,20 @@ impl DiscoverResources for DefaultLanguage {
         }
     }
 
-    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_languages_yaml(yaml, errors);
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(path, yaml, errors);
     }
 }
 
+impl ParseLocalResource for DefaultLanguage {
+    type Parsed = LanguagesFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_languages_file(path, yaml)
+    }
+}
+
+/// Validation parity: implemented against Python AdditionalLanguage.validate().
 pub(crate) struct AdditionalLanguage;
 impl DiscoverResources for AdditionalLanguage {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
@@ -62,78 +73,5 @@ impl DiscoverResources for AdditionalLanguage {
                 )
             })
             .collect()
-    }
-}
-
-pub(crate) fn language_codes_from_yaml(yaml: &Value) -> (Option<String>, Vec<String>) {
-    let default_language = yaml
-        .get("default_language")
-        .and_then(Value::as_str)
-        .filter(|code| !code.is_empty())
-        .map(ToString::to_string);
-    let additional_languages = yaml
-        .get("additional_languages")
-        .and_then(Value::as_sequence)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter(|code| !code.is_empty())
-        .map(ToString::to_string)
-        .collect();
-    (default_language, additional_languages)
-}
-
-fn validate_languages_yaml(yaml: &Value, errors: &mut Vec<String>) {
-    let path = crate::specs::LANGUAGES_FILE.file_path;
-    let (default_language, additional_languages) = language_codes_from_yaml(yaml);
-    if let Some(default_language) = default_language.as_deref() {
-        validate_language_code(
-            path,
-            "default_language",
-            default_language,
-            "Invalid language code",
-            errors,
-        );
-    }
-
-    let mut seen = BTreeSet::new();
-    let mut duplicates = BTreeSet::new();
-    for code in &additional_languages {
-        validate_language_code(
-            path,
-            &format!("additional_languages/{code}"),
-            code,
-            "Invalid language code",
-            errors,
-        );
-        if !seen.insert(code.clone()) {
-            duplicates.insert(code.clone());
-        }
-    }
-    for duplicate in duplicates {
-        errors.push(format!(
-            "Validation error in {path}/additional_languages/{duplicate}: Duplicate language code: '{duplicate}'."
-        ));
-    }
-    if let Some(default_language) = default_language
-        && additional_languages.contains(&default_language)
-    {
-        errors.push(format!(
-            "Validation error in {path}/default_language: Default language '{default_language}' also appears in additional languages."
-        ));
-    }
-}
-
-fn validate_language_code(
-    path: &str,
-    logical_key: &str,
-    code: &str,
-    label: &str,
-    errors: &mut Vec<String>,
-) {
-    if !is_valid_language_code(code) {
-        errors.push(format!(
-            "Validation error in {path}/{logical_key}: {label}: '{code}'. Must be a valid BCP 47 language tag."
-        ));
     }
 }

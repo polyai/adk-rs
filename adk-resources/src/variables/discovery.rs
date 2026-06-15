@@ -4,6 +4,7 @@ use crate::resource_utils::{extract_variable_names_from_code, join_under_root, r
 use std::path::{Path, PathBuf};
 
 // poly/resources/variable.py
+/// Validation parity: implemented against Python Variable.validate() no-op.
 pub(crate) struct Variable;
 impl DiscoverResources for Variable {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::Inferred {

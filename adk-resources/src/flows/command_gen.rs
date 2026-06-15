@@ -1,27 +1,20 @@
 //! Push command generation for flow config, advanced/default steps, and function steps.
 
-mod models;
-mod parsing;
-mod summary;
-
 #[cfg(test)]
 #[path = "command_gen_tests.rs"]
 mod command_gen_tests;
 
-pub(crate) use summary::payload_json_summary;
-
-use self::models::{
+use super::local::{
     FlowStepType, LocalCondition, LocalFlow, LocalFlowStep, LocalFunctionStep,
-    LocalTransitionFunction, RemoteFlow,
+    LocalTransitionFunction, default_dtmf_config, default_step_position, local_flows,
+    ordered_flow_steps, ordered_function_steps, ordered_transition_functions,
 };
-use self::parsing::{
-    default_dtmf_config, default_step_position, function_step_latency_control, local_flows,
-    ordered_flow_steps, ordered_function_steps, ordered_transition_functions, remote_flows_by_name,
-};
+use super::projection::{ProjectionFlow, projection_flows_by_name};
 use crate::functions::{
-    function_errors_update_from_projection, function_update_latency_control,
-    infer_function_parameters, latency_control_from_projection, local_latency_control_from_code,
-    python_function_code_equivalent, python_function_symbol, variable_reference_ids_from_code,
+    function_create_latency_control, function_errors_update_from_projection,
+    function_update_latency_control, infer_function_parameters, latency_control_from_projection,
+    local_latency_control_from_code, python_function_code_equivalent, python_function_symbol,
+    variable_reference_ids_from_code,
 };
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
@@ -43,6 +36,7 @@ use adk_protobuf::flows::{
     UpdateFunctionStep, UpdateFunctionStepDefinition, UpdateNoCodeCondition, UpdateNoCodeStep,
     create_no_code_condition, create_step, update_no_code_condition, update_step,
 };
+use adk_protobuf::functions::FunctionCreateLatencyControl;
 use adk_types::ResourceMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -53,7 +47,7 @@ pub(crate) fn flow_resource_command_groups(
     metadata: &Option<Metadata>,
 ) -> Result<CommandGroups, CommandGenError> {
     let mut groups = CommandGroups::default();
-    let remote_flows = remote_flows_by_name(projection);
+    let remote_flows = projection_flows_by_name(projection);
     let flow_import_path_maps = flow_import_path_maps_from_projection(projection);
     let prompt_reference_maps = prompt_reference_maps_from_projection(projection);
     let local_flows = local_flows(resources, &prompt_reference_maps, &flow_import_path_maps)?;
@@ -287,6 +281,14 @@ fn temporary_function_start_step_id(step: &LocalFunctionStep) -> String {
     )
 }
 
+fn function_step_latency_control(
+    step: &LocalFunctionStep,
+    known_function: Option<&Value>,
+) -> FunctionCreateLatencyControl {
+    let local = local_latency_control_from_code(&step.content, known_function);
+    function_create_latency_control(&local).unwrap_or_default()
+}
+
 fn transition_function_create_payload(
     function: &LocalTransitionFunction,
     id_override: Option<String>,
@@ -315,7 +317,7 @@ fn transition_function_create_payload(
 fn update_flow_commands(
     groups: &mut CommandGroups,
     flow: &LocalFlow,
-    remote: &RemoteFlow,
+    remote: &ProjectionFlow,
     metadata: &Option<Metadata>,
 ) {
     let ordered_steps = ordered_flow_steps(flow);
@@ -695,7 +697,7 @@ fn update_flow_commands(
     }
 }
 
-fn local_start_step_id(flow: &LocalFlow, remote: &RemoteFlow) -> String {
+fn local_start_step_id(flow: &LocalFlow, remote: &ProjectionFlow) -> String {
     if flow.start_step == remote.start_step_id {
         return flow.start_step.clone();
     }
@@ -718,7 +720,7 @@ fn local_start_step_id(flow: &LocalFlow, remote: &RemoteFlow) -> String {
         .unwrap_or_else(|| flow.start_step.clone())
 }
 
-fn next_function_step_position(remote: &RemoteFlow) -> StepPosition {
+fn next_function_step_position(remote: &ProjectionFlow) -> StepPosition {
     let max_x = remote
         .steps_by_name
         .values()

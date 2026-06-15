@@ -1,14 +1,25 @@
 use super::*;
 use crate::build_push_commands;
+use crate::entities::local::{ENTITY_ITEM_PREFIX, parse_entities_content};
 use crate::ids::stable_resource_id;
 use crate::test_support::local_resource;
 
-fn yaml(value: &str) -> YamlValue {
-    serde_yaml_ng::from_str(value).expect("valid entity config yaml")
+fn typed_entity(entity_type: &str, config: &str) -> crate::entities::local::EntityItem {
+    let config = config
+        .lines()
+        .map(|line| format!("  {line}\n"))
+        .collect::<String>();
+    let content = format!(
+        "name: Test Entity\ndescription: test entity\nentity_type: {entity_type}\nconfig:\n{config}"
+    );
+    parse_entities_content(&format!("{ENTITY_ITEM_PREFIX}Test Entity"), &content)
+        .expect("typed entity item")
+        .pop()
+        .expect("entity item")
 }
 
 #[test]
-fn entity_config_builders_and_json_cover_supported_types() {
+fn typed_entity_config_conversions_cover_supported_types() {
     let cases = [
         (
             "numeric",
@@ -46,24 +57,29 @@ fn entity_config_builders_and_json_cover_supported_types() {
     ];
 
     for (entity_type, source, expected) in cases {
-        let config = yaml(source);
-        let create = build_entity_create_config(entity_type, Some(&config));
-        let update = build_entity_update_config(entity_type, Some(&config));
+        let entity = typed_entity(entity_type, source);
+        let create = entity.create_config();
+        let update = entity.update_config();
 
         assert_eq!(
-            entity_create_config_json(create.as_ref()),
+            entity_create_config_json(Some(&create)),
             Some((entity_type, expected.clone())),
             "create config json for {entity_type}"
         );
         assert_eq!(
-            entity_update_config_json(update.as_ref()),
+            entity_update_config_json(Some(&update)),
             Some((entity_type, expected)),
             "update config json for {entity_type}"
         );
     }
 
-    assert!(build_entity_create_config("unknown", None).is_none());
-    assert!(build_entity_update_config("unknown", None).is_none());
+    assert!(
+        parse_entities_content(
+            &format!("{ENTITY_ITEM_PREFIX}Unknown"),
+            "name: Unknown\nentity_type: unknown\nconfig: {}\n",
+        )
+        .is_err()
+    );
     assert!(entity_create_config_json(None).is_none());
     assert!(entity_update_config_json(None).is_none());
 }
@@ -213,4 +229,37 @@ fn entity_create_populates_flow_reverse_references() {
             .get(&confirm_step_id),
         Some(&true)
     );
+}
+
+#[test]
+fn entity_command_generation_fails_closed_when_local_aggregate_parse_fails() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "config/entities.yaml".to_string(),
+        local_resource(
+            "config/entities.yaml",
+            "entities",
+            "entities:\n  - name: customer_id\n    entity_type: free_text\n    config: {}\n  - name: customer_id\n    entity_type: free_text\n    config: {}\n",
+        ),
+    );
+    let projection = serde_json::json!({
+        "entities": {
+            "entities": {
+                "entities": {
+                    "ent-customer-id": {
+                        "name": "customer_id",
+                        "type": "FreeText",
+                        "description": "Customer id",
+                        "active": true
+                    }
+                }
+            }
+        }
+    });
+
+    let groups = entity_command_groups(&resources, &projection, &None);
+    assert!(groups.deletes.is_empty());
+    assert!(groups.creates.is_empty());
+    assert!(groups.updates.is_empty());
+    assert!(groups.post_updates.is_empty());
 }

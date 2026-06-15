@@ -1,10 +1,13 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
+use crate::keyphrase_boosting::local::{KeyphraseBoostingFile, parse_keyphrase_boosting_file};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/keyphrase_boosting.py
+/// Validation parity: implemented against Python KeyphraseBoosting.validate().
 pub(crate) struct KeyphraseBoosting;
 impl DiscoverResources for KeyphraseBoosting {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
@@ -39,5 +42,84 @@ impl DiscoverResources for KeyphraseBoosting {
             ));
         }
         out
+    }
+
+    fn append_local_resource_errors(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn append_parse_errors(yaml: &Value, errors: &mut Vec<String>) {
+    let path = KeyphraseBoosting::LOCAL_PATH
+        .primary_path()
+        .expect("local file path");
+    <KeyphraseBoosting as ParseLocalResource>::append_parse_errors(path, yaml, errors);
+}
+
+impl ParseLocalResource for KeyphraseBoosting {
+    type Parsed = KeyphraseBoostingFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_keyphrase_boosting_file(path, yaml)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_yaml_ng::from_str;
+
+    fn validation_errors(yaml: &str) -> Vec<String> {
+        let yaml = from_str::<Value>(yaml).expect("keyphrase YAML");
+        let mut errors = Vec::new();
+        append_parse_errors(&yaml, &mut errors);
+        errors
+    }
+
+    #[test]
+    fn validates_python_keyphrase_required_and_level_rules() {
+        let missing_keyphrase = validation_errors(
+            r#"
+keyphrases:
+  - keyphrase: ""
+    level: boosted
+"#,
+        );
+
+        assert!(
+            missing_keyphrase
+                .iter()
+                .any(|error| error.contains("cannot be empty"))
+        );
+
+        let bad_level = validation_errors(
+            r#"
+keyphrases:
+  - keyphrase: Open sesame
+    level: loud
+"#,
+        );
+        assert!(
+            bad_level
+                .iter()
+                .any(|error| error.contains("Invalid level 'loud'"))
+        );
+
+        let uppercase_level = validation_errors(
+            r#"
+keyphrases:
+  - keyphrase: Open sesame
+    level: BOOSTED
+"#,
+        );
+        assert!(
+            uppercase_level.is_empty(),
+            "uppercase level should follow Python lower-casing behavior: {uppercase_level:?}"
+        );
     }
 }

@@ -27,7 +27,7 @@ pub fn validate_local_resources(
                     return Err(DomainError::InvalidData(resource_read_error(root, path)).into());
                 }
             };
-            adk_resources::validate_semantic_resource(path, &yaml, &mut errors);
+            adk_resources::append_semantic_resource_errors(path, &yaml, &mut errors);
         } else if path.ends_with(".json")
             && let Err(e) = serde_json::from_str::<JsonValue>(content)
         {

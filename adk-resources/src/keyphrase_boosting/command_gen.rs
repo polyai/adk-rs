@@ -1,7 +1,10 @@
 use crate::ids::stable_resource_id;
-use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
+use crate::keyphrase_boosting::local::{
+    KeyphraseItem as LocalKeyphraseItem, parse_keyphrase_boosting_content,
+};
+use crate::push_command;
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str};
 use crate::specs::KEYPHRASE_BOOSTING;
-use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::keyphrase_boosting::{
@@ -10,7 +13,6 @@ use adk_protobuf::keyphrase_boosting::{
 };
 use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,10 +27,16 @@ pub(crate) fn keyphrase_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, KEYPHRASE_BOOSTING.file.file_path) else {
+    let Some(content) = resources
+        .get(KEYPHRASE_BOOSTING.file.file_path)
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(JsonValue::as_str)
+    else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_keyphrase_items(&yaml);
+    let Some(local_items) = local_keyphrase_items(content) else {
+        return SimpleLifecycleCommands::default();
+    };
     let remote_items = remote_keyphrase_items(projection);
     let local_keyphrases = local_items
         .iter()
@@ -87,21 +95,17 @@ pub(crate) fn keyphrase_lifecycle_commands(
     commands
 }
 
-fn local_keyphrase_items(yaml: &YamlValue) -> Vec<KeyphraseItem> {
-    yaml_sequence(yaml, KEYPHRASE_BOOSTING.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let keyphrase = yaml_str(item, "keyphrase");
-            if keyphrase.is_empty() {
-                return None;
-            }
-            Some(KeyphraseItem {
-                id: String::new(),
-                keyphrase,
-                level: yaml_str(item, "level"),
-            })
-        })
-        .collect()
+fn local_keyphrase_items(content: &str) -> Option<Vec<KeyphraseItem>> {
+    let file = parse_keyphrase_boosting_content(KEYPHRASE_BOOSTING.file.file_path, content).ok()?;
+    Some(file.keyphrases.iter().map(local_keyphrase_item).collect())
+}
+
+fn local_keyphrase_item(item: &LocalKeyphraseItem) -> KeyphraseItem {
+    KeyphraseItem {
+        id: String::new(),
+        keyphrase: item.keyphrase().to_string(),
+        level: item.level().to_string(),
+    }
 }
 
 fn remote_keyphrase_items(projection: &JsonValue) -> Vec<KeyphraseItem> {
@@ -120,4 +124,78 @@ fn remote_keyphrase_items(projection: &JsonValue) -> Vec<KeyphraseItem> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_types::{Resource, ResourceMap};
+
+    fn keyphrase_resource(content: &str) -> ResourceMap {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            KEYPHRASE_BOOSTING.file.file_path.to_string(),
+            Resource {
+                resource_id: KEYPHRASE_BOOSTING.file.resource_id.to_string(),
+                name: KEYPHRASE_BOOSTING.file.name.to_string(),
+                file_path: KEYPHRASE_BOOSTING.file.file_path.to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+        resources
+    }
+
+    fn projection_with_remote_keyphrase() -> JsonValue {
+        serde_json::json!({
+            "keyphraseBoosting": {
+                "keyphrases": {
+                    "ids": ["kp-greeting"],
+                    "entities": {
+                        "kp-greeting": {
+                            "id": "kp-greeting",
+                            "keyphrase": "greeting",
+                            "level": "boosted"
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn local_keyphrase_items_use_typed_python_defaults() {
+        let content = r#"
+keyphrases:
+  - keyphrase: Defaulted
+  - keyphrase: Loud
+    level: BOOSTED
+"#;
+
+        let items = local_keyphrase_items(content).expect("keyphrase file should parse");
+
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| (item.keyphrase.as_str(), item.level.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("Defaulted", "default"), ("Loud", "boosted")]
+        );
+    }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_keyphrases() {
+        let content = r#"
+keyphrases:
+  - keyphrase: greeting
+    level: not-a-level
+"#;
+        let resources = keyphrase_resource(content);
+        let projection = projection_with_remote_keyphrase();
+
+        let commands = keyphrase_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.deletes.is_empty());
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
+    }
 }

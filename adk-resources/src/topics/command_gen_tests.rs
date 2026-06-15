@@ -37,6 +37,194 @@ fn builds_create_topic_command_when_remote_missing() {
 }
 
 #[test]
+fn create_topic_parses_typed_local_yaml_and_derives_references() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "topics/support.yaml".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "support".to_string(),
+            file_path: "topics/support.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "name: support\nenabled: true\nactions: \"Call {{fn:start_verification}} and send {{twilio_sms:welcome}}\"\ncontent: \"Use {{vrbl:customer_name}} and {{tn:greeting}}\"\nexample_queries:\n  - help\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "functions": {
+            "functions": {
+                "entities": {
+                    "FUNCTION-start-verification": {
+                        "name": "start_verification"
+                    }
+                }
+            }
+        },
+        "sms": {
+            "templates": {
+                "entities": {
+                    "SMS-welcome": {
+                        "name": "welcome",
+                        "active": true
+                    }
+                }
+            }
+        },
+        "variables": {
+            "variables": {
+                "entities": {
+                    "VARIABLE-customer-name": {
+                        "name": "customer_name"
+                    }
+                }
+            }
+        },
+        "translations": {
+            "translations": {
+                "entities": {
+                    "TRANSLATION-greeting": {
+                        "translationKey": "greeting"
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+    let create = commands
+        .iter()
+        .find_map(|command| match &command.payload {
+            Some(CommandPayload::CreateTopic(create)) => Some(create),
+            _ => None,
+        })
+        .expect("create topic command");
+
+    assert_eq!(
+        create.actions,
+        "Call {{fn:FUNCTION-start-verification}} and send {{twilio_sms:SMS-welcome}}"
+    );
+    assert_eq!(
+        create.content,
+        "Use {{vrbl:VARIABLE-customer-name}} and {{tn:TRANSLATION-greeting}}"
+    );
+    let references = create.references.as_ref().expect("topic references");
+    assert!(
+        references
+            .global_functions
+            .get("FUNCTION-start-verification")
+            .copied()
+            .unwrap_or(false)
+    );
+    assert!(references.sms.get("SMS-welcome").copied().unwrap_or(false));
+    assert!(
+        references
+            .variables
+            .get("VARIABLE-customer-name")
+            .copied()
+            .unwrap_or(false)
+    );
+    assert!(
+        references
+            .translations
+            .get("TRANSLATION-greeting")
+            .copied()
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn topic_command_generation_fails_closed_when_local_topic_parse_fails() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "topics/support.yaml".to_string(),
+        Resource {
+            resource_id: "topic-support".to_string(),
+            name: "support".to_string(),
+            file_path: "topics/support.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "name: support\nenabled: true\nactions:\n  - not a string\ncontent: hello\nexample_queries: []\n"
+            }),
+        },
+    );
+    resources.insert(
+        "topics/good.yaml".to_string(),
+        Resource {
+            resource_id: "local-good".to_string(),
+            name: "good".to_string(),
+            file_path: "topics/good.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "name: good\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "knowledgeBase": {
+            "topics": {
+                "entities": {
+                    "topic-support": {
+                        "name": "support",
+                        "isActive": true,
+                        "actions": "",
+                        "content": "hello",
+                        "exampleQueries": []
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+    assert!(
+        commands
+            .iter()
+            .any(|command| command.r#type == "create_topic"),
+        "parseable local topic YAML should still queue creates: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        !commands
+            .iter()
+            .any(|command| command.r#type == "delete_topic"),
+        "invalid local topic YAML should suppress topic deletes: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn create_topic_payload_parsing_does_not_enforce_validation_rules() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "topics/topic_1.yaml".to_string(),
+        Resource {
+            resource_id: "local".to_string(),
+            name: "topic_1".to_string(),
+            file_path: "topics/topic_1.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "# <<<<<<< ours\nname: Ours\nenabled: true\nactions: \"\"\ncontent: \"hello\"\nexample_queries: []\n# =======\n# >>>>>>> theirs\n"
+            }),
+        },
+    );
+
+    let commands = build_push_commands(&resources, &serde_json::json!({}));
+    let create = commands
+        .iter()
+        .find_map(|command| match &command.payload {
+            Some(CommandPayload::CreateTopic(create)) => Some(create),
+            _ => None,
+        })
+        .expect("create topic command");
+
+    assert_eq!(create.name, "Ours");
+    assert_eq!(create.content, "hello");
+}
+
+#[test]
 fn create_topic_uses_local_resource_id_before_synthetic_fallback() {
     let mut resources = ResourceMap::new();
     resources.insert(

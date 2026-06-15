@@ -1,10 +1,10 @@
 //! Push commands for knowledge-base topic resources.
 
 use serde_json::Value as JsonValue;
-use serde_yaml_ng::{Value as YamlValue, from_str};
 
 use crate::ids::stable_resource_id;
 use crate::push_commands::CommandGroups;
+use crate::topics::local::{LocalTopic, deserialize_topic_content, topic_references};
 use crate::{
     extract_entities_map, is_synthetic_local_resource_id, prompt_reference_maps_from_projection,
     push_command, replace_resource_names_with_ids,
@@ -12,7 +12,7 @@ use crate::{
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::knowledge_base::{
-    ExampleQueries, KnowledgeBaseCreateTopic, KnowledgeBaseDeleteTopic, KnowledgeBaseUpdateTopic,
+    KnowledgeBaseCreateTopic, KnowledgeBaseDeleteTopic, KnowledgeBaseUpdateTopic,
 };
 use adk_types::ResourceMap;
 use std::collections::{HashMap, HashSet};
@@ -50,70 +50,23 @@ pub(crate) fn topic_resource_command_groups(
             )
         })
         .collect::<HashMap<_, _>>();
+    let local_topics = local_topic_resources(resources);
     let mut local_topic_names = HashSet::new();
     let mut groups = CommandGroups::default();
 
-    for resource in resources.values() {
-        let path = resource.file_path.as_str();
-        if !path.starts_with("topics/") || !path.ends_with(".yaml") {
-            continue;
-        }
-        let content = resource
-            .payload
-            .get("content")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default();
-        let Ok(yaml) = from_str::<YamlValue>(content) else {
-            continue;
-        };
-        let name = yaml
-            .get("name")
-            .and_then(YamlValue::as_str)
-            .unwrap_or(&resource.name)
-            .to_string();
+    for local in &local_topics.topics {
+        let name = local.topic.name().to_string();
         local_topic_names.insert(name.clone());
         let remote_topic = remote_topics.get(&name);
-        let id = remote_topic
-            .map(|(id, _)| id.clone())
-            .or_else(|| {
-                (!is_synthetic_local_resource_id(&resource.resource_id))
-                    .then_some(resource.resource_id.clone())
-            })
-            .unwrap_or_else(|| stable_resource_id("TOPICS", &name, path));
-        let actions = yaml
-            .get("actions")
-            .and_then(YamlValue::as_str)
-            .map(|value| replace_resource_names_with_ids(value, &prompt_reference_maps, None))
-            .unwrap_or_default();
-        let text = yaml
-            .get("content")
-            .and_then(YamlValue::as_str)
-            .map(|value| replace_resource_names_with_ids(value, &prompt_reference_maps, None))
-            .unwrap_or_default();
-        let enabled = yaml
-            .get("enabled")
-            .and_then(YamlValue::as_bool)
-            .unwrap_or(true);
-        let example_queries = yaml
-            .get("example_queries")
-            .and_then(YamlValue::as_sequence)
-            .map(|seq| {
-                seq.iter()
-                    .filter_map(YamlValue::as_str)
-                    .map(ToString::to_string)
-                    .collect::<Vec<String>>()
-            })
-            .unwrap_or_default();
+        let id = local_topic_id(&local.resource_id, &local.path, &name, remote_topic);
+        let actions =
+            replace_resource_names_with_ids(local.topic.actions(), &prompt_reference_maps, None);
+        let text =
+            replace_resource_names_with_ids(local.topic.content(), &prompt_reference_maps, None);
+        let references = topic_references(&actions, &text);
 
         if let Some((_, remote_topic)) = remote_topic {
-            if topic_yaml_matches_projection(
-                &name,
-                enabled,
-                &actions,
-                &text,
-                &example_queries,
-                remote_topic,
-            ) {
+            if topic_yaml_matches_projection(&local.topic, &actions, &text, remote_topic) {
                 continue;
             }
             push_command(
@@ -125,11 +78,9 @@ pub(crate) fn topic_resource_command_groups(
                     name: Some(name.clone()),
                     content: Some(text),
                     actions: Some(actions),
-                    example_queries: Some(ExampleQueries {
-                        queries: example_queries,
-                    }),
-                    references: None,
-                    is_active: Some(enabled),
+                    example_queries: Some(local.topic.example_queries_proto()),
+                    references: Some(references),
+                    is_active: Some(local.topic.enabled()),
                     variant_id: None,
                 }),
             );
@@ -143,29 +94,84 @@ pub(crate) fn topic_resource_command_groups(
                     name: name.clone(),
                     content: text,
                     actions,
-                    example_queries: Some(ExampleQueries {
-                        queries: example_queries,
-                    }),
-                    references: None,
-                    is_active: Some(enabled),
+                    example_queries: Some(local.topic.example_queries_proto()),
+                    references: Some(references),
+                    is_active: Some(local.topic.enabled()),
                     variant_id: None,
                 }),
             );
         }
     }
 
-    for (name, (id, _)) in remote_topics {
-        if !local_topic_names.contains(&name) {
-            push_command(
-                &mut groups.deletes,
-                metadata,
-                "delete_topic",
-                CommandPayload::DeleteTopic(KnowledgeBaseDeleteTopic { id }),
-            );
+    if !local_topics.had_parse_error {
+        for (name, (id, _)) in remote_topics {
+            if !local_topic_names.contains(&name) {
+                push_command(
+                    &mut groups.deletes,
+                    metadata,
+                    "delete_topic",
+                    CommandPayload::DeleteTopic(KnowledgeBaseDeleteTopic { id }),
+                );
+            }
         }
     }
 
     groups
+}
+
+struct LocalTopicResources {
+    topics: Vec<LocalTopicResource>,
+    had_parse_error: bool,
+}
+
+struct LocalTopicResource {
+    path: String,
+    resource_id: String,
+    topic: LocalTopic,
+}
+
+fn local_topic_resources(resources: &ResourceMap) -> LocalTopicResources {
+    let mut topics = Vec::new();
+    let mut had_parse_error = false;
+    for resource in resources.values() {
+        let path = resource.file_path.as_str();
+        let content = resource
+            .payload
+            .get("content")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default();
+        let topic = match deserialize_topic_content(path, content) {
+            Ok(Some(topic)) => topic,
+            Ok(None) => continue,
+            Err(_) => {
+                had_parse_error = true;
+                continue;
+            }
+        };
+        topics.push(LocalTopicResource {
+            path: path.to_string(),
+            resource_id: resource.resource_id.clone(),
+            topic,
+        });
+    }
+    LocalTopicResources {
+        topics,
+        had_parse_error,
+    }
+}
+
+fn local_topic_id(
+    resource_id: &str,
+    path: &str,
+    name: &str,
+    remote_topic: Option<&(String, JsonValue)>,
+) -> String {
+    remote_topic
+        .map(|(id, _)| id.clone())
+        .or_else(|| {
+            (!is_synthetic_local_resource_id(resource_id)).then_some(resource_id.to_string())
+        })
+        .unwrap_or_else(|| stable_resource_id("TOPICS", name, path))
 }
 
 pub(crate) fn topic_entries(projection: &JsonValue) -> HashMap<String, JsonValue> {
@@ -173,17 +179,15 @@ pub(crate) fn topic_entries(projection: &JsonValue) -> HashMap<String, JsonValue
 }
 
 fn topic_yaml_matches_projection(
-    name: &str,
-    enabled: bool,
+    local: &LocalTopic,
     actions: &str,
     content: &str,
-    example_queries: &[String],
     topic: &JsonValue,
 ) -> bool {
     let remote_name = topic
         .get("name")
         .and_then(JsonValue::as_str)
-        .unwrap_or(name);
+        .unwrap_or(local.name());
     let remote_enabled = topic
         .get("isActive")
         .and_then(JsonValue::as_bool)
@@ -209,9 +213,9 @@ fn topic_yaml_matches_projection(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    remote_name == name
-        && remote_enabled == enabled
+    remote_name == local.name()
+        && remote_enabled == local.enabled()
         && remote_actions == actions
         && remote_content == content
-        && remote_queries == example_queries
+        && remote_queries == local.example_queries()
 }

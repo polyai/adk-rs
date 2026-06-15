@@ -1,7 +1,12 @@
 use crate::ids::stable_resource_id;
-use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence};
+use crate::push_command;
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str};
 use crate::specs::TRANSCRIPT_CORRECTIONS;
-use crate::{push_command, yaml_str};
+use crate::transcript_corrections::local::{
+    RegularExpressionRule as LocalRegularExpressionRule,
+    TranscriptCorrectionItem as LocalTranscriptCorrectionItem,
+    deserialize_transcript_corrections_content,
+};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::transcript_corrections::{
@@ -11,7 +16,6 @@ use adk_protobuf::transcript_corrections::{
 };
 use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue, json};
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::HashSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,10 +31,16 @@ pub(crate) fn transcript_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, TRANSCRIPT_CORRECTIONS.file.file_path) else {
+    let Some(content) = resources
+        .get(TRANSCRIPT_CORRECTIONS.file.file_path)
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(JsonValue::as_str)
+    else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_transcript_items(&yaml);
+    let Some(local_items) = local_transcript_items(content) else {
+        return SimpleLifecycleCommands::default();
+    };
     let remote_items = remote_transcript_items(projection);
     let local_names = local_items
         .iter()
@@ -104,22 +114,26 @@ pub(crate) fn transcript_lifecycle_commands(
     commands
 }
 
-fn local_transcript_items(yaml: &YamlValue) -> Vec<TranscriptItem> {
-    yaml_sequence(yaml, TRANSCRIPT_CORRECTIONS.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let name = yaml_str(item, "name");
-            if name.is_empty() {
-                return None;
-            }
-            Some(TranscriptItem {
-                id: String::new(),
-                name,
-                description: yaml_str(item, "description"),
-                regular_expressions: regexes_from_yaml(item),
-            })
-        })
-        .collect()
+fn local_transcript_items(content: &str) -> Option<Vec<TranscriptItem>> {
+    let Ok(file) =
+        deserialize_transcript_corrections_content(TRANSCRIPT_CORRECTIONS.file.file_path, content)
+    else {
+        return None;
+    };
+    Some(file.corrections.iter().map(local_transcript_item).collect())
+}
+
+fn local_transcript_item(item: &LocalTranscriptCorrectionItem) -> TranscriptItem {
+    TranscriptItem {
+        id: String::new(),
+        name: item.name().to_string(),
+        description: item.description().to_string(),
+        regular_expressions: item
+            .regular_expressions()
+            .iter()
+            .map(regex_from_local_rule)
+            .collect(),
+    }
 }
 
 fn remote_transcript_items(projection: &JsonValue) -> Vec<TranscriptItem> {
@@ -141,16 +155,13 @@ fn remote_transcript_items(projection: &JsonValue) -> Vec<TranscriptItem> {
         .collect()
 }
 
-fn regexes_from_yaml(item: &YamlValue) -> Vec<RegularExpression> {
-    yaml_sequence(item, "regular_expressions")
-        .into_iter()
-        .map(|regex| RegularExpression {
-            id: yaml_str(regex, "id"),
-            regular_expression: yaml_str(regex, "regular_expression"),
-            replacement: yaml_str(regex, "replacement"),
-            replacement_type: yaml_str(regex, "replacement_type"),
-        })
-        .collect()
+fn regex_from_local_rule(rule: &LocalRegularExpressionRule) -> RegularExpression {
+    RegularExpression {
+        id: String::new(),
+        regular_expression: rule.regular_expression().to_string(),
+        replacement: rule.replacement().to_string(),
+        replacement_type: rule.backend_replacement_type().to_string(),
+    }
 }
 
 fn regexes_from_projection(item: &JsonValue) -> Vec<RegularExpression> {
@@ -231,4 +242,118 @@ pub(crate) fn transcript_correction_json(correction: &TranscriptCorrection) -> J
         "description": correction.description,
         "regular_expressions": correction.regular_expressions.iter().map(regular_expression_json).collect::<Vec<_>>(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_transcript_items_use_typed_python_normalization() {
+        let content = r#"
+corrections:
+  - name: Fix alpha
+    description: "  trim me  "
+    regular_expressions:
+      - regular_expression: alfa
+        replacement: alpha
+        replacement_type: substring
+"#;
+
+        let items = local_transcript_items(content).expect("valid transcript corrections");
+
+        assert_eq!(items[0].description, "trim me");
+        assert_eq!(items[0].regular_expressions[0].replacement_type, "partial");
+    }
+
+    #[test]
+    fn pulled_empty_transcript_correction_does_not_queue_delete() {
+        let content = r#"
+corrections:
+  - name: Empty correction
+    description: ""
+    regular_expressions: []
+"#;
+        let mut resources = ResourceMap::default();
+        resources.insert(
+            TRANSCRIPT_CORRECTIONS.file.file_path.to_string(),
+            adk_types::Resource {
+                resource_id: TRANSCRIPT_CORRECTIONS.file.resource_id.to_string(),
+                name: TRANSCRIPT_CORRECTIONS.file.name.to_string(),
+                file_path: TRANSCRIPT_CORRECTIONS.file.file_path.to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+        let projection = serde_json::json!({
+            "transcriptCorrections": {
+                "transcriptCorrections": {
+                    "entities": {
+                        "tc-empty": {
+                            "name": "Empty correction",
+                            "description": "",
+                            "regularExpressions": []
+                        }
+                    }
+                }
+            }
+        });
+
+        let commands = transcript_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(
+            commands.deletes.is_empty(),
+            "pulled empty transcript correction should remain visible to command generation"
+        );
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
+    }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_transcript_corrections() {
+        let content = r#"
+corrections:
+  - name: Fix alpha
+    description: ""
+    regular_expressions: definitely not a list
+"#;
+        let mut resources = ResourceMap::default();
+        resources.insert(
+            TRANSCRIPT_CORRECTIONS.file.file_path.to_string(),
+            adk_types::Resource {
+                resource_id: TRANSCRIPT_CORRECTIONS.file.resource_id.to_string(),
+                name: TRANSCRIPT_CORRECTIONS.file.name.to_string(),
+                file_path: TRANSCRIPT_CORRECTIONS.file.file_path.to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+        let projection = serde_json::json!({
+            "transcriptCorrections": {
+                "transcriptCorrections": {
+                    "entities": {
+                        "tc-alpha": {
+                            "name": "Fix alpha",
+                            "description": "",
+                            "regularExpressions": [
+                                {
+                                    "id": "regex-alpha",
+                                    "regularExpression": "alfa",
+                                    "replacement": "alpha",
+                                    "replacementType": "full"
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        });
+
+        let commands = transcript_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(
+            commands.deletes.is_empty(),
+            "invalid local transcript correction YAML should not queue deletes"
+        );
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
+    }
 }

@@ -1,9 +1,11 @@
 use crate::ids::stable_resource_id;
-use crate::push_command_inputs::{
-    json_bool, json_str, resource_yaml, yaml_bool, yaml_sequence, yaml_string_map,
-};
+use crate::push_command;
+use crate::push_command_inputs::{json_bool, json_str};
 use crate::specs::{VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS};
-use crate::{push_command, yaml_str};
+use crate::variants::local::{
+    VariantAttributeItem as LocalVariantAttributeItem, VariantAttributesFile,
+    VariantItem as LocalVariantItem, parse_variant_attributes_content,
+};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::variant::{
@@ -13,7 +15,6 @@ use adk_protobuf::variant::{
 };
 use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue, json};
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -45,14 +46,14 @@ pub(crate) fn variant_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> VariantLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, VARIANTS.file.file_path) else {
+    let Some(file) = local_variant_attributes_file(resources) else {
         return VariantLifecycleCommands::default();
     };
 
     let remote_variants = remote_variant_items(projection);
     let remote_attributes = remote_variant_attribute_items(projection);
-    let mut local_variants = local_variant_items(&yaml);
-    let mut local_attributes = local_variant_attribute_items(&yaml);
+    let mut local_variants = local_variant_items(&file);
+    let mut local_attributes = local_variant_attribute_items(&file);
 
     let remote_variants_by_name = remote_variants
         .iter()
@@ -190,21 +191,25 @@ pub(crate) fn variant_lifecycle_commands(
     commands
 }
 
-fn local_variant_items(yaml: &YamlValue) -> Vec<VariantItem> {
-    yaml_sequence(yaml, VARIANTS.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let name = yaml_str(item, "name");
-            if name.is_empty() {
-                return None;
-            }
-            Some(VariantItem {
-                id: String::new(),
-                name,
-                is_default: yaml_bool(item, "is_default"),
-            })
-        })
-        .collect()
+fn local_variant_attributes_file(resources: &ResourceMap) -> Option<VariantAttributesFile> {
+    let content = resources
+        .get(VARIANTS.file.file_path)?
+        .payload
+        .get("content")?
+        .as_str()?;
+    parse_variant_attributes_content(VARIANTS.file.file_path, content).ok()
+}
+
+fn local_variant_items(file: &VariantAttributesFile) -> Vec<VariantItem> {
+    file.variants.iter().map(local_variant_item).collect()
+}
+
+fn local_variant_item(item: &LocalVariantItem) -> VariantItem {
+    VariantItem {
+        id: String::new(),
+        name: item.name().to_string(),
+        is_default: item.is_default(),
+    }
 }
 
 fn remote_variant_items(projection: &JsonValue) -> Vec<VariantItem> {
@@ -225,21 +230,19 @@ fn remote_variant_items(projection: &JsonValue) -> Vec<VariantItem> {
         .collect()
 }
 
-fn local_variant_attribute_items(yaml: &YamlValue) -> Vec<VariantAttributeItem> {
-    yaml_sequence(yaml, VARIANT_ATTRIBUTES.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let name = yaml_str(item, "name");
-            if name.is_empty() {
-                return None;
-            }
-            Some(VariantAttributeItem {
-                id: String::new(),
-                name,
-                values: yaml_string_map(item.get("values")),
-            })
-        })
+fn local_variant_attribute_items(file: &VariantAttributesFile) -> Vec<VariantAttributeItem> {
+    file.attributes
+        .iter()
+        .map(local_variant_attribute_item)
         .collect()
+}
+
+fn local_variant_attribute_item(item: &LocalVariantAttributeItem) -> VariantAttributeItem {
+    VariantAttributeItem {
+        id: String::new(),
+        name: item.name().to_string(),
+        values: item.values().clone().into_iter().collect(),
+    }
 }
 
 fn remote_variant_attribute_items(projection: &JsonValue) -> Vec<VariantAttributeItem> {
@@ -340,4 +343,99 @@ pub(crate) fn attribute_references_json(references: Option<&AttributeReferences>
         value.insert("no_code_steps".to_string(), json!(references.no_code_steps));
     }
     JsonValue::Object(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_types::{Resource, ResourceMap};
+
+    #[test]
+    fn local_variant_items_use_typed_file_model() {
+        let file = parse_variant_attributes_content(
+            VARIANTS.file.file_path,
+            r#"
+variants:
+  - name: Control
+    is_default: true
+  - name: Treatment
+attributes:
+  - name: Channel
+    values:
+      Control: primary
+      Treatment: secondary
+"#,
+        )
+        .expect("variant attributes yaml");
+
+        let variants = local_variant_items(&file);
+        let attributes = local_variant_attribute_items(&file);
+
+        assert_eq!(variants[0].name, "Control");
+        assert!(variants[0].is_default);
+        assert_eq!(attributes[0].name, "Channel");
+        assert_eq!(
+            attributes[0].values.get("Treatment"),
+            Some(&"secondary".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_variants_or_attributes() {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            VARIANTS.file.file_path.to_string(),
+            Resource {
+                resource_id: VARIANTS.file.resource_id.to_string(),
+                name: VARIANTS.file.name.to_string(),
+                file_path: VARIANTS.file.file_path.to_string(),
+                payload: json!({
+                    "content": "variants: definitely not a list\nattributes: []\n",
+                }),
+            },
+        );
+        let projection = json!({
+            "variantManagement": {
+                "variants": {
+                    "ids": ["variant-control"],
+                    "entities": {
+                        "variant-control": {
+                            "id": "variant-control",
+                            "name": "Control",
+                            "isDefault": true
+                        }
+                    }
+                },
+                "attributes": {
+                    "ids": ["attr-channel"],
+                    "entities": {
+                        "attr-channel": {
+                            "id": "attr-channel",
+                            "name": "Channel",
+                            "archived": false
+                        }
+                    }
+                },
+                "variantAttributeValues": {
+                    "ids": ["variant-control"],
+                    "entities": {
+                        "variant-control": {
+                            "values": {
+                                "attr-channel": "primary"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let commands = variant_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.variant_deletes.is_empty());
+        assert!(commands.attribute_deletes.is_empty());
+        assert!(commands.variant_creates.is_empty());
+        assert!(commands.attribute_creates.is_empty());
+        assert!(commands.variant_updates.is_empty());
+        assert!(commands.attribute_updates.is_empty());
+    }
 }

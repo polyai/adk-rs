@@ -1,4 +1,5 @@
 use crate::CommandGenError;
+use crate::asr_settings::local::AsrSettingsFile;
 use crate::materialization::insert_yaml_resource;
 use crate::specs::ASR_SETTINGS_FILE;
 use adk_types::ResourceMap;
@@ -17,37 +18,11 @@ pub(crate) fn insert_asr_settings_resource(
             ASR_SETTINGS_FILE.file_path,
             ASR_SETTINGS_FILE.resource_id,
             ASR_SETTINGS_FILE.name,
-            asr_settings_yaml(asr_settings),
+            AsrSettingsFile::from_projection(asr_settings),
         )?;
     }
 
     Ok(())
-}
-
-fn asr_settings_yaml(settings: &Value) -> Value {
-    let latency_config = settings
-        .get("latencyConfig")
-        .or_else(|| settings.get("latency_config"));
-    serde_json::json!({
-        "barge_in": settings
-            .get("bargeIn")
-            .or_else(|| settings.get("barge_in"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        "interaction_style": latency_config
-            .and_then(|config| {
-                config
-                    .get("interactionStyle")
-                    .or_else(|| config.get("interaction_style"))
-            })
-            .or_else(|| {
-                settings
-                    .get("interactionStyle")
-                    .or_else(|| settings.get("interaction_style"))
-            })
-            .and_then(Value::as_str)
-            .unwrap_or("balanced"),
-    })
 }
 
 #[cfg(test)]

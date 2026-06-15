@@ -4,6 +4,7 @@ use crate::resource_utils::rel_under_root;
 use std::path::Path;
 
 // poly/resources/function.py
+/// Validation parity: TODO(DEVP-319) audit Python Function.validate().
 pub(crate) struct Function;
 impl DiscoverResources for Function {
     const LOCAL_PATH: LocalResourcePath =

@@ -1,10 +1,13 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
-use crate::local_resources::{is_file, read_yaml_mapping, validate_named_sequence};
+use crate::entities::local::{EntitiesFile, parse_entities_file};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
+use crate::local_resources::{is_file, read_yaml_mapping};
 use crate::resource_utils::{clean_name, rel_under_root};
 use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/entities.py
+/// Validation parity: implemented against Python Entity.validate().
 pub(crate) struct Entity;
 impl DiscoverResources for Entity {
     const LOCAL_PATH: LocalResourcePath = LocalResourcePath::InFile {
@@ -42,43 +45,139 @@ impl DiscoverResources for Entity {
         out
     }
 
-    fn validate_local_yaml(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_local_yaml(yaml, errors);
+    fn append_local_resource_errors(_path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(
+            Self::LOCAL_PATH.primary_path().expect("local file path"),
+            yaml,
+            errors,
+        );
     }
 }
 
-pub(crate) fn validate_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
+#[cfg(test)]
+pub(crate) fn append_parse_errors(yaml: &Value, errors: &mut Vec<String>) {
     let path = Entity::LOCAL_PATH.primary_path().expect("local file path");
-    validate_named_sequence(path, yaml, "entities", "entity", errors);
-    let Some(items) = yaml.get("entities").and_then(Value::as_sequence) else {
-        return;
-    };
-    let allowed = [
-        "numeric",
-        "alphanumeric",
-        "enum",
-        "date",
-        "phone_number",
-        "time",
-        "address",
-        "free_text",
-        "name_config",
-    ];
-    for item in items {
-        let name = item
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or("<missing>");
-        let Some(entity_type) = item.get("entity_type").and_then(Value::as_str) else {
-            errors.push(format!(
-                "Validation error in {path}/entities/{name}: entity_type is required."
-            ));
-            continue;
-        };
-        if !allowed.contains(&entity_type) {
-            errors.push(format!(
-                "Validation error in {path}/entities/{name}: unsupported entity_type '{entity_type}'."
-            ));
-        }
+    <Entity as ParseLocalResource>::append_parse_errors(path, yaml, errors);
+}
+
+impl ParseLocalResource for Entity {
+    type Parsed = EntitiesFile;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        parse_entities_file(path, yaml)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_yaml_ng::from_str;
+
+    fn validation_errors(yaml: &str) -> Vec<String> {
+        let yaml = from_str::<Value>(yaml).expect("entity YAML");
+        let mut errors = Vec::new();
+        append_parse_errors(&yaml, &mut errors);
+        errors
+    }
+
+    #[test]
+    fn validates_python_entity_type_description_and_config_rules() {
+        let missing_type = validation_errors(
+            r#"
+entities:
+  - name: Missing type
+"#,
+        );
+        assert!(
+            missing_type
+                .iter()
+                .any(|error| error.contains("missing field `entity_type`"))
+        );
+
+        let bad_type = validation_errors(
+            r#"
+entities:
+  - name: Bad type
+    entity_type: unsupported
+"#,
+        );
+        assert!(
+            bad_type
+                .iter()
+                .any(|error| error.contains("unsupported entity_type 'unsupported'"))
+        );
+
+        let duplicate_and_bad_type = validation_errors(
+            r#"
+entities:
+  - name: customer
+    entity_type: unsupported
+  - name: customer
+    entity_type: enum
+"#,
+        );
+        assert!(
+            duplicate_and_bad_type
+                .iter()
+                .any(|error| error.contains("duplicate entity name 'customer'"))
+        );
+        assert!(
+            duplicate_and_bad_type
+                .iter()
+                .any(|error| error.contains("unsupported entity_type 'unsupported'"))
+        );
+
+        let padded_description = validation_errors(
+            r#"
+entities:
+  - name: Amount
+    entity_type: numeric
+    description: " has padding "
+"#,
+        );
+        assert!(padded_description.iter().any(|error| {
+            error.contains("Description cannot contain leading or trailing whitespace")
+        }));
+
+        let bad_numeric_config = validation_errors(
+            r#"
+entities:
+  - name: Amount
+    entity_type: numeric
+    config:
+      has_decimal: "yes"
+      min: low
+"#,
+        );
+        assert!(
+            bad_numeric_config
+                .iter()
+                .any(|error| error.contains("invalid type: string \"yes\", expected a boolean"))
+        );
+
+        let bad_enum_config = validation_errors(
+            r#"
+entities:
+  - name: Options
+    entity_type: enum
+    config:
+      options: one
+"#,
+        );
+        assert!(
+            bad_enum_config
+                .iter()
+                .any(|error| error.contains("invalid type: string \"one\", expected a sequence"))
+        );
+
+        let null_config = validation_errors(
+            r#"
+entities:
+  - name: Amount
+    entity_type: numeric
+    config: null
+"#,
+        );
+        assert!(null_config.is_empty());
     }
 }

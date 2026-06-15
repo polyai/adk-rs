@@ -1,9 +1,10 @@
 use crate::ids::stable_resource_id;
-use crate::push_command_inputs::{
-    SimpleLifecycleCommands, json_bool, json_i32, json_str, resource_yaml, yaml_bool, yaml_sequence,
+use crate::pronunciations::local::{
+    PronunciationItem as LocalPronunciationItem, parse_pronunciations_content,
 };
+use crate::push_command;
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_bool, json_i32, json_str};
 use crate::specs::PRONUNCIATIONS;
-use crate::{push_command, yaml_str};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::pronunciations::{
@@ -12,7 +13,6 @@ use adk_protobuf::pronunciations::{
 };
 use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,10 +32,16 @@ pub(crate) fn pronunciation_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, PRONUNCIATIONS.file.file_path) else {
+    let Some(content) = resources
+        .get(PRONUNCIATIONS.file.file_path)
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(JsonValue::as_str)
+    else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_pronunciation_items(&yaml);
+    let Some(local_items) = local_pronunciation_items(content) else {
+        return SimpleLifecycleCommands::default();
+    };
     let remote_items = remote_pronunciation_items(projection);
     let local_positions = local_items
         .iter()
@@ -110,31 +116,28 @@ pub(crate) fn pronunciation_lifecycle_commands(
     commands
 }
 
-fn local_pronunciation_items(yaml: &YamlValue) -> Vec<PronunciationItem> {
-    yaml_sequence(yaml, PRONUNCIATIONS.yaml_key)
-        .into_iter()
-        .enumerate()
-        .filter_map(|(idx, item)| {
-            let regex = yaml_str(item, "regex");
-            if regex.is_empty() {
-                return None;
-            }
-            Some(PronunciationItem {
-                id: String::new(),
-                regex,
-                replacement: yaml_str(item, "replacement"),
-                case_sensitive: yaml_bool(item, "case_sensitive"),
-                language_code: yaml_str(item, "language_code"),
-                description: yaml_str(item, "description"),
-                position: item
-                    .get("position")
-                    .and_then(YamlValue::as_i64)
-                    .and_then(|value| i32::try_from(value).ok())
-                    .unwrap_or(idx as i32),
-                name: yaml_str(item, "name"),
-            })
-        })
-        .collect()
+fn local_pronunciation_items(content: &str) -> Option<Vec<PronunciationItem>> {
+    let file = parse_pronunciations_content(PRONUNCIATIONS.file.file_path, content).ok()?;
+    Some(
+        file.pronunciations
+            .iter()
+            .enumerate()
+            .map(local_pronunciation_item)
+            .collect(),
+    )
+}
+
+fn local_pronunciation_item((idx, item): (usize, &LocalPronunciationItem)) -> PronunciationItem {
+    PronunciationItem {
+        id: String::new(),
+        regex: item.regex().to_string(),
+        replacement: item.replacement().to_string(),
+        case_sensitive: item.case_sensitive(),
+        language_code: item.language_code().to_string(),
+        description: item.description().to_string(),
+        position: idx as i32,
+        name: item.name().to_string(),
+    }
 }
 
 fn remote_pronunciation_items(projection: &JsonValue) -> Vec<PronunciationItem> {
@@ -167,4 +170,82 @@ fn pronunciation_item_needs_update(local: &PronunciationItem, remote: &Pronuncia
         || local.language_code != remote.language_code
         || local.description != remote.description
         || local.position != remote.position
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_types::{Resource, ResourceMap};
+
+    fn pronunciation_resource(content: &str) -> ResourceMap {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            PRONUNCIATIONS.file.file_path.to_string(),
+            Resource {
+                resource_id: PRONUNCIATIONS.file.resource_id.to_string(),
+                name: PRONUNCIATIONS.file.name.to_string(),
+                file_path: PRONUNCIATIONS.file.file_path.to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+        resources
+    }
+
+    fn projection_with_remote_pronunciation() -> JsonValue {
+        serde_json::json!({
+            "pronunciations": {
+                "pronunciations": {
+                    "ids": ["pn-greeting"],
+                    "entities": {
+                        "pn-greeting": {
+                            "id": "pn-greeting",
+                            "regex": "hello",
+                            "replacement": "hullo",
+                            "caseSensitive": false,
+                            "languageCode": "en-GB",
+                            "description": "Greeting",
+                            "position": 0,
+                            "name": "Greeting"
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn local_pronunciation_items_use_typed_python_position_and_description_rules() {
+        let content = r#"
+pronunciations:
+  - regex: first
+    replacement: one
+    description: "  trimmed  "
+    position: 42
+  - regex: second
+    replacement: two
+"#;
+
+        let items = local_pronunciation_items(content).expect("pronunciations file should parse");
+
+        assert_eq!(items[0].position, 0);
+        assert_eq!(items[0].description, "trimmed");
+        assert_eq!(items[1].position, 1);
+    }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_pronunciations() {
+        let content = r#"
+pronunciations:
+  - regex: ""
+    replacement: hullo
+"#;
+        let resources = pronunciation_resource(content);
+        let projection = projection_with_remote_pronunciation();
+
+        let commands = pronunciation_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.deletes.is_empty());
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
+    }
 }

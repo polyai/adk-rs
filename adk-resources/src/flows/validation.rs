@@ -1,6 +1,8 @@
 use crate::FunctionValidationFailure;
+use crate::entities::{ENTITIES_FILE_PATH, parse_entities_content};
+use crate::flows::local::{FlowConfigFile, FlowStepFile, LocalCondition};
+use crate::flows::{FlowStepType, parse_flow_config_content, parse_flow_step_content};
 use adk_types::ResourceMap;
-use serde_yaml_ng::{Value, from_str};
 use std::collections::{BTreeSet, HashMap};
 
 pub fn validate_flow_resources(
@@ -19,10 +21,15 @@ pub fn validate_flow_resources(
         .collect::<Vec<_>>();
     step_paths.sort();
     for path in step_paths {
-        let Some(yaml) = resource_yaml_content(resources, &path) else {
+        let Some(content) = resource_content(resources, &path) else {
             continue;
         };
-        validate_flow_step_resource(&path, &yaml, &flow_steps, &entity_ids, &mut errors);
+        match parse_flow_step_content(&path, content) {
+            Ok(step) => {
+                validate_flow_step_resource(&path, step, &flow_steps, &entity_ids, &mut errors)
+            }
+            Err(parse_errors) => errors.extend(parse_errors.into_validation_errors()),
+        }
     }
 
     let mut function_step_paths = resources
@@ -66,10 +73,13 @@ pub fn validate_flow_resources(
         .collect::<Vec<_>>();
     config_paths.sort();
     for path in config_paths {
-        let Some(yaml) = resource_yaml_content(resources, &path) else {
+        let Some(content) = resource_content(resources, &path) else {
             continue;
         };
-        validate_flow_config_resource(&path, &yaml, &flow_steps, &mut errors);
+        match parse_flow_config_content(&path, content) {
+            Ok(config) => validate_flow_config_resource(&path, &config, &flow_steps, &mut errors),
+            Err(parse_errors) => errors.extend(parse_errors.into_validation_errors()),
+        }
     }
 
     Ok(errors)
@@ -103,10 +113,11 @@ fn flow_validation_step_names(resources: &ResourceMap) -> FlowValidationNames {
             {
                 flow_names.insert(stem.to_string());
             }
-            if let Some(yaml) = resource_yaml_content(resources, path)
-                && let Some(name) = yaml.get("name").and_then(Value::as_str)
+            if let Some(content) = resource_content(resources, path)
+                && let Ok(step) = parse_flow_step_content(path, content)
+                && !step.name().is_empty()
             {
-                flow_names.insert(name.to_string());
+                flow_names.insert(step.name().to_string());
             }
         } else if path.starts_with("flows/")
             && path.contains("/function_steps/")
@@ -128,16 +139,14 @@ fn flow_validation_step_names(resources: &ResourceMap) -> FlowValidationNames {
 
 fn flow_validation_entity_ids(resources: &ResourceMap) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
-    let Some(yaml) = resource_yaml_content(resources, "config/entities.yaml") else {
+    let Some(content) = resource_content(resources, ENTITIES_FILE_PATH) else {
         return ids;
     };
-    let Some(items) = yaml.get("entities").and_then(Value::as_sequence) else {
+    let Ok(items) = parse_entities_content(ENTITIES_FILE_PATH, content) else {
         return ids;
     };
     for item in items {
-        let Some(name) = item.get("name").and_then(Value::as_str) else {
-            continue;
-        };
+        let name = item.name();
         ids.insert(format!("ENTITY-{name}"));
         ids.insert(name.to_string());
     }
@@ -146,15 +155,12 @@ fn flow_validation_entity_ids(resources: &ResourceMap) -> BTreeSet<String> {
 
 fn validate_flow_config_resource(
     path: &str,
-    yaml: &Value,
+    config: &FlowConfigFile,
     flow_steps: &FlowValidationNames,
     errors: &mut Vec<String>,
 ) {
     let flow_name = flow_name_from_resource_path(path).unwrap_or_default();
-    let start_step = yaml
-        .get("start_step")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let start_step = config.start_step();
     if start_step.is_empty() {
         errors.push(format!(
             "Validation error in {path}: Start step cannot be empty."
@@ -167,10 +173,7 @@ fn validate_flow_config_resource(
         ));
         return;
     }
-    let description = yaml
-        .get("description")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let description = config.description();
     if description.is_empty() {
         errors.push(format!(
             "Validation error in {path}: Description cannot be empty."
@@ -184,13 +187,13 @@ fn validate_flow_config_resource(
 
 fn validate_flow_step_resource(
     path: &str,
-    yaml: &Value,
+    step: FlowStepFile,
     flow_steps: &FlowValidationNames,
     entity_ids: &BTreeSet<String>,
     errors: &mut Vec<String>,
 ) {
     let flow_name = flow_name_from_resource_path(path).unwrap_or_default();
-    let name = yaml.get("name").and_then(Value::as_str).unwrap_or_default();
+    let name = step.name();
     if name.is_empty() {
         errors.push(format!("Validation error in {path}: Name cannot be empty."));
         return;
@@ -201,20 +204,14 @@ fn validate_flow_step_resource(
         ));
         return;
     }
-    let prompt = yaml
-        .get("prompt")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let prompt = step.prompt();
     if prompt.trim().is_empty() {
         errors.push(format!(
             "Validation error in {path}: Prompt cannot be empty."
         ));
         return;
     }
-    let step_type = yaml
-        .get("step_type")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let step_type = step.step_type_value();
     if !matches!(
         step_type,
         "advanced_step" | "default_step" | "function_step"
@@ -225,49 +222,42 @@ fn validate_flow_step_resource(
         return;
     }
     let function_references = prompt_function_references(prompt);
-    if step_type == "default_step" && !function_references.is_empty() {
+    if step.step_type() == FlowStepType::Default && !function_references.is_empty() {
         errors.push(format!(
             "Validation error in {path}: Default steps cannot reference functions. Found function references: [{}]",
             python_string_list(&function_references)
         ));
         return;
     }
-    if step_type == "default_step"
-        && let Some(conditions) = yaml.get("conditions").and_then(Value::as_sequence)
-    {
-        for condition in conditions {
-            validate_flow_condition(path, condition, flow_name, flow_steps, entity_ids, errors);
+    if step.step_type() == FlowStepType::Default {
+        for condition in step.into_conditions() {
+            validate_flow_condition(&condition, path, flow_name, flow_steps, entity_ids, errors);
         }
     }
 }
 
 fn validate_flow_condition(
+    condition: &LocalCondition,
     path: &str,
-    condition: &Value,
     flow_name: &str,
     flow_steps: &FlowValidationNames,
     entity_ids: &BTreeSet<String>,
     errors: &mut Vec<String>,
 ) {
-    let name = condition
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let name = condition.name.as_str();
     if name.is_empty() {
         errors.push(format!(
             "Validation error in {path}: Condition '{name}': Condition name cannot be empty."
         ));
         return;
     }
-    let condition_type = condition
-        .get("condition_type")
-        .and_then(Value::as_str)
-        .unwrap_or("exit_flow_condition");
+    let condition_type = if condition.condition_type.is_empty() {
+        "exit_flow_condition"
+    } else {
+        condition.condition_type.as_str()
+    };
     if condition_type != "exit_flow_condition" {
-        let child_step = condition
-            .get("child_step")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
+        let child_step = condition.child_step.as_str();
         if !flow_steps.contains(flow_name, child_step) {
             errors.push(format!(
                 "Validation error in {path}: Condition '{name}': Step '{child_step}' not found"
@@ -276,11 +266,9 @@ fn validate_flow_condition(
         }
     }
     let missing_entities = condition
-        .get("required_entities")
-        .and_then(Value::as_sequence)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
+        .required_entities
+        .iter()
+        .map(String::as_str)
         .filter(|entity| !entity_ids.contains(*entity))
         .map(ToString::to_string)
         .collect::<Vec<_>>();
@@ -291,10 +279,7 @@ fn validate_flow_condition(
         ));
         return;
     }
-    let description = condition
-        .get("description")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let description = condition.description.as_str();
     if !description.is_empty() && description != description.trim() {
         errors.push(format!(
             "Validation error in {path}: Condition '{name}': Description cannot contain leading or trailing whitespace."
@@ -304,10 +289,6 @@ fn validate_flow_condition(
 
 fn resource_content<'a>(resources: &'a ResourceMap, path: &str) -> Option<&'a str> {
     resources.get(path)?.payload.get("content")?.as_str()
-}
-
-fn resource_yaml_content(resources: &ResourceMap, path: &str) -> Option<Value> {
-    from_str(resource_content(resources, path)?).ok()
 }
 
 fn flow_name_from_resource_path(path: &str) -> Option<&str> {

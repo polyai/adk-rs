@@ -1,9 +1,10 @@
 use crate::ids::stable_resource_id;
-use crate::push_command_inputs::{
-    SimpleLifecycleCommands, json_str, resource_yaml, yaml_sequence, yaml_string_map,
-};
+use crate::push_command;
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str};
 use crate::specs::TRANSLATIONS;
-use crate::{push_command, yaml_str};
+use crate::translations::local::{
+    TranslationItem as LocalTranslationItem, parse_translations_content,
+};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::translations::{
@@ -12,7 +13,6 @@ use adk_protobuf::translations::{
 };
 use adk_types::ResourceMap;
 use serde_json::{Value as JsonValue, json};
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,10 +27,16 @@ pub(crate) fn translation_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, TRANSLATIONS.file.file_path) else {
+    let Some(content) = resources
+        .get(TRANSLATIONS.file.file_path)
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(JsonValue::as_str)
+    else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_translation_items(&yaml);
+    let Some(local_items) = local_translation_items(content) else {
+        return SimpleLifecycleCommands::default();
+    };
     let remote_items = remote_translation_items(projection);
     let local_keys = local_items
         .iter()
@@ -125,23 +131,22 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
     }
 }
 
-fn local_translation_items(yaml: &YamlValue) -> Vec<TranslationItem> {
-    yaml_sequence(yaml, TRANSLATIONS.yaml_key)
-        .into_iter()
-        .filter_map(|item| {
-            let translation_key = yaml_str(item, "name");
-            if translation_key.is_empty() {
-                return None;
-            }
-            Some(TranslationItem {
-                id: String::new(),
-                translation_key,
-                translations: yaml_string_map(item.get("translations"))
-                    .into_iter()
-                    .collect(),
-            })
-        })
-        .collect()
+fn local_translation_items(content: &str) -> Option<Vec<TranslationItem>> {
+    let file = parse_translations_content(TRANSLATIONS.file.file_path, content).ok()?;
+    Some(
+        file.translations
+            .iter()
+            .map(local_translation_item)
+            .collect(),
+    )
+}
+
+fn local_translation_item(item: &LocalTranslationItem) -> TranslationItem {
+    TranslationItem {
+        id: String::new(),
+        translation_key: item.name().to_string(),
+        translations: item.translations().clone(),
+    }
 }
 
 fn remote_translation_items(projection: &JsonValue) -> Vec<TranslationItem> {
@@ -214,4 +219,100 @@ fn update_entry_json(entry: &UpdateEntry) -> JsonValue {
         "text": entry.text.clone().unwrap_or_default(),
         "is_auto_translated": entry.is_auto_translated.unwrap_or(false),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_types::{Resource, ResourceMap};
+
+    fn translations_resource(content: &str) -> ResourceMap {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            TRANSLATIONS.file.file_path.to_string(),
+            Resource {
+                resource_id: TRANSLATIONS.file.resource_id.to_string(),
+                name: TRANSLATIONS.file.name.to_string(),
+                file_path: TRANSLATIONS.file.file_path.to_string(),
+                payload: json!({ "content": content }),
+            },
+        );
+        resources
+    }
+
+    fn projection_with_remote_translation() -> JsonValue {
+        json!({
+            "translations": {
+                "translations": {
+                    "ids": ["tn-greeting"],
+                    "entities": {
+                        "tn-greeting": {
+                            "id": "tn-greeting",
+                            "translationKey": "greeting",
+                            "translations": [
+                                {"languageCode": "en-GB", "text": "Hello"}
+                            ]
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn local_translation_items_use_typed_file_model() {
+        let content = r#"
+translations:
+  - name: greeting
+    translations:
+      fr-FR: Bonjour
+      en-US: Hello
+"#;
+
+        let items = local_translation_items(content).expect("translations file should parse");
+
+        assert_eq!(items[0].translation_key, "greeting");
+        assert_eq!(
+            items[0].translations.keys().cloned().collect::<Vec<_>>(),
+            vec!["en-US".to_string(), "fr-FR".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_translations() {
+        let content = r#"
+translations:
+  - name: greeting
+    translations:
+      en-GB: Hello
+  - name: greeting
+    translations:
+      fr-FR: Bonjour
+"#;
+        let resources = translations_resource(content);
+        let projection = projection_with_remote_translation();
+
+        let commands = translation_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.deletes.is_empty());
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
+    }
+
+    #[test]
+    fn empty_translation_maps_do_not_delete_remote_translations() {
+        let content = r#"
+translations:
+  - name: greeting
+    translations: {}
+"#;
+        let resources = translations_resource(content);
+        let projection = projection_with_remote_translation();
+
+        let commands = translation_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.deletes.is_empty());
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
+    }
 }

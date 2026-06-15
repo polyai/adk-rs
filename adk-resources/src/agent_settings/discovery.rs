@@ -1,20 +1,13 @@
 use crate::discover::{DiscoverResources, LocalResourcePath};
+use crate::local_parse::{ParseLocalResource, ResourceParseResult};
 use crate::local_resources::is_file;
 use crate::resource_utils::rel_under_root;
 use serde_yaml_ng::Value;
 use std::path::Path;
 
 // poly/resources/agent_settings.py
-const ALLOWED_ADJECTIVES: &[&str] = &[
-    "Polite",
-    "Calm",
-    "Kind",
-    "Funny",
-    "Other",
-    "Energetic",
-    "Thoughtful",
-];
 
+/// Validation parity: TODO(DEVP-319) audit Python SettingsPersonality.validate().
 pub(crate) struct SettingsPersonality;
 impl DiscoverResources for SettingsPersonality {
     const LOCAL_PATH: LocalResourcePath =
@@ -29,43 +22,20 @@ impl DiscoverResources for SettingsPersonality {
         }
     }
 
-    fn validate_local_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-        validate_personality_yaml(path, yaml, errors);
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(path, yaml, errors);
     }
 }
 
-pub(crate) fn allowed_personality_adjective(adjective: &str) -> bool {
-    ALLOWED_ADJECTIVES.contains(&adjective)
-}
+impl ParseLocalResource for SettingsPersonality {
+    type Parsed = crate::agent_settings::local::PersonalitySettings;
 
-fn validate_personality_yaml(path: &str, yaml: &Value, errors: &mut Vec<String>) {
-    let Some(adjectives) = yaml.get("adjectives").and_then(Value::as_mapping) else {
-        return;
-    };
-    let other_enabled = adjectives
-        .iter()
-        .any(|(key, value)| key.as_str() == Some("Other") && value.as_bool().unwrap_or(false));
-    if other_enabled
-        && adjectives.iter().any(|(key, value)| {
-            key.as_str().is_some_and(|key| key != "Other") && value.as_bool().unwrap_or(false)
-        })
-    {
-        errors.push(format!(
-            "Validation error in {path}/adjectives/Other: Other adjective can only be set if no other adjectives are selected."
-        ));
-    }
-    let invalid_enabled = adjectives.iter().find_map(|(key, value)| {
-        let key = key.as_str()?;
-        (value.as_bool().unwrap_or(false) && !allowed_personality_adjective(key)).then_some(key)
-    });
-    if let Some(adjective) = invalid_enabled {
-        errors.push(format!(
-            "Validation error in {path}/adjectives/{adjective}: Enabled adjectives must be from the allowed set: {}",
-            ALLOWED_ADJECTIVES.join(", ")
-        ));
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        crate::agent_settings::local::parse_personality_settings(path, yaml)
     }
 }
 
+/// Validation parity: TODO(DEVP-319) audit Python SettingsRole.validate().
 pub(crate) struct SettingsRole;
 impl DiscoverResources for SettingsRole {
     const LOCAL_PATH: LocalResourcePath =
@@ -79,8 +49,21 @@ impl DiscoverResources for SettingsRole {
             vec![]
         }
     }
+
+    fn append_local_resource_errors(path: &str, yaml: &Value, errors: &mut Vec<String>) {
+        <Self as ParseLocalResource>::append_parse_errors(path, yaml, errors);
+    }
 }
 
+impl ParseLocalResource for SettingsRole {
+    type Parsed = crate::agent_settings::local::RoleSettings;
+
+    fn parse_local_yaml(path: &str, yaml: &Value) -> ResourceParseResult<Self::Parsed> {
+        crate::agent_settings::local::parse_role_settings(path, yaml)
+    }
+}
+
+/// Validation parity: TODO(DEVP-319) audit Python SettingsRules.validate().
 pub(crate) struct SettingsRules;
 impl DiscoverResources for SettingsRules {
     const LOCAL_PATH: LocalResourcePath =
@@ -104,7 +87,22 @@ mod tests {
     fn validation_errors(yaml: &str) -> Vec<String> {
         let yaml = from_str::<Value>(yaml).expect("personality YAML");
         let mut errors = Vec::new();
-        validate_personality_yaml("agent_settings/personality.yaml", &yaml, &mut errors);
+        <SettingsPersonality as ParseLocalResource>::append_parse_errors(
+            "agent_settings/personality.yaml",
+            &yaml,
+            &mut errors,
+        );
+        errors
+    }
+
+    fn role_validation_errors(yaml: &str) -> Vec<String> {
+        let yaml = from_str::<Value>(yaml).expect("role YAML");
+        let mut errors = Vec::new();
+        <SettingsRole as ParseLocalResource>::append_parse_errors(
+            "agent_settings/role.yaml",
+            &yaml,
+            &mut errors,
+        );
         errors
     }
 
@@ -126,5 +124,21 @@ mod tests {
 
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("Enabled adjectives must be from the allowed set"));
+    }
+
+    #[test]
+    fn validates_python_role_custom_requires_other_value() {
+        let errors = role_validation_errors(
+            r#"
+value: agent
+custom: bespoke role text
+"#,
+        );
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("Custom role can only be set if role is 'other'"))
+        );
     }
 }

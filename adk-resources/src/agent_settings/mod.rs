@@ -1,5 +1,6 @@
 mod command_gen;
 mod discovery;
+mod local;
 mod materialization;
 mod safety_discovery;
 
