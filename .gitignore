@@ -7,3 +7,4 @@ adk-napi/npm
 adk-napi/published-smoke/node_modules
 adk-napi/test/*.test.js
 adk-napi/test/wrapper_cases.js
+__pycache__
