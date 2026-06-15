@@ -34,7 +34,9 @@ pub(crate) fn translation_lifecycle_commands(
     else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_translation_items(content);
+    let Some(local_items) = local_translation_items(content) else {
+        return SimpleLifecycleCommands::default();
+    };
     let remote_items = remote_translation_items(projection);
     let local_keys = local_items
         .iter()
@@ -129,14 +131,14 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
     }
 }
 
-fn local_translation_items(content: &str) -> Vec<TranslationItem> {
-    let Ok(file) = parse_translations_content(TRANSLATIONS.file.file_path, content) else {
-        return Vec::new();
-    };
-    file.translations
-        .iter()
-        .map(local_translation_item)
-        .collect()
+fn local_translation_items(content: &str) -> Option<Vec<TranslationItem>> {
+    let file = parse_translations_content(TRANSLATIONS.file.file_path, content).ok()?;
+    Some(
+        file.translations
+            .iter()
+            .map(local_translation_item)
+            .collect(),
+    )
 }
 
 fn local_translation_item(item: &LocalTranslationItem) -> TranslationItem {
@@ -222,6 +224,40 @@ fn update_entry_json(entry: &UpdateEntry) -> JsonValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adk_types::{Resource, ResourceMap};
+
+    fn translations_resource(content: &str) -> ResourceMap {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            TRANSLATIONS.file.file_path.to_string(),
+            Resource {
+                resource_id: TRANSLATIONS.file.resource_id.to_string(),
+                name: TRANSLATIONS.file.name.to_string(),
+                file_path: TRANSLATIONS.file.file_path.to_string(),
+                payload: json!({ "content": content }),
+            },
+        );
+        resources
+    }
+
+    fn projection_with_remote_translation() -> JsonValue {
+        json!({
+            "translations": {
+                "translations": {
+                    "ids": ["tn-greeting"],
+                    "entities": {
+                        "tn-greeting": {
+                            "id": "tn-greeting",
+                            "translationKey": "greeting",
+                            "translations": [
+                                {"languageCode": "en-GB", "text": "Hello"}
+                            ]
+                        }
+                    }
+                }
+            }
+        })
+    }
 
     #[test]
     fn local_translation_items_use_typed_file_model() {
@@ -233,12 +269,50 @@ translations:
       en-US: Hello
 "#;
 
-        let items = local_translation_items(content);
+        let items = local_translation_items(content).expect("translations file should parse");
 
         assert_eq!(items[0].translation_key, "greeting");
         assert_eq!(
             items[0].translations.keys().cloned().collect::<Vec<_>>(),
             vec!["en-US".to_string(), "fr-FR".to_string()]
         );
+    }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_translations() {
+        let content = r#"
+translations:
+  - name: greeting
+    translations:
+      en-GB: Hello
+  - name: greeting
+    translations:
+      fr-FR: Bonjour
+"#;
+        let resources = translations_resource(content);
+        let projection = projection_with_remote_translation();
+
+        let commands = translation_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.deletes.is_empty());
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
+    }
+
+    #[test]
+    fn empty_translation_maps_do_not_delete_remote_translations() {
+        let content = r#"
+translations:
+  - name: greeting
+    translations: {}
+"#;
+        let resources = translations_resource(content);
+        let projection = projection_with_remote_translation();
+
+        let commands = translation_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.deletes.is_empty());
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
     }
 }
