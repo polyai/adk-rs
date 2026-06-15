@@ -83,6 +83,11 @@ Rust ADK vendors Python helper stubs under `adk-core/python-gen-template` so
 `poly init` and `poly pull` can populate project `_gen/` packages without a
 runtime dependency on Python ADK.
 
+These files are for local editor and type-checker support. User function code is
+executed in the PolyAI Lambda runtime, where the real runtime modules are
+provided by the platform, so the checked-in `_gen` files should not be treated as
+a replacement local Python runtime.
+
 The sync script is a uv script with inline metadata for its mypy `stubgen`
 dependency, so no separate Python environment setup is needed.
 

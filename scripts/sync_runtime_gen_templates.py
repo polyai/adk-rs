@@ -2,12 +2,16 @@
 # /// script
 # dependencies = ["mypy>=1.0.0"]
 # ///
-"""Generate Rust ADK _gen templates from genai_lambda_runtime sources.
+"""Generate Rust ADK _gen type templates from genai_lambda_runtime sources.
 
 The runtime package is the canonical input. This script intentionally does not
 read from the Python ADK repository: it shells out to mypy's `stubgen` for
 signature extraction, then post-processes the generated `.pyi` files into
-runtime-importable `.py` helper modules used by `poly init` and `poly pull`.
+checked-in helper stubs used by `poly init` and `poly pull`.
+
+Generated project functions are executed in the PolyAI Lambda runtime, where the
+real runtime modules are supplied by the platform. The checked-in `_gen` files
+are for local editors and type checkers, not a replacement local runtime.
 """
 
 from __future__ import annotations
