@@ -211,6 +211,15 @@ pub(crate) fn parse_channel_configuration(
     deserialize_yaml(path, yaml)
 }
 
+pub(crate) fn parse_channel_configuration_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<ChannelConfiguration> {
+    let yaml = serde_yaml_ng::from_str::<YamlValue>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_channel_configuration(path, &yaml)
+}
+
 pub(crate) fn validate_channel_greeting(path: &str, yaml: &YamlValue) -> ResourceParseResult<()> {
     let file = parse_channel_configuration(path, yaml)?;
     let Some(greeting) = file.greeting else {
