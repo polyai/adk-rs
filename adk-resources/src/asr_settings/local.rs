@@ -1,4 +1,6 @@
-use crate::local_parse::{ResourceParseResult, default_if_null, deserialize_yaml};
+use crate::local_parse::{
+    ResourceParseErrors, ResourceParseResult, default_if_null, deserialize_yaml,
+};
 use adk_protobuf::asr_settings::{AsrSettingsUpdateAsrSettings, LatencyConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -91,6 +93,15 @@ pub(crate) fn parse_asr_settings(
     yaml: &YamlValue,
 ) -> ResourceParseResult<AsrSettingsFile> {
     deserialize_yaml(path, yaml)
+}
+
+pub(crate) fn parse_asr_settings_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<AsrSettingsFile> {
+    let yaml = serde_yaml_ng::from_str::<YamlValue>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_asr_settings(path, &yaml)
 }
 
 #[cfg(test)]

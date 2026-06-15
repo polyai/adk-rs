@@ -101,8 +101,8 @@ pub(crate) fn parse_languages_content(
     parse_languages_file(path, &yaml)
 }
 
-pub(crate) fn language_codes_from_yaml(yaml: &Value) -> (Option<String>, Vec<String>) {
-    deserialize_yaml::<LanguagesFile>(crate::specs::LANGUAGES_FILE.file_path, yaml)
+pub(crate) fn language_codes_from_content(content: &str) -> (Option<String>, Vec<String>) {
+    parse_languages_content(crate::specs::LANGUAGES_FILE.file_path, content)
         .map(|file| file.language_codes())
         .unwrap_or_default()
 }

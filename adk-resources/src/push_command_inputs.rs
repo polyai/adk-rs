@@ -2,18 +2,12 @@
 
 use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
-use serde_yaml_ng::{Value as YamlValue, from_str};
 
 #[derive(Default)]
 pub(crate) struct SimpleLifecycleCommands {
     pub(crate) deletes: Vec<adk_protobuf::Command>,
     pub(crate) creates: Vec<adk_protobuf::Command>,
     pub(crate) updates: Vec<adk_protobuf::Command>,
-}
-
-pub(crate) fn resource_yaml(resources: &ResourceMap, path: &str) -> Option<YamlValue> {
-    let content = resources.get(path)?.payload.get("content")?.as_str()?;
-    from_str(content).ok()
 }
 
 pub(crate) fn resource_changed(local: &ResourceMap, remote: &ResourceMap, path: &str) -> bool {
@@ -32,13 +26,6 @@ pub(crate) fn resource_changed(local: &ResourceMap, remote: &ResourceMap, path: 
         return true;
     };
     local_content != remote_content
-}
-
-pub(crate) fn yaml_sequence<'a>(yaml: &'a YamlValue, key: &str) -> Vec<&'a YamlValue> {
-    yaml.get(key)
-        .and_then(YamlValue::as_sequence)
-        .map(|items| items.iter().collect())
-        .unwrap_or_default()
 }
 
 pub(crate) fn json_str(value: &JsonValue, keys: &[&str]) -> String {

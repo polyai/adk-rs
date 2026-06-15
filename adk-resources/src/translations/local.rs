@@ -4,7 +4,7 @@ use crate::local_parse::{
 };
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Serialize)]
 pub(crate) struct TranslationsFile {
@@ -49,6 +49,42 @@ pub(crate) fn parse_translations_content(
     let yaml = serde_yaml_ng::from_str::<Value>(content)
         .map_err(|error| ResourceParseErrors::single(path, error))?;
     parse_translations_file(path, &yaml)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct TranslationLanguageCoverageFile {
+    #[serde(default)]
+    pub(crate) translations: Vec<TranslationLanguageCoverageItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct TranslationLanguageCoverageItem {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    translations: BTreeMap<String, Option<String>>,
+}
+
+impl TranslationLanguageCoverageItem {
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn translated_languages(&self) -> BTreeSet<String> {
+        self.translations
+            .iter()
+            .filter_map(|(code, value)| value.as_ref().map(|_| code.clone()))
+            .collect()
+    }
+}
+
+pub(crate) fn parse_translation_language_coverage_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<TranslationLanguageCoverageFile> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    deserialize_yaml(path, &yaml)
 }
 
 #[derive(Debug, Deserialize)]

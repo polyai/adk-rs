@@ -9,10 +9,9 @@ pub(crate) use command_gen::{payload_json_summary, translation_lifecycle_command
 pub(crate) use discovery::Translation;
 pub(crate) use materialization::insert_translation_resources;
 
-use crate::push_command_inputs::resource_yaml;
 use crate::specs::{LANGUAGES_FILE, TRANSLATIONS};
+use crate::translations::local::parse_translation_language_coverage_content;
 use adk_types::ResourceMap;
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::BTreeSet;
 
 pub fn validate_language_translation_resources(resources: &ResourceMap) -> Vec<String> {
@@ -20,26 +19,21 @@ pub fn validate_language_translation_resources(resources: &ResourceMap) -> Vec<S
     if configured_languages.is_empty() {
         return Vec::new();
     }
-    let Some(yaml) = resource_yaml(resources, TRANSLATIONS.file.file_path) else {
+    let Some(content) = resource_content(resources, TRANSLATIONS.file.file_path) else {
+        return Vec::new();
+    };
+    let Ok(file) =
+        parse_translation_language_coverage_content(TRANSLATIONS.file.file_path, content)
+    else {
         return Vec::new();
     };
     let mut errors = Vec::new();
-    for translation in crate::push_command_inputs::yaml_sequence(&yaml, TRANSLATIONS.yaml_key) {
-        let name = crate::yaml_str(translation, "name");
+    for translation in &file.translations {
+        let name = translation.name();
         if name.is_empty() {
             continue;
         }
-        let translation_languages = translation
-            .get("translations")
-            .and_then(YamlValue::as_mapping)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|(key, value)| value.as_str().and_then(|_| key.as_str()))
-                    .map(ToString::to_string)
-                    .collect::<BTreeSet<_>>()
-            })
-            .unwrap_or_default();
+        let translation_languages = translation.translated_languages();
         let missing = configured_languages
             .difference(&translation_languages)
             .cloned()
@@ -48,7 +42,7 @@ pub fn validate_language_translation_resources(resources: &ResourceMap) -> Vec<S
             errors.push(format!(
                 "Validation error in {}/translations/{}: Missing translations for configured languages: {:?}.",
                 TRANSLATIONS.file.file_path,
-                crate::clean_name(&name, false),
+                crate::clean_name(name, false),
                 missing
             ));
         }
@@ -60,7 +54,7 @@ pub fn validate_language_translation_resources(resources: &ResourceMap) -> Vec<S
             errors.push(format!(
                 "Validation error in {}/translations/{}: Translation for language not configured: {:?}.",
                 TRANSLATIONS.file.file_path,
-                crate::clean_name(&name, false),
+                crate::clean_name(name, false),
                 extra
             ));
         }
@@ -69,13 +63,17 @@ pub fn validate_language_translation_resources(resources: &ResourceMap) -> Vec<S
 }
 
 fn configured_languages(resources: &ResourceMap) -> BTreeSet<String> {
-    let Some(yaml) = resource_yaml(resources, LANGUAGES_FILE.file_path) else {
+    let Some(content) = resource_content(resources, LANGUAGES_FILE.file_path) else {
         return BTreeSet::new();
     };
     let (default_language, additional_languages) =
-        crate::languages::language_codes_from_yaml(&yaml);
+        crate::languages::language_codes_from_content(content);
     default_language
         .into_iter()
         .chain(additional_languages)
         .collect()
+}
+
+fn resource_content<'a>(resources: &'a ResourceMap, path: &str) -> Option<&'a str> {
+    resources.get(path)?.payload.get("content")?.as_str()
 }
