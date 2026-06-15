@@ -46,6 +46,12 @@ struct ApiEnvironmentItem {
     auth_type: String,
 }
 
+impl ApiEnvironmentItem {
+    fn is_default(&self) -> bool {
+        self.base_url.is_empty() && self.auth_type == "none"
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ApiOperationItem {
     id: String,
@@ -191,7 +197,7 @@ pub(crate) fn api_integration_lifecycle_commands(
             let local_env = local.environments.get(env_name);
             let remote_env = remote.environments.get(env_name);
             if let Some(local_env) = local_env
-                && Some(local_env) != remote_env
+                && !api_environment_matches_remote(local_env, remote_env)
             {
                 push_command(
                     &mut commands.config_updates,
@@ -228,6 +234,13 @@ pub(crate) fn api_integration_lifecycle_commands(
     }
 
     commands
+}
+
+fn api_environment_matches_remote(
+    local: &ApiEnvironmentItem,
+    remote: Option<&ApiEnvironmentItem>,
+) -> bool {
+    remote == Some(local) || remote.is_none() && local.is_default()
 }
 
 fn local_api_integrations_file(resources: &ResourceMap) -> Option<ApiIntegrationsFile> {
@@ -529,6 +542,65 @@ api_integrations:
         assert!(commands.operation_creates.is_empty());
         assert!(commands.integration_updates.is_empty());
         assert!(commands.operation_updates.is_empty());
+        assert!(commands.config_updates.is_empty());
+    }
+
+    #[test]
+    fn missing_remote_environments_match_local_defaults() {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            API_INTEGRATIONS.file.file_path.to_string(),
+            Resource {
+                resource_id: API_INTEGRATIONS.file.resource_id.to_string(),
+                name: API_INTEGRATIONS.file.name.to_string(),
+                file_path: API_INTEGRATIONS.file.file_path.to_string(),
+                payload: json!({
+                    "content": r#"
+api_integrations:
+  - name: orders_api
+    description: Order lookup API.
+    environments:
+      sandbox:
+        base_url: https://sandbox.example.test
+        auth_type: apiKey
+      pre-release:
+        base_url: ""
+        auth_type: none
+      live:
+        base_url: ""
+        auth_type: none
+    operations: []
+"#,
+                }),
+            },
+        );
+        let projection = json!({
+            "apiIntegrations": {
+                "apiIntegrations": {
+                    "ids": ["api-1"],
+                    "entities": {
+                        "api-1": {
+                            "id": "api-1",
+                            "name": "orders_api",
+                            "description": "Order lookup API.",
+                            "environments": {
+                                "sandbox": {
+                                    "baseUrl": "https://sandbox.example.test",
+                                    "authType": "apiKey"
+                                }
+                            },
+                            "operations": {
+                                "ids": [],
+                                "entities": {}
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let commands = api_integration_lifecycle_commands(&resources, &projection, &None);
+
         assert!(commands.config_updates.is_empty());
     }
 }

@@ -123,22 +123,22 @@ impl ApiIntegrationItem {
     }
 
     fn validate(&self, path: &str, idx: usize, errors: &mut ResourceParseErrors) {
-        let name = clean_name(&self.name, false);
-        let error_name = if name.is_empty() {
+        let cleaned_name = clean_name(&self.name, false);
+        let error_name = if cleaned_name.is_empty() {
             idx.to_string()
         } else {
-            name.clone()
+            cleaned_name.clone()
         };
         if self.name.is_empty() {
             errors.push(
                 &format!("{path}/api_integrations/{idx}"),
                 "Name cannot be empty.",
             );
-        } else if !is_python_function_name(&name) {
+        } else if !is_python_function_name(&self.name) {
             errors.push(
-                &format!("{path}/api_integrations/{name}"),
+                &format!("{path}/api_integrations/{error_name}"),
                 format!(
-                    "API integration name '{name}' must follow Python function naming convention (lowercase letters, numbers, and underscores only, starting with letter or underscore)."
+                    "API integration name '{error_name}' must follow Python function naming convention (lowercase letters, numbers, and underscores only, starting with letter or underscore)."
                 ),
             );
         }

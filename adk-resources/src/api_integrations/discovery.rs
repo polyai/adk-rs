@@ -86,7 +86,7 @@ mod tests {
         let errors = validation_errors(
             r#"
 api_integrations:
-  - name: Bad Name
+  - name: orders-api
     environments:
       sandbox:
         base_url: ftp://example.com
@@ -107,11 +107,9 @@ api_integrations:
 "#,
         );
 
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("must follow Python function naming convention"))
-        );
+        assert!(errors.iter().any(|error| error.contains(
+            "API integration name 'orders_api' must follow Python function naming convention"
+        )));
         assert!(
             errors
                 .iter()
