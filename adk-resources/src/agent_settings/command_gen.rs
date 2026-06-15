@@ -1,5 +1,5 @@
 use crate::agent_settings::local::{
-    parse_personality_settings_content, parse_role_settings_content,
+    deserialize_personality_settings_content, parse_role_settings_content,
 };
 use crate::push_command_inputs::resource_changed;
 use crate::safety_filters::{SafetyFilterMode, parse_safety_filters_content};
@@ -86,7 +86,7 @@ fn append_personality_update(
         AGENT_PERSONALITY_FILE.file_path,
     ) && let Some(content) = resource_content(resources, AGENT_PERSONALITY_FILE.file_path)
         && let Ok(personality) =
-            parse_personality_settings_content(AGENT_PERSONALITY_FILE.file_path, content)
+            deserialize_personality_settings_content(AGENT_PERSONALITY_FILE.file_path, content)
     {
         push_command(
             commands,

@@ -18,7 +18,7 @@ fn personality_update_filters_unknown_disabled_adjectives() {
         AGENT_PERSONALITY_FILE.file_path.to_string(),
         content_resource(
             AGENT_PERSONALITY_FILE,
-            "adjectives:\n  Polite: true\n  RetiredAdjective: false\n  Calm: true\ncustom: ''\n",
+            "adjectives:\n  Polite: true\n  RetiredAdjective: false\n  Curious: true\n  Calm: true\ncustom: Recording parity custom personality.\n",
         ),
     );
     let mut commands = Vec::new();
@@ -34,6 +34,11 @@ fn personality_update_filters_unknown_disabled_adjectives() {
             assert_eq!(adjectives.values.get("Polite"), Some(&true));
             assert_eq!(adjectives.values.get("Calm"), Some(&true));
             assert!(!adjectives.values.contains_key("RetiredAdjective"));
+            assert!(!adjectives.values.contains_key("Curious"));
+            assert_eq!(
+                payload.custom.as_deref(),
+                Some("Recording parity custom personality.")
+            );
         }
         _ => panic!("unexpected update_personality payload"),
     }

@@ -147,13 +147,13 @@ pub(crate) fn parse_personality_settings(
     deserialize_yaml::<PersonalitySettings>(path, yaml)?.validate(path)
 }
 
-pub(crate) fn parse_personality_settings_content(
+pub(crate) fn deserialize_personality_settings_content(
     path: &str,
     content: &str,
 ) -> ResourceParseResult<PersonalitySettings> {
     let yaml = serde_yaml_ng::from_str::<YamlValue>(content)
         .map_err(|error| ResourceParseErrors::single(path, error))?;
-    parse_personality_settings(path, &yaml)
+    deserialize_yaml::<PersonalitySettings>(path, &yaml)
 }
 
 pub(crate) fn parse_role_settings(
