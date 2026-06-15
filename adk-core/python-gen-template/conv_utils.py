@@ -9,7 +9,7 @@ from . import value_extraction_types as extraction_types
 from .value_extraction import Address as Address, _EntityValidationResponse
 from typing import Any, Literal, TYPE_CHECKING
 
-__all__ = ["PromptLLMCallLimitError", "Utils"]
+__all__ = ["Utils"]
 
 class PromptLLMCallLimitError(Exception): ...
 

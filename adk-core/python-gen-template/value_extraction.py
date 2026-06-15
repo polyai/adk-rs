@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from dataclasses import dataclass
 
-__all__ = ["ExtractionError", "Address"]
+__all__ = ["Address"]
 
 class ExtractionError(Exception):
     def __init__(self, message: str) -> None: ...

@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from ..integration import Integration
 
-__all__ = ["DEFAULT_PUBLIC_KEY", "Tripleseat"]
+__all__ = ["Tripleseat"]
 
 DEFAULT_PUBLIC_KEY = 'a6dd8bc1e4018836b8e9643c978ca04b7ac58081'
 

@@ -4,4 +4,5 @@
 # type: ignore
 from __future__ import annotations
 
-__all__ = []
+from .integration import Integration as Integration, _registry as registry
+__all__ = ["Integration", "registry"]

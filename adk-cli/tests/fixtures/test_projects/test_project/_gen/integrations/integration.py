@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 __all__ = ["Integration"]
 
+_registry: dict[str, type[Integration]] = {}
+
 class Integration:
     integration_id: str
     integration_name: str

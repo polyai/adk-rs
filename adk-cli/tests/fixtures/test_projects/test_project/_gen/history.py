@@ -4,7 +4,7 @@
 # type: ignore
 from __future__ import annotations
 
-__all__ = ["UserInput", "AgentResponse"]
+__all__ = ["AgentResponse", "UserInput"]
 
 class UserInput:
     def __init__(self, text: str) -> None: ...

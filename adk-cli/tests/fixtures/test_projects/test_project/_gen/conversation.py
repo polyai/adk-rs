@@ -16,9 +16,8 @@ from .memory import Memory
 from .sms import OutgoingSMS, OutgoingSMSTemplate as OutgoingSMSTemplate, SMSCredentials, SMSTemplate
 from .webchat import WebchatInterface
 from typing import Any, Literal, NewType, TYPE_CHECKING, cast
-from .api_connector import ApiIntegrations
 
-__all__ = ["best_effort_substitute", "SMSIntegrationNotFound", "SMSMissingAssistantAccess", "MissingTemplate", "MissingHandoff", "TTSVoice", "CustomVoice", "ElevenLabsVoice", "RimeVoice", "EmotionKindValue", "EmotionIntensityValue", "EmotionKind", "EmotionIntensity", "Emotion", "CartesiaVoice", "PlayHTVoice", "MinimaxVoice", "HumeVoice", "GoogleVoice", "VoiceType", "SupportedLanguageCodes", "VoiceWeighting", "BackgroundTrack", "FlowTransition", "Variant", "Entities", "HandoffConfig", "Handoff", "ApiIntegrationData", "ASRBiasing", "State", "ReadOnlyDict", "TranslationReplacementProxy", "RealtimeConfig", "MetricEvent", "FunctionExecutor", "ApiExecutor", "Conversation", "retrieve_sms_credentials"]
+__all__ = ["SMSIntegrationNotFound", "SMSMissingAssistantAccess", "MissingTemplate", "TTSVoice", "CustomVoice", "ElevenLabsVoice", "RimeVoice", "GoogleVoice", "EmotionKindValue", "EmotionIntensityValue", "Emotion", "EmotionIntensity", "EmotionKind", "CartesiaVoice", "PlayHTVoice", "MinimaxVoice", "HumeVoice", "VoiceType", "VoiceWeighting", "Variant", "State", "Conversation", "MetricEvent", "FunctionExecutor", "ApiExecutor", "Integrations"]
 
 def best_effort_substitute(prompt: str, variables: dict) -> str: ...
 
@@ -144,7 +143,7 @@ class Entities(dict):
 
 @dataclass
 class HandoffConfig:
-    sip_type: HandoffMethod
+    sip_type: Any
     sip_config: dict = field(default_factory=dict)
     sip_headers: dict = field(default_factory=dict)
     @classmethod
@@ -211,7 +210,7 @@ class FunctionExecutor(dict):
 class ApiExecutor:
     conv: Any
     api_integrations: Any
-    def __init__(self, conv: Conversation, api_integrations: ApiIntegrations | None = None) -> None: ...
+    def __init__(self, conv: Conversation, api_integrations: Any | None = None) -> None: ...
     def __getattr__(self, name: str) -> Any: ...
 
 class Conversation:
@@ -326,7 +325,6 @@ def retrieve_sms_credentials(secret_name: str, secret_dict: dict[str, Any], proj
 
 if TYPE_CHECKING:
     import requests
-    from constants import HandoffMethod as HandoffMethod
 
 if TYPE_CHECKING:
     from .attachment import Attachment as Attachment

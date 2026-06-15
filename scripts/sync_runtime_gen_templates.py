@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import ast
 import filecmp
+import json
 import re
 import shutil
 import subprocess
@@ -49,13 +50,20 @@ SKIPPED_MODULES = frozenset(
 )
 
 TYPE_ONLY_IMPORT_ROOTS = frozenset({"constants", "requests"})
+OVERLAY_KEYS = frozenset({"runtime/decorators.py", "utils/secret_vault.py"})
+UNRESOLVABLE_TYPE_NAMES = frozenset({"ApiIntegrations", "HandoffMethod"})
+UNRESOLVABLE_SOURCE_KEYS = frozenset({"utils/api_connector.py"})
+PACKAGE_INIT_EXPORTS = {
+    "runtime/integrations/__init__.py": ("Integration", "registry"),
+}
 
 
 @dataclass(frozen=True)
 class SourceSpec:
     source_path: Path
     rel_path: Path
-    only_names: frozenset[str] | None = None
+    exports: tuple[str, ...]
+    filter_names: frozenset[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -74,39 +82,125 @@ def module_name_for_path(runtime_path: Path, source_path: Path) -> str:
     return ".".join(rel.parts)
 
 
-def should_generate_module(runtime_path: Path, source_path: Path) -> bool:
-    if source_path.name == "__init__.py":
-        return False
-    if source_path.name.startswith("_"):
-        return False
-    module_name = module_name_for_path(runtime_path, source_path)
-    return module_name not in SKIPPED_MODULES
+def python_root_for_runtime(runtime_path: Path) -> Path:
+    if runtime_path.name != "runtime":
+        raise ValueError(f"runtime path must end with 'runtime': {runtime_path}")
+    return runtime_path.parent
+
+
+def stub_rel_path_from_imports_key(key: str) -> Path:
+    parts = Path(key).parts
+    if len(parts) < 2:
+        raise ValueError(f"imports.json key must include a package prefix: {key}")
+    if parts[0] not in {"runtime", "utils"}:
+        raise ValueError(f"unsupported imports.json package prefix in key: {key}")
+    return Path(*parts[1:])
+
+
+def load_imports_json(python_root: Path) -> dict[str, list[str]]:
+    imports_file = python_root / "assets" / "imports.json"
+    if not imports_file.exists():
+        raise FileNotFoundError(f"imports.json not found: {imports_file}")
+    raw = json.loads(imports_file.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"imports.json must contain an object: {imports_file}")
+
+    imports: dict[str, list[str]] = {}
+    for key, names in raw.items():
+        if not isinstance(key, str) or not isinstance(names, list):
+            raise ValueError(f"invalid imports.json entry: {key!r}")
+        if not all(isinstance(name, str) for name in names):
+            raise ValueError(f"imports.json names must be strings for: {key}")
+        imports[key] = names
+    return imports
+
+
+def imports_key_for_module(module: str) -> str | None:
+    for prefix in ("runtime.", "utils."):
+        if module.startswith(prefix):
+            return module.replace(".", "/") + ".py"
+    if module in {"runtime", "utils"}:
+        return None
+    return None
+
+
+def dependency_keys_for_source(source_path: Path) -> set[str]:
+    try:
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return set()
+
+    keys: set[str] = set()
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Import):
+            for alias in stmt.names:
+                key = imports_key_for_module(alias.name)
+                if key:
+                    keys.add(key)
+        elif isinstance(stmt, ast.ImportFrom) and stmt.module:
+            key = imports_key_for_module(stmt.module)
+            if key:
+                keys.add(key)
+            elif stmt.module in {"runtime", "utils"}:
+                for alias in stmt.names:
+                    keys.add(f"{stmt.module}/{alias.name}.py")
+    return keys
+
+
+def add_dependency_specs(
+    python_root: Path,
+    specs_by_key: dict[str, SourceSpec],
+    queue: list[str],
+) -> None:
+    while queue:
+        key = queue.pop(0)
+        spec = specs_by_key[key]
+
+        for dep_key in sorted(dependency_keys_for_source(spec.source_path)):
+            if dep_key in specs_by_key or dep_key in OVERLAY_KEYS or dep_key in UNRESOLVABLE_SOURCE_KEYS:
+                continue
+            source_path = python_root / dep_key
+            if not source_path.is_file():
+                continue
+            dep_spec = SourceSpec(
+                source_path=source_path,
+                rel_path=stub_rel_path_from_imports_key(dep_key),
+                exports=(),
+            )
+            specs_by_key[dep_key] = dep_spec
+            queue.append(dep_key)
 
 
 def source_specs(runtime_path: Path) -> list[SourceSpec]:
-    specs: list[SourceSpec] = []
-    for source_path in sorted(runtime_path.rglob("*.py")):
-        if "__pycache__" in source_path.parts:
+    python_root = python_root_for_runtime(runtime_path)
+    specs_by_key: dict[str, SourceSpec] = {}
+    queue: list[str] = []
+    for key, exports in sorted(load_imports_json(python_root).items()):
+        if key in OVERLAY_KEYS:
             continue
-        if not should_generate_module(runtime_path, source_path):
-            continue
-        specs.append(
-            SourceSpec(
-                source_path=source_path,
-                rel_path=source_path.relative_to(runtime_path).with_suffix(".py"),
-            )
-        )
 
-    api_connector_source = runtime_path.parent / "utils" / "api_connector.py"
-    if api_connector_source.exists():
-        specs.append(
-            SourceSpec(
-                source_path=api_connector_source,
-                rel_path=Path("api_connector.py"),
-                only_names=frozenset({"ApiIntegrations"}),
-            )
+        source_path = python_root / key
+        if not source_path.is_file():
+            raise FileNotFoundError(f"imports.json references missing source file: {source_path}")
+        specs_by_key[key] = SourceSpec(
+            source_path=source_path,
+            rel_path=stub_rel_path_from_imports_key(key),
+            exports=tuple(exports),
         )
-    return specs
+        queue.append(key)
+
+    for key, exports in PACKAGE_INIT_EXPORTS.items():
+        source_path = python_root / key
+        if source_path.is_file():
+            specs_by_key[key] = SourceSpec(
+                source_path=source_path,
+                rel_path=stub_rel_path_from_imports_key(key),
+                exports=exports,
+            )
+            queue.append(key)
+
+    add_dependency_specs(python_root, specs_by_key, queue)
+    return [specs_by_key[key] for key in sorted(specs_by_key)]
 
 
 def run_stubgen(specs: list[SourceSpec], output_dir: Path) -> None:
@@ -393,7 +487,7 @@ def prune_unused_imports(source: str) -> str:
     ]
     body_text = "\n".join(body_lines)
 
-    for stmt in tree.body:
+    for stmt in ast.walk(tree):
         if not isinstance(stmt, (ast.Import, ast.ImportFrom)):
             continue
         if isinstance(stmt, ast.ImportFrom) and stmt.module == "__future__":
@@ -418,6 +512,47 @@ def prune_unused_imports(source: str) -> str:
                 output[index] = ""
 
     return "\n".join(output).rstrip() + "\n"
+
+
+def replace_unresolvable_types(source: str) -> str:
+    if not any(name_used_in(name, source) for name in UNRESOLVABLE_TYPE_NAMES):
+        return source
+
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    output = lines[:]
+
+    for stmt in tree.body:
+        if not isinstance(stmt, (ast.Import, ast.ImportFrom)):
+            continue
+        if isinstance(stmt, ast.ImportFrom) and stmt.module == "__future__":
+            continue
+
+        kept_aliases = [
+            alias for alias in stmt.names if alias_bound_name(alias) not in UNRESOLVABLE_TYPE_NAMES
+        ]
+        if len(kept_aliases) == len(stmt.names):
+            continue
+
+        if kept_aliases:
+            if isinstance(stmt, ast.Import):
+                replacement = ast.unparse(ast.Import(names=kept_aliases))
+            else:
+                replacement = ast.unparse(
+                    ast.ImportFrom(module=stmt.module, names=kept_aliases, level=stmt.level)
+                )
+            output[stmt.lineno - 1] = replacement
+            for index in range(stmt.lineno, stmt.end_lineno or stmt.lineno):
+                output[index] = ""
+        else:
+            for index in range(stmt.lineno - 1, stmt.end_lineno or stmt.lineno):
+                output[index] = ""
+
+    replaced = "\n".join(output)
+    for name in UNRESOLVABLE_TYPE_NAMES:
+        replaced = re.sub(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", "Any", replaced)
+    replaced = re.sub(r"^\s*from constants import Any as Any\n", "", replaced, flags=re.MULTILINE)
+    return "\n".join(ensure_typing_import(replaced.splitlines(), {"Any"})).rstrip() + "\n"
 
 
 def is_type_checking_guard(stmt: ast.stmt) -> bool:
@@ -732,6 +867,7 @@ def read_exports(source_stub: str, source_runtime: str, only_names: frozenset[st
 
 
 def add_module_all(source: str, exports: tuple[str, ...]) -> str:
+    source = remove_module_all(source)
     if not exports:
         return source
     all_line = "__all__ = [" + ", ".join(f'"{name}"' for name in exports) + "]"
@@ -752,18 +888,68 @@ def add_module_all(source: str, exports: tuple[str, ...]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def remove_module_all(source: str) -> str:
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    for stmt in tree.body:
+        if not isinstance(stmt, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id == "__all__" for target in stmt.targets):
+            continue
+        for index in range(stmt.lineno - 1, stmt.end_lineno or stmt.lineno):
+            lines[index] = ""
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def ensure_integration_registry(source: str, rel_path: Path) -> str:
+    if rel_path != Path("integrations/integration.py") or name_used_in("_registry", source):
+        return source
+
+    lines = source.splitlines()
+    insert_at = 0
+    while insert_at < len(lines) and (
+        lines[insert_at].startswith("#")
+        or lines[insert_at] == ""
+        or lines[insert_at].startswith("from __future__")
+        or lines[insert_at].startswith("import ")
+        or lines[insert_at].startswith("from ")
+        or lines[insert_at].startswith("if TYPE_CHECKING")
+        or lines[insert_at].startswith("    ")
+    ):
+        insert_at += 1
+    lines.insert(insert_at, "")
+    lines.insert(insert_at, "_registry: dict[str, type[Integration]] = {}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def available_bound_names(source: str) -> set[str]:
+    tree = ast.parse(source)
+    names: set[str] = set()
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            names.update(assignment_names(node))
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update(alias.asname or alias.name for alias in node.names)
+    return names
+
+
 def postprocess_stub(stub_source: str, runtime_source: str, spec: SourceSpec) -> tuple[str, tuple[str, ...]]:
     source = replace_incomplete_with_any(stub_source)
     source = rewrite_imports(source, spec.rel_path)
     source = move_named_imports_to_type_checking(source, source_type_checking_bound_names(runtime_source))
+    source = replace_unresolvable_types(source)
     source = restore_top_level_assignment_values(source, runtime_source)
     source = restore_class_assignment_values(source, runtime_source)
-    source = filter_top_level_names(source, spec.only_names)
+    source = filter_top_level_names(source, spec.filter_names)
     source = prune_type_checking_imports(source)
     source = prune_unused_imports(source)
     source = apply_pydantic_fallback(source)
+    source = ensure_integration_registry(source, spec.rel_path)
     source = collapse_blank_lines(source)
-    exports = read_exports(source, runtime_source, spec.only_names)
+    available_names = available_bound_names(source)
+    exports = tuple(name for name in spec.exports if name in available_names)
     source = add_module_all(source, exports)
     return STUB_HEADER.rstrip() + "\n\n" + source.lstrip(), exports
 

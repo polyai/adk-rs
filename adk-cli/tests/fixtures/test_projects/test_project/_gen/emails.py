@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-__all__ = ["OutgoingEmail"]
-
 @dataclass
 class OutgoingEmail:
     to: str

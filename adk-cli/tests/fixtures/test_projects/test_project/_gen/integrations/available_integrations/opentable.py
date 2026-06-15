@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from ..integration import Integration
 
-__all__ = ["BASE_OPENTABLE_API_URL", "V1_BASE_OPENTABLE_API_URL_SUFFIX", "V2_BASE_OPENTABLE_API_URL_SUFFIX", "OPENTABLE_AUTH_URL", "OPENTABLE_SECRET_NAME", "OpenTable"]
+__all__ = ["OpenTable"]
 
 BASE_OPENTABLE_API_URL = 'https://api.opentable.com'
 V1_BASE_OPENTABLE_API_URL_SUFFIX = '/inhouse/v1'

@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-__all__ = ["VALID_HTTP_METHODS", "US_PROXY_BASE_URL", "EU_PROXY_BASE_URL", "DEFAULT_REQUEST_TIMEOUT_SECONDS", "proxy_integration_request_to_paragon"]
-
 VALID_HTTP_METHODS = {'GET', 'POST', 'DELETE', 'PUT', 'PATCH'}
 US_PROXY_BASE_URL = 'https://proxy.useparagon.com'
 EU_PROXY_BASE_URL = 'https://worker-proxy.eu.paragon.so'

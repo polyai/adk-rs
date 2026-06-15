@@ -4,8 +4,6 @@
 # type: ignore
 from __future__ import annotations
 
-__all__ = ["KnowledgeBase"]
-
 class KnowledgeBase:
     def __init__(self) -> None: ...
     @property

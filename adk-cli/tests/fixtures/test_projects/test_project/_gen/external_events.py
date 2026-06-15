@@ -7,7 +7,7 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass
 
-__all__ = ["Event", "GenericExternalEvent", "SMSReceived", "ExternalEvents"]
+__all__ = ["ExternalEvents", "SMSReceived"]
 
 class Event(abc.ABC): ...
 
