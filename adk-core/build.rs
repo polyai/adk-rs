@@ -1,3 +1,7 @@
+// Build scripts run before crate dependencies are available, so this cannot use
+// `adk-io` while generating Cargo OUT_DIR include metadata.
+#![allow(clippy::disallowed_methods)]
+
 use std::env;
 use std::fs;
 use std::io;
