@@ -1,7 +1,6 @@
-use crate::languages::DefaultLanguage;
-use crate::local_parse::ParseLocalResource;
+use crate::languages::local::{LanguagesFile, parse_languages_content};
 use crate::push_command;
-use crate::push_command_inputs::{SimpleLifecycleCommands, json_str, resource_yaml};
+use crate::push_command_inputs::{SimpleLifecycleCommands, json_str};
 use crate::specs::{ADDITIONAL_LANGUAGES, LANGUAGES_FILE};
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -18,7 +17,10 @@ pub(crate) fn append_default_language_update(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) {
-    let Some(local) = local_default_language(resources) else {
+    let Some(file) = local_languages_file(resources) else {
+        return;
+    };
+    let Some(local) = file.default_language().map(ToString::to_string) else {
         return;
     };
     let remote = projection
@@ -43,10 +45,10 @@ pub(crate) fn additional_language_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> SimpleLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, LANGUAGES_FILE.file_path) else {
+    let Some(file) = local_languages_file(resources) else {
         return SimpleLifecycleCommands::default();
     };
-    let local_languages = local_additional_languages(&yaml);
+    let local_languages = local_additional_languages(&file);
     let remote_languages = remote_additional_languages(projection);
     let local_set = local_languages.iter().cloned().collect::<HashSet<_>>();
     let remote_set = remote_languages.keys().cloned().collect::<HashSet<_>>();
@@ -95,16 +97,16 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
     }
 }
 
-fn local_default_language(resources: &ResourceMap) -> Option<String> {
-    let yaml = resource_yaml(resources, LANGUAGES_FILE.file_path)?;
-    let file = DefaultLanguage::parse_local_yaml(LANGUAGES_FILE.file_path, &yaml).ok()?;
-    file.default_language().map(ToString::to_string)
+fn local_languages_file(resources: &ResourceMap) -> Option<LanguagesFile> {
+    let content = resources
+        .get(LANGUAGES_FILE.file_path)?
+        .payload
+        .get("content")?
+        .as_str()?;
+    parse_languages_content(LANGUAGES_FILE.file_path, content).ok()
 }
 
-fn local_additional_languages(yaml: &serde_yaml_ng::Value) -> Vec<String> {
-    let Ok(file) = DefaultLanguage::parse_local_yaml(LANGUAGES_FILE.file_path, yaml) else {
-        return Vec::new();
-    };
+fn local_additional_languages(file: &LanguagesFile) -> Vec<String> {
     file.additional_languages()
         .map(ToString::to_string)
         .collect()
@@ -120,4 +122,72 @@ fn remote_additional_languages(projection: &JsonValue) -> HashMap<String, String
             (!code.is_empty()).then_some((code, id))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adk_types::Resource;
+
+    fn language_resource(content: &str) -> ResourceMap {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            LANGUAGES_FILE.file_path.to_string(),
+            Resource {
+                resource_id: LANGUAGES_FILE.resource_id.to_string(),
+                name: LANGUAGES_FILE.name.to_string(),
+                file_path: LANGUAGES_FILE.file_path.to_string(),
+                payload: json!({ "content": content }),
+            },
+        );
+        resources
+    }
+
+    #[test]
+    fn language_commands_parse_local_content_through_typed_model() {
+        let resources = language_resource(
+            r#"
+default_language: en-US
+additional_languages:
+  - fr-FR
+  - es-ES
+"#,
+        );
+        let projection = json!({
+            "languages": {
+                "defaultLanguageCode": "en-GB",
+                "additionalLanguages": {
+                    "ids": ["fr-FR", "de-DE"],
+                    "entities": {
+                        "fr-FR": { "code": "fr-FR" },
+                        "de-DE": { "code": "de-DE" }
+                    }
+                }
+            }
+        });
+
+        let mut updates = Vec::new();
+        append_default_language_update(&mut updates, &resources, &projection, &None);
+        let lifecycle = additional_language_lifecycle_commands(&resources, &projection, &None);
+
+        assert_eq!(updates.len(), 1);
+        assert!(matches!(
+            updates[0].payload,
+            Some(CommandPayload::LanguagesUpdateDefaultLanguage(
+                LanguagesUpdateDefaultLanguage { ref language_code }
+            )) if language_code == "en-US"
+        ));
+        assert_eq!(lifecycle.creates.len(), 1);
+        assert!(matches!(
+            lifecycle.creates[0].payload,
+            Some(CommandPayload::LanguagesAddLanguage(LanguagesAddLanguage { ref code }))
+                if code == "es-ES"
+        ));
+        assert_eq!(lifecycle.deletes.len(), 1);
+        assert!(matches!(
+            lifecycle.deletes[0].payload,
+            Some(CommandPayload::LanguagesDeleteLanguage(LanguagesDeleteLanguage { ref code }))
+                if code == "de-DE"
+        ));
+    }
 }

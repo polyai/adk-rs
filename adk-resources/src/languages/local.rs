@@ -92,6 +92,15 @@ pub(crate) fn parse_languages_file(path: &str, yaml: &Value) -> ResourceParseRes
     deserialize_yaml::<LanguagesFile>(path, yaml)?.validate(path)
 }
 
+pub(crate) fn parse_languages_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<LanguagesFile> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_languages_file(path, &yaml)
+}
+
 pub(crate) fn language_codes_from_yaml(yaml: &Value) -> (Option<String>, Vec<String>) {
     deserialize_yaml::<LanguagesFile>(crate::specs::LANGUAGES_FILE.file_path, yaml)
         .map(|file| file.language_codes())
