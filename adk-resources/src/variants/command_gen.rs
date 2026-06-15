@@ -1,10 +1,10 @@
 use crate::ids::stable_resource_id;
 use crate::push_command;
-use crate::push_command_inputs::{json_bool, json_str, resource_yaml};
+use crate::push_command_inputs::{json_bool, json_str};
 use crate::specs::{VARIANT_ATTRIBUTE_VALUES, VARIANT_ATTRIBUTES, VARIANTS};
 use crate::variants::local::{
-    VariantAttributeItem as LocalVariantAttributeItem, VariantItem as LocalVariantItem,
-    parse_variant_attributes_file,
+    VariantAttributeItem as LocalVariantAttributeItem, VariantAttributesFile,
+    VariantItem as LocalVariantItem, parse_variant_attributes_content,
 };
 use adk_protobuf::Metadata;
 use adk_protobuf::command::Payload as CommandPayload;
@@ -15,7 +15,6 @@ use adk_protobuf::variant::{
 };
 use adk_types::ResourceMap;
 use serde_json::{self, Value as JsonValue, json};
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -47,14 +46,14 @@ pub(crate) fn variant_lifecycle_commands(
     projection: &JsonValue,
     metadata: &Option<Metadata>,
 ) -> VariantLifecycleCommands {
-    let Some(yaml) = resource_yaml(resources, VARIANTS.file.file_path) else {
+    let Some(file) = local_variant_attributes_file(resources) else {
         return VariantLifecycleCommands::default();
     };
 
     let remote_variants = remote_variant_items(projection);
     let remote_attributes = remote_variant_attribute_items(projection);
-    let mut local_variants = local_variant_items(&yaml);
-    let mut local_attributes = local_variant_attribute_items(&yaml);
+    let mut local_variants = local_variant_items(&file);
+    let mut local_attributes = local_variant_attribute_items(&file);
 
     let remote_variants_by_name = remote_variants
         .iter()
@@ -192,10 +191,16 @@ pub(crate) fn variant_lifecycle_commands(
     commands
 }
 
-fn local_variant_items(yaml: &YamlValue) -> Vec<VariantItem> {
-    let Ok(file) = parse_variant_attributes_file(VARIANTS.file.file_path, yaml) else {
-        return Vec::new();
-    };
+fn local_variant_attributes_file(resources: &ResourceMap) -> Option<VariantAttributesFile> {
+    let content = resources
+        .get(VARIANTS.file.file_path)?
+        .payload
+        .get("content")?
+        .as_str()?;
+    parse_variant_attributes_content(VARIANTS.file.file_path, content).ok()
+}
+
+fn local_variant_items(file: &VariantAttributesFile) -> Vec<VariantItem> {
     file.variants.iter().map(local_variant_item).collect()
 }
 
@@ -225,10 +230,7 @@ fn remote_variant_items(projection: &JsonValue) -> Vec<VariantItem> {
         .collect()
 }
 
-fn local_variant_attribute_items(yaml: &YamlValue) -> Vec<VariantAttributeItem> {
-    let Ok(file) = parse_variant_attributes_file(VARIANTS.file.file_path, yaml) else {
-        return Vec::new();
-    };
+fn local_variant_attribute_items(file: &VariantAttributesFile) -> Vec<VariantAttributeItem> {
     file.attributes
         .iter()
         .map(local_variant_attribute_item)
@@ -349,7 +351,8 @@ mod tests {
 
     #[test]
     fn local_variant_items_use_typed_file_model() {
-        let yaml = serde_yaml_ng::from_str(
+        let file = parse_variant_attributes_content(
+            VARIANTS.file.file_path,
             r#"
 variants:
   - name: Control
@@ -364,8 +367,8 @@ attributes:
         )
         .expect("variant attributes yaml");
 
-        let variants = local_variant_items(&yaml);
-        let attributes = local_variant_attribute_items(&yaml);
+        let variants = local_variant_items(&file);
+        let attributes = local_variant_attribute_items(&file);
 
         assert_eq!(variants[0].name, "Control");
         assert!(variants[0].is_default);

@@ -145,6 +145,15 @@ pub(crate) fn parse_variant_attributes_file(
     deserialize_yaml(path, yaml)
 }
 
+pub(crate) fn parse_variant_attributes_content(
+    path: &str,
+    content: &str,
+) -> ResourceParseResult<VariantAttributesFile> {
+    let yaml = serde_yaml_ng::from_str::<Value>(content)
+        .map_err(|error| ResourceParseErrors::single(path, error))?;
+    parse_variant_attributes_file(path, &yaml)
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct VariantItem {
     name: NonEmptyString,
