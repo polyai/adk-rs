@@ -1,11 +1,11 @@
 use crate::{
-    CoreError, flatten_discovered_paths, is_path_inside_canonical_root, is_status_metadata_path,
+    CoreError, canonical_path_inside_root, flatten_discovered_paths, is_status_metadata_path,
     recursive_file_paths,
 };
 use adk_io::{FileSystem, parse_multi_resource_path};
 use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
 /// Inputs for applying an explicit projection pull to an injected filesystem.
@@ -263,12 +263,17 @@ fn sync_python_gen_package<Fs: FileSystem>(
 ) -> Result<(), CoreError> {
     let gen_dir = root.join("_gen");
     fs.create_dir_all(&gen_dir)?;
+    let mut cleaned_stubs = HashSet::new();
     for path in recursive_file_paths(fs, &gen_dir)? {
         if path.extension().is_some_and(|extension| extension == "pyi") {
             // `_gen` itself may be a symlink to a user-chosen generated package
             // location, but child symlinks inside it must not let stale-stub
-            // cleanup delete files outside that resolved package root.
-            if !is_path_inside_canonical_root(fs, &gen_dir, &path) {
+            // cleanup delete files outside that resolved package root. The
+            // canonical path also deduplicates aliases from internal symlinks.
+            let Some(canonical_path) = canonical_path_inside_root(fs, &gen_dir, &path) else {
+                continue;
+            };
+            if !cleaned_stubs.insert(canonical_path) {
                 continue;
             }
             fs.remove_file(&path)?;

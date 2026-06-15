@@ -1,10 +1,11 @@
 use crate::{
     CoreError, DiscoveredResourceChanges, DiscoveredResourcePaths, PROJECT_CONFIG_FILE,
-    is_generated_path, is_path_inside_canonical_root, project_config_yaml, recursive_file_paths,
+    canonical_path_inside_root, is_generated_path, project_config_yaml, recursive_file_paths,
 };
 use adk_io::FileSystem;
 use adk_resources::local_resource_content;
 use adk_types::{ProjectConfig, Resource, ResourceMap};
+use std::collections::HashSet;
 use std::path::Path;
 
 include!(concat!(env!("OUT_DIR"), "/python_gen_template_files.rs"));
@@ -60,12 +61,18 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
     pub fn write_python_gen_package(&self, project_root: &Path) -> Result<(), CoreError> {
         let gen_dir = project_root.join("_gen");
         self.fs.create_dir_all(&gen_dir)?;
+        let mut cleaned_stubs = HashSet::new();
         for path in recursive_file_paths(&self.fs, &gen_dir)? {
             if path.extension().is_some_and(|extension| extension == "pyi") {
                 // `_gen` itself may be a symlink to a user-chosen generated package
                 // location, but child symlinks inside it must not let stale-stub
-                // cleanup delete files outside that resolved package root.
-                if !is_path_inside_canonical_root(&self.fs, &gen_dir, &path) {
+                // cleanup delete files outside that resolved package root. The
+                // canonical path also deduplicates aliases from internal symlinks.
+                let Some(canonical_path) = canonical_path_inside_root(&self.fs, &gen_dir, &path)
+                else {
+                    continue;
+                };
+                if !cleaned_stubs.insert(canonical_path) {
                     continue;
                 }
                 self.fs.remove_file(&path)?;

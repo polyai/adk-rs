@@ -457,6 +457,36 @@ fn pull_does_not_clean_stale_python_stubs_through_gen_child_symlink() {
 
 #[test]
 #[cfg(unix)]
+fn pull_deduplicates_stale_python_stubs_reached_through_internal_gen_symlink() {
+    let service = service_offline();
+    let base = make_temp_project_dir();
+    service
+        .init_project(
+            &base,
+            "us-1".to_string(),
+            "test-account".to_string(),
+            "test-project".to_string(),
+        )
+        .expect("init project");
+
+    let root = base.join("test-account").join("test-project");
+    let gen_dir = root.join("_gen");
+    let subdir = gen_dir.join("subdir");
+    fs::create_dir_all(&subdir).expect("subdir");
+    let stale_stub = subdir.join("stale.pyi");
+    fs::write(&stale_stub, "class Stale: ...\n").expect("stale stub");
+    symlink_path(&subdir, &gen_dir.join("link"));
+
+    service.pull(&root, true).expect("pull project");
+
+    assert!(
+        !stale_stub.exists(),
+        "stale-stub cleanup should delete each canonical _gen file once"
+    );
+}
+
+#[test]
+#[cfg(unix)]
 fn init_allows_gen_directory_symlink_and_cleans_stubs_inside_target() {
     let service = service_offline();
     let base = make_temp_project_dir();
