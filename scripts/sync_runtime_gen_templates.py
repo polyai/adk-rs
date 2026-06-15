@@ -1,14 +1,13 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# dependencies = ["mypy>=1.0.0"]
+# ///
 """Generate Rust ADK _gen templates from genai_lambda_runtime sources.
 
-This is intentionally owned by the Rust ADK repo. It borrows the broad shape of
-the Python ADK stub sync workflow, but writes the final vendored template tree
-used by `poly init` and `poly pull`:
-
-    adk-core/python-gen-template/
-
-The runtime package is the canonical input. The Python ADK repository is not an
-input.
+The runtime package is the canonical input. This script intentionally does not
+read from the Python ADK repository: it shells out to mypy's `stubgen` for
+signature extraction, then post-processes the generated `.pyi` files into
+runtime-importable `.py` helper modules used by `poly init` and `poly pull`.
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ import ast
 import filecmp
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -44,26 +44,18 @@ SKIPPED_MODULES = frozenset(
         "llm_client",
         "decorators",
         "secret_vault",
-        "utils.api_connector",
         "utils.secret_vault",
     }
 )
 
-ALLOWED_IMPORT_MODULES = frozenset(
-    {
-        "abc",
-        "collections",
-        "collections.abc",
-        "dataclasses",
-        "datetime",
-        "enum",
-        "pydantic",
-        "re",
-        "typing",
-    }
-)
+TYPE_ONLY_IMPORT_ROOTS = frozenset({"constants", "requests"})
 
-TYPE_ONLY_IMPORT_MODULES = frozenset({"requests"})
+
+@dataclass(frozen=True)
+class SourceSpec:
+    source_path: Path
+    rel_path: Path
+    only_names: frozenset[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -82,318 +74,85 @@ def module_name_for_path(runtime_path: Path, source_path: Path) -> str:
     return ".".join(rel.parts)
 
 
-def destination_for_module(module_name: str) -> Path:
-    return Path(*module_name.split(".")).with_suffix(".py")
-
-
-def current_package_for_module(module_name: str) -> tuple[str, ...]:
-    parts = tuple(module_name.split("."))
-    if parts[-1] == "__init__":
-        return parts[:-1]
-    return parts[:-1]
-
-
 def should_generate_module(runtime_path: Path, source_path: Path) -> bool:
-    if source_path.name.startswith("_") and source_path.name != "__init__.py":
+    if source_path.name == "__init__.py":
+        return False
+    if source_path.name.startswith("_"):
         return False
     module_name = module_name_for_path(runtime_path, source_path)
-    if module_name == "__init__":
-        return False
     return module_name not in SKIPPED_MODULES
 
 
-def format_annotation(node: ast.expr | None) -> str | None:
-    if node is None:
-        return None
-    return ast.unparse(node)
-
-
-def format_arg(arg: ast.arg) -> str:
-    annotation = format_annotation(arg.annotation)
-    if annotation:
-        return f"{arg.arg}: {annotation}"
-    return arg.arg
-
-
-def build_signature(func: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
-    args = func.args
-    parts: list[str] = []
-
-    for arg in args.posonlyargs:
-        parts.append(format_arg(arg))
-    if args.posonlyargs:
-        parts.append("/")
-
-    num_defaults = len(args.defaults)
-    num_args = len(args.args)
-    for index, arg in enumerate(args.args):
-        formatted = format_arg(arg)
-        if index >= num_args - num_defaults:
-            formatted += " = ..."
-        parts.append(formatted)
-
-    if args.vararg:
-        parts.append(f"*{format_arg(args.vararg)}")
-    elif args.kwonlyargs:
-        parts.append("*")
-
-    for index, arg in enumerate(args.kwonlyargs):
-        formatted = format_arg(arg)
-        if args.kw_defaults[index] is not None:
-            formatted += " = ..."
-        parts.append(formatted)
-
-    if args.kwarg:
-        parts.append(f"**{format_arg(args.kwarg)}")
-
-    signature = ", ".join(parts)
-    return_annotation = format_annotation(func.returns)
-    if return_annotation:
-        return f"({signature}) -> {return_annotation}"
-    return f"({signature})"
-
-
-def get_docstring(node: ast.AST) -> str | None:
-    if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-        return None
-    return ast.get_docstring(node, clean=True)
-
-
-def first_docstring_line(node: ast.AST) -> str | None:
-    docstring = get_docstring(node)
-    if not docstring:
-        return None
-    return docstring.strip().split("\n")[0]
-
-
-def is_property(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    return any(
-        (isinstance(decorator, ast.Name) and decorator.id == "property")
-        or (isinstance(decorator, ast.Attribute) and decorator.attr == "property")
-        for decorator in func.decorator_list
-    )
-
-
-def has_named_decorator(func: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
-    return any(
-        isinstance(decorator, ast.Name) and decorator.id == name
-        for decorator in func.decorator_list
-    )
-
-
-def extract_method_stub(func: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
-    if has_private_name(func.name):
-        return None
-
-    lines: list[str] = []
-    if is_property(func):
-        lines.append("    @property")
-    elif has_named_decorator(func, "staticmethod"):
-        lines.append("    @staticmethod")
-    elif has_named_decorator(func, "classmethod"):
-        lines.append("    @classmethod")
-
-    prefix = "async def" if isinstance(func, ast.AsyncFunctionDef) else "def"
-    docstring = first_docstring_line(func)
-    if docstring:
-        lines.append(f"    {prefix} {func.name}{build_signature(func)}:")
-        lines.append(f'        """{docstring}"""')
-        lines.append("        ...")
-    else:
-        lines.append(f"    {prefix} {func.name}{build_signature(func)}: ...")
-    return "\n".join(lines)
-
-
-def is_dataclass(cls: ast.ClassDef) -> bool:
-    for decorator in cls.decorator_list:
-        if isinstance(decorator, ast.Name) and decorator.id == "dataclass":
-            return True
-        if isinstance(decorator, ast.Attribute) and decorator.attr == "dataclass":
-            return True
-        if isinstance(decorator, ast.Call):
-            if isinstance(decorator.func, ast.Name) and decorator.func.id == "dataclass":
-                return True
-            if isinstance(decorator.func, ast.Attribute) and decorator.func.attr == "dataclass":
-                return True
-    return False
-
-
-def synthesize_dataclass_init(cls: ast.ClassDef) -> str | None:
-    params = ["self"]
-    for stmt in cls.body:
-        if not isinstance(stmt, ast.AnnAssign) or not isinstance(stmt.target, ast.Name):
+def source_specs(runtime_path: Path) -> list[SourceSpec]:
+    specs: list[SourceSpec] = []
+    for source_path in sorted(runtime_path.rglob("*.py")):
+        if "__pycache__" in source_path.parts:
             continue
-        if has_private_name(stmt.target.id):
+        if not should_generate_module(runtime_path, source_path):
             continue
-        annotation = format_annotation(stmt.annotation) or "Any"
-        default = " = ..." if stmt.value is not None else ""
-        params.append(f"{stmt.target.id}: {annotation}{default}")
-    if len(params) == 1:
-        return None
-    return f"    def __init__({', '.join(params)}) -> None: ..."
-
-
-def extract_class_vars(cls: ast.ClassDef) -> list[str]:
-    lines: list[str] = []
-    for stmt in cls.body:
-        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-            if has_private_name(stmt.target.id):
-                continue
-            annotation = format_annotation(stmt.annotation) or "Any"
-            lines.append(f"    {stmt.target.id}: {annotation}")
-        elif isinstance(stmt, ast.Assign):
-            assignment = extract_class_assignment(stmt)
-            if assignment:
-                lines.append(f"    {assignment}")
-    return lines
-
-
-def extract_class_assignment(stmt: ast.Assign) -> str | None:
-    if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
-        return None
-    name = stmt.targets[0].id
-    if has_private_name(name) or not is_simple_class_assignment_value(stmt.value):
-        return None
-    return f"{name} = {ast.unparse(stmt.value)}"
-
-
-def is_simple_class_assignment_value(node: ast.expr) -> bool:
-    if isinstance(node, ast.Constant):
-        return True
-    if isinstance(node, ast.UnaryOp):
-        return is_simple_class_assignment_value(node.operand)
-    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-        return all(is_simple_class_assignment_value(element) for element in node.elts)
-    if isinstance(node, ast.Dict):
-        return all(
-            key is not None
-            and is_simple_class_assignment_value(key)
-            and is_simple_class_assignment_value(value)
-            for key, value in zip(node.keys, node.values)
+        specs.append(
+            SourceSpec(
+                source_path=source_path,
+                rel_path=source_path.relative_to(runtime_path).with_suffix(".py"),
+            )
         )
-    if (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "cast"
-        and len(node.args) == 2
-        and not node.keywords
-    ):
-        return is_simple_class_assignment_value(node.args[0]) and is_simple_class_assignment_value(
-            node.args[1]
+
+    api_connector_source = runtime_path.parent / "utils" / "api_connector.py"
+    if api_connector_source.exists():
+        specs.append(
+            SourceSpec(
+                source_path=api_connector_source,
+                rel_path=Path("api_connector.py"),
+                only_names=frozenset({"ApiIntegrations"}),
+            )
         )
-    return False
+    return specs
 
 
-def extract_class_stub(cls: ast.ClassDef) -> str | None:
-    if has_private_name(cls.name):
-        return None
-
-    bases = ", ".join(ast.unparse(base) for base in cls.bases)
-    base_clause = f"({bases})" if bases else ""
-    lines = [f"class {cls.name}{base_clause}:"]
-
-    docstring = first_docstring_line(cls)
-    if docstring:
-        lines.append(f'    """{docstring}"""')
-
-    body: list[str] = []
-    body.extend(extract_class_vars(cls))
-
-    has_explicit_init = any(
-        isinstance(stmt, ast.FunctionDef) and stmt.name == "__init__" for stmt in cls.body
-    )
-    if is_dataclass(cls) and not has_explicit_init:
-        init = synthesize_dataclass_init(cls)
-        if init:
-            body.append(init)
-
-    for stmt in cls.body:
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            method = extract_method_stub(stmt)
-            if method:
-                body.append(method)
-
-    if not body and not docstring:
-        lines.append("    ...")
-    else:
-        if docstring and body:
-            lines.append("")
-        lines.extend(body)
-
-    return "\n".join(lines)
-
-
-def extract_function_stub(func: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
-    if has_private_name(func.name):
-        return None
-    prefix = "async def" if isinstance(func, ast.AsyncFunctionDef) else "def"
-    docstring = first_docstring_line(func)
-    if docstring:
-        return "\n".join(
-            [
-                f"{prefix} {func.name}{build_signature(func)}:",
-                f'    """{docstring}"""',
-                "    ...",
-            ]
+def run_stubgen(specs: list[SourceSpec], output_dir: Path) -> None:
+    cmd = [
+        "stubgen",
+        "-o",
+        str(output_dir),
+        *(str(spec.source_path) for spec in specs),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(result.stdout, file=sys.stdout, end="")
+        print(result.stderr, file=sys.stderr, end="")
+        print(
+            "error: stubgen failed. Run this script with `uv run "
+            "scripts/sync_runtime_gen_templates.py ...` so the inline mypy "
+            "dependency is available.",
+            file=sys.stderr,
         )
-    return f"{prefix} {func.name}{build_signature(func)}: ..."
+        raise SystemExit(result.returncode)
 
 
-def assignment_name(stmt: ast.Assign | ast.AnnAssign) -> str | None:
-    if isinstance(stmt, ast.Assign):
-        if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
-            return None
-        return stmt.targets[0].id
-    if isinstance(stmt.target, ast.Name):
-        return stmt.target.id
-    return None
+def path_has_suffix(path: Path, suffix_parts: tuple[str, ...]) -> bool:
+    parts = path.parts
+    return len(parts) >= len(suffix_parts) and parts[-len(suffix_parts) :] == suffix_parts
 
 
-def extract_assignment(stmt: ast.Assign | ast.AnnAssign) -> tuple[str, str] | None:
-    name = assignment_name(stmt)
-    if not name or has_private_name(name):
-        return None
-    return name, ast.unparse(stmt)
+def find_generated_stub(stub_root: Path, spec: SourceSpec) -> Path:
+    candidates = sorted(stub_root.rglob(spec.source_path.with_suffix(".pyi").name))
+    suffixes = [
+        tuple(spec.source_path.with_suffix(".pyi").parts),
+        ("runtime", *spec.rel_path.with_suffix(".pyi").parts),
+        ("utils", spec.source_path.with_suffix(".pyi").name),
+        tuple(spec.rel_path.with_suffix(".pyi").parts),
+    ]
+    for suffix in suffixes:
+        matches = [candidate for candidate in candidates if path_has_suffix(candidate, suffix)]
+        if len(matches) == 1:
+            return matches[0]
+    if len(candidates) == 1:
+        return candidates[0]
+    raise FileNotFoundError(f"could not find stubgen output for {spec.source_path}")
 
 
-def get_source_all(tree: ast.Module) -> list[str] | None:
-    for stmt in tree.body:
-        if not isinstance(stmt, ast.Assign):
-            continue
-        for target in stmt.targets:
-            if not isinstance(target, ast.Name) or target.id != "__all__":
-                continue
-            if isinstance(stmt.value, (ast.List, ast.Tuple)):
-                return [
-                    element.value
-                    for element in stmt.value.elts
-                    if isinstance(element, ast.Constant) and isinstance(element.value, str)
-                ]
-    return None
-
-
-def collect_import_statements(stmts: list[ast.stmt]) -> list[ast.stmt]:
-    result: list[ast.stmt] = []
-    for stmt in stmts:
-        if isinstance(stmt, (ast.Import, ast.ImportFrom)):
-            result.append(stmt)
-        elif (
-            isinstance(stmt, ast.If)
-            and isinstance(stmt.test, ast.Name)
-            and stmt.test.id == "TYPE_CHECKING"
-        ):
-            result.extend(collect_import_statements(stmt.body))
-    return result
-
-
-def is_allowed_import_module(module: str) -> bool:
-    root = module.split(".", 1)[0]
-    return module in ALLOWED_IMPORT_MODULES or root in ALLOWED_IMPORT_MODULES
-
-
-def is_type_only_import_module(module: str) -> bool:
-    root = module.split(".", 1)[0]
-    return module in TYPE_ONLY_IMPORT_MODULES or root in TYPE_ONLY_IMPORT_MODULES
+def current_package_for_rel_path(rel_path: Path) -> tuple[str, ...]:
+    return rel_path.with_suffix("").parts[:-1]
 
 
 def relative_module_name(current_package: tuple[str, ...], target_parts: tuple[str, ...]) -> str:
@@ -419,225 +178,594 @@ def runtime_relative_module(module: str, current_package: tuple[str, ...]) -> st
     return None
 
 
-def import_from_line(module: str, names: list[ast.alias], current_package: tuple[str, ...]) -> str | None:
+def import_root(module: str) -> str:
+    return module.split(".", 1)[0]
+
+
+def is_type_only_import(module: str) -> bool:
+    return import_root(module) in TYPE_ONLY_IMPORT_ROOTS
+
+
+def render_import_from(node: ast.ImportFrom) -> str | None:
+    names = ", ".join(
+        f"{alias.name} as {alias.asname}" if alias.asname else alias.name
+        for alias in node.names
+    )
     if not names:
         return None
-    runtime_module = runtime_relative_module(module, current_package)
-    if runtime_module is not None:
-        module = runtime_module
-    elif not is_allowed_import_module(module) and not is_type_only_import_module(module):
-        return None
-
-    rendered_names = []
-    for alias in names:
-        if has_private_name(alias.name):
-            continue
-        if alias.asname:
-            rendered_names.append(f"{alias.name} as {alias.asname}")
-        else:
-            rendered_names.append(alias.name)
-    if not rendered_names:
-        return None
-    return f"from {module} import {', '.join(rendered_names)}"
+    prefix = "." * node.level
+    module = node.module or ""
+    return f"from {prefix}{module} import {names}"
 
 
-def collect_imports(tree: ast.Module, current_package: tuple[str, ...]) -> list[str | tuple[str, str, str]]:
-    imports: list[str | tuple[str, str, str]] = []
-    for stmt in collect_import_statements(tree.body):
-        if isinstance(stmt, ast.Import):
-            for alias in stmt.names:
-                if alias.name.startswith(("runtime.", "utils.")):
-                    bound_name = alias.asname or alias.name.rsplit(".", 1)[-1]
-                    imports.append(("module_alias", alias.name, bound_name))
-                elif is_allowed_import_module(alias.name) or is_type_only_import_module(alias.name):
-                    imports.append(ast.unparse(ast.Import(names=[alias])))
-        elif isinstance(stmt, ast.ImportFrom):
-            if not stmt.module:
-                continue
-            line = import_from_line(stmt.module, stmt.names, current_package)
-            if line:
-                imports.append(line)
-    return imports
+def rewrite_imports(source: str, rel_path: Path) -> str:
+    current_package = current_package_for_rel_path(rel_path)
+    type_only_lines: list[str] = []
+    output_lines: list[str] = []
 
-
-def name_used_in(name: str, body_text: str) -> bool:
-    return bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", body_text))
-
-
-def expand_module_alias(
-    module: str,
-    alias: str,
-    body_text: str,
-    current_package: tuple[str, ...],
-) -> tuple[str | None, str]:
-    pattern = re.compile(rf"(?<![A-Za-z0-9_.]){re.escape(alias)}\.(\w+)")
-    names = sorted({match.group(1) for match in pattern.finditer(body_text)})
-    if not names:
-        return None, body_text
-
-    runtime_module = runtime_relative_module(module, current_package)
-    import_module = runtime_module or module
-    rewritten = pattern.sub(r"\1", body_text)
-    return f"from {import_module} import {', '.join(names)}", rewritten
-
-
-def prune_imports(import_lines: list[str], body_text: str) -> list[str]:
-    pruned: list[str] = []
-    type_checking: list[str] = []
-    seen: set[str] = set()
-    for line in import_lines:
+    for line in source.splitlines():
+        stripped = line.strip()
         try:
-            node = ast.parse(line).body[0]
+            parsed = ast.parse(stripped).body[0] if stripped else None
         except SyntaxError:
+            parsed = None
+
+        if isinstance(parsed, ast.Import):
+            runtime_aliases: list[str] = []
+            type_only_aliases: list[ast.alias] = []
+            kept_aliases: list[ast.alias] = []
+            for alias in parsed.names:
+                runtime_module = runtime_relative_module(alias.name, current_package)
+                if runtime_module is not None:
+                    target_parts = tuple(alias.name.split(".")[1:])
+                    imported_name = target_parts[-1] if target_parts else alias.name
+                    parent_module = relative_module_name(current_package, target_parts[:-1])
+                    alias_part = f" as {alias.asname}" if alias.asname else ""
+                    runtime_aliases.append(f"from {parent_module} import {imported_name}{alias_part}")
+                elif is_type_only_import(alias.name):
+                    type_only_aliases.append(alias)
+                else:
+                    kept_aliases.append(alias)
+            output_lines.extend(runtime_aliases)
+            if type_only_aliases:
+                type_only_lines.append(ast.unparse(ast.Import(names=type_only_aliases)))
+            if kept_aliases:
+                output_lines.append(ast.unparse(ast.Import(names=kept_aliases)))
             continue
 
-        if isinstance(node, ast.Import):
-            kept_aliases = []
-            kept_type_only_aliases = []
-            for alias in node.names:
-                bound_name = alias.asname or alias.name.split(".", 1)[0]
-                if name_used_in(bound_name, body_text):
-                    if is_type_only_import_module(alias.name):
-                        kept_type_only_aliases.append(alias)
-                    else:
-                        kept_aliases.append(alias)
-            if kept_type_only_aliases:
-                type_checking.append(ast.unparse(ast.Import(names=kept_type_only_aliases)))
-            if not kept_aliases:
+        if isinstance(parsed, ast.ImportFrom) and parsed.module:
+            runtime_module = runtime_relative_module(parsed.module, current_package)
+            if runtime_module is not None:
+                rendered = render_import_from(
+                    ast.ImportFrom(module=runtime_module.lstrip("."), names=parsed.names, level=len(runtime_module) - len(runtime_module.lstrip(".")))
+                )
+                if rendered:
+                    output_lines.append(rendered)
                 continue
-            rendered = ast.unparse(ast.Import(names=kept_aliases))
-        elif isinstance(node, ast.ImportFrom):
-            kept_aliases = [
-                alias
-                for alias in node.names
-                if name_used_in(alias.asname or alias.name, body_text)
+            if is_type_only_import(parsed.module):
+                type_only_lines.append(stripped)
+                continue
+
+        output_lines.append(line)
+
+    if type_only_lines:
+        output_lines = ensure_typing_import(output_lines, {"TYPE_CHECKING"})
+        output_lines.extend(["", "if TYPE_CHECKING:"])
+        output_lines.extend(f"    {line}" for line in dict.fromkeys(type_only_lines))
+
+    return "\n".join(output_lines).rstrip() + "\n"
+
+
+def ensure_typing_import(lines: list[str], names: set[str]) -> list[str]:
+    for index, line in enumerate(lines):
+        if line.startswith("from typing import "):
+            existing = [part.strip() for part in line.removeprefix("from typing import ").split(",")]
+            merged = sorted(set(existing) | names)
+            lines[index] = "from typing import " + ", ".join(merged)
+            return lines
+
+    insert_at = 0
+    while insert_at < len(lines) and (
+        lines[insert_at].startswith("#") or lines[insert_at] == "" or lines[insert_at].startswith("from __future__")
+    ):
+        insert_at += 1
+    lines.insert(insert_at, "from typing import " + ", ".join(sorted(names)))
+    return lines
+
+
+def replace_incomplete_with_any(source: str) -> str:
+    if "Incomplete" not in source:
+        return source
+    source = re.sub(r"^from _typeshed import Incomplete\n", "", source, flags=re.MULTILINE)
+    source = re.sub(r"\bIncomplete\b", "Any", source)
+    lines = ensure_typing_import(source.splitlines(), {"Any"})
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def apply_pydantic_fallback(source: str) -> str:
+    pattern = re.compile(r"^from pydantic import ([^\n]+)$", re.MULTILINE)
+
+    def replace(match: re.Match[str]) -> str:
+        names = [part.strip() for part in match.group(1).split(",")]
+        if "BaseModel" not in names:
+            return match.group(0)
+        remaining = [name for name in names if name != "BaseModel"]
+        pieces = []
+        if remaining:
+            pieces.append("from pydantic import " + ", ".join(remaining))
+        pieces.extend(
+            [
+                "try:",
+                "    from pydantic import BaseModel",
+                "except ImportError:",
+                "    class BaseModel:",
+                "        ...",
             ]
-            if not kept_aliases:
+        )
+        return "\n".join(pieces)
+
+    return pattern.sub(replace, source)
+
+
+def get_source_all(tree: ast.Module) -> list[str] | None:
+    for stmt in tree.body:
+        if not isinstance(stmt, ast.Assign):
+            continue
+        for target in stmt.targets:
+            if not isinstance(target, ast.Name) or target.id != "__all__":
                 continue
-            if node.module and is_type_only_import_module(node.module):
-                type_checking.append(
-                    ast.unparse(ast.ImportFrom(module=node.module, names=kept_aliases, level=node.level))
-                )
-                continue
-            elif node.module == "pydantic" and any(alias.name == "BaseModel" for alias in kept_aliases):
-                rendered = "\n".join(
-                    [
-                        "try:",
-                        "    from pydantic import BaseModel",
-                        "except ImportError:",
-                        "    class BaseModel:",
-                        "        ...",
-                    ]
-                )
-            else:
-                rendered = ast.unparse(
-                    ast.ImportFrom(module=node.module, names=kept_aliases, level=node.level)
-                )
+            if isinstance(stmt.value, (ast.List, ast.Tuple)):
+                return [
+                    element.value
+                    for element in stmt.value.elts
+                    if isinstance(element, ast.Constant) and isinstance(element.value, str)
+                ]
+    return None
+
+
+def public_names_from_tree(tree: ast.Module) -> tuple[str, ...]:
+    names: list[str] = []
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not has_private_name(stmt.name):
+                names.append(stmt.name)
+        elif isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            for name in assignment_names(stmt):
+                if name != "__all__" and not has_private_name(name):
+                    names.append(name)
+    return tuple(dict.fromkeys(names))
+
+
+def assignment_names(stmt: ast.Assign | ast.AnnAssign) -> list[str]:
+    if isinstance(stmt, ast.Assign):
+        return [target.id for target in stmt.targets if isinstance(target, ast.Name)]
+    if isinstance(stmt.target, ast.Name):
+        return [stmt.target.id]
+    return []
+
+
+def filter_top_level_names(source: str, names: frozenset[str] | None) -> str:
+    if not names:
+        return source
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    keep = [True] * len(lines)
+    for stmt in tree.body:
+        stmt_names: list[str] = []
+        if isinstance(stmt, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            stmt_names = [stmt.name]
+        elif isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            stmt_names = assignment_names(stmt)
         else:
             continue
-
-        if rendered not in seen:
-            seen.add(rendered)
-            pruned.append(rendered)
-    if type_checking:
-        rendered = "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n" + "\n".join(
-            f"    {line}" for line in dict.fromkeys(type_checking)
-        )
-        if rendered not in seen:
-            pruned.append(rendered)
-    return pruned
+        if stmt_names and not any(name in names for name in stmt_names):
+            start_lineno = stmt.lineno
+            if isinstance(stmt, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.decorator_list:
+                start_lineno = min(decorator.lineno for decorator in stmt.decorator_list)
+            for index in range(start_lineno - 1, stmt.end_lineno or stmt.lineno):
+                keep[index] = False
+    return "\n".join(line for line, should_keep in zip(lines, keep) if should_keep).rstrip() + "\n"
 
 
-def generate_stub(
-    source_path: Path,
-    module_name: str,
-    *,
-    only_names: set[str] | None = None,
-    include_imports: bool = True,
-) -> tuple[str, tuple[str, ...]]:
-    source = source_path.read_text(encoding="utf-8")
+def name_used_in(name: str, source: str) -> bool:
+    return bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", source))
+
+
+def alias_bound_name(alias: ast.alias) -> str:
+    return alias.asname or alias.name.split(".", 1)[0]
+
+
+def prune_unused_imports(source: str) -> str:
     tree = ast.parse(source)
-    current_package = current_package_for_module(module_name)
+    lines = source.splitlines()
+    output = lines[:]
+    import_ranges: list[tuple[int, int]] = []
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.Import, ast.ImportFrom)) and not (
+            isinstance(stmt, ast.ImportFrom) and stmt.module == "__future__"
+        ):
+            import_ranges.append((stmt.lineno - 1, stmt.end_lineno or stmt.lineno))
 
-    assignments_before: list[str] = []
-    assignments_after: list[str] = []
-    classes: list[str] = []
-    functions: list[str] = []
-    public_names: list[str] = []
-
-    class_names = {stmt.name for stmt in tree.body if isinstance(stmt, ast.ClassDef)}
+    body_lines = [
+        line
+        for index, line in enumerate(lines)
+        if not any(start <= index < end for start, end in import_ranges)
+    ]
+    body_text = "\n".join(body_lines)
 
     for stmt in tree.body:
-        if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
-            assignment = extract_assignment(stmt)
-            if not assignment:
-                continue
-            name, line = assignment
-            if only_names is not None and name not in only_names:
-                continue
-            if name == "__all__":
-                continue
-            public_names.append(name)
-            value_text = ast.unparse(stmt.value) if getattr(stmt, "value", None) is not None else ""
-            if any(class_name in value_text for class_name in class_names):
-                assignments_after.append(line)
+        if not isinstance(stmt, (ast.Import, ast.ImportFrom)):
+            continue
+        if isinstance(stmt, ast.ImportFrom) and stmt.module == "__future__":
+            continue
+
+        kept_aliases = [alias for alias in stmt.names if name_used_in(alias_bound_name(alias), body_text)]
+        if len(kept_aliases) == len(stmt.names):
+            continue
+
+        if kept_aliases:
+            if isinstance(stmt, ast.Import):
+                replacement = ast.unparse(ast.Import(names=kept_aliases))
             else:
-                assignments_before.append(line)
-        elif isinstance(stmt, ast.ClassDef):
-            if only_names is not None and stmt.name not in only_names:
-                continue
-            class_stub = extract_class_stub(stmt)
-            if class_stub:
-                public_names.append(stmt.name)
-                classes.append(class_stub)
-        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if only_names is not None and stmt.name not in only_names:
-                continue
-            function_stub = extract_function_stub(stmt)
-            if function_stub:
-                public_names.append(stmt.name)
-                functions.append(function_stub)
-
-    source_all = get_source_all(tree)
-    exports = tuple(name for name in (source_all or public_names) if name in public_names)
-
-    body_parts: list[str] = []
-    if assignments_before:
-        body_parts.append("\n".join(assignments_before))
-    if classes:
-        body_parts.append("\n\n".join(classes))
-    if functions:
-        body_parts.append("\n\n".join(functions))
-    if assignments_after:
-        body_parts.append("\n".join(assignments_after))
-    body_text = "\n\n".join(body_parts)
-
-    imports: list[str] = []
-    if include_imports:
-        resolved_imports: list[str] = []
-        for item in collect_imports(tree, current_package):
-            if isinstance(item, tuple) and item[0] == "module_alias":
-                _, module, alias = item
-                import_line, body_text = expand_module_alias(
-                    module, alias, body_text, current_package
+                replacement = ast.unparse(
+                    ast.ImportFrom(module=stmt.module, names=kept_aliases, level=stmt.level)
                 )
-                if import_line:
-                    resolved_imports.append(import_line)
+            output[stmt.lineno - 1] = replacement
+            for index in range(stmt.lineno, stmt.end_lineno or stmt.lineno):
+                output[index] = ""
+        else:
+            for index in range(stmt.lineno - 1, stmt.end_lineno or stmt.lineno):
+                output[index] = ""
+
+    return "\n".join(output).rstrip() + "\n"
+
+
+def is_type_checking_guard(stmt: ast.stmt) -> bool:
+    return (
+        isinstance(stmt, ast.If)
+        and isinstance(stmt.test, ast.Name)
+        and stmt.test.id == "TYPE_CHECKING"
+    )
+
+
+def prune_type_checking_imports(source: str) -> str:
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    output = lines[:]
+    import_ranges: list[tuple[int, int]] = []
+    guarded_imports: list[ast.Import | ast.ImportFrom] = []
+    guards: list[ast.If] = []
+
+    for stmt in tree.body:
+        if not is_type_checking_guard(stmt):
+            continue
+        guards.append(stmt)
+        for child in stmt.body:
+            if isinstance(child, (ast.Import, ast.ImportFrom)):
+                guarded_imports.append(child)
+                import_ranges.append((child.lineno - 1, child.end_lineno or child.lineno))
+
+    if not guarded_imports:
+        return source
+
+    body_lines = [
+        line
+        for index, line in enumerate(lines)
+        if not any(start <= index < end for start, end in import_ranges)
+    ]
+    body_text = "\n".join(body_lines)
+
+    for stmt in guarded_imports:
+        kept_aliases = [alias for alias in stmt.names if name_used_in(alias_bound_name(alias), body_text)]
+        if len(kept_aliases) == len(stmt.names):
+            continue
+
+        if kept_aliases:
+            if isinstance(stmt, ast.Import):
+                replacement = ast.unparse(ast.Import(names=kept_aliases))
             else:
-                resolved_imports.append(item)
+                replacement = ast.unparse(
+                    ast.ImportFrom(module=stmt.module, names=kept_aliases, level=stmt.level)
+                )
+            output[stmt.lineno - 1] = "    " + replacement
+            for index in range(stmt.lineno, stmt.end_lineno or stmt.lineno):
+                output[index] = ""
+        else:
+            for index in range(stmt.lineno - 1, stmt.end_lineno or stmt.lineno):
+                output[index] = ""
 
-        imports = prune_imports(resolved_imports, body_text)
+    for guard in guards:
+        body = output[guard.lineno : guard.end_lineno or guard.lineno]
+        if not any(line.strip() for line in body):
+            for index in range(guard.lineno - 1, guard.end_lineno or guard.lineno):
+                output[index] = ""
 
-    parts = [STUB_HEADER.rstrip()]
-    if imports:
-        parts.append("\n".join(imports))
-    if exports:
-        joined_exports = ", ".join(f'"{name}"' for name in exports)
-        parts.append(f"__all__ = [{joined_exports}]")
-    if body_text.strip():
-        parts.append(body_text)
+    return "\n".join(output).rstrip() + "\n"
 
-    return "\n\n".join(parts) + "\n", exports
+
+def source_type_checking_bound_names(source: str) -> set[str]:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    names: set[str] = set()
+    for stmt in tree.body:
+        if not is_type_checking_guard(stmt):
+            continue
+        for child in stmt.body:
+            if isinstance(child, (ast.Import, ast.ImportFrom)):
+                names.update(alias_bound_name(alias) for alias in child.names)
+    return names
+
+
+def move_named_imports_to_type_checking(source: str, names: set[str]) -> str:
+    if not names:
+        return source
+
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    output = lines[:]
+    type_only_lines: list[str] = []
+
+    for stmt in tree.body:
+        if not isinstance(stmt, (ast.Import, ast.ImportFrom)):
+            continue
+        if isinstance(stmt, ast.ImportFrom) and stmt.module == "__future__":
+            continue
+
+        type_only_aliases = [alias for alias in stmt.names if alias_bound_name(alias) in names]
+        if not type_only_aliases:
+            continue
+
+        kept_aliases = [alias for alias in stmt.names if alias_bound_name(alias) not in names]
+        if isinstance(stmt, ast.Import):
+            type_only_lines.append(ast.unparse(ast.Import(names=type_only_aliases)))
+            replacement = ast.unparse(ast.Import(names=kept_aliases)) if kept_aliases else None
+        else:
+            type_only_lines.append(
+                ast.unparse(ast.ImportFrom(module=stmt.module, names=type_only_aliases, level=stmt.level))
+            )
+            replacement = (
+                ast.unparse(ast.ImportFrom(module=stmt.module, names=kept_aliases, level=stmt.level))
+                if kept_aliases
+                else None
+            )
+
+        if replacement:
+            output[stmt.lineno - 1] = replacement
+            for index in range(stmt.lineno, stmt.end_lineno or stmt.lineno):
+                output[index] = ""
+        else:
+            for index in range(stmt.lineno - 1, stmt.end_lineno or stmt.lineno):
+                output[index] = ""
+
+    if not type_only_lines:
+        return source
+
+    output = ensure_typing_import(output, {"TYPE_CHECKING"})
+    output.extend(["", "if TYPE_CHECKING:"])
+    output.extend(f"    {line}" for line in dict.fromkeys(type_only_lines))
+    return "\n".join(output).rstrip() + "\n"
+
+
+def collapse_blank_lines(source: str, max_run: int = 1) -> str:
+    output: list[str] = []
+    blank_run = 0
+    for line in source.splitlines():
+        if line:
+            blank_run = 0
+            output.append(line)
+        else:
+            blank_run += 1
+            if blank_run <= max_run:
+                output.append(line)
+    return "\n".join(output).rstrip() + "\n"
+
+
+def simple_class_assignment(stmt: ast.Assign) -> str | None:
+    if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
+        return None
+    name = stmt.targets[0].id
+    if has_private_name(name) or not is_simple_assignment_value(stmt.value):
+        return None
+    return f"{name} = {ast.unparse(stmt.value)}"
+
+
+def is_simple_assignment_value(node: ast.expr) -> bool:
+    if isinstance(node, ast.Constant):
+        return True
+    if isinstance(node, ast.Name):
+        return True
+    if isinstance(node, ast.UnaryOp):
+        return is_simple_assignment_value(node.operand)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return is_simple_assignment_value(node.left) and is_simple_assignment_value(node.right)
+    if isinstance(node, ast.Subscript):
+        return is_simple_assignment_value(node.value) and is_simple_assignment_value(node.slice)
+    if isinstance(node, ast.Slice):
+        return all(
+            part is None or is_simple_assignment_value(part)
+            for part in (node.lower, node.upper, node.step)
+        )
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return all(is_simple_assignment_value(element) for element in node.elts)
+    if isinstance(node, ast.Dict):
+        return all(
+            key is not None and is_simple_assignment_value(key) and is_simple_assignment_value(value)
+            for key, value in zip(node.keys, node.values)
+        )
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"cast", "NewType"}
+        and len(node.args) == 2
+        and not node.keywords
+    ):
+        return is_simple_assignment_value(node.args[0]) and is_simple_assignment_value(node.args[1])
+    return False
+
+
+def source_top_level_assignments(source: str) -> dict[str, str]:
+    tree = ast.parse(source)
+    result: dict[str, str] = {}
+    for stmt in tree.body:
+        if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
+            continue
+        target = stmt.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        if has_private_name(target.id) or target.id == "__all__":
+            continue
+        if is_simple_assignment_value(stmt.value):
+            result[target.id] = f"{target.id} = {ast.unparse(stmt.value)}"
+    return result
+
+
+def restore_top_level_assignment_values(source_stub: str, source_runtime: str) -> str:
+    assignments = source_top_level_assignments(source_runtime)
+    if not assignments:
+        return source_stub
+
+    tree = ast.parse(source_stub)
+    lines = source_stub.splitlines()
+    restored_names: set[str] = set()
+    for stmt in tree.body:
+        if (
+            isinstance(stmt, ast.AnnAssign)
+            and stmt.value is None
+            and isinstance(stmt.target, ast.Name)
+            and stmt.target.id in assignments
+        ):
+            name = stmt.target.id
+            lines[stmt.lineno - 1] = assignments[name]
+            for index in range(stmt.lineno, stmt.end_lineno or stmt.lineno):
+                lines[index] = ""
+            restored_names.add(name)
+
+    if not restored_names:
+        return source_stub
+
+    restored = "\n".join(lines).rstrip() + "\n"
+    typing_names = {
+        name
+        for name in ("Literal", "NewType", "cast")
+        if any(name_used_in(name, assignments[restored_name]) for restored_name in restored_names)
+    }
+    if typing_names:
+        restored = "\n".join(ensure_typing_import(restored.splitlines(), typing_names)).rstrip() + "\n"
+    return restored
+
+
+def source_class_assignments(source: str) -> dict[str, dict[str, str]]:
+    tree = ast.parse(source)
+    result: dict[str, dict[str, str]] = {}
+    for stmt in tree.body:
+        if not isinstance(stmt, ast.ClassDef):
+            continue
+        assignments: dict[str, str] = {}
+        for child in stmt.body:
+            if isinstance(child, ast.Assign):
+                rendered = simple_class_assignment(child)
+                if rendered:
+                    assignments[rendered.split("=", 1)[0].strip()] = rendered
+        if assignments:
+            result[stmt.name] = assignments
+    return result
+
+
+def restore_class_assignment_values(source_stub: str, source_runtime: str) -> str:
+    assignments = source_class_assignments(source_runtime)
+    if not assignments:
+        return source_stub
+
+    lines = source_stub.splitlines()
+    current_class: str | None = None
+    seen: dict[str, set[str]] = {class_name: set() for class_name in assignments}
+    output: list[str] = []
+
+    for line in lines:
+        class_match = re.match(r"^class\s+([A-Za-z_][A-Za-z0-9_]*)\b", line)
+        if class_match:
+            current_class = class_match.group(1)
+            output.append(line)
+            continue
+        if line and not line.startswith((" ", "\t")):
+            if current_class in assignments:
+                for name, rendered in assignments[current_class].items():
+                    if name not in seen[current_class]:
+                        output.append(f"    {rendered}")
+            current_class = None
+
+        if current_class in assignments:
+            assign_match = re.match(r"^    ([A-Za-z_][A-Za-z0-9_]*)(?::| =)", line)
+            if assign_match and assign_match.group(1) in assignments[current_class]:
+                name = assign_match.group(1)
+                output.append(f"    {assignments[current_class][name]}")
+                seen[current_class].add(name)
+                continue
+        output.append(line)
+
+    if current_class in assignments:
+        for name, rendered in assignments[current_class].items():
+            if name not in seen[current_class]:
+                output.append(f"    {rendered}")
+
+    restored = "\n".join(output).rstrip() + "\n"
+    if "cast(" in restored:
+        restored = "\n".join(ensure_typing_import(restored.splitlines(), {"cast"})).rstrip() + "\n"
+    return restored
+
+
+def read_exports(source_stub: str, source_runtime: str, only_names: frozenset[str] | None) -> tuple[str, ...]:
+    if only_names:
+        return tuple(only_names)
+    try:
+        source_tree = ast.parse(source_runtime)
+        source_all = get_source_all(source_tree)
+        stub_names = set(public_names_from_tree(ast.parse(source_stub)))
+        if source_all:
+            return tuple(name for name in source_all if name in stub_names)
+        return public_names_from_tree(ast.parse(source_stub))
+    except SyntaxError:
+        return ()
+
+
+def add_module_all(source: str, exports: tuple[str, ...]) -> str:
+    if not exports:
+        return source
+    all_line = "__all__ = [" + ", ".join(f'"{name}"' for name in exports) + "]"
+    lines = source.splitlines()
+    insert_at = 0
+    while insert_at < len(lines) and (
+        lines[insert_at].startswith("#")
+        or lines[insert_at] == ""
+        or lines[insert_at].startswith("from __future__")
+        or lines[insert_at].startswith("import ")
+        or lines[insert_at].startswith("from ")
+        or lines[insert_at] in {"try:", "except ImportError:"}
+        or lines[insert_at].startswith("    ")
+    ):
+        insert_at += 1
+    lines.insert(insert_at, "")
+    lines.insert(insert_at, all_line)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def postprocess_stub(stub_source: str, runtime_source: str, spec: SourceSpec) -> tuple[str, tuple[str, ...]]:
+    source = replace_incomplete_with_any(stub_source)
+    source = rewrite_imports(source, spec.rel_path)
+    source = move_named_imports_to_type_checking(source, source_type_checking_bound_names(runtime_source))
+    source = restore_top_level_assignment_values(source, runtime_source)
+    source = restore_class_assignment_values(source, runtime_source)
+    source = filter_top_level_names(source, spec.only_names)
+    source = prune_type_checking_imports(source)
+    source = prune_unused_imports(source)
+    source = apply_pydantic_fallback(source)
+    source = collapse_blank_lines(source)
+    exports = read_exports(source, runtime_source, spec.only_names)
+    source = add_module_all(source, exports)
+    return STUB_HEADER.rstrip() + "\n\n" + source.lstrip(), exports
 
 
 def read_all_from_generated_stub(path: Path) -> tuple[str, ...]:
@@ -722,38 +850,29 @@ def generate_tree(runtime_path: Path, output_dir: Path, template_dir: Path) -> N
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True)
 
+    specs = source_specs(runtime_path)
     modules: list[GeneratedModule] = []
-    for source_path in sorted(runtime_path.rglob("*.py")):
-        if "__pycache__" in source_path.parts:
-            continue
-        if not should_generate_module(runtime_path, source_path):
-            continue
-        module_name = module_name_for_path(runtime_path, source_path)
-        rel_path = destination_for_module(module_name)
-        stub, exports = generate_stub(source_path, module_name)
-        dest = output_dir / rel_path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(stub, encoding="utf-8")
-        modules.append(GeneratedModule(path=rel_path, module_name=generated_module_name(rel_path), exports=exports))
 
-    api_connector_source = runtime_path.parent / "utils" / "api_connector.py"
-    if api_connector_source.exists():
-        rel_path = Path("api_connector.py")
-        stub, exports = generate_stub(
-            api_connector_source,
-            "api_connector",
-            only_names={"ApiIntegrations"},
-            include_imports=False,
-        )
-        dest = output_dir / rel_path
-        dest.write_text(stub, encoding="utf-8")
-        modules.append(
-            GeneratedModule(
-                path=rel_path,
-                module_name=generated_module_name(rel_path),
-                exports=exports,
+    with tempfile.TemporaryDirectory(prefix="adk-stubgen-") as temp:
+        stubgen_dir = Path(temp) / "stubgen"
+        run_stubgen(specs, stubgen_dir)
+
+        for spec in specs:
+            stub_path = find_generated_stub(stubgen_dir, spec)
+            stub_source = stub_path.read_text(encoding="utf-8")
+            runtime_source = spec.source_path.read_text(encoding="utf-8")
+            generated_source, exports = postprocess_stub(stub_source, runtime_source, spec)
+
+            dest = output_dir / spec.rel_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(generated_source, encoding="utf-8")
+            modules.append(
+                GeneratedModule(
+                    path=spec.rel_path,
+                    module_name=generated_module_name(spec.rel_path),
+                    exports=exports,
+                )
             )
-        )
 
     ensure_package_inits(output_dir)
     decorator_exports, secret_vault_exports = copy_local_overlays(template_dir, output_dir)

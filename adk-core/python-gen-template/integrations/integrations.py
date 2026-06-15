@@ -4,22 +4,20 @@
 # type: ignore
 from __future__ import annotations
 
-from .available_integrations.opentable import OpenTable
-from .available_integrations.tripleseat import Tripleseat
-from ..log_utils import ConversationLogger
 from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import requests
 
 __all__ = ["Integrations"]
 
 class Integrations:
-    """Integrations interface"""
-
     opentable: OpenTable
     tripleseat: Tripleseat
-    def __init__(self, log: ConversationLogger, paragon_connection_ids: dict[str, str] | None = ..., paragon_project_id: str | None = ..., integration_token: str | None = ...): ...
-    def proxy_request(self, integration_id: str, endpoint: str, http_method: str, headers: dict[str, str] | None = ..., params: dict[str, str] | None = ..., body: dict[str, any] | None = ...) -> requests.Response:
-        """General method if custom integration class is not built to proxy"""
-        ...
+    def __init__(self, log: ConversationLogger, paragon_connection_ids: dict[str, str] | None = None, paragon_project_id: str | None = None, integration_token: str | None = None) -> None: ...
+    def proxy_request(self, integration_id: str, endpoint: str, http_method: str, headers: dict[str, str] | None = None, params: dict[str, str] | None = None, body: dict[str, any] | None = None) -> requests.Response: ...
+
+if TYPE_CHECKING:
+    import requests
+
+if TYPE_CHECKING:
+    from .available_integrations.opentable import OpenTable as OpenTable
+    from .available_integrations.tripleseat import Tripleseat as Tripleseat
+    from ..log_utils import ConversationLogger as ConversationLogger

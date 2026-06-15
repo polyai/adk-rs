@@ -4,17 +4,16 @@
 # type: ignore
 from __future__ import annotations
 
+from typing import Any, TYPE_CHECKING
+
 __all__ = ["ApiIntegrations"]
 
 class ApiIntegrations:
-    """Container for all API integrations"""
+    environment: Any
+    project_id: Any
+    def __init__(self, api_configs: list[ApiIntegrationData], environment: str, project_id: str | None = None) -> None: ...
+    def flush_logs(self) -> None: ...
+    def __getattr__(self, api_name: str) -> ApiConnector: ...
 
-    def __init__(self, api_configs: list[ApiIntegrationData], environment: str, project_id: str | None = ...):
-        """Initialize API integrations container"""
-        ...
-    def flush_logs(self):
-        """Flush all deferred logs to plog."""
-        ...
-    def __getattr__(self, api_name: str) -> ApiConnector:
-        """Dynamic resolution for conv.api.{api_name}"""
-        ...
+if TYPE_CHECKING:
+    from .conversation import ApiIntegrationData as ApiIntegrationData

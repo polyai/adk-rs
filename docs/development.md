@@ -83,17 +83,20 @@ Rust ADK vendors Python helper stubs under `adk-core/python-gen-template` so
 `poly init` and `poly pull` can populate project `_gen/` packages without a
 runtime dependency on Python ADK.
 
+The sync script is a uv script with inline metadata for its mypy `stubgen`
+dependency, so no separate Python environment setup is needed.
+
 To regenerate those templates from a local `genai_lambda_runtime` checkout:
 
 ```bash
-python3 scripts/sync_runtime_gen_templates.py \
+uv run scripts/sync_runtime_gen_templates.py \
   --runtime-path ../genai_lambda_runtime/python/runtime
 ```
 
 To check for drift without rewriting files:
 
 ```bash
-python3 scripts/sync_runtime_gen_templates.py \
+uv run scripts/sync_runtime_gen_templates.py \
   --runtime-path ../genai_lambda_runtime/python/runtime \
   --check
 ```

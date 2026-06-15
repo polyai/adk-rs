@@ -4,26 +4,19 @@
 # type: ignore
 from __future__ import annotations
 
-from ..log_utils import ConversationLogger
 from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import requests
 
 __all__ = ["Integration"]
 
 class Integration:
-    """Base class for all integrations"""
-
     integration_id: str
     integration_name: str
-    def __init_subclass__(cls, **kwargs):
-        """Register integration subclasses in the registry"""
-        ...
-    def __init__(self, log: ConversationLogger, proxy_request): ...
-    def __str__(self):
-        """Return the integration name when the object is printed"""
-        ...
-    def proxy_request(self, endpoint: str, http_method: str, headers: dict[str, str] | None = ..., params: dict[str, str] | None = ..., body: dict[str, any] | None = ...) -> requests.Response:
-        """Proxy a request to the integration's API using the integration's authentication."""
-        ...
+    def __init_subclass__(cls, **kwargs) -> None: ...
+    def __init__(self, log: ConversationLogger, proxy_request) -> None: ...
+    def proxy_request(self, endpoint: str, http_method: str, headers: dict[str, str] | None = None, params: dict[str, str] | None = None, body: dict[str, any] | None = None) -> requests.Response: ...
+
+if TYPE_CHECKING:
+    import requests
+
+if TYPE_CHECKING:
+    from ..log_utils import ConversationLogger as ConversationLogger
