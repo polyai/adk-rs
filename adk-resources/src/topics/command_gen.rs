@@ -50,7 +50,9 @@ pub(crate) fn topic_resource_command_groups(
             )
         })
         .collect::<HashMap<_, _>>();
-    let local_topics = local_topic_resources(resources);
+    let Some(local_topics) = local_topic_resources(resources) else {
+        return CommandGroups::default();
+    };
     let mut local_topic_names = HashSet::new();
     let mut groups = CommandGroups::default();
 
@@ -123,7 +125,7 @@ struct LocalTopicResource {
     topic: LocalTopic,
 }
 
-fn local_topic_resources(resources: &ResourceMap) -> Vec<LocalTopicResource> {
+fn local_topic_resources(resources: &ResourceMap) -> Option<Vec<LocalTopicResource>> {
     let mut topics = Vec::new();
     for resource in resources.values() {
         let path = resource.file_path.as_str();
@@ -132,7 +134,7 @@ fn local_topic_resources(resources: &ResourceMap) -> Vec<LocalTopicResource> {
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(Some(topic)) = deserialize_topic_content(path, content) else {
+        let Some(topic) = deserialize_topic_content(path, content).ok()? else {
             continue;
         };
         topics.push(LocalTopicResource {
@@ -141,7 +143,7 @@ fn local_topic_resources(resources: &ResourceMap) -> Vec<LocalTopicResource> {
             topic,
         });
     }
-    topics
+    Some(topics)
 }
 
 fn local_topic_id(

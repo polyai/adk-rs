@@ -133,6 +133,47 @@ fn create_topic_parses_typed_local_yaml_and_derives_references() {
 }
 
 #[test]
+fn topic_command_generation_fails_closed_when_local_topic_parse_fails() {
+    let mut resources = ResourceMap::new();
+    resources.insert(
+        "topics/support.yaml".to_string(),
+        Resource {
+            resource_id: "topic-support".to_string(),
+            name: "support".to_string(),
+            file_path: "topics/support.yaml".to_string(),
+            payload: serde_json::json!({
+                "content": "name: support\nenabled: true\nactions:\n  - not a string\ncontent: hello\nexample_queries: []\n"
+            }),
+        },
+    );
+    let projection = serde_json::json!({
+        "knowledgeBase": {
+            "topics": {
+                "entities": {
+                    "topic-support": {
+                        "name": "support",
+                        "isActive": true,
+                        "actions": "",
+                        "content": "hello",
+                        "exampleQueries": []
+                    }
+                }
+            }
+        }
+    });
+
+    let commands = build_push_commands(&resources, &projection);
+    assert!(
+        commands.is_empty(),
+        "invalid local topic YAML should not queue deletes: {:?}",
+        commands
+            .iter()
+            .map(|command| command.r#type.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn create_topic_payload_parsing_does_not_enforce_validation_rules() {
     let mut resources = ResourceMap::new();
     resources.insert(
