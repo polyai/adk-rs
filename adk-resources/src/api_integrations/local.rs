@@ -29,12 +29,13 @@ impl ApiIntegrationsFile {
 
     fn try_from_raw(path: &str, raw: RawApiIntegrationsFile) -> ResourceParseResult<Self> {
         let mut errors = ResourceParseErrors::new();
-        for duplicate in duplicate_names(
-            raw.api_integrations
-                .iter()
-                .map(|integration| integration.name.as_str())
-                .filter(|name| !name.is_empty()),
-        ) {
+        let canonical_names = raw
+            .api_integrations
+            .iter()
+            .map(ApiIntegrationItem::canonical_name)
+            .filter(|name| !name.is_empty())
+            .collect::<Vec<_>>();
+        for duplicate in duplicate_names(canonical_names.iter().map(String::as_str)) {
             errors.push(
                 &format!("{path}/api_integrations/{duplicate}"),
                 format!("duplicate API integration name '{duplicate}'."),

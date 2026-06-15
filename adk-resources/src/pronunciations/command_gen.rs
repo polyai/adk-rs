@@ -39,7 +39,9 @@ pub(crate) fn pronunciation_lifecycle_commands(
     else {
         return SimpleLifecycleCommands::default();
     };
-    let local_items = local_pronunciation_items(content);
+    let Some(local_items) = local_pronunciation_items(content) else {
+        return SimpleLifecycleCommands::default();
+    };
     let remote_items = remote_pronunciation_items(projection);
     let local_positions = local_items
         .iter()
@@ -114,15 +116,15 @@ pub(crate) fn pronunciation_lifecycle_commands(
     commands
 }
 
-fn local_pronunciation_items(content: &str) -> Vec<PronunciationItem> {
-    let Ok(file) = parse_pronunciations_content(PRONUNCIATIONS.file.file_path, content) else {
-        return Vec::new();
-    };
-    file.pronunciations
-        .iter()
-        .enumerate()
-        .map(local_pronunciation_item)
-        .collect()
+fn local_pronunciation_items(content: &str) -> Option<Vec<PronunciationItem>> {
+    let file = parse_pronunciations_content(PRONUNCIATIONS.file.file_path, content).ok()?;
+    Some(
+        file.pronunciations
+            .iter()
+            .enumerate()
+            .map(local_pronunciation_item)
+            .collect(),
+    )
 }
 
 fn local_pronunciation_item((idx, item): (usize, &LocalPronunciationItem)) -> PronunciationItem {
@@ -173,6 +175,43 @@ fn pronunciation_item_needs_update(local: &PronunciationItem, remote: &Pronuncia
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adk_types::{Resource, ResourceMap};
+
+    fn pronunciation_resource(content: &str) -> ResourceMap {
+        let mut resources = ResourceMap::new();
+        resources.insert(
+            PRONUNCIATIONS.file.file_path.to_string(),
+            Resource {
+                resource_id: PRONUNCIATIONS.file.resource_id.to_string(),
+                name: PRONUNCIATIONS.file.name.to_string(),
+                file_path: PRONUNCIATIONS.file.file_path.to_string(),
+                payload: serde_json::json!({ "content": content }),
+            },
+        );
+        resources
+    }
+
+    fn projection_with_remote_pronunciation() -> JsonValue {
+        serde_json::json!({
+            "pronunciations": {
+                "pronunciations": {
+                    "ids": ["pn-greeting"],
+                    "entities": {
+                        "pn-greeting": {
+                            "id": "pn-greeting",
+                            "regex": "hello",
+                            "replacement": "hullo",
+                            "caseSensitive": false,
+                            "languageCode": "en-GB",
+                            "description": "Greeting",
+                            "position": 0,
+                            "name": "Greeting"
+                        }
+                    }
+                }
+            }
+        })
+    }
 
     #[test]
     fn local_pronunciation_items_use_typed_python_position_and_description_rules() {
@@ -186,10 +225,27 @@ pronunciations:
     replacement: two
 "#;
 
-        let items = local_pronunciation_items(content);
+        let items = local_pronunciation_items(content).expect("pronunciations file should parse");
 
         assert_eq!(items[0].position, 0);
         assert_eq!(items[0].description, "trimmed");
         assert_eq!(items[1].position, 1);
+    }
+
+    #[test]
+    fn parse_errors_do_not_delete_remote_pronunciations() {
+        let content = r#"
+pronunciations:
+  - regex: ""
+    replacement: hullo
+"#;
+        let resources = pronunciation_resource(content);
+        let projection = projection_with_remote_pronunciation();
+
+        let commands = pronunciation_lifecycle_commands(&resources, &projection, &None);
+
+        assert!(commands.deletes.is_empty());
+        assert!(commands.creates.is_empty());
+        assert!(commands.updates.is_empty());
     }
 }
