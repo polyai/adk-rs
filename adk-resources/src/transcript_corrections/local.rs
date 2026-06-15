@@ -80,20 +80,20 @@ struct RawTranscriptCorrectionsFile {
 }
 
 #[derive(Debug, Deserialize)]
-struct TranscriptCorrectionItemsUnchecked {
+struct RawTranscriptCorrectionItems {
     #[serde(default)]
-    corrections: Vec<TranscriptCorrectionItemUnchecked>,
+    corrections: Vec<RawTranscriptCorrectionItem>,
 }
 
 #[derive(Debug, Deserialize)]
-struct TranscriptCorrectionItemUnchecked {
+struct RawTranscriptCorrectionItem {
     name: Option<String>,
     regular_expressions: Option<Vec<Value>>,
 }
 
 fn transcript_correction_item_errors(path: &str, yaml: &Value) -> ResourceParseErrors {
     let mut errors = ResourceParseErrors::new();
-    let Ok(raw) = deserialize_yaml::<TranscriptCorrectionItemsUnchecked>(path, yaml) else {
+    let Ok(raw) = deserialize_yaml::<RawTranscriptCorrectionItems>(path, yaml) else {
         return errors;
     };
     for item in raw.corrections {

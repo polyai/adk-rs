@@ -6,7 +6,6 @@
 
 use adk_protobuf::agent::RulesReferences;
 use serde_json::Value as JsonValue;
-use serde_yaml_ng::Value as YamlValue;
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -304,21 +303,6 @@ pub(crate) fn is_synthetic_local_resource_id(resource_id: &str) -> bool {
         || trimmed.ends_with(".yaml")
         || trimmed.ends_with(".yml")
         || trimmed.ends_with(".py")
-}
-
-fn yaml_get<'a>(config: Option<&'a YamlValue>, key: &str) -> Option<&'a YamlValue> {
-    config.and_then(|c| c.get(key))
-}
-
-fn yaml_string(config: Option<&YamlValue>, key: &str) -> String {
-    yaml_get(config, key)
-        .and_then(YamlValue::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
-pub(crate) fn yaml_str(config: &YamlValue, key: &str) -> String {
-    yaml_string(Some(config), key)
 }
 
 #[cfg(test)]

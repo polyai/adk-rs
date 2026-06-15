@@ -1,8 +1,7 @@
-use super::payload_json_summary;
 use crate::test_support::local_resource;
 use crate::{
-    build_push_commands, build_push_commands_for_changed_resources, projection_to_resource_map,
-    resource_file_content,
+    build_push_commands, build_push_commands_for_changed_resources, flows::payload_json_summary,
+    projection_to_resource_map, resource_file_content,
 };
 use adk_protobuf::command::Payload as CommandPayload;
 use adk_protobuf::flows::{
@@ -339,6 +338,83 @@ fn projection_materializes_flow_step_prompts_stripped_like_python() {
 
     assert!(content.contains("prompt: Rate the call\n"));
     assert!(!content.contains("prompt: |"));
+}
+
+#[test]
+fn projection_materializes_default_step_conditions_and_extracted_entities() {
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "name": "Collect Customer",
+                                    "type": "default_step",
+                                    "prompt": "Collect the customer.",
+                                    "references": {
+                                        "extractedEntities": {
+                                            "ENTITY-customer": true
+                                        }
+                                    },
+                                    "conditions": [
+                                        {
+                                            "config": {
+                                                "$case": "unsupportedCondition",
+                                                "value": {
+                                                    "details": {
+                                                        "label": "Ignored"
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "config": {
+                                                "$case": "exitFlowCondition",
+                                                "value": {
+                                                    "details": {
+                                                        "label": "Has Customer",
+                                                        "description": "Customer is known.",
+                                                        "requiredEntities": ["ENTITY-customer"],
+                                                        "ingressPosition": "left",
+                                                        "position": {"x": 1.0, "y": 2.0}
+                                                    },
+                                                    "exitFlowPosition": {"x": 3.0, "y": 4.0}
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let content = resources
+        .get("flows/support_flow/steps/collect_customer.yaml")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("flow step YAML");
+
+    assert!(content.contains("step_type: default_step"));
+    assert!(content.contains("conditions:"));
+    assert!(content.contains("name: Has Customer"));
+    assert!(content.contains("condition_type: exit_flow_condition"));
+    assert!(content.contains("description: Customer is known."));
+    assert!(content.contains("required_entities:"));
+    assert!(content.contains("- ENTITY-customer"));
+    assert!(content.contains("ingress_position: left"));
+    assert!(content.contains("position:"));
+    assert!(content.contains("exit_flow_position:"));
+    assert!(content.contains("extracted_entities:"));
+    assert!(!content.contains("Ignored"));
 }
 
 #[test]
@@ -775,6 +851,44 @@ fn projection_function_step_with_module_docstring_import_round_trips_without_com
 }
 
 #[test]
+fn projection_materializes_function_steps_as_python_files() {
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "steps": {
+                            "entities": {
+                                "step-1": {
+                                    "id": "step-1",
+                                    "name": "Do Work",
+                                    "type": "function_step",
+                                    "function": {
+                                        "code": "def do_work(conv: Conversation, flow: Flow):\n    return {}\n"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+    let content = resources
+        .get("flows/support_flow/function_steps/do_work.py")
+        .and_then(|resource| resource.payload.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .expect("function step content");
+
+    assert!(content.contains("def do_work(conv: Conversation, flow: Flow):"));
+    assert!(!resources.contains_key("flows/support_flow/steps/do_work.yaml"));
+}
+
+#[test]
 fn projection_materializes_flow_function_imports_with_human_readable_paths() {
     let projection = serde_json::json!({
         "functions": {
@@ -824,6 +938,46 @@ fn projection_materializes_flow_function_imports_with_human_readable_paths() {
         "from flows.rapid_reorder.functions.answers_item_question import answers_item_question"
     ));
     assert!(!content.contains("from functions.flow_435908a2.answers_item_question"));
+}
+
+#[test]
+fn projection_materialization_omits_archived_transition_functions() {
+    let projection = serde_json::json!({
+        "flows": {
+            "flows": {
+                "entities": {
+                    "flow-1": {
+                        "id": "flow-1",
+                        "name": "Support Flow",
+                        "steps": {
+                            "entities": {}
+                        },
+                        "transitionFunctions": {
+                            "entities": {
+                                "tf-active": {
+                                    "id": "tf-active",
+                                    "name": "active_route",
+                                    "code": "def active_route(conv: Conversation, flow: Flow):\n    return {}\n",
+                                    "archived": false
+                                },
+                                "tf-archived": {
+                                    "id": "tf-archived",
+                                    "name": "old_route",
+                                    "code": "def old_route(conv: Conversation, flow: Flow):\n    return {}\n",
+                                    "archived": true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let resources = projection_to_resource_map(&projection).expect("projection resources");
+
+    assert!(resources.contains_key("flows/support_flow/functions/active_route.py"));
+    assert!(!resources.contains_key("flows/support_flow/functions/old_route.py"));
 }
 
 #[test]

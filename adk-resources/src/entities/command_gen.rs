@@ -4,7 +4,6 @@
 //! generation semantics are specific to the entity resource family.
 
 use serde_json::{self, Value as JsonValue};
-use serde_yaml_ng::{Value as YamlValue, from_str};
 
 use crate::push_commands::CommandGroups;
 use adk_protobuf::Metadata;
@@ -16,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use crate::entities::local::{
     ENTITIES_FILE_PATH, EntityItem as LocalEntityItem, parse_entities_content,
 };
+use crate::flows::{FlowStepType, parse_flow_config_content, parse_flow_step_content};
 use crate::ids::stable_resource_id;
 use crate::specs::{ENTITIES_FILE, ENTITY_ID_PREFIX};
 use crate::{extract_entities_map, is_synthetic_local_resource_id, push_command};
@@ -165,14 +165,14 @@ fn local_entity_references(
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(yaml) = from_str::<YamlValue>(content) else {
+        let Ok(step) = parse_flow_step_content(path, content) else {
             continue;
         };
-        let step_name = yaml
-            .get("name")
-            .and_then(YamlValue::as_str)
-            .filter(|name| !name.is_empty())
-            .unwrap_or(&resource.name);
+        let step_name = if step.name().is_empty() {
+            resource.name.as_str()
+        } else {
+            step.name()
+        };
         let step_id = flow_folder_from_path(path)
             .and_then(|folder| {
                 let flow_name = flow_names
@@ -183,16 +183,11 @@ fn local_entity_references(
                     .cloned()
             })
             .unwrap_or_else(|| stable_resource_id("FLOW_STEPS", step_name, path));
-        let is_default_step = yaml
-            .get("step_type")
-            .and_then(YamlValue::as_str)
-            .unwrap_or("advanced_step")
-            == "default_step";
+        let is_default_step = step.step_type() == FlowStepType::Default;
 
-        let mut referenced_entities =
-            extract_prompt_entity_references(yaml_str_value(&yaml, "prompt").as_str());
-        referenced_entities.extend(yaml_value_string_list(yaml.get("extracted_entities")));
-        referenced_entities.extend(condition_required_entities(&yaml));
+        let mut referenced_entities = extract_prompt_entity_references(step.prompt());
+        referenced_entities.extend(step.extracted_entities().iter().cloned());
+        referenced_entities.extend(step.condition_required_entities());
 
         for entity in referenced_entities {
             let entity_id = resolve_entity_reference(&entity, local_entity_ids);
@@ -225,14 +220,13 @@ fn local_flow_names_by_folder(resources: &ResourceMap) -> HashMap<String, String
             .get("content")
             .and_then(JsonValue::as_str)
             .unwrap_or_default();
-        let Ok(yaml) = from_str::<YamlValue>(content) else {
+        let Ok(config) = parse_flow_config_content(path, content) else {
             continue;
         };
-        let name = yaml_str_value(&yaml, "name");
-        if name.is_empty() {
+        if config.name().is_empty() {
             names.insert(folder.clone(), folder);
         } else {
-            names.insert(folder, name);
+            names.insert(folder, config.name().to_string());
         }
     }
     names
@@ -306,15 +300,6 @@ fn extract_template_references(prompt: &str, prefix: &str) -> Vec<String> {
     out
 }
 
-fn condition_required_entities(yaml: &YamlValue) -> Vec<String> {
-    yaml.get("conditions")
-        .and_then(YamlValue::as_sequence)
-        .into_iter()
-        .flatten()
-        .flat_map(|condition| yaml_value_string_list(condition.get("required_entities")))
-        .collect()
-}
-
 fn resolve_entity_reference(value: &str, local_entity_ids: &HashMap<String, String>) -> String {
     local_entity_ids
         .get(value)
@@ -375,26 +360,6 @@ pub(crate) fn payload_json_summary(payload: &CommandPayload) -> Option<(&'static
         }
         _ => None,
     }
-}
-
-fn yaml_value_string_list(value: Option<&YamlValue>) -> Vec<String> {
-    value
-        .and_then(YamlValue::as_sequence)
-        .map(|seq| {
-            seq.iter()
-                .filter_map(YamlValue::as_str)
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
-}
-
-fn yaml_str_value(value: &YamlValue, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(YamlValue::as_str)
-        .unwrap_or_default()
-        .to_string()
 }
 
 fn entity_create_config_json(

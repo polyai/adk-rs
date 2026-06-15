@@ -109,7 +109,7 @@ impl DiscoverResources for VariantAttribute {
 }
 
 #[cfg(test)]
-pub(crate) fn validate_attribute_local_yaml(yaml: &Value, errors: &mut Vec<String>) {
+pub(crate) fn append_attribute_parse_errors(yaml: &Value, errors: &mut Vec<String>) {
     let path = VariantAttribute::LOCAL_PATH
         .primary_path()
         .expect("local file path");
@@ -141,7 +141,7 @@ mod tests {
         let yaml = from_str::<Value>(yaml).expect("variant attributes YAML");
         let mut errors = Vec::new();
         append_parse_errors(&yaml, &mut errors);
-        validate_attribute_local_yaml(&yaml, &mut errors);
+        append_attribute_parse_errors(&yaml, &mut errors);
         errors
     }
 
