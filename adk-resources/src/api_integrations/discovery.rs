@@ -106,6 +106,12 @@ api_integrations:
       - name: fetch
         method: GET
         resource: /users/{id}
+      - name: lookup
+        method: GET
+        resource: /users/{id}
+      - name: lookup
+        method: POST
+        resource: /users/{id}
 "#,
         );
 
@@ -153,7 +159,12 @@ api_integrations:
         assert!(
             errors
                 .iter()
-                .any(|error| error.contains("Duplicate operation: name='fetch', method='GET'"))
+                .any(|error| error.contains("Duplicate operation name 'fetch'"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("Duplicate operation name 'lookup'"))
         );
     }
 }

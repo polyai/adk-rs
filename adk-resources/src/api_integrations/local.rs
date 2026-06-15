@@ -156,20 +156,13 @@ impl ApiIntegrationItem {
         let mut seen = BTreeSet::new();
         for (idx, operation) in self.operations.iter().enumerate() {
             operation.validate(path, integration_name, idx, errors);
-            let method = operation.method();
-            if !operation.name.is_empty()
-                && !method.is_empty()
-                && !seen.insert((operation.name.clone(), method.clone()))
-            {
+            if !operation.name.is_empty() && !seen.insert(operation.name.clone()) {
                 errors.push(
                     &format!(
                         "{path}/api_integrations/{integration_name}/operations/{}",
                         operation.name
                     ),
-                    format!(
-                        "Duplicate operation: name='{}', method='{method}'.",
-                        operation.name
-                    ),
+                    format!("Duplicate operation name '{}'.", operation.name),
                 );
             }
         }
