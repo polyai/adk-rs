@@ -3,16 +3,24 @@ use crate::local_parse::{
 };
 use adk_protobuf::agent::{DisclaimerMessageUpdateDisclaimerMessage, GreetingUpdateGreeting};
 use adk_protobuf::channels::StylePromptUpdateStylePrompt;
-use serde::ser::SerializeMap;
+use serde::de::{DeserializeOwned, Error as DeError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use serde_yaml_ng::Value as YamlValue;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct ChannelConfiguration {
-    #[serde(default, serialize_with = "serialize_section_or_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_section"
+    )]
     greeting: Option<ChannelGreeting>,
-    #[serde(default, serialize_with = "serialize_section_or_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_section"
+    )]
     style_prompt: Option<ChannelStylePrompt>,
     #[serde(
         default,
@@ -29,12 +37,16 @@ impl ChannelConfiguration {
         disclaimer: Option<&JsonValue>,
     ) -> Self {
         Self {
-            greeting: greeting.map(ChannelGreeting::from_projection),
-            style_prompt: style_prompt.map(ChannelStylePrompt::from_projection),
-            disclaimer_messages: disclaimer
+            greeting: projection_section(greeting).map(ChannelGreeting::from_projection),
+            style_prompt: projection_section(style_prompt).map(ChannelStylePrompt::from_projection),
+            disclaimer_messages: projection_section(disclaimer)
                 .map(VoiceDisclaimerMessage::from_projection)
                 .map(|disclaimer| DisclaimerMessages(vec![disclaimer])),
         }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.greeting.is_none() && self.style_prompt.is_none() && self.disclaimer_messages.is_none()
     }
 
     pub(crate) fn greeting(&self) -> Option<&ChannelGreeting> {
@@ -275,20 +287,80 @@ where
     Option::<DisclaimerMessages>::deserialize(deserializer)
 }
 
-fn serialize_section_or_empty<S, T>(value: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
+fn deserialize_optional_section<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
-    S: serde::Serializer,
-    T: Serialize,
+    D: serde::Deserializer<'de>,
+    T: DeserializeOwned,
 {
+    let Some(value) = Option::<YamlValue>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    if yaml_section_absent(&value) {
+        return Ok(None);
+    }
+    serde_yaml_ng::from_value(value)
+        .map(Some)
+        .map_err(D::Error::custom)
+}
+
+fn projection_section(value: Option<&JsonValue>) -> Option<&JsonValue> {
     match value {
-        Some(value) => value.serialize(serializer),
-        None => {
-            let map = serializer.serialize_map(Some(0))?;
-            map.end()
-        }
+        Some(JsonValue::Null) | None => None,
+        Some(JsonValue::Object(map)) if map.is_empty() => None,
+        Some(value) => Some(value),
+    }
+}
+
+fn yaml_section_absent(value: &YamlValue) -> bool {
+    match value {
+        YamlValue::Null => true,
+        YamlValue::Mapping(map) => map.is_empty(),
+        _ => false,
     }
 }
 
 fn default_language_code() -> String {
     "en-GB".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_channel_sections_parse_as_absent() {
+        let yaml = serde_yaml_ng::from_str::<YamlValue>(
+            r#"
+greeting: {}
+style_prompt:
+  prompt: Keep it brief.
+"#,
+        )
+        .expect("channel configuration YAML");
+
+        let config = parse_channel_configuration("chat/configuration.yaml", &yaml)
+            .expect("valid channel configuration");
+
+        assert!(config.greeting().is_none());
+        assert_eq!(
+            config.style_prompt().map(|style| style.prompt.as_str()),
+            Some("Keep it brief.")
+        );
+        validate_channel_greeting("chat/configuration.yaml", &yaml)
+            .expect("empty greeting should be treated as absent");
+    }
+
+    #[test]
+    fn absent_channel_sections_do_not_serialize_as_empty_maps() {
+        let config = ChannelConfiguration::from_projection(
+            Some(&serde_json::json!({})),
+            Some(&serde_json::json!({"prompt": "Helpful"})),
+            None,
+        );
+        let yaml = serde_yaml_ng::to_string(&config).expect("channel configuration YAML");
+
+        assert!(!yaml.contains("greeting"));
+        assert!(yaml.contains("style_prompt:"));
+        assert!(yaml.contains("prompt: Helpful"));
+    }
 }

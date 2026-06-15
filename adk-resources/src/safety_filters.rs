@@ -49,7 +49,7 @@ impl SafetyFilters {
                     .iter()
                     .find_map(|key| azure_config.get(*key))
                     .map(SafetyFilterCategory::from_projection)
-                    .unwrap_or_default();
+                    .unwrap_or_else(SafetyFilterCategory::projection_default);
                 ((*yaml_key).to_string(), category)
             })
             .collect();
@@ -194,6 +194,13 @@ struct SafetyFilterCategory {
 }
 
 impl SafetyFilterCategory {
+    fn projection_default() -> Self {
+        Self {
+            enabled: Some(false),
+            level: Some("medium".to_string()),
+        }
+    }
+
     fn from_projection(category: &JsonValue) -> Self {
         Self {
             enabled: category
@@ -204,7 +211,7 @@ impl SafetyFilterCategory {
                 category
                     .get("precision")
                     .and_then(JsonValue::as_str)
-                    .unwrap_or_default(),
+                    .unwrap_or("MEDIUM"),
             )),
         }
     }
@@ -463,6 +470,43 @@ categories:
                 .and_then(|config| config.sexual.as_ref())
                 .map(|category| category.precision.as_str()),
             Some("LOOSE")
+        );
+    }
+
+    #[test]
+    fn projection_defaults_missing_categories_to_valid_python_values() {
+        let filters = SafetyFilters::from_projection(
+            &serde_json::json!({
+                "disabled": false,
+                "azureConfig": {
+                    "violence": {"isActive": true, "precision": "STRICT"}
+                }
+            }),
+            true,
+        );
+        let yaml = serde_yaml_ng::to_string(&filters).expect("safety filters YAML");
+
+        assert!(yaml.contains("enabled: true"));
+        assert!(yaml.contains("violence:"));
+        assert!(yaml.contains("level: strict"));
+        assert!(yaml.contains("hate:"));
+        assert!(yaml.contains("enabled: false"));
+        assert!(yaml.contains("level: medium"));
+        assert!(!yaml.contains("null"));
+
+        let parsed = parse_safety_filters_content(
+            "voice/safety_filters.yaml",
+            &yaml,
+            SafetyFilterMode::Channel,
+        )
+        .expect("materialized filters should validate");
+        assert_eq!(
+            parsed
+                .to_update_proto()
+                .azure_config
+                .and_then(|config| config.hate)
+                .map(|category| category.precision),
+            Some("MEDIUM".to_string())
         );
     }
 }

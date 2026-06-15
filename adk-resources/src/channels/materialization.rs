@@ -30,17 +30,18 @@ pub(crate) fn insert_channel_resources(
         .pointer("/channels/voice/config/stylePrompt")
         .cloned();
     let voice_disclaimer = projection.pointer("/channels/voice/disclaimer").cloned();
-    if voice_greeting.is_some() || voice_style_prompt.is_some() || voice_disclaimer.is_some() {
+    let voice_configuration = ChannelConfiguration::from_projection(
+        voice_greeting.as_ref(),
+        voice_style_prompt.as_ref(),
+        voice_disclaimer.as_ref(),
+    );
+    if !voice_configuration.is_empty() {
         insert_yaml_resource(
             map,
             VOICE_CONFIGURATION_FILE.file_path,
             VOICE_CONFIGURATION_FILE.resource_id,
             VOICE_CONFIGURATION_FILE.name,
-            ChannelConfiguration::from_projection(
-                voice_greeting.as_ref(),
-                voice_style_prompt.as_ref(),
-                voice_disclaimer.as_ref(),
-            ),
+            voice_configuration,
         )?;
     }
 
@@ -51,17 +52,18 @@ pub(crate) fn insert_channel_resources(
         let chat_style_prompt = projection
             .pointer("/channels/webChat/config/stylePrompt")
             .cloned();
-        if chat_greeting.is_some() || chat_style_prompt.is_some() {
+        let chat_configuration = ChannelConfiguration::from_projection(
+            chat_greeting.as_ref(),
+            chat_style_prompt.as_ref(),
+            None,
+        );
+        if !chat_configuration.is_empty() {
             insert_yaml_resource(
                 map,
                 CHAT_CONFIGURATION_FILE.file_path,
                 CHAT_CONFIGURATION_FILE.resource_id,
                 CHAT_CONFIGURATION_FILE.name,
-                ChannelConfiguration::from_projection(
-                    chat_greeting.as_ref(),
-                    chat_style_prompt.as_ref(),
-                    None,
-                ),
+                chat_configuration,
             )?;
         }
         if let Some(chat_safety_filters) =
@@ -200,5 +202,31 @@ mod tests {
         assert!(!voice.contains("- message:"));
         assert!(chat.contains("welcome_message: Hi"));
         assert!(chat.contains("style_prompt:"));
+    }
+
+    #[test]
+    fn projection_omits_empty_channel_greeting_when_other_sections_exist() {
+        let projection = serde_json::json!({
+            "channels": {
+                "webChat": {
+                    "status": true,
+                    "config": {
+                        "greeting": {},
+                        "stylePrompt": {"prompt": "Helpful"}
+                    }
+                }
+            }
+        });
+
+        let resources = projection_to_resource_map(&projection).expect("projection resources");
+        let chat = resources
+            .get("chat/configuration.yaml")
+            .and_then(|resource| resource.payload.get("content"))
+            .and_then(serde_json::Value::as_str)
+            .expect("chat configuration YAML");
+
+        assert!(!chat.contains("greeting:"));
+        assert!(chat.contains("style_prompt:"));
+        assert!(chat.contains("prompt: Helpful"));
     }
 }
