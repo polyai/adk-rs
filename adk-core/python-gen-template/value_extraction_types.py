@@ -19,8 +19,24 @@ __all__ = ["EntityType", "NumericType", "BaseRangeConfig", "NonNegativeMaxRangeC
 class EntityType(StrEnum):
     """Enum for entity types."""
 
+    ADDRESS = 'address'
+    ALPHANUMERIC = 'alphanumeric'
+    DATE = 'date'
+    EMAIL = 'email'
+    NUMERIC = 'numeric'
+    PHONE_NUMBER = 'phone_number'
+    TIME = 'time'
+    ENUM = 'enum'
+    CURRENCY = 'currency'
+    QUANTITY = 'quantity'
+    NAME = 'name'
+    FREE_TEXT = 'free_text'
+
 class NumericType(StrEnum):
     """Enum for supported numeric types"""
+
+    INT = 'int'
+    FLOAT = 'float'
 
 class BaseRangeConfig(BaseModel):
     """Base config with min/max validation."""

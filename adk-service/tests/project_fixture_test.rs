@@ -364,6 +364,8 @@ fn init_and_pull_write_python_compatible_gen_package() {
         fs::read_to_string(gen_dir.join("decorators.py")).expect("generated decorators");
     let conversation =
         fs::read_to_string(gen_dir.join("conversation.py")).expect("generated conversation");
+    let value_extraction_types = fs::read_to_string(gen_dir.join("value_extraction_types.py"))
+        .expect("generated value extraction types");
 
     assert!(project_yaml.contains("project_id: test-project"));
     assert!(!project_yaml.contains("branch_id:"));
@@ -375,6 +377,9 @@ fn init_and_pull_write_python_compatible_gen_package() {
     assert!(!decorators.starts_with("# Copyright PolyAI Limited\n"));
     assert!(conversation.starts_with("# Copyright PolyAI Limited\n"));
     assert!(conversation.contains("class Conversation"));
+    assert!(conversation.contains("ANGER = cast('EmotionKindValue', 0)"));
+    assert!(value_extraction_types.contains("ADDRESS = 'address'"));
+    assert!(value_extraction_types.contains("FLOAT = 'float'"));
 
     fs::write(gen_dir.join("stale.pyi"), "class Stale: ...\n").expect("write stale pyi");
     service.pull(&root, true).expect("pull project");

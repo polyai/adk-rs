@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, NewType
+from typing import Any, Literal, NewType, cast
 from .external_events import GenericExternalEvent, SMSReceived
 from .agentic_dial import AgenticDialData
 from .entity_validator import EntityValidationResult
@@ -100,8 +100,17 @@ class RimeVoice(TTSVoice):
 class EmotionKind:
     """Enum for emotion kind"""
 
+    ANGER = cast('EmotionKindValue', 0)
+    POSITIVITY = cast('EmotionKindValue', 1)
+    SURPRISE = cast('EmotionKindValue', 2)
+
 class EmotionIntensity:
     """Enum for emotion intensity"""
+
+    LOWEST = cast('EmotionIntensityValue', 0)
+    LOW = cast('EmotionIntensityValue', 1)
+    HIGH = cast('EmotionIntensityValue', 2)
+    HIGHEST = cast('EmotionIntensityValue', 3)
 
 class Emotion:
     """Emotion for Cartesia voice"""

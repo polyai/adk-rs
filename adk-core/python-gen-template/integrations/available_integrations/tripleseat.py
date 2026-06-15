@@ -17,6 +17,8 @@ DEFAULT_PUBLIC_KEY = 'a6dd8bc1e4018836b8e9643c978ca04b7ac58081'
 class Tripleseat(Integration):
     """Tripleseat integration class for proxying requests to the Tripleseat API with"""
 
+    integration_id = 'custom.tripleseat'
+    integration_name = 'tripleseat'
     def get_bookings(self) -> requests.Response:
         """Example method for getting bookings from Tripleseat"""
         ...

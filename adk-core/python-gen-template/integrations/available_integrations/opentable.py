@@ -21,6 +21,8 @@ OPENTABLE_SECRET_NAME = 'opentable_api'
 class OpenTable(Integration):
     """OpenTable integration class for proxying requests to the OpenTable API with"""
 
+    integration_id = 'opentable'
+    integration_name = 'opentable'
     def proxy_request(self, endpoint: str, http_method: str, base_url: str | None = ..., headers: dict[str, str] | None = ..., params: dict[str, str] | None = ..., body: dict[str, any] | None = ..., timeout: int = ...) -> requests.Response:
         """Proxy a request to the OpenTable API using the integration's authentication"""
         ...

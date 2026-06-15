@@ -241,7 +241,47 @@ def extract_class_vars(cls: ast.ClassDef) -> list[str]:
                 continue
             annotation = format_annotation(stmt.annotation) or "Any"
             lines.append(f"    {stmt.target.id}: {annotation}")
+        elif isinstance(stmt, ast.Assign):
+            assignment = extract_class_assignment(stmt)
+            if assignment:
+                lines.append(f"    {assignment}")
     return lines
+
+
+def extract_class_assignment(stmt: ast.Assign) -> str | None:
+    if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
+        return None
+    name = stmt.targets[0].id
+    if has_private_name(name) or not is_simple_class_assignment_value(stmt.value):
+        return None
+    return f"{name} = {ast.unparse(stmt.value)}"
+
+
+def is_simple_class_assignment_value(node: ast.expr) -> bool:
+    if isinstance(node, ast.Constant):
+        return True
+    if isinstance(node, ast.UnaryOp):
+        return is_simple_class_assignment_value(node.operand)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return all(is_simple_class_assignment_value(element) for element in node.elts)
+    if isinstance(node, ast.Dict):
+        return all(
+            key is not None
+            and is_simple_class_assignment_value(key)
+            and is_simple_class_assignment_value(value)
+            for key, value in zip(node.keys, node.values)
+        )
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "cast"
+        and len(node.args) == 2
+        and not node.keywords
+    ):
+        return is_simple_class_assignment_value(node.args[0]) and is_simple_class_assignment_value(
+            node.args[1]
+        )
+    return False
 
 
 def extract_class_stub(cls: ast.ClassDef) -> str | None:
