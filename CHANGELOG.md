@@ -4,6 +4,13 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+## 0.0.11 - 2026-06-16
+
+- Added broader local resource validation parity, including parse-time checks for many resource families.
+- Improved resource parsing and command generation by moving more resource behavior onto typed local models.
+- Fixed entity creation so references are populated in create payloads.
+- Tightened API client transport payload typing and improved npm publish smoke-test reliability.
+
 ## 0.0.10 - 2026-06-11
 
 - Added the `@poly-ai/adk-node` N-API package for TypeScript services to run pure pull and push workflows against in-memory file maps.

@@ -13,7 +13,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.10"
+version = "0.0.11"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/polyai/adk-rs"
@@ -21,15 +21,15 @@ rust-version = "1.95.0"
 
 [workspace.dependencies]
 # ADK crates
-adk-cli = { package = "poly-adk", version = "0.0.10", path = "adk-cli" }
-adk-resources = { package = "poly-adk-resources", version = "0.0.10", path = "adk-resources" }
-adk-core = { package = "poly-adk-core", version = "0.0.10", path = "adk-core" }
-adk-service = { package = "poly-adk-service", version = "0.0.10", path = "adk-service" }
-adk-io = { package = "poly-adk-io", version = "0.0.10", path = "adk-io" }
-adk-api-client = { package = "poly-adk-api-client", version = "0.0.10", path = "adk-api-client" }
-adk-napi = { package = "poly-adk-napi", version = "0.0.10", path = "adk-napi" }
-adk-protobuf = { package = "poly-adk-protobuf", version = "0.0.10", path = "adk-protobuf" }
-adk-types = { package = "poly-adk-types", version = "0.0.10", path = "adk-types" }
+adk-cli = { package = "poly-adk", version = "0.0.11", path = "adk-cli" }
+adk-resources = { package = "poly-adk-resources", version = "0.0.11", path = "adk-resources" }
+adk-core = { package = "poly-adk-core", version = "0.0.11", path = "adk-core" }
+adk-service = { package = "poly-adk-service", version = "0.0.11", path = "adk-service" }
+adk-io = { package = "poly-adk-io", version = "0.0.11", path = "adk-io" }
+adk-api-client = { package = "poly-adk-api-client", version = "0.0.11", path = "adk-api-client" }
+adk-napi = { package = "poly-adk-napi", version = "0.0.11", path = "adk-napi" }
+adk-protobuf = { package = "poly-adk-protobuf", version = "0.0.11", path = "adk-protobuf" }
+adk-types = { package = "poly-adk-types", version = "0.0.11", path = "adk-types" }
 # 3rd-party
 anyhow = "1"
 serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
