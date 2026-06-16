@@ -248,11 +248,8 @@ impl BranchManager {
                 ));
             }
         }
-        service
-            .set_branch(&self.root, branch_name)
-            .map_err(service_error)?;
         let files_with_conflicts = service
-            .pull_named_with_format(&self.root, branch_name, force, format)
+            .switch_branch_with_format(&self.root, branch_name, force, format)
             .map_err(service_error)?;
         Ok(BranchSwitchResult {
             success: files_with_conflicts.is_empty(),
