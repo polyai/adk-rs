@@ -1191,8 +1191,9 @@ impl CredentialsFile {
 }
 
 fn api_key_for_region(region: &str) -> Result<String, String> {
+    let fs = StdFileSystem;
     if let Some(path) = credentials_file_path()
-        && let Some(value) = read_api_key_from_credential_file_at(&path, region)
+        && let Some(value) = read_api_key_from_credential_file_at(&fs, &path, region)
     {
         return Ok(value);
     }
@@ -1210,8 +1211,12 @@ fn api_key_for_region(region: &str) -> Result<String, String> {
     ))
 }
 
-fn read_api_key_from_credential_file_at(path: &Path, region: &str) -> Option<String> {
-    let contents = std::fs::read_to_string(path).ok()?;
+fn read_api_key_from_credential_file_at<Fs: FileSystem>(
+    fs: &Fs,
+    path: &Path,
+    region: &str,
+) -> Option<String> {
+    let contents = fs.read_to_string(path).ok()?;
     let credentials: CredentialsFile = serde_json::from_str(&contents).ok()?;
     credentials.api_key(region)
 }
@@ -1543,6 +1548,7 @@ fn adk_error(code: &'static str, message: impl Into<String>) -> PyErr {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adk_io::MemoryFileSystem;
 
     #[test]
     fn deployment_prefix_finds_hash_aliases() {
@@ -1563,6 +1569,27 @@ mod tests {
                 "topics/topic.yaml".to_string(),
                 "functions/test.py".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn reads_credentials_through_filesystem_boundary() {
+        let fs = MemoryFileSystem::new();
+        let path = Path::new("home/.poly/credentials.json");
+        fs.write_string(path, r#"{"us-1":"us-key","uk-1":"   ","euw-1":"euw-key"}"#)
+            .expect("write credentials");
+
+        assert_eq!(
+            read_api_key_from_credential_file_at(&fs, path, "us-1").as_deref(),
+            Some("us-key")
+        );
+        assert_eq!(
+            read_api_key_from_credential_file_at(&fs, path, "uk-1"),
+            None
+        );
+        assert_eq!(
+            read_api_key_from_credential_file_at(&fs, path, "missing"),
+            None
         );
     }
 }
