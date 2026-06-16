@@ -1,5 +1,5 @@
 # Copyright PolyAI Limited
-__all__ = ['Flow', 'FlowFunctionExecutor']
+__all__ = ["Flow", "FlowFunctionExecutor"]
 
 from dataclasses import dataclass
 from .conversation import Conversation as Conversation
@@ -26,7 +26,13 @@ class FlowFunctionExecutor(dict):
 
 class Flow:
     function_dir: Any
-    def __init__(self, current_step: str, step_transition: StepTransition, conv: Conversation, function_dir: str) -> None: ...
+    def __init__(
+        self,
+        current_step: str,
+        step_transition: StepTransition,
+        conv: Conversation,
+        function_dir: str,
+    ) -> None: ...
     @property
     def current_step(self) -> str: ...
     @property

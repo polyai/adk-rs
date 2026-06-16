@@ -1,5 +1,11 @@
 # Copyright PolyAI Limited
-__all__ = ['OutgoingSMS', 'OutgoingSMSTemplate', 'SMSClientFailure', 'SMSCredentials', 'SMSTemplate']
+__all__ = [
+    "OutgoingSMS",
+    "OutgoingSMSTemplate",
+    "SMSClientFailure",
+    "SMSCredentials",
+    "SMSTemplate",
+]
 
 from collections.abc import Callable as Callable
 from dataclasses import dataclass
@@ -31,10 +37,10 @@ class OutgoingSMS:
     from_number: str
     content: str
     content_id: str | None = ...
+
 SMSObj = OutgoingSMS | OutgoingSMSTemplate
 
 def parse_sms_dict(d: dict) -> SMSObj: ...
-
 @dataclass
 class SMSSentEvent:
     success: bool

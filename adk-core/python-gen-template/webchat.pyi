@@ -1,5 +1,5 @@
 # Copyright PolyAI Limited
-__all__ = ['WebchatInterface', 'ChatCallAction']
+__all__ = ["WebchatInterface", "ChatCallAction"]
 
 from typing import Any
 

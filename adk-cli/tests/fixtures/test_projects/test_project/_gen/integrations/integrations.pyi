@@ -1,5 +1,5 @@
 # Copyright PolyAI Limited
-__all__ = ['Integrations']
+__all__ = ["Integrations"]
 
 from typing import Any
 import requests
@@ -10,5 +10,19 @@ from ..log_utils import ConversationLogger as ConversationLogger
 class Integrations:
     opentable: OpenTable
     tripleseat: Tripleseat
-    def __init__(self, log: ConversationLogger, paragon_connection_ids: dict[str, str] | None = None, paragon_project_id: str | None = None, integration_token: str | None = None) -> None: ...
-    def proxy_request(self, integration_id: str, endpoint: str, http_method: str, headers: dict[str, str] | None = None, params: dict[str, str] | None = None, body: dict[str, Any] | None = None) -> requests.Response: ...
+    def __init__(
+        self,
+        log: ConversationLogger,
+        paragon_connection_ids: dict[str, str] | None = None,
+        paragon_project_id: str | None = None,
+        integration_token: str | None = None,
+    ) -> None: ...
+    def proxy_request(
+        self,
+        integration_id: str,
+        endpoint: str,
+        http_method: str,
+        headers: dict[str, str] | None = None,
+        params: dict[str, str] | None = None,
+        body: dict[str, Any] | None = None,
+    ) -> requests.Response: ...

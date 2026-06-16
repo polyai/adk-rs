@@ -1,5 +1,5 @@
 # Copyright PolyAI Limited
-__all__ = ['AgentResponse', 'UserInput']
+__all__ = ["AgentResponse", "UserInput"]
 
 class UserInput:
     def __init__(self, text: str) -> None: ...

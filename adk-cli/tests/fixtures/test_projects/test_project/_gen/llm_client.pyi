@@ -15,7 +15,7 @@ class _InferenceConfig:
 @dataclass
 class _ModelPromptEvent:
     content: str
-    type: Literal['prompt'] = ...
+    type: Literal["prompt"] = ...
 
 @dataclass
 class _ChatCompletionRequest:
@@ -29,5 +29,14 @@ class _ChatCompletionResponse:
     content: str
 
 class _LLMClient:
-    def __init__(self, account_id: str, project_id: str, client_env: str, conversation_id: str, correlation_id: str | None = None, base_url: str = 'https://api.internal.polyai.app', timeout: int = 8) -> None: ...
+    def __init__(
+        self,
+        account_id: str,
+        project_id: str,
+        client_env: str,
+        conversation_id: str,
+        correlation_id: str | None = None,
+        base_url: str = "https://api.internal.polyai.app",
+        timeout: int = 8,
+    ) -> None: ...
     def chat_completion(self, request: _ChatCompletionRequest) -> _ChatCompletionResponse: ...

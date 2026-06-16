@@ -1,5 +1,5 @@
 # Copyright PolyAI Limited
-__all__ = ['Memory']
+__all__ = ["Memory"]
 
 from typing import Any
 

@@ -1,5 +1,5 @@
 # Copyright PolyAI Limited
-__all__ = ['ExternalEvents', 'SMSReceived']
+__all__ = ["ExternalEvents", "SMSReceived"]
 
 import abc
 from dataclasses import dataclass

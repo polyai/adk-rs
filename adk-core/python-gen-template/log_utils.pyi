@@ -1,5 +1,5 @@
 # Copyright PolyAI Limited
-__all__ = ['ConversationLogger']
+__all__ = ["ConversationLogger"]
 
 class ConversationLogger:
     def __init__(self) -> None: ...

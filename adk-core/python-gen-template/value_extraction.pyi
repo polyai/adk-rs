@@ -1,5 +1,5 @@
 # Copyright PolyAI Limited
-__all__ = ['Address']
+__all__ = ["Address"]
 
 from dataclasses import dataclass
 from .value_extraction_types import EntityConfig as EntityConfig
@@ -43,7 +43,17 @@ class _EntityValidationResponse:
     number: str | None = ...
 
 class _ValueExtractionClient:
-    def __init__(self, account_id: str, project_id: str, client_env: str, conversation_id: str, turn_index: int, correlation_id: str | None = None, base_url: str = 'https://api.internal.polyai.app', timeout: int = 8) -> None: ...
+    def __init__(
+        self,
+        account_id: str,
+        project_id: str,
+        client_env: str,
+        conversation_id: str,
+        turn_index: int,
+        correlation_id: str | None = None,
+        base_url: str = "https://api.internal.polyai.app",
+        timeout: int = 8,
+    ) -> None: ...
     def extract_address(self, request: _AddressExtractionRequest) -> _AddressExtractionResponse: ...
     def extract_city(self, request: _AddressExtractionRequest) -> _AddressExtractionResponse: ...
     def validate_entity(self, request: _EntityValidationRequest) -> _EntityValidationResponse: ...

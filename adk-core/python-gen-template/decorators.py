@@ -2,7 +2,8 @@
 # <AUTO GENERATED>
 from typing import Callable, Optional
 
-__all__ = ['func_parameter', 'func_description', 'func_latency_control']
+__all__ = ["func_parameter", "func_description", "func_latency_control"]
+
 
 def func_parameter(
     name: str,
@@ -56,5 +57,3 @@ def func_latency_control(
         return func
 
     return decorator
-
-

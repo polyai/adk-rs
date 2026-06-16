@@ -1,5 +1,5 @@
 # Copyright PolyAI Limited
-__all__ = ['InvalidInput', 'MissingAccess', 'SecretNotFound']
+__all__ = ["InvalidInput", "MissingAccess", "SecretNotFound"]
 
 from typing import Any
 

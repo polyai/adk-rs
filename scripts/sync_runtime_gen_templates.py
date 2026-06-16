@@ -1,15 +1,15 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# dependencies = ["mypy>=1.0.0"]
+# dependencies = ["mypy>=1.0.0", "ruff==0.14.2"]
 # ///
 """Generate Rust ADK _gen type templates from genai_lambda_runtime sources.
 
 The runtime package is the canonical input. This script intentionally does not
 read from the Python ADK repository: it mirrors Python ADK's current stub sync
 flow by running mypy's `stubgen`, post-processing the resulting `.pyi` files,
-and using `assets/imports.json` as the public export manifest. Extra
-support-only stubs are generated when public stubs import sibling runtime
-modules, but they are not re-exported from `_gen`.
+formatting them with Ruff, and using `assets/imports.json` as the public export
+manifest. Extra support-only stubs are generated when public stubs import
+sibling runtime modules, but they are not re-exported from `_gen`.
 
 Generated project functions are executed in the PolyAI Lambda runtime, where the
 real runtime modules are supplied by the platform. The checked-in `_gen` files
@@ -176,6 +176,29 @@ def run_stubgen(specs: list[SourceSpec], output_dir: Path) -> None:
         print(
             "error: stubgen failed. Run this script with `uv run "
             "scripts/sync_runtime_gen_templates.py ...` so the inline mypy "
+            "dependency is available.",
+            file=sys.stderr,
+        )
+        raise SystemExit(result.returncode)
+
+
+def run_ruff_format(output_dir: Path) -> None:
+    cmd = [
+        "ruff",
+        "format",
+        "--config",
+        "line-length=100",
+        "--config",
+        "target-version='py312'",
+        str(output_dir),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(result.stdout, file=sys.stdout, end="")
+        print(result.stderr, file=sys.stderr, end="")
+        print(
+            "error: ruff format failed. Run this script with `uv run "
+            "scripts/sync_runtime_gen_templates.py ...` so the inline ruff "
             "dependency is available.",
             file=sys.stderr,
         )
@@ -471,6 +494,7 @@ def generate_tree(runtime_path: Path, output_dir: Path, template_dir: Path) -> N
     decorator_exports = copy_local_overlays(template_dir, output_dir)
     root_init = generate_root_init(modules, decorator_exports)
     (output_dir / "__init__.py").write_text(root_init, encoding="utf-8")
+    run_ruff_format(output_dir)
 
 
 def all_regular_files(root: Path) -> set[Path]:

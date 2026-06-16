@@ -88,13 +88,14 @@ executed in the PolyAI Lambda runtime, where the real runtime modules are
 provided by the platform, so the checked-in `_gen` files should not be treated as
 a replacement local Python runtime.
 
-The sync script is a uv script with inline metadata for its mypy `stubgen`
-dependency, so no separate Python environment setup is needed. It follows the
-Python ADK shape: `imports.json` selects the public runtime modules, `stubgen`
-generates `.pyi` files, and Rust generates `_gen/__init__.py` to re-export those
-types for user function imports. If those public stubs import sibling runtime
-modules, the script also generates support-only `.pyi` files so the stub graph
-remains resolvable without adding new `_gen` exports.
+The sync script is a uv script with inline metadata for its mypy `stubgen` and
+Ruff dependencies, so no separate Python environment setup is needed. It follows
+the Python ADK shape: `imports.json` selects the public runtime modules,
+`stubgen` generates `.pyi` files, Ruff formats the generated tree, and Rust
+generates `_gen/__init__.py` to re-export those types for user function imports.
+If those public stubs import sibling runtime modules, the script also generates
+support-only `.pyi` files so the stub graph remains resolvable without adding
+new `_gen` exports.
 
 To regenerate those templates from a local `genai_lambda_runtime` checkout:
 

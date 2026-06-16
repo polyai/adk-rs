@@ -40,6 +40,8 @@ Expected shape:
 - Generates `_gen/__init__.py` from exported names in generated stubs.
 - Generates support-only `.pyi` files for sibling runtime imports without
   re-exporting those names from `_gen`.
+- Runs Ruff formatting as part of generation so output does not depend on a
+  local pre-commit hook.
 - Copies nested packages recursively so APIs such as integrations work.
 - Provides `--check` mode that regenerates into a temporary directory and fails
   when checked-in templates differ.
