@@ -29,7 +29,7 @@ type LocalService = AdkService<InMemoryPlatformClient>;
 #[derive(Clone)]
 pub struct Project {
     root: PathBuf,
-    api_key: String,
+    api_key: Option<String>,
 }
 
 #[pymethods]
@@ -39,19 +39,18 @@ impl Project {
     fn open(path: &str, api_key: Option<String>) -> PyResult<Self> {
         let root =
             resolve_project_root(path).map_err(|message| adk_error("INVALID_PROJECT", message))?;
-        let cfg = local_service()
+        local_service()
             .load_project_config(&root)
             .map_err(service_error)?;
         let api_key = match api_key {
-            Some(value) if !value.trim().is_empty() => value,
+            Some(value) if !value.trim().is_empty() => Some(value),
             Some(_) => {
                 return Err(adk_error(
                     "AUTH_ERROR",
                     "api_key override must not be empty",
                 ));
             }
-            None => api_key_for_region(&cfg.region)
-                .map_err(|message| adk_error("AUTH_ERROR", message))?,
+            None => None,
         };
         Ok(Self { root, api_key })
     }
@@ -182,7 +181,7 @@ impl Project {
     }
 
     fn service(&self) -> PyResult<HttpService> {
-        service_for_root(&self.root, &self.api_key)
+        service_for_root(&self.root, self.api_key.as_deref())
     }
 }
 
@@ -190,7 +189,7 @@ impl Project {
 #[derive(Clone)]
 pub struct BranchManager {
     root: PathBuf,
-    api_key: String,
+    api_key: Option<String>,
 }
 
 #[pymethods]
@@ -310,12 +309,12 @@ impl BranchManager {
 }
 
 impl BranchManager {
-    fn new(root: PathBuf, api_key: String) -> Self {
+    fn new(root: PathBuf, api_key: Option<String>) -> Self {
         Self { root, api_key }
     }
 
     fn service(&self) -> PyResult<HttpService> {
-        service_for_root(&self.root, &self.api_key)
+        service_for_root(&self.root, self.api_key.as_deref())
     }
 }
 
@@ -323,7 +322,7 @@ impl BranchManager {
 #[derive(Clone)]
 pub struct DeploymentManager {
     root: PathBuf,
-    api_key: String,
+    api_key: Option<String>,
 }
 
 #[pymethods]
@@ -505,12 +504,12 @@ impl DeploymentManager {
 }
 
 impl DeploymentManager {
-    fn new(root: PathBuf, api_key: String) -> Self {
+    fn new(root: PathBuf, api_key: Option<String>) -> Self {
         Self { root, api_key }
     }
 
     fn service(&self) -> PyResult<HttpService> {
-        service_for_root(&self.root, &self.api_key)
+        service_for_root(&self.root, self.api_key.as_deref())
     }
 }
 
@@ -1083,16 +1082,22 @@ fn _native(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-fn service_for_root(root: &Path, api_key: &str) -> PyResult<HttpService> {
+fn service_for_root(root: &Path, api_key: Option<&str>) -> PyResult<HttpService> {
     let cfg = local_service()
         .load_project_config(root)
         .map_err(service_error)?;
+    let api_key = match api_key {
+        Some(value) => value.to_string(),
+        None => {
+            api_key_for_region(&cfg.region).map_err(|message| adk_error("AUTH_ERROR", message))?
+        }
+    };
     HttpPlatformClient::new_with_api_key(
         &cfg.region,
         &cfg.account_id,
         &cfg.project_id,
         Some(&cfg.branch_id),
-        api_key.to_string(),
+        api_key,
     )
     .map(AdkService::new)
     .map_err(api_error)

@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from pathlib import Path
 import json
 import os
@@ -19,6 +20,43 @@ from poly_adk import AdkError, Project, __version__
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PROJECT = REPO_ROOT / "adk-cli/tests/fixtures/test_projects/test_project"
 BASELINE_TOPIC = "name: Welcome\ncontent: Hello there\n"
+AUTH_ENV_VARS = [
+    "POLY_ADK_KEY",
+    "POLY_ADK_KEY_US",
+    "POLY_ADK_KEY_EUW",
+    "POLY_ADK_KEY_UK",
+    "POLY_ADK_KEY_STUDIO",
+    "POLY_ADK_KEY_STAGING",
+    "POLY_ADK_KEY_DEV",
+]
+
+
+@contextmanager
+def without_poly_credentials():
+    previous_env = {name: os.environ.get(name) for name in AUTH_ENV_VARS}
+    previous_home = os.environ.get("HOME")
+    previous_userprofile = os.environ.get("USERPROFILE")
+    with tempfile.TemporaryDirectory() as tmp:
+        for name in AUTH_ENV_VARS:
+            os.environ.pop(name, None)
+        os.environ["HOME"] = tmp
+        os.environ.pop("USERPROFILE", None)
+        try:
+            yield
+        finally:
+            for name, value in previous_env.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+            if previous_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = previous_home
+            if previous_userprofile is None:
+                os.environ.pop("USERPROFILE", None)
+            else:
+                os.environ["USERPROFILE"] = previous_userprofile
 
 
 class PackageSmokeTest(unittest.TestCase):
@@ -37,6 +75,14 @@ class PackageSmokeTest(unittest.TestCase):
         validation = project.validate()
         self.assertTrue(validation.valid)
         self.assertEqual(validation.errors, [])
+
+    def test_local_operations_do_not_require_credentials(self) -> None:
+        with without_poly_credentials():
+            project = Project.open(str(FIXTURE_PROJECT))
+
+            self.assertEqual(project.config.project_id, "test_project")
+            self.assertTrue(project.status().has_changes)
+            self.assertTrue(project.validate().valid)
 
     def test_missing_project_raises_typed_adk_error(self) -> None:
         with self.assertRaises(AdkError) as raised:
