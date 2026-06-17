@@ -83,7 +83,27 @@ CRAP_ALLOWS=(
   --allow 'adk-protobuf/src/*.rs'
 )
 
-cargo llvm-cov --workspace --lcov --output-path "$output_dir/lcov.info"
+cargo llvm-cov clean --workspace
+cargo llvm-cov --workspace --no-report
+
+(
+  # Python imports the PyO3 extension as a subprocess, so it only contributes
+  # raw .profraw files. Keep those files beside cargo-llvm-cov's Rust test
+  # profiles so the final report command can merge both test runners.
+  eval "$(cargo llvm-cov show-env --sh)"
+  coverage_target_dir="$workspace/target/llvm-cov-target"
+  export CARGO_TARGET_DIR="$coverage_target_dir"
+  export LLVM_PROFILE_FILE="$coverage_target_dir/adk-rs-%p-%16m.profraw"
+
+  # The maturin import hook does not treat coverage env changes as freshness
+  # inputs, so force a rebuild to make the loaded extension instrumented.
+  export POLY_ADK_FORCE_MATURIN_REBUILD=1
+  export UV_CACHE_DIR="${UV_CACHE_DIR:-$workspace/target/uv-cache}"
+  cd "$workspace/adk-python"
+  uv run python -m unittest discover -s tests
+)
+
+cargo llvm-cov report --lcov --output-path "$output_dir/lcov.info"
 
 if [[ -n "$html_dir" ]]; then
   cargo llvm-cov report --html --output-dir "$html_dir"

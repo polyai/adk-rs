@@ -17,6 +17,7 @@ classifiers = [
 
 [dependency-groups]
 dev = [
+  "maturin>=1.8,<2",
   "maturin-import-hook>=0.3",
 ]
 

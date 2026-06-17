@@ -12,7 +12,9 @@ except ModuleNotFoundError:
     maturin_import_hook = None
 
 if maturin_import_hook is not None:
-    maturin_import_hook.install()
+    maturin_import_hook.install(
+        force_rebuild=os.environ.get("POLY_ADK_FORCE_MATURIN_REBUILD") == "1"
+    )
 
 from poly_adk import AdkError, Project, __version__
 
