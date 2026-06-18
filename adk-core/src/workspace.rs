@@ -244,4 +244,36 @@ mod tests {
                 .is_symlink()
         );
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_python_gen_package_replaces_template_parent_symlink_escape_before_write() {
+        let temp = TempProjectDir::new("workspace-template-parent-symlink");
+        let root = temp.path.as_path();
+        std::fs::create_dir_all(root.join("_gen")).expect("create _gen");
+        std::fs::create_dir_all(root.join("functions")).expect("create functions");
+        std::fs::write(root.join("functions/integration.pyi"), "keep me\n").expect("write target");
+        std::os::unix::fs::symlink("../functions", root.join("_gen/integrations"))
+            .expect("symlink template parent outside _gen");
+
+        ProjectWorkspace::with_file_system(StdFileSystem)
+            .write_python_gen_package(root)
+            .expect("write python gen");
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("functions/integration.pyi")).expect("read target"),
+            "keep me\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("_gen/integrations/integration.pyi"))
+                .expect("read template"),
+            python_gen_content("integrations/integration.pyi")
+        );
+        assert!(
+            !std::fs::symlink_metadata(root.join("_gen/integrations"))
+                .expect("template parent metadata")
+                .file_type()
+                .is_symlink()
+        );
+    }
 }
