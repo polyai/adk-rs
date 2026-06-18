@@ -1,0 +1,27 @@
+[build-system]
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
+
+[project]
+name = "poly_adk"
+version = "0.0.11"
+description = "Python bindings for the PolyAI ADK Rust service layer."
+requires-python = ">=3.10"
+readme = "README.md"
+license = "Apache-2.0"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Typing :: Typed",
+]
+
+[dependency-groups]
+dev = [
+  "maturin>=1.8,<2",
+  "maturin-import-hook>=0.3",
+]
+
+[tool.maturin]
+module-name = "poly_adk._native"
+python-source = "python"
+features = ["pyo3/extension-module"]

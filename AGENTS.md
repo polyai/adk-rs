@@ -22,10 +22,12 @@
 - In `adk-resources`, reserve top-level directories for ADK resource families. Cross-cutting
   orchestration and shared helpers should live in top-level Rust modules/files unless they are nested
   inside a resource-family module.
-- Filesystem access in library crates should go through `adk-io`: do not add new direct `std::fs`
-  usage in `adk-core` or other reusable library logic, and prefer generic `Fs: FileSystem` APIs so
-  each binary/test/FFI target chooses `StdFileSystem` or `MemoryFileSystem` at compile time. Direct
-  `std::fs` usage is acceptable in `adk-cli` and test harnesses; avoid `dyn FileSystem`.
+- Filesystem access in reusable library logic should go through `adk-io`: do not add new direct
+  `std::fs` usage in `adk-core`, `adk-service`, `adk-resources`, or other crates intended to be
+  embedded by multiple entry points. Prefer generic `Fs: FileSystem` APIs so each entry point can
+  choose `StdFileSystem` or `MemoryFileSystem` at compile time. Direct `std::fs` usage is acceptable
+  in boundary crates such as `adk-cli`, `adk-python`, and `adk-napi`, and in test harnesses; avoid
+  `dyn FileSystem`.
 - Preserve clean diffs for ADK-maintained project files. Users check these files into Git and
   rely on `pull`/`push` to inspect meaningful backend sync changes, so our code should minimize
   semantically irrelevant YAML rewrites, key reordering, scalar restyling, and formatting churn.

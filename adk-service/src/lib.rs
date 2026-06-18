@@ -911,6 +911,32 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         self.write_pulled_resources(root, remote, force, format)
     }
 
+    /// Switch the local project to `name`, pull that branch, and restore the
+    /// previous project config if the pull fails before checkout completes.
+    pub fn switch_branch_with_format(
+        &self,
+        root: &Path,
+        name: &str,
+        force: bool,
+        format: bool,
+    ) -> Result<Vec<String>, ServiceError> {
+        let previous_cfg = self.load_project_config(root)?;
+        let cfg = self.set_branch(root, name)?;
+        match self.pull_named_with_format(root, &cfg.branch_id, force, format) {
+            Ok(conflicts) => Ok(conflicts),
+            Err(error) => {
+                if let Err(restore_error) = self.write_project_config(root, &previous_cfg) {
+                    return Err(DomainError::InvalidData(format!(
+                        "Branch switch failed ({error}); additionally failed to restore previous branch '{}': {restore_error}",
+                        previous_cfg.branch_id
+                    ))
+                    .into());
+                }
+                Err(error)
+            }
+        }
+    }
+
     fn pull_resources_with_branch_reconciliation(
         &self,
         root: &Path,
@@ -1357,13 +1383,36 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         branch_name: &str,
     ) -> Result<ProjectConfig, ServiceError> {
         let mut cfg = self.load_project_config(root)?;
-        cfg.branch_id = self
+        let Some(branch_id) = self
             .client
             .list_branches()?
             .into_iter()
             .find(|branch| branch.name == branch_name || branch.branch_id == branch_name)
             .map(|branch| branch.branch_id)
-            .unwrap_or_else(|| branch_name.to_string());
+        else {
+            return Err(DomainError::InvalidData(format!(
+                "Branch '{branch_name}' does not exist."
+            ))
+            .into());
+        };
+        cfg.branch_id = branch_id;
+        self.write_project_config(root, &cfg)?;
+        Ok(cfg)
+    }
+
+    /// Set the local branch id for an explicit projection checkout.
+    ///
+    /// This is intentionally separate from `set_branch`: normal branch
+    /// switching must validate against the remote branch list, while
+    /// `--from-projection` materializes caller-provided state without a remote
+    /// branch lookup.
+    pub fn set_branch_from_projection(
+        &self,
+        root: &Path,
+        branch_id: &str,
+    ) -> Result<ProjectConfig, ServiceError> {
+        let mut cfg = self.load_project_config(root)?;
+        cfg.branch_id = branch_id.to_string();
         self.write_project_config(root, &cfg)?;
         Ok(cfg)
     }
@@ -2309,7 +2358,107 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adk_api_client::InMemoryPlatformClient;
+    use adk_api_client::{ApiError, InMemoryPlatformClient, PlatformClient};
+
+    #[derive(Clone)]
+    struct FailingNamedPullClient;
+
+    impl PlatformClient for FailingNamedPullClient {
+        fn pull_resources(&self) -> Result<ResourceMap, ApiError> {
+            Ok(ResourceMap::new())
+        }
+
+        fn pull_resources_by_name(&self, name: &str) -> Result<ResourceMap, ApiError> {
+            Err(ApiError::Http(format!("pull failed for {name}")))
+        }
+
+        fn push_resources(&self, _resources: &ResourceMap) -> Result<PushResult, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn list_deployments(&self, _environment: &str) -> Result<DeploymentList, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn promote_deployment(
+            &self,
+            _deployment_id: &str,
+            _target_env: &str,
+            _message: &str,
+        ) -> Result<JsonValue, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn rollback_deployment(
+            &self,
+            _deployment_id: &str,
+            _message: &str,
+        ) -> Result<JsonValue, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn create_chat_session(&self, _payload: JsonValue) -> Result<JsonValue, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn send_chat_message(&self, _payload: JsonValue) -> Result<JsonValue, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn end_chat_session(&self, _payload: JsonValue) -> Result<JsonValue, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn list_conversations(
+            &self,
+            _limit: usize,
+            _offset: usize,
+        ) -> Result<ConversationListResponse, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn get_conversation(&self, _conversation_id: &str) -> Result<ConversationDetail, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn get_conversation_audio(
+            &self,
+            _conversation_id: &str,
+            _direction: &str,
+            _redacted: bool,
+        ) -> Result<Vec<u8>, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn list_branches(&self) -> Result<Vec<BranchDescriptor>, ApiError> {
+            Ok(vec![
+                BranchDescriptor {
+                    name: "main".to_string(),
+                    branch_id: "main".to_string(),
+                },
+                BranchDescriptor {
+                    name: "feature".to_string(),
+                    branch_id: "feature-id".to_string(),
+                },
+            ])
+        }
+
+        fn create_branch(&self, _branch_name: &str) -> Result<String, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn delete_branch(&self, _branch_id: &str) -> Result<(), ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+
+        fn merge_branch(
+            &self,
+            _deployment_message: &str,
+            _conflict_resolutions: Option<Vec<JsonValue>>,
+        ) -> Result<BranchMergeResult, ApiError> {
+            Err(ApiError::Http("unused".to_string()))
+        }
+    }
 
     #[test]
     fn format_check_preserves_python_shaped_yaml_key_order() {
@@ -2390,5 +2539,57 @@ mod tests {
             "workspace/speech_recognition/keyphrase_boosting.yaml"
         )));
         assert!(!fs.exists(Path::new("workspace/speech_recognition")));
+    }
+
+    #[test]
+    fn switch_branch_restores_previous_config_when_named_pull_fails() {
+        let fs = adk_io::MemoryFileSystem::new();
+        fs.write_string(
+            Path::new("workspace/project.yaml"),
+            "region: dev\naccount_id: acct\nproject_id: proj\nbranch_id: main\n",
+        )
+        .expect("write config");
+        let service = AdkService::with_file_system(FailingNamedPullClient, fs.clone());
+
+        let error = service
+            .switch_branch_with_format(Path::new("workspace"), "feature", true, false)
+            .expect_err("named pull should fail");
+
+        assert!(error.to_string().contains("pull failed for feature-id"));
+        let cfg = service
+            .load_project_config(Path::new("workspace"))
+            .expect("load restored config");
+        assert_eq!(cfg.branch_id, "main");
+        assert!(
+            !fs.read_to_string(Path::new("workspace/project.yaml"))
+                .expect("read config")
+                .contains("feature-id")
+        );
+    }
+
+    #[test]
+    fn switch_branch_rejects_non_branch_targets_before_checkout() {
+        let fs = adk_io::MemoryFileSystem::new();
+        fs.write_string(
+            Path::new("workspace/project.yaml"),
+            "region: dev\naccount_id: acct\nproject_id: proj\nbranch_id: main\n",
+        )
+        .expect("write config");
+        let service = AdkService::with_file_system(FailingNamedPullClient, fs.clone());
+
+        let error = service
+            .switch_branch_with_format(Path::new("workspace"), "live", true, false)
+            .expect_err("environment name is not a branch");
+
+        assert!(error.to_string().contains("Branch 'live' does not exist"));
+        let cfg = service
+            .load_project_config(Path::new("workspace"))
+            .expect("load config");
+        assert_eq!(cfg.branch_id, "main");
+        assert!(
+            !fs.read_to_string(Path::new("workspace/project.yaml"))
+                .expect("read config")
+                .contains("branch_id: live")
+        );
     }
 }

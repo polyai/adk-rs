@@ -372,8 +372,13 @@ fn cmd_branch_switch_with_service<C: PlatformClient>(
         }
     }
     let mut output_projection = projection_json.clone();
-    match service.set_branch(PathBuf::from(&a.path).as_path(), branch_name) {
-        Ok(_cfg) => {
+    let checkout = if projection_json.is_some() {
+        service.set_branch_from_projection(PathBuf::from(&a.path).as_path(), branch_name)
+    } else {
+        service.set_branch(PathBuf::from(&a.path).as_path(), branch_name)
+    };
+    match checkout {
+        Ok(cfg) => {
             if let Some(projection) = &projection_json
                 && let Err(error) =
                     pull_projection_into_path(path.as_path(), projection, a.force, a.format)
@@ -382,13 +387,13 @@ fn cmd_branch_switch_with_service<C: PlatformClient>(
                 return ExitCode::from(1);
             } else if projection_json.is_none()
                 && let Err(error) =
-                    service.pull_named_with_format(path.as_path(), branch_name, a.force, a.format)
+                    service.pull_named_with_format(path.as_path(), &cfg.branch_id, a.force, a.format)
             {
                 emit_error(a.json, &error.to_string());
                 return ExitCode::from(1);
             }
             if projection_json.is_none() && a.output_json_projection {
-                match service.pull_projection_json_by_name(branch_name) {
+                match service.pull_projection_json_by_name(&cfg.branch_id) {
                     Ok(projection) => output_projection = Some(projection),
                     Err(error) => {
                         emit_error(a.json, &error.to_string());

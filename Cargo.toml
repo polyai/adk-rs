@@ -7,6 +7,7 @@ members = [
   "adk-io",
   "adk-api-client",
   "adk-napi",
+  "adk-python",
   "adk-protobuf",
   "adk-types",
 ]
@@ -28,6 +29,7 @@ adk-service = { package = "poly-adk-service", version = "0.0.11", path = "adk-se
 adk-io = { package = "poly-adk-io", version = "0.0.11", path = "adk-io" }
 adk-api-client = { package = "poly-adk-api-client", version = "0.0.11", path = "adk-api-client" }
 adk-napi = { package = "poly-adk-napi", version = "0.0.11", path = "adk-napi" }
+adk-python = { package = "poly-adk-python", version = "0.0.11", path = "adk-python" }
 adk-protobuf = { package = "poly-adk-protobuf", version = "0.0.11", path = "adk-protobuf" }
 adk-types = { package = "poly-adk-types", version = "0.0.11", path = "adk-types" }
 # 3rd-party
@@ -42,9 +44,6 @@ uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
 indexmap = { version = "2", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-napi = { version = "3.9.1", default-features = false, features = ["dyn-symbols", "napi4"] }
-napi-derive = "3.5.6"
-napi-build = "2.3.2"
 walkdir = "2"
 sha2 = "0.10"
 similar = "2"

@@ -113,13 +113,13 @@ jobs:
         run: |
           package_version="$(node -p "require('./package.json').version")"
           npm run build:test
-          for attempt in 1 2 3 4 5 6; do
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
             if npm --prefix published-smoke install --no-audit --no-fund --no-save --package-lock=false "@poly-ai/adk-node@${package_version}"; then
               break
             fi
-            if [ "$attempt" -eq 6 ]; then
+            if [ "$attempt" -eq 10 ]; then
               exit 1
             fi
-            sleep 10
+            sleep 30
           done
           npm --prefix published-smoke test
