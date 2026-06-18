@@ -282,18 +282,9 @@ impl BranchManager {
         if message.trim().is_empty() {
             return Err(adk_error("INVALID_INPUT", "message must not be empty"));
         }
-        let resolutions = match resolutions {
-            Some(value) => match py_to_json(value.bind(py))? {
-                JsonValue::Array(items) => Some(items),
-                _ => {
-                    return Err(adk_error(
-                        "INVALID_INPUT",
-                        "resolutions must be a list of JSON-compatible objects",
-                    ));
-                }
-            },
-            None => None,
-        };
+        let resolutions = resolutions
+            .map(|value| merge_resolutions_to_json(value.bind(py)))
+            .transpose()?;
         self.service()?
             .merge_branch(&self.root, message, resolutions)
             .map(BranchMergeResult::from)
@@ -640,7 +631,8 @@ pub struct PushResult {
     message: String,
     #[pyo3(get)]
     dry_run: bool,
-    commands: Vec<JsonValue>,
+    #[pyo3(get)]
+    commands: Vec<PushCommand>,
     #[pyo3(get)]
     new_branch_id: Option<String>,
     #[pyo3(get)]
@@ -649,11 +641,6 @@ pub struct PushResult {
 
 #[pymethods]
 impl PushResult {
-    #[getter]
-    fn commands(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &JsonValue::Array(self.commands.clone()))
-    }
-
     fn __repr__(&self) -> String {
         format!(
             "PushResult(success={}, dry_run={}, message={:?})",
@@ -668,10 +655,56 @@ impl PushResult {
             success: value.success,
             message: value.message,
             dry_run,
-            commands: value.commands,
+            commands: value
+                .commands
+                .into_iter()
+                .map(PushCommand::from_value)
+                .collect(),
             new_branch_id: None,
             switched_to: None,
         }
+    }
+}
+
+#[pyclass(module = "poly_adk", frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PushCommand {
+    raw: JsonValue,
+}
+
+#[pymethods]
+impl PushCommand {
+    #[getter]
+    fn raw(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &self.raw)
+    }
+
+    #[getter]
+    fn command_type(&self) -> Option<String> {
+        self.command_type_value()
+    }
+
+    #[getter]
+    fn command_id(&self) -> Option<String> {
+        self.command_id_value()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("PushCommand(command_type={:?})", self.command_type_value())
+    }
+}
+
+impl PushCommand {
+    fn from_value(raw: JsonValue) -> Self {
+        Self { raw }
+    }
+
+    fn command_type_value(&self) -> Option<String> {
+        string_field(&self.raw, &["type", "command_type", "commandType"]).map(ToString::to_string)
+    }
+
+    fn command_id_value(&self) -> Option<String> {
+        string_field(&self.raw, &["command_id", "commandId"]).map(ToString::to_string)
     }
 }
 
@@ -842,27 +875,98 @@ impl BranchDeleteResult {
 
 #[pyclass(module = "poly_adk", frozen, skip_from_py_object)]
 #[derive(Clone)]
+pub struct MergeResolution {
+    #[pyo3(get)]
+    path: Vec<String>,
+    #[pyo3(get)]
+    strategy: String,
+    value: Option<JsonValue>,
+}
+
+#[pymethods]
+impl MergeResolution {
+    #[new]
+    #[pyo3(signature = (path, strategy, value = None))]
+    fn new(
+        py: Python<'_>,
+        path: Py<PyAny>,
+        strategy: &str,
+        value: Option<Py<PyAny>>,
+    ) -> PyResult<Self> {
+        let path = py_string_sequence(path.bind(py), "path")?;
+        if path.is_empty() {
+            return Err(adk_error("INVALID_INPUT", "path must not be empty"));
+        }
+        if !matches!(strategy, "ours" | "theirs" | "base") {
+            return Err(adk_error(
+                "INVALID_INPUT",
+                format!(
+                    "Invalid conflict resolution strategy: {strategy}. Must be one of 'ours', 'theirs', or 'base'."
+                ),
+            ));
+        }
+        let value = value
+            .filter(|value| !value.bind(py).is_none())
+            .map(|value| py_to_json(value.bind(py)))
+            .transpose()?;
+        Ok(Self {
+            path,
+            strategy: strategy.to_string(),
+            value,
+        })
+    }
+
+    #[getter]
+    fn value(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.value
+            .as_ref()
+            .map(|value| json_to_py(py, value))
+            .unwrap_or_else(|| Ok(py.None()))
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "MergeResolution(path={:?}, strategy={:?}, value_set={})",
+            self.path,
+            self.strategy,
+            self.value.is_some()
+        )
+    }
+}
+
+impl MergeResolution {
+    fn to_json(&self) -> JsonValue {
+        let mut out = serde_json::Map::new();
+        out.insert(
+            "path".to_string(),
+            JsonValue::Array(self.path.iter().cloned().map(JsonValue::String).collect()),
+        );
+        out.insert(
+            "strategy".to_string(),
+            JsonValue::String(self.strategy.clone()),
+        );
+        if let Some(value) = &self.value {
+            out.insert("value".to_string(), value.clone());
+        }
+        JsonValue::Object(out)
+    }
+}
+
+#[pyclass(module = "poly_adk", frozen, skip_from_py_object)]
+#[derive(Clone)]
 pub struct BranchMergeResult {
     #[pyo3(get)]
     success: bool,
-    conflicts: Vec<JsonValue>,
-    errors: Vec<JsonValue>,
+    #[pyo3(get)]
+    conflicts: Vec<MergeConflict>,
+    #[pyo3(get)]
+    errors: Vec<MergeError>,
     #[pyo3(get)]
     sequence: Option<String>,
 }
 
 #[pymethods]
 impl BranchMergeResult {
-    #[getter]
-    fn conflicts(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &JsonValue::Array(self.conflicts.clone()))
-    }
-
-    #[getter]
-    fn errors(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &JsonValue::Array(self.errors.clone()))
-    }
-
     fn __repr__(&self) -> String {
         format!(
             "BranchMergeResult(success={}, conflicts={}, errors={})",
@@ -877,10 +981,112 @@ impl From<RustBranchMergeResult> for BranchMergeResult {
     fn from(value: RustBranchMergeResult) -> Self {
         Self {
             success: value.success,
-            conflicts: value.conflicts,
-            errors: value.errors,
+            conflicts: value
+                .conflicts
+                .into_iter()
+                .map(MergeConflict::from_value)
+                .collect(),
+            errors: value
+                .errors
+                .into_iter()
+                .map(MergeError::from_value)
+                .collect(),
             sequence: value.sequence,
         }
+    }
+}
+
+#[pyclass(module = "poly_adk", frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct MergeConflict {
+    raw: JsonValue,
+}
+
+#[pymethods]
+impl MergeConflict {
+    #[getter]
+    fn raw(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &self.raw)
+    }
+
+    #[getter]
+    fn path(&self) -> Vec<String> {
+        self.path_value()
+    }
+
+    #[getter]
+    fn conflict_type(&self) -> Option<String> {
+        self.conflict_type_value()
+    }
+
+    #[getter]
+    fn base_value(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_optional_field_to_py(py, &self.raw, &["baseValue", "base_value"])
+    }
+
+    #[getter]
+    fn ours_value(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_optional_field_to_py(py, &self.raw, &["oursValue", "ours_value"])
+    }
+
+    #[getter]
+    fn theirs_value(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_optional_field_to_py(py, &self.raw, &["theirsValue", "theirs_value"])
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "MergeConflict(path={:?}, conflict_type={:?})",
+            self.path_value(),
+            self.conflict_type_value()
+        )
+    }
+}
+
+impl MergeConflict {
+    fn from_value(raw: JsonValue) -> Self {
+        Self { raw }
+    }
+
+    fn path_value(&self) -> Vec<String> {
+        json_string_path(&self.raw).unwrap_or_default()
+    }
+
+    fn conflict_type_value(&self) -> Option<String> {
+        string_field(&self.raw, &["type", "conflict_type", "conflictType"]).map(ToString::to_string)
+    }
+}
+
+#[pyclass(module = "poly_adk", frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct MergeError {
+    raw: JsonValue,
+}
+
+#[pymethods]
+impl MergeError {
+    #[getter]
+    fn raw(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &self.raw)
+    }
+
+    #[getter]
+    fn message(&self) -> Option<String> {
+        self.message_value()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("MergeError(message={:?})", self.message_value())
+    }
+}
+
+impl MergeError {
+    fn from_value(raw: JsonValue) -> Self {
+        Self { raw }
+    }
+
+    fn message_value(&self) -> Option<String> {
+        string_field(&self.raw, &["message", "error"]).map(ToString::to_string)
     }
 }
 
@@ -1060,6 +1266,7 @@ fn _native(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<StatusSummary>()?;
     m.add_class::<PullResult>()?;
     m.add_class::<PushResult>()?;
+    m.add_class::<PushCommand>()?;
     m.add_class::<DiffEntry>()?;
     m.add_class::<DiffResult>()?;
     m.add_class::<FormatResult>()?;
@@ -1069,7 +1276,10 @@ fn _native(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BranchListResult>()?;
     m.add_class::<BranchSwitchResult>()?;
     m.add_class::<BranchDeleteResult>()?;
+    m.add_class::<MergeResolution>()?;
     m.add_class::<BranchMergeResult>()?;
+    m.add_class::<MergeConflict>()?;
+    m.add_class::<MergeError>()?;
     m.add_class::<DeploymentManager>()?;
     m.add_class::<Deployment>()?;
     m.add_class::<DeploymentListResult>()?;
@@ -1417,6 +1627,90 @@ fn string_field<'a>(value: &'a JsonValue, keys: &[&str]) -> Option<&'a str> {
         .find_map(|key| value.get(*key).and_then(JsonValue::as_str))
 }
 
+fn json_field<'a>(value: &'a JsonValue, keys: &[&str]) -> Option<&'a JsonValue> {
+    keys.iter().find_map(|key| value.get(*key))
+}
+
+fn json_optional_field_to_py(
+    py: Python<'_>,
+    value: &JsonValue,
+    keys: &[&str],
+) -> PyResult<Py<PyAny>> {
+    json_field(value, keys)
+        .map(|field| json_to_py(py, field))
+        .unwrap_or_else(|| Ok(py.None()))
+}
+
+fn json_string_path(value: &JsonValue) -> Option<Vec<String>> {
+    value.get("path")?.as_array().map(|items| {
+        items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| item.to_string())
+            })
+            .collect()
+    })
+}
+
+fn merge_resolutions_to_json(value: &Bound<'_, PyAny>) -> PyResult<Vec<JsonValue>> {
+    if let Ok(list) = value.cast::<PyList>() {
+        return list
+            .iter()
+            .enumerate()
+            .map(|(idx, item)| merge_resolution_to_json(&item, idx))
+            .collect();
+    }
+    if let Ok(tuple) = value.cast::<PyTuple>() {
+        return tuple
+            .iter()
+            .enumerate()
+            .map(|(idx, item)| merge_resolution_to_json(&item, idx))
+            .collect();
+    }
+    Err(PyTypeError::new_err(
+        "resolutions must be a list or tuple of MergeResolution objects",
+    ))
+}
+
+fn merge_resolution_to_json(value: &Bound<'_, PyAny>, idx: usize) -> PyResult<JsonValue> {
+    value
+        .extract::<PyRef<'_, MergeResolution>>()
+        .map(|resolution| resolution.to_json())
+        .map_err(|_| PyTypeError::new_err(format!("resolutions[{idx}] must be a MergeResolution")))
+}
+
+fn py_string_sequence(value: &Bound<'_, PyAny>, field_name: &str) -> PyResult<Vec<String>> {
+    if let Ok(list) = value.cast::<PyList>() {
+        return list
+            .iter()
+            .enumerate()
+            .map(|(idx, item)| py_string_sequence_item(&item, field_name, idx))
+            .collect();
+    }
+    if let Ok(tuple) = value.cast::<PyTuple>() {
+        return tuple
+            .iter()
+            .enumerate()
+            .map(|(idx, item)| py_string_sequence_item(&item, field_name, idx))
+            .collect();
+    }
+    Err(PyTypeError::new_err(format!(
+        "{field_name} must be a list or tuple of strings"
+    )))
+}
+
+fn py_string_sequence_item(
+    value: &Bound<'_, PyAny>,
+    field_name: &str,
+    idx: usize,
+) -> PyResult<String> {
+    value
+        .extract::<String>()
+        .map_err(|_| PyTypeError::new_err(format!("{field_name}[{idx}] must be a string")))
+}
+
 fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
     if value.is_none() {
         return Ok(JsonValue::Null);
@@ -1561,5 +1855,118 @@ mod tests {
                 "functions/test.py".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn merge_resolution_serializes_to_backend_shape() {
+        let resolution = MergeResolution {
+            path: vec![
+                "flows".to_string(),
+                "support".to_string(),
+                "prompt".to_string(),
+            ],
+            strategy: "theirs".to_string(),
+            value: Some(serde_json::json!({"text": "custom resolution"})),
+        };
+
+        assert_eq!(
+            resolution.to_json(),
+            serde_json::json!({
+                "path": ["flows", "support", "prompt"],
+                "strategy": "theirs",
+                "value": {"text": "custom resolution"},
+            })
+        );
+    }
+
+    #[test]
+    fn output_wrappers_expose_stable_fields_from_raw_json() {
+        let command = PushCommand::from_value(serde_json::json!({
+            "type": "create_topic",
+            "commandId": "command-1",
+        }));
+        assert_eq!(
+            command.command_type_value().as_deref(),
+            Some("create_topic")
+        );
+        assert_eq!(command.command_id_value().as_deref(), Some("command-1"));
+
+        let conflict = MergeConflict::from_value(serde_json::json!({
+            "path": ["flows", "support", "prompt"],
+            "type": "modify",
+            "baseValue": "base",
+            "oursValue": "main",
+            "theirsValue": "branch",
+        }));
+        assert_eq!(
+            conflict.path_value(),
+            vec![
+                "flows".to_string(),
+                "support".to_string(),
+                "prompt".to_string()
+            ]
+        );
+        assert_eq!(conflict.conflict_type_value().as_deref(), Some("modify"));
+
+        let error = MergeError::from_value(serde_json::json!({"message": "resolve conflicts"}));
+        assert_eq!(error.message_value().as_deref(), Some("resolve conflicts"));
+    }
+
+    #[test]
+    fn deployment_field_helpers_accept_backend_aliases() {
+        let deployment = serde_json::json!({
+            "deploymentId": "deployment-1",
+            "versionHash": "abcdef123456",
+            "deployment_metadata": {
+                "deployment_message": "Ship it"
+            }
+        });
+
+        assert_eq!(deployment_id(&deployment), Some("deployment-1"));
+        assert_eq!(deployment_hash(&deployment), Some("abcdef123456"));
+        assert_eq!(deployment_message(&deployment), Some("Ship it"));
+        assert_eq!(
+            deployment_hash_prefix("abcdef123456"),
+            "abcdef123".to_string()
+        );
+    }
+
+    #[test]
+    fn resolve_included_deployments_reports_rollbacks_and_promotions() {
+        let versions = vec![
+            serde_json::json!({"version_hash": "aaa111111"}),
+            serde_json::json!({"version_hash": "bbb222222"}),
+            serde_json::json!({"version_hash": "ccc333333"}),
+        ];
+
+        let (included, is_rollback) =
+            resolve_included_deployments(&versions, "bbb222222", Some("aaa111111"));
+        assert!(is_rollback);
+        assert_eq!(included, vec![versions[0].clone()]);
+
+        let (included, is_rollback) =
+            resolve_included_deployments(&versions, "aaa111111", Some("ccc333333"));
+        assert!(!is_rollback);
+        assert_eq!(included, vec![versions[0].clone(), versions[1].clone()]);
+
+        let (included, is_rollback) = resolve_included_deployments(&versions, "bbb222222", None);
+        assert!(!is_rollback);
+        assert_eq!(included, vec![versions[1].clone(), versions[2].clone()]);
+    }
+
+    #[test]
+    fn deployment_alias_helper_prefers_active_hashes() {
+        let active = IndexMap::from([
+            ("sandbox".to_string(), "abcdef123456".to_string()),
+            ("pre-release".to_string(), "previous999".to_string()),
+        ]);
+
+        assert_eq!(
+            deployment_hash_or_active_alias(&active, "sandbox"),
+            "abcdef123456"
+        );
+        assert_eq!(deployment_hash_or_active_alias(&active, "manual"), "manual");
+        assert_eq!(deployment_promote_search_env("live"), "pre-release");
+        assert_eq!(deployment_promote_search_env("pre-release"), "sandbox");
     }
 }

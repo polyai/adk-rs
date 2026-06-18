@@ -11,6 +11,20 @@ project = Project.open(".")
 print(project.status().modified_files)
 ```
 
+Merge conflict resolutions are typed before they cross into Rust:
+
+```python
+from poly_adk import MergeResolution, Project
+
+project = Project.open(".")
+project.branches.merge(
+    "Merge feature branch",
+    resolutions=[
+        MergeResolution(["flows", "support", "prompt"], "theirs"),
+    ],
+)
+```
+
 ## Local development
 
 Run the Python smoke tests from this directory with:

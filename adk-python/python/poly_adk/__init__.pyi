@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 
 __version__: str
 
@@ -33,11 +33,17 @@ class PullResult:
     new_branch_id: str | None
 
 
+class PushCommand:
+    raw: Mapping[str, Any]
+    command_type: str | None
+    command_id: str | None
+
+
 class PushResult:
     success: bool
     message: str
     dry_run: bool
-    commands: list[Mapping[str, Any]]
+    commands: list[PushCommand]
     new_branch_id: str | None
     switched_to: str | None
 
@@ -86,10 +92,36 @@ class BranchDeleteResult:
     switched_to: str | None
 
 
+class MergeResolution:
+    path: list[str]
+    strategy: Literal["ours", "theirs", "base"]
+    value: Any | None
+    def __init__(
+        self,
+        path: Sequence[str],
+        strategy: Literal["ours", "theirs", "base"],
+        value: Any | None = None,
+    ) -> None: ...
+
+
+class MergeConflict:
+    raw: Mapping[str, Any]
+    path: list[str]
+    conflict_type: str | None
+    base_value: Any | None
+    ours_value: Any | None
+    theirs_value: Any | None
+
+
+class MergeError:
+    raw: Mapping[str, Any]
+    message: str | None
+
+
 class BranchMergeResult:
     success: bool
-    conflicts: list[Mapping[str, Any]]
-    errors: list[Mapping[str, Any]]
+    conflicts: list[MergeConflict]
+    errors: list[MergeError]
     sequence: str | None
 
 
@@ -148,7 +180,7 @@ class BranchManager:
     def merge(
         self,
         message: str,
-        resolutions: Sequence[Mapping[str, Any]] | None = None,
+        resolutions: Sequence[MergeResolution] | None = None,
     ) -> BranchMergeResult: ...
 
 

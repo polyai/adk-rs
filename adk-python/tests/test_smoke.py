@@ -16,7 +16,12 @@ if maturin_import_hook is not None:
         force_rebuild=os.environ.get("POLY_ADK_FORCE_MATURIN_REBUILD") == "1"
     )
 
-from poly_adk import AdkError, Project, __version__
+from poly_adk import (
+    AdkError,
+    MergeResolution,
+    Project,
+    __version__,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -92,6 +97,41 @@ class PackageSmokeTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, "INVALID_PROJECT")
         self.assertIn("No project configuration found", raised.exception.message)
+
+    def test_merge_resolution_is_typed_and_validated(self) -> None:
+        resolution = MergeResolution(
+            ["flows", "support", "prompt"],
+            "theirs",
+            {"text": "custom resolution"},
+        )
+
+        self.assertEqual(resolution.path, ["flows", "support", "prompt"])
+        self.assertEqual(resolution.strategy, "theirs")
+        self.assertEqual(resolution.value, {"text": "custom resolution"})
+        self.assertIn("MergeResolution", repr(resolution))
+
+        with self.assertRaises(AdkError) as invalid_strategy:
+            MergeResolution(["topics", "welcome"], "mine")
+
+        self.assertEqual(invalid_strategy.exception.code, "INVALID_INPUT")
+        self.assertIn("Invalid conflict resolution strategy", invalid_strategy.exception.message)
+
+        with self.assertRaises(AdkError) as empty_path:
+            MergeResolution([], "ours")
+
+        self.assertEqual(empty_path.exception.code, "INVALID_INPUT")
+        self.assertIn("path must not be empty", empty_path.exception.message)
+
+    def test_branch_merge_requires_merge_resolution_objects(self) -> None:
+        project = Project.open(str(FIXTURE_PROJECT), api_key="dummy")
+
+        with self.assertRaises(TypeError) as raised:
+            project.branches.merge(
+                "Merge feature branch",
+                resolutions=[{"path": ["topics", "welcome"], "strategy": "ours"}],
+            )
+
+        self.assertIn("MergeResolution", str(raised.exception))
 
     def test_version_is_exported(self) -> None:
         self.assertEqual(__version__, "0.0.11")
