@@ -921,8 +921,8 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         format: bool,
     ) -> Result<Vec<String>, ServiceError> {
         let previous_cfg = self.load_project_config(root)?;
-        self.set_branch(root, name)?;
-        match self.pull_named_with_format(root, name, force, format) {
+        let cfg = self.set_branch(root, name)?;
+        match self.pull_named_with_format(root, &cfg.branch_id, force, format) {
             Ok(conflicts) => Ok(conflicts),
             Err(error) => {
                 if let Err(restore_error) = self.write_project_config(root, &previous_cfg) {
@@ -1383,13 +1383,36 @@ impl<C: PlatformClient, Fs: FileSystem> AdkService<C, Fs> {
         branch_name: &str,
     ) -> Result<ProjectConfig, ServiceError> {
         let mut cfg = self.load_project_config(root)?;
-        cfg.branch_id = self
+        let Some(branch_id) = self
             .client
             .list_branches()?
             .into_iter()
             .find(|branch| branch.name == branch_name || branch.branch_id == branch_name)
             .map(|branch| branch.branch_id)
-            .unwrap_or_else(|| branch_name.to_string());
+        else {
+            return Err(DomainError::InvalidData(format!(
+                "Branch '{branch_name}' does not exist."
+            ))
+            .into());
+        };
+        cfg.branch_id = branch_id;
+        self.write_project_config(root, &cfg)?;
+        Ok(cfg)
+    }
+
+    /// Set the local branch id for an explicit projection checkout.
+    ///
+    /// This is intentionally separate from `set_branch`: normal branch
+    /// switching must validate against the remote branch list, while
+    /// `--from-projection` materializes caller-provided state without a remote
+    /// branch lookup.
+    pub fn set_branch_from_projection(
+        &self,
+        root: &Path,
+        branch_id: &str,
+    ) -> Result<ProjectConfig, ServiceError> {
+        let mut cfg = self.load_project_config(root)?;
+        cfg.branch_id = branch_id.to_string();
         self.write_project_config(root, &cfg)?;
         Ok(cfg)
     }
@@ -2532,7 +2555,7 @@ mod tests {
             .switch_branch_with_format(Path::new("workspace"), "feature", true, false)
             .expect_err("named pull should fail");
 
-        assert!(error.to_string().contains("pull failed for feature"));
+        assert!(error.to_string().contains("pull failed for feature-id"));
         let cfg = service
             .load_project_config(Path::new("workspace"))
             .expect("load restored config");
@@ -2541,6 +2564,32 @@ mod tests {
             !fs.read_to_string(Path::new("workspace/project.yaml"))
                 .expect("read config")
                 .contains("feature-id")
+        );
+    }
+
+    #[test]
+    fn switch_branch_rejects_non_branch_targets_before_checkout() {
+        let fs = adk_io::MemoryFileSystem::new();
+        fs.write_string(
+            Path::new("workspace/project.yaml"),
+            "region: dev\naccount_id: acct\nproject_id: proj\nbranch_id: main\n",
+        )
+        .expect("write config");
+        let service = AdkService::with_file_system(FailingNamedPullClient, fs.clone());
+
+        let error = service
+            .switch_branch_with_format(Path::new("workspace"), "live", true, false)
+            .expect_err("environment name is not a branch");
+
+        assert!(error.to_string().contains("Branch 'live' does not exist"));
+        let cfg = service
+            .load_project_config(Path::new("workspace"))
+            .expect("load config");
+        assert_eq!(cfg.branch_id, "main");
+        assert!(
+            !fs.read_to_string(Path::new("workspace/project.yaml"))
+                .expect("read config")
+                .contains("branch_id: live")
         );
     }
 }
