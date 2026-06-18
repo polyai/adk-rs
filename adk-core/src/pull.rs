@@ -480,6 +480,49 @@ mod tests {
         }));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn pull_from_filesystem_replaces_template_parent_symlink_escape_before_write() {
+        let temp = TempProjectDir::new("pull-template-parent-symlink");
+        let root = temp.path.as_path();
+        std::fs::create_dir_all(root.join("_gen")).expect("create _gen");
+        std::fs::create_dir_all(root.join("functions")).expect("create functions");
+        std::fs::write(root.join("functions/integration.pyi"), "keep me\n").expect("write target");
+        std::os::unix::fs::symlink("../functions", root.join("_gen/integrations"))
+            .expect("symlink template parent outside _gen");
+
+        let output = pull_from_filesystem(
+            &StdFileSystem,
+            root,
+            PullInput {
+                pull_projection: serde_json::json!({}),
+                base_projection: None,
+                force: false,
+            },
+        )
+        .expect("pull");
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("functions/integration.pyi")).expect("read target"),
+            "keep me\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("_gen/integrations/integration.pyi"))
+                .expect("read template"),
+            python_gen_content("integrations/integration.pyi")
+        );
+        assert!(
+            !std::fs::symlink_metadata(root.join("_gen/integrations"))
+                .expect("template parent metadata")
+                .file_type()
+                .is_symlink()
+        );
+        assert!(output.changes.contains(&FileChange::Write {
+            path: "_gen/integrations/integration.pyi".to_string(),
+            content: python_gen_content("integrations/integration.pyi"),
+        }));
+    }
+
     #[test]
     fn pull_from_filesystem_writes_projection_and_preserves_unrelated_files() {
         let fs = MemoryFileSystem::new();
