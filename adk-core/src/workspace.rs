@@ -1,60 +1,15 @@
 use crate::{
     CoreError, DiscoveredResourceChanges, DiscoveredResourcePaths, PROJECT_CONFIG_FILE,
-    is_generated_path, project_config_yaml, recursive_file_paths,
+    canonical_path_inside_root, is_generated_path, project_config_yaml, recursive_file_paths,
+    remove_path_if_outside_root,
 };
 use adk_io::FileSystem;
 use adk_resources::local_resource_content;
 use adk_types::{ProjectConfig, Resource, ResourceMap};
+use std::collections::HashSet;
 use std::path::Path;
 
-pub(crate) const PYTHON_GEN_TEMPLATE_FILES: &[(&str, &str)] = &[
-    (
-        "__init__.py",
-        include_str!("../python-gen-template/__init__.py"),
-    ),
-    (
-        "attachment.py",
-        include_str!("../python-gen-template/attachment.py"),
-    ),
-    (
-        "conv_utils.py",
-        include_str!("../python-gen-template/conv_utils.py"),
-    ),
-    (
-        "conversation.py",
-        include_str!("../python-gen-template/conversation.py"),
-    ),
-    (
-        "decorators.py",
-        include_str!("../python-gen-template/decorators.py"),
-    ),
-    (
-        "external_events.py",
-        include_str!("../python-gen-template/external_events.py"),
-    ),
-    ("flow.py", include_str!("../python-gen-template/flow.py")),
-    (
-        "history.py",
-        include_str!("../python-gen-template/history.py"),
-    ),
-    (
-        "log_utils.py",
-        include_str!("../python-gen-template/log_utils.py"),
-    ),
-    (
-        "memory.py",
-        include_str!("../python-gen-template/memory.py"),
-    ),
-    (
-        "secret_vault.py",
-        include_str!("../python-gen-template/secret_vault.py"),
-    ),
-    ("sms.py", include_str!("../python-gen-template/sms.py")),
-    (
-        "value_extraction.py",
-        include_str!("../python-gen-template/value_extraction.py"),
-    ),
-];
+include!(concat!(env!("OUT_DIR"), "/python_gen_template_files.rs"));
 
 /// Local project workspace operations that do not require a platform client.
 pub struct ProjectWorkspace<Fs> {
@@ -107,13 +62,46 @@ impl<Fs: FileSystem> ProjectWorkspace<Fs> {
     pub fn write_python_gen_package(&self, project_root: &Path) -> Result<(), CoreError> {
         let gen_dir = project_root.join("_gen");
         self.fs.create_dir_all(&gen_dir)?;
-        for path in self.fs.read_dir(&gen_dir)? {
-            if path.extension().is_some_and(|extension| extension == "pyi") {
-                self.fs.remove_file(&path)?;
+        let mut cleaned_stubs = HashSet::new();
+        let template_files: HashSet<&str> = PYTHON_GEN_TEMPLATE_FILES
+            .iter()
+            .map(|(file_name, _)| *file_name)
+            .collect();
+        for path in recursive_file_paths(&self.fs, &gen_dir)? {
+            let rel = path
+                .strip_prefix(&gen_dir)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            let is_generated_stub = path
+                .extension()
+                .is_some_and(|extension| matches!(extension.to_str(), Some("py" | "pyi")));
+            if !is_generated_stub || template_files.contains(rel.as_str()) {
+                continue;
             }
+
+            // `_gen` itself may be a symlink to a user-chosen generated package
+            // location, but child symlinks inside it must not let stale-stub
+            // cleanup delete files outside that resolved package root. The
+            // canonical path also deduplicates aliases from internal symlinks.
+            let Some(canonical_path) = canonical_path_inside_root(&self.fs, &gen_dir, &path) else {
+                continue;
+            };
+            if !cleaned_stubs.insert(canonical_path) {
+                continue;
+            }
+            self.fs.remove_file(&path)?;
         }
         for (file_name, contents) in PYTHON_GEN_TEMPLATE_FILES {
-            self.fs.write_string(&gen_dir.join(file_name), contents)?;
+            let path = gen_dir.join(file_name);
+            // `_gen` itself may be symlinked elsewhere, but a template-named
+            // child must not be a symlink escape: writing through it could
+            // overwrite a user file outside the resolved generated package root.
+            remove_path_if_outside_root(&self.fs, &gen_dir, &path)?;
+            if let Some(parent) = path.parent() {
+                self.fs.create_dir_all(parent)?;
+            }
+            self.fs.write_string(&path, contents)?;
         }
         Ok(())
     }
@@ -183,4 +171,77 @@ pub(crate) fn collect_local_resources_from_fs<Fs: FileSystem>(
         );
     }
     Ok(map)
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
+mod tests {
+    use super::*;
+    use adk_io::StdFileSystem;
+
+    #[cfg(unix)]
+    struct TempProjectDir {
+        path: std::path::PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl TempProjectDir {
+        fn new(name: &str) -> Self {
+            let suffix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos();
+            let path = std::env::temp_dir()
+                .join(format!("adk-core-{name}-{}-{suffix}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("create temp project dir");
+            Self { path }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for TempProjectDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn python_gen_content(file_name: &str) -> String {
+        PYTHON_GEN_TEMPLATE_FILES
+            .iter()
+            .find(|(template_file, _)| *template_file == file_name)
+            .map(|(_, content)| (*content).to_string())
+            .expect("python gen template")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_python_gen_package_replaces_template_symlink_escape_before_write() {
+        let temp = TempProjectDir::new("workspace-template-symlink");
+        let root = temp.path.as_path();
+        std::fs::create_dir_all(root.join("_gen")).expect("create _gen");
+        std::fs::create_dir_all(root.join("functions")).expect("create functions");
+        std::fs::write(root.join("functions/lookup.py"), "keep me\n").expect("write target");
+        std::os::unix::fs::symlink("../functions/lookup.py", root.join("_gen/conversation.pyi"))
+            .expect("symlink template path outside _gen");
+
+        ProjectWorkspace::with_file_system(StdFileSystem)
+            .write_python_gen_package(root)
+            .expect("write python gen");
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("functions/lookup.py")).expect("read target"),
+            "keep me\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("_gen/conversation.pyi")).expect("read template"),
+            python_gen_content("conversation.pyi")
+        );
+        assert!(
+            !std::fs::symlink_metadata(root.join("_gen/conversation.pyi"))
+                .expect("template metadata")
+                .file_type()
+                .is_symlink()
+        );
+    }
 }

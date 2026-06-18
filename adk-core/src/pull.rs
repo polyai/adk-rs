@@ -1,8 +1,11 @@
-use crate::{CoreError, flatten_discovered_paths, is_status_metadata_path, recursive_file_paths};
+use crate::{
+    CoreError, canonical_path_inside_root, flatten_discovered_paths, is_status_metadata_path,
+    recursive_file_paths, remove_path_if_outside_root,
+};
 use adk_io::{FileSystem, parse_multi_resource_path};
 use adk_types::ResourceMap;
 use serde_json::Value as JsonValue;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
 /// Inputs for applying an explicit projection pull to an injected filesystem.
@@ -260,27 +263,56 @@ fn sync_python_gen_package<Fs: FileSystem>(
 ) -> Result<(), CoreError> {
     let gen_dir = root.join("_gen");
     fs.create_dir_all(&gen_dir)?;
-    for path in fs.read_dir(&gen_dir)? {
-        if path.extension().is_some_and(|extension| extension == "pyi") {
-            fs.remove_file(&path)?;
-            let rel = path
-                .strip_prefix(root)
-                .unwrap_or(path.as_path())
-                .to_string_lossy()
-                .replace('\\', "/");
-            changes.push(FileChange::Delete { path: rel });
+    let mut cleaned_stubs = HashSet::new();
+    let template_files: HashSet<&str> = crate::workspace::PYTHON_GEN_TEMPLATE_FILES
+        .iter()
+        .map(|(file_name, _)| *file_name)
+        .collect();
+    for path in recursive_file_paths(fs, &gen_dir)? {
+        let rel_to_gen = path
+            .strip_prefix(&gen_dir)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let is_generated_stub = path
+            .extension()
+            .is_some_and(|extension| matches!(extension.to_str(), Some("py" | "pyi")));
+        if !is_generated_stub || template_files.contains(rel_to_gen.as_str()) {
+            continue;
         }
+
+        // `_gen` itself may be a symlink to a user-chosen generated package
+        // location, but child symlinks inside it must not let stale-stub
+        // cleanup delete files outside that resolved package root. The
+        // canonical path also deduplicates aliases from internal symlinks.
+        let Some(canonical_path) = canonical_path_inside_root(fs, &gen_dir, &path) else {
+            continue;
+        };
+        if !cleaned_stubs.insert(canonical_path) {
+            continue;
+        }
+        fs.remove_file(&path)?;
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        changes.push(FileChange::Delete { path: rel });
     }
 
     for (file_name, content) in crate::workspace::PYTHON_GEN_TEMPLATE_FILES {
         let path = gen_dir.join(file_name);
+        // `_gen` itself may be symlinked elsewhere, but a template-named child
+        // must not be a symlink escape: writing through it could overwrite a
+        // user file outside the resolved generated package root.
+        remove_path_if_outside_root(fs, &gen_dir, &path)?;
         if fs
             .read_to_string(&path)
             .is_ok_and(|existing| existing == *content)
         {
             continue;
         }
-        fs.write_string(&path, content)?;
+        write_file(fs, &path, content)?;
         changes.push(FileChange::Write {
             path: format!("_gen/{file_name}"),
             content: (*content).to_string(),
@@ -295,9 +327,37 @@ fn has_conflict_markers(content: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
 mod tests {
     use super::*;
-    use adk_io::MemoryFileSystem;
+    use adk_io::{MemoryFileSystem, StdFileSystem};
+
+    #[cfg(unix)]
+    struct TempProjectDir {
+        path: std::path::PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl TempProjectDir {
+        fn new(name: &str) -> Self {
+            let suffix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos();
+            let path = std::env::temp_dir()
+                .join(format!("adk-core-{name}-{}-{suffix}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("create temp project dir");
+            Self { path }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for TempProjectDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 
     fn topic_projection(name: &str, content: &str) -> JsonValue {
         serde_json::json!({
@@ -376,6 +436,48 @@ mod tests {
                 content: (*content).to_string(),
             }));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pull_from_filesystem_replaces_template_symlink_escape_before_write() {
+        let temp = TempProjectDir::new("pull-template-symlink");
+        let root = temp.path.as_path();
+        std::fs::create_dir_all(root.join("_gen")).expect("create _gen");
+        std::fs::create_dir_all(root.join("functions")).expect("create functions");
+        std::fs::write(root.join("functions/lookup.py"), "keep me\n").expect("write target");
+        std::os::unix::fs::symlink("../functions/lookup.py", root.join("_gen/conversation.pyi"))
+            .expect("symlink template path outside _gen");
+
+        let output = pull_from_filesystem(
+            &StdFileSystem,
+            root,
+            PullInput {
+                pull_projection: serde_json::json!({}),
+                base_projection: None,
+                force: false,
+            },
+        )
+        .expect("pull");
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("functions/lookup.py")).expect("read target"),
+            "keep me\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("_gen/conversation.pyi")).expect("read template"),
+            python_gen_content("conversation.pyi")
+        );
+        assert!(
+            !std::fs::symlink_metadata(root.join("_gen/conversation.pyi"))
+                .expect("template metadata")
+                .file_type()
+                .is_symlink()
+        );
+        assert!(output.changes.contains(&FileChange::Write {
+            path: "_gen/conversation.pyi".to_string(),
+            content: python_gen_content("conversation.pyi"),
+        }));
     }
 
     #[test]

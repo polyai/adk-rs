@@ -229,6 +229,38 @@ pub fn recursive_file_paths<Fs: FileSystem>(
     recursive_file_paths_with_ancestors(fs, root, &HashSet::new())
 }
 
+pub(crate) fn canonical_path_inside_root<Fs: FileSystem>(
+    fs: &Fs,
+    root: &Path,
+    path: &Path,
+) -> Option<PathBuf> {
+    let canonical_root = fs.canonicalize(root).ok()?;
+    let canonical_path = fs.canonicalize(path).ok()?;
+    canonical_path
+        .starts_with(canonical_root)
+        .then_some(canonical_path)
+}
+
+/// Remove an existing path if resolving it would escape `root`.
+///
+/// This is used before overwriting generated helper files: the `_gen` directory
+/// itself may be a symlink, but a child path inside it must not redirect writes
+/// to an arbitrary user file outside the resolved generated package root.
+pub(crate) fn remove_path_if_outside_root<Fs: FileSystem>(
+    fs: &Fs,
+    root: &Path,
+    path: &Path,
+) -> Result<(), CoreError> {
+    if canonical_path_inside_root(fs, root, path).is_some() {
+        return Ok(());
+    }
+    match fs.remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn recursive_file_paths_with_ancestors<Fs: FileSystem>(
     fs: &Fs,
     root: &Path,

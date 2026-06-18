@@ -75,20 +75,40 @@ fn make_temp_project_dir() -> PathBuf {
     dir
 }
 
-fn regular_file_names(dir: &std::path::Path) -> Vec<String> {
-    let mut names = fs::read_dir(dir)
-        .expect("read directory")
-        .map(|entry| {
-            entry
-                .expect("directory entry")
+#[cfg(unix)]
+fn symlink_path(target: &std::path::Path, link: &std::path::Path) {
+    std::os::unix::fs::symlink(target, link).expect("create symlink");
+}
+
+fn regular_file_paths(dir: &std::path::Path) -> Vec<String> {
+    fn visit(root: &std::path::Path, dir: &std::path::Path, paths: &mut Vec<String>) {
+        for entry in fs::read_dir(dir).expect("read directory") {
+            let path = entry.expect("directory entry").path();
+            let name = path
                 .file_name()
+                .expect("file name")
                 .to_string_lossy()
-                .to_string()
-        })
-        .filter(|name| !name.starts_with('.'))
-        .collect::<Vec<_>>();
-    names.sort();
-    names
+                .to_string();
+            if name.starts_with('.') || name == "__pycache__" {
+                continue;
+            }
+            if path.is_dir() {
+                visit(root, &path, paths);
+            } else if path.is_file() {
+                paths.push(
+                    path.strip_prefix(root)
+                        .expect("relative path")
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                );
+            }
+        }
+    }
+
+    let mut paths = Vec::new();
+    visit(dir, dir, &mut paths);
+    paths.sort();
+    paths
 }
 
 fn write_status_snapshot_from_discovered(
@@ -343,7 +363,9 @@ fn init_and_pull_write_python_compatible_gen_package() {
     let decorators =
         fs::read_to_string(gen_dir.join("decorators.py")).expect("generated decorators");
     let conversation =
-        fs::read_to_string(gen_dir.join("conversation.py")).expect("generated conversation");
+        fs::read_to_string(gen_dir.join("conversation.pyi")).expect("generated conversation");
+    let value_extraction = fs::read_to_string(gen_dir.join("value_extraction.pyi"))
+        .expect("generated value extraction");
 
     assert!(project_yaml.contains("project_id: test-project"));
     assert!(!project_yaml.contains("branch_id:"));
@@ -355,13 +377,15 @@ fn init_and_pull_write_python_compatible_gen_package() {
     assert!(!decorators.starts_with("# Copyright PolyAI Limited\n"));
     assert!(conversation.starts_with("# Copyright PolyAI Limited\n"));
     assert!(conversation.contains("class Conversation"));
+    assert!(conversation.contains("EmotionKindValue: Any"));
+    assert!(value_extraction.contains("class Address"));
 
     fs::write(gen_dir.join("stale.pyi"), "class Stale: ...\n").expect("write stale pyi");
     service.pull(&root, true).expect("pull project");
 
     assert!(!gen_dir.join("stale.pyi").exists());
     assert!(gen_dir.join(".agent_studio_config").exists());
-    assert!(gen_dir.join("sms.py").exists());
+    assert!(gen_dir.join("sms.pyi").exists());
     let status = read_status_snapshot_json(&root);
     assert_eq!(
         status.get("region").and_then(|value| value.as_str()),
@@ -402,6 +426,95 @@ fn init_and_pull_write_python_compatible_gen_package() {
             .get("migration_flags")
             .and_then(serde_json::Value::as_array)
             .is_some()
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn pull_does_not_clean_stale_python_stubs_through_gen_child_symlink() {
+    let service = service_offline();
+    let base = make_temp_project_dir();
+    service
+        .init_project(
+            &base,
+            "us-1".to_string(),
+            "test-account".to_string(),
+            "test-project".to_string(),
+        )
+        .expect("init project");
+
+    let root = base.join("test-account").join("test-project");
+    let gen_dir = root.join("_gen");
+    let outside_dir = base.join("outside-gen");
+    fs::create_dir_all(&outside_dir).expect("outside dir");
+    let escaped_stub = outside_dir.join("escaped.pyi");
+    fs::write(&escaped_stub, "class Escaped: ...\n").expect("escaped stub");
+    symlink_path(&outside_dir, &gen_dir.join("outside"));
+
+    service.pull(&root, true).expect("pull project");
+
+    assert!(
+        escaped_stub.exists(),
+        "stale-stub cleanup must not follow child symlinks outside _gen"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn pull_deduplicates_stale_python_stubs_reached_through_internal_gen_symlink() {
+    let service = service_offline();
+    let base = make_temp_project_dir();
+    service
+        .init_project(
+            &base,
+            "us-1".to_string(),
+            "test-account".to_string(),
+            "test-project".to_string(),
+        )
+        .expect("init project");
+
+    let root = base.join("test-account").join("test-project");
+    let gen_dir = root.join("_gen");
+    let subdir = gen_dir.join("subdir");
+    fs::create_dir_all(&subdir).expect("subdir");
+    let stale_stub = subdir.join("stale.pyi");
+    fs::write(&stale_stub, "class Stale: ...\n").expect("stale stub");
+    symlink_path(&subdir, &gen_dir.join("link"));
+
+    service.pull(&root, true).expect("pull project");
+
+    assert!(
+        !stale_stub.exists(),
+        "stale-stub cleanup should delete each canonical _gen file once"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn init_allows_gen_directory_symlink_and_cleans_stubs_inside_target() {
+    let service = service_offline();
+    let base = make_temp_project_dir();
+    let root = base.join("test-account").join("test-project");
+    let shared_gen = base.join("shared-gen");
+    fs::create_dir_all(&root).expect("project root");
+    fs::create_dir_all(&shared_gen).expect("shared gen");
+    let stale_stub = shared_gen.join("stale.pyi");
+    fs::write(&stale_stub, "class Stale: ...\n").expect("stale stub");
+    symlink_path(&shared_gen, &root.join("_gen"));
+
+    service
+        .init_project(
+            &base,
+            "us-1".to_string(),
+            "test-account".to_string(),
+            "test-project".to_string(),
+        )
+        .expect("init project");
+
+    assert!(shared_gen.join("__init__.py").exists());
+    assert!(
+        !stale_stub.exists(),
+        "stale-stub cleanup should still operate inside a symlinked _gen target"
     );
 }
 
@@ -634,8 +747,8 @@ fn init_python_gen_package_matches_synced_fixture_files() {
 
     let actual_gen = base.join("test-account").join("test-project").join("_gen");
     let expected_gen = fixture_full_project().join("_gen");
-    let actual_names = regular_file_names(&actual_gen);
-    let expected_names = regular_file_names(&expected_gen);
+    let actual_names = regular_file_paths(&actual_gen);
+    let expected_names = regular_file_paths(&expected_gen);
     assert_eq!(actual_names, expected_names);
 
     for file_name in expected_names {

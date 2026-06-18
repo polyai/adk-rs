@@ -77,6 +77,41 @@ CI uses pinned standalone Astral binaries for parity-sensitive formatting behavi
 - `ruff 0.14.2`
 - `ty 0.0.35`
 
+## Runtime Stub Templates
+
+Rust ADK vendors Python `.pyi` helper stubs under `adk-core/python-gen-template` so
+`poly init` and `poly pull` can populate project `_gen/` packages without a
+runtime dependency on Python ADK.
+
+These files are for local editor and type-checker support. User function code is
+executed in the PolyAI Lambda runtime, where the real runtime modules are
+provided by the platform, so the checked-in `_gen` files should not be treated as
+a replacement local Python runtime.
+
+The sync script is a uv script with inline metadata for its mypy `stubgen` and
+Ruff dependencies, so no separate Python environment setup is needed. It follows
+the Python ADK shape: `imports.json` selects the public runtime modules,
+`stubgen` generates `.pyi` files, Ruff formats the generated tree, and Rust
+generates `_gen/__init__.py` to re-export those types for user function imports.
+If those public stubs import sibling runtime modules, the script also generates
+support-only `.pyi` files so the stub graph remains resolvable without adding
+new `_gen` exports.
+
+To regenerate those templates from a local `genai_lambda_runtime` checkout:
+
+```bash
+uv run scripts/sync_runtime_gen_templates.py \
+  --runtime-path ../genai_lambda_runtime/python/runtime
+```
+
+To check for drift without rewriting files:
+
+```bash
+uv run scripts/sync_runtime_gen_templates.py \
+  --runtime-path ../genai_lambda_runtime/python/runtime \
+  --check
+```
+
 ## Releases
 
 Binary releases are managed with `cargo-dist`. Tagged versions such as `v0.0.1`
