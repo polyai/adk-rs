@@ -4,6 +4,12 @@ Concise user-facing release notes for the Rust ADK CLI.
 
 ## Unreleased
 
+## 0.0.12 - 2026-06-18
+
+- Added Python bindings for Rust ADK service workflows through the new `poly_adk` package.
+- Synced generated `_gen` type stubs from the Lambda runtime using `stubgen`, with Ruff formatting and upstream parity checks.
+- Hardened generated `_gen` writes so symlinked helper paths cannot escape the generated package root.
+
 ## 0.0.11 - 2026-06-16
 
 - Added broader local resource validation parity, including parse-time checks for many resource families.

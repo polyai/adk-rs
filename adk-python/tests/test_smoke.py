@@ -134,7 +134,7 @@ class PackageSmokeTest(unittest.TestCase):
         self.assertIn("MergeResolution", str(raised.exception))
 
     def test_version_is_exported(self) -> None:
-        self.assertEqual(__version__, "0.0.11")
+        self.assertEqual(__version__, "0.0.12")
 
     def test_diff_reports_modified_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
