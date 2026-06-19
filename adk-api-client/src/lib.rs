@@ -628,6 +628,7 @@ impl HttpPlatformClient {
             .header("X-API-KEY", api_key)
             .header("X-PolyAI-Correlation-Id", &correlation_id)
             .header("Content-Type", "application/json")
+            .header("X-Poly-Source", "adk")
             .send()
             .map_err(|e| ApiError::Http(e.to_string()))?;
         let status = response.status();
@@ -652,6 +653,7 @@ impl HttpPlatformClient {
             .header("X-API-KEY", api_key)
             .header("X-PolyAI-Correlation-Id", &correlation_id)
             .header("Content-Type", "application/json")
+            .header("X-Poly-Source", "adk")
             .json(&body)
             .send()
             .map_err(|e| ApiError::Http(e.to_string()))?;
@@ -676,6 +678,7 @@ impl HttpPlatformClient {
             .request(method, &url)
             .header("X-API-KEY", &self.api_key)
             .header("X-PolyAI-Correlation-Id", &correlation_id)
+            .header("X-Poly-Source", "adk")
             .header("Content-Type", "application/json");
         request = self.with_command_user_override_header(request);
         if let Some(q) = query {
@@ -715,7 +718,8 @@ impl HttpPlatformClient {
             .request(method, &url)
             .header("X-API-KEY", &self.api_key)
             .header("X-PolyAI-Correlation-Id", &correlation_id)
-            .header("Content-Type", "application/json");
+            .header("Content-Type", "application/json")
+            .header("X-Poly-Source", "adk");
         request = self.with_command_user_override_header(request);
         if let Some(query) = query {
             request = request.query(query);
@@ -741,6 +745,7 @@ impl HttpPlatformClient {
         let mut request = new_http_client()?
             .get(&url)
             .header("X-API-KEY", &self.api_key)
+            .header("X-Poly-Source", "adk")
             .header("X-PolyAI-Correlation-Id", &correlation_id);
         request = self.with_command_user_override_header(request);
         if let Some(query) = query {
@@ -765,7 +770,8 @@ impl HttpPlatformClient {
             .post(&url)
             .header("X-API-KEY", &self.api_key)
             .header("X-PolyAI-Correlation-Id", &correlation_id)
-            .header("Content-Type", "application/octet-stream");
+            .header("Content-Type", "application/octet-stream")
+            .header("X-Poly-Source", "adk");
         let response = self
             .with_command_user_override_header(request)
             .body(payload.to_vec())
@@ -1473,6 +1479,7 @@ impl PlatformClient for HttpPlatformClient {
             .header("X-API-KEY", &self.api_key)
             .header("X-PolyAI-Correlation-Id", &correlation_id)
             .header("Content-Type", "application/json")
+            .header("X-Poly-Source", "adk")
             .json(&payload)
             .send()
             .map_err(|e| ApiError::Http(e.to_string()))?;
