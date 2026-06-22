@@ -661,10 +661,7 @@ impl HttpPlatformClient {
         let agents: Vec<AgentSummary> = if value.is_array() {
             parse_json(value, "agents response")?
         } else {
-            let arr = value
-                .get("agents")
-                .cloned()
-                .unwrap_or(Value::Array(vec![]));
+            let arr = value.get("agents").cloned().unwrap_or(Value::Array(vec![]));
             parse_json(arr, "agents response")?
         };
         Ok(agents
