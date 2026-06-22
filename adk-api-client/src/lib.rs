@@ -272,6 +272,27 @@ struct CreatedProjectResponse {
     agent_name: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSummary {
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub agent_name: String,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub branch_count: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DuplicateProjectRequest<'a> {
+    new_agent_name: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    new_agent_id: Option<&'a str>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BranchSequenceResponse {
@@ -612,6 +633,93 @@ impl HttpPlatformClient {
                 .agent_name
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| project_name.to_string()),
+        })
+    }
+
+    pub fn list_agents_with_api_key(
+        region: &str,
+        account_id: &str,
+        api_key: &str,
+    ) -> Result<Vec<AgentSummary>, ApiError> {
+        let endpoint = format!("/v1/accounts/{account_id}/agents");
+        let base_url = base_url_for_region(region)?;
+        let url = format!("{}{}", platform_root_url(&base_url), endpoint);
+        let correlation_id = new_correlation_id();
+        let response = new_http_client()?
+            .get(&url)
+            .header("X-API-KEY", api_key)
+            .header("X-PolyAI-Correlation-Id", &correlation_id)
+            .header("Content-Type", "application/json")
+            .header("X-Poly-Source", "adk")
+            .send()
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(http_status_error(status, &url, &correlation_id));
+        }
+        let value: Value = response.json().map_err(|e| ApiError::Http(e.to_string()))?;
+        let agents: Vec<AgentSummary> = if value.is_array() {
+            parse_json(value, "agents response")?
+        } else {
+            let arr = value.get("agents").cloned().unwrap_or(Value::Array(vec![]));
+            parse_json(arr, "agents response")?
+        };
+        Ok(agents
+            .into_iter()
+            .filter(|a| !a.agent_id.is_empty())
+            .collect())
+    }
+
+    pub fn delete_project_with_api_key(
+        region: &str,
+        agent_id: &str,
+        api_key: &str,
+    ) -> Result<(), ApiError> {
+        let endpoint = format!("/v1/agents/{agent_id}");
+        let base_url = base_url_for_region(region)?;
+        let url = format!("{}{}", platform_root_url(&base_url), endpoint);
+        let correlation_id = new_correlation_id();
+        let response = new_http_client()?
+            .delete(&url)
+            .header("X-API-KEY", api_key)
+            .header("X-PolyAI-Correlation-Id", &correlation_id)
+            .header("Content-Type", "application/json")
+            .header("X-Poly-Source", "adk")
+            .send()
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(http_status_error(status, &url, &correlation_id));
+        }
+        Ok(())
+    }
+
+    pub fn duplicate_project_with_api_key(
+        region: &str,
+        agent_id: &str,
+        new_name: &str,
+        new_id: Option<&str>,
+        api_key: &str,
+    ) -> Result<ProjectSummary, ApiError> {
+        let endpoint = format!("/v1/agents/{agent_id}/duplicate");
+        let body = DuplicateProjectRequest {
+            new_agent_name: new_name,
+            new_agent_id: new_id.filter(|v| !v.is_empty()),
+        };
+        let value = Self::request_region_platform_json_with_api_key(
+            region,
+            reqwest::Method::POST,
+            &endpoint,
+            serialize_json(&body)?,
+            api_key,
+        )?;
+        let response: CreatedProjectResponse = parse_json(value, "duplicate-project response")?;
+        Ok(ProjectSummary {
+            id: response.agent_id,
+            name: response
+                .agent_name
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| new_name.to_string()),
         })
     }
 

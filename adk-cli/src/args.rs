@@ -128,6 +128,12 @@ pub(crate) struct ProjectArgs {
 pub(crate) enum ProjectCommands {
     #[command(about = "Create a new Agent Studio project under an account.")]
     Create(ProjectCreateArgs),
+    #[command(about = "List Agent Studio projects in an account.")]
+    List(ProjectListArgs),
+    #[command(about = "Delete an Agent Studio project.")]
+    Delete(ProjectDeleteArgs),
+    #[command(about = "Duplicate an Agent Studio project.")]
+    Duplicate(ProjectDuplicateArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -146,6 +152,58 @@ pub(crate) struct ProjectCreateArgs {
     pub(crate) greeting: String,
     #[arg(long = "voice-id")]
     pub(crate) voice_id: Option<String>,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) json: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) debug: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) verbose: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct ProjectListArgs {
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(crate::commands::init::INIT_REGIONS))]
+    pub(crate) region: Option<String>,
+    #[arg(long = "account_id")]
+    pub(crate) account_id: Option<String>,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) json: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) debug: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) verbose: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct ProjectDeleteArgs {
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(crate::commands::init::INIT_REGIONS))]
+    pub(crate) region: Option<String>,
+    #[arg(long = "account_id")]
+    pub(crate) account_id: Option<String>,
+    #[arg(long = "project_id")]
+    pub(crate) project_id: Option<String>,
+    #[arg(long, short = 'f', action = ArgAction::SetTrue)]
+    pub(crate) force: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) json: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) debug: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub(crate) verbose: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct ProjectDuplicateArgs {
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(crate::commands::init::INIT_REGIONS))]
+    pub(crate) region: Option<String>,
+    #[arg(long = "account_id")]
+    pub(crate) account_id: Option<String>,
+    #[arg(long = "project_id")]
+    pub(crate) project_id: Option<String>,
+    #[arg(long = "name")]
+    pub(crate) new_name: Option<String>,
+    #[arg(long = "id", visible_alias = "new_project_id")]
+    pub(crate) new_project_id: Option<String>,
     #[arg(long, action = ArgAction::SetTrue)]
     pub(crate) json: bool,
     #[arg(long, action = ArgAction::SetTrue)]
