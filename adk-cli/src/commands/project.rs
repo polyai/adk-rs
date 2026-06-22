@@ -1041,13 +1041,15 @@ mod tests {
 
     // ── fake ProjectBackend for list/delete/duplicate ────────────────
 
+    type DuplicateCall = (String, String, String, Option<String>);
+
     struct FakeProjectBackend {
         api_key: Result<String, String>,
         agents: Result<Vec<adk_api_client::AgentSummary>, String>,
         delete_result: Result<(), String>,
         duplicate_result: Result<ProjectSummary, String>,
         delete_calls: RefCell<Vec<(String, String)>>,
-        duplicate_calls: RefCell<Vec<(String, String, String, Option<String>)>>,
+        duplicate_calls: RefCell<Vec<DuplicateCall>>,
     }
 
     impl FakeProjectBackend {
